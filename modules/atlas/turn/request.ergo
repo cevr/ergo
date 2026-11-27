@@ -1,0 +1,415 @@
+import machines
+
+// RequestID uniquely identifies a pending approval, question, or auth request.
+type RequestID string
+
+// ResponderPrimary represents the primary interactive operator response.
+type ResponderPrimary {}
+
+// ResponderSecondary represents a competing or fallback responder.
+type ResponderSecondary {}
+
+// ResponderTimeout represents a host timeout disposition.
+type ResponderTimeout {}
+
+// Responder identifies which actor answered an interactive request.
+type Responder = ResponderPrimary | ResponderSecondary | ResponderTimeout
+
+// RequestApproval represents an interactive tool or write approval request.
+type RequestApproval {}
+
+// RequestQuestion represents a structured user question request.
+type RequestQuestion {}
+
+// RequestAuth represents an interactive authentication prompt request.
+type RequestAuth {}
+
+// RequestKind categorizes the interactive prompt sent on behalf of a turn.
+type RequestKind = RequestApproval | RequestQuestion | RequestAuth
+
+// RequestQueued indicates the request is awaiting dispatch to the responder.
+type RequestQueued {}
+
+// RequestDispatched indicates the request is open waiting for an answer.
+type RequestDispatched {}
+
+// RequestAnswered indicates one answer has been recorded and awaits delivery.
+type RequestAnswered {
+	Answer string,
+	By     Responder,
+}
+
+// RequestDelivered indicates the answer has been delivered once to a live session.
+type RequestDelivered {
+	Answer string,
+	By     Responder,
+}
+
+// RequestExpired indicates the request expired before delivery.
+type RequestExpired {}
+
+// RequestStatus models the lifecycle state of a single interactive request.
+type RequestStatus = RequestQueued | RequestDispatched | RequestAnswered | RequestDelivered | RequestExpired
+
+// RequestState tracks one interactive request against session liveness and delivery invariants.
+type RequestState {
+	ID                     RequestID,
+	Kind                   RequestKind,
+	SessionAlive           bool,
+	Status                 RequestStatus,
+	AnswersRecorded        int,
+	Deliveries             int,
+	DeliveredToDeadSession bool,
+	LateAnswerRejected     bool,
+	SurvivedRestart        bool,
+}
+
+// RequestRequiresLiveSession refuses opening, dispatching, or delivering without a live session.
+type RequestRequiresLiveSession {
+	ID RequestID,
+}
+
+// RequestAlreadyAnswered refuses recording a second answer to an already answered request.
+type RequestAlreadyAnswered {
+	ID RequestID,
+}
+
+// RequestAlreadyDelivered refuses delivering an already delivered request a second time.
+type RequestAlreadyDelivered {
+	ID RequestID,
+}
+
+// InvalidRequestTransition refuses an invalid state transition on a request.
+type InvalidRequestTransition {
+	ID     RequestID,
+	Action string,
+}
+
+// RequestRefusal classifies rejected transitions on a RequestState.
+type RequestRefusal = RequestRequiresLiveSession | RequestAlreadyAnswered | RequestAlreadyDelivered | InvalidRequestTransition
+
+// ReqDispatch sends a queued request to the responder while the session is alive.
+type ReqDispatch {}
+
+// ReqAnswer records an answer to an active request.
+type ReqAnswer {
+	Answer string,
+	By     Responder,
+}
+
+// ReqDeliver delivers the recorded answer once the target session is alive.
+type ReqDeliver {}
+
+// ReqDetachSession marks the attached session as detached or dead.
+type ReqDetachSession {}
+
+// ReqReattachSession marks the session as alive again after reconnect.
+type ReqReattachSession {}
+
+// ReqExpirePending expires any non-delivered request.
+type ReqExpirePending {}
+
+// ReqReboot reconciles pending request state across process restart per adapter capability.
+type ReqReboot {
+	Survives bool,
+}
+
+// RequestAction enumerates pure commands applied to a RequestState.
+type RequestAction = ReqDispatch | ReqAnswer | ReqDeliver | ReqDetachSession | ReqReattachSession | ReqExpirePending | ReqReboot
+
+// IsRequestPendingResponse reports whether a request is still open waiting for an answer.
+func IsRequestPendingResponse(st RequestStatus) bool {
+	match st {
+	case RequestQueued, RequestDispatched:
+		true
+	case RequestAnswered, RequestDelivered, RequestExpired:
+		false
+	}
+}
+
+// SessionOnline indicates an active attached driver session.
+type SessionOnline {}
+
+// SessionOffline indicates a detached or terminated driver session.
+type SessionOffline {}
+
+// SessionStatus models whether a target session is alive when opening an interactive request.
+type SessionStatus = SessionOnline | SessionOffline
+
+// NewRequest creates a queued request on a live session.
+func NewRequest(id RequestID, kind RequestKind) RequestState {
+	RequestState{
+		ID:                     id,
+		Kind:                   kind,
+		SessionAlive:           true,
+		Status:                 RequestQueued,
+		AnswersRecorded:        0,
+		Deliveries:             0,
+		DeliveredToDeadSession: false,
+		LateAnswerRejected:     false,
+		SurvivedRestart:        false,
+	}
+}
+
+// OpenRequestWithStatus creates a queued request only if sessionStatus is SessionOnline.
+func OpenRequestWithStatus(id RequestID, kind RequestKind, sessionStatus SessionStatus) RequestState fails RequestRefusal {
+	match sessionStatus {
+	case SessionOffline:
+		RequestRequiresLiveSession{ID: id}
+	case SessionOnline:
+		NewRequest(id, kind)
+	}
+}
+
+// StepRequest validates and applies a single RequestAction to a RequestState.
+func StepRequest(s RequestState, act RequestAction) RequestState fails RequestRefusal {
+	match act {
+	case ReqDispatch:
+		if !s.SessionAlive {
+			return RequestRequiresLiveSession{ID: s.ID}
+		}
+		match s.Status {
+		case RequestQueued:
+			RequestState{..s, Status: RequestDispatched}
+		case RequestDispatched, RequestAnswered, RequestDelivered, RequestExpired:
+			InvalidRequestTransition{ID: s.ID, Action: "dispatch"}
+		}
+
+	case ReqAnswer as ans:
+		match s.Status {
+		case RequestDispatched:
+			if s.AnswersRecorded >= 1 {
+				return RequestAlreadyAnswered{ID: s.ID}
+			}
+			RequestState{
+				..s,
+				AnswersRecorded: s.AnswersRecorded + 1,
+				Status:          RequestAnswered{Answer: ans.Answer, By: ans.By},
+			}
+		case RequestAnswered, RequestDelivered:
+			RequestAlreadyAnswered{ID: s.ID}
+		case RequestQueued, RequestExpired:
+			InvalidRequestTransition{ID: s.ID, Action: "answer"}
+		}
+
+	case ReqDeliver:
+		match s.Status {
+		case RequestAnswered as ans:
+			if !s.SessionAlive {
+				return RequestRequiresLiveSession{ID: s.ID}
+			}
+			if s.Deliveries >= 1 {
+				return RequestAlreadyDelivered{ID: s.ID}
+			}
+			RequestState{
+				..s,
+				Deliveries: s.Deliveries + 1,
+				Status:     RequestDelivered{Answer: ans.Answer, By: ans.By},
+			}
+		case RequestDelivered:
+			RequestAlreadyDelivered{ID: s.ID}
+		case RequestQueued, RequestDispatched, RequestExpired:
+			InvalidRequestTransition{ID: s.ID, Action: "deliver"}
+		}
+
+	case ReqDetachSession:
+		let nextStatus = match s.Status {
+		case RequestQueued, RequestDispatched:
+			RequestExpired
+		case RequestAnswered, RequestDelivered, RequestExpired:
+			s.Status
+		}
+		RequestState{..s, SessionAlive: false, Status: nextStatus}
+
+	case ReqReattachSession:
+		RequestState{..s, SessionAlive: true}
+
+	case ReqExpirePending:
+		match s.Status {
+		case RequestQueued, RequestDispatched, RequestAnswered:
+			RequestState{..s, Status: RequestExpired}
+		case RequestDelivered, RequestExpired:
+			InvalidRequestTransition{ID: s.ID, Action: "expire_pending"}
+		}
+
+	case ReqReboot as rb:
+		let nextStatus = match s.Status {
+		case RequestQueued, RequestDispatched:
+			RequestExpired
+		case RequestAnswered:
+			if rb.Survives {
+				s.Status
+			} else {
+				RequestExpired
+			}
+		case RequestDelivered, RequestExpired:
+			s.Status
+		}
+		let survived = match s.Status {
+		case RequestAnswered:
+			rb.Survives
+		case RequestQueued, RequestDispatched, RequestDelivered, RequestExpired:
+			s.SurvivedRestart
+		}
+		RequestState{
+			..s,
+			SessionAlive:    false,
+			Status:          nextStatus,
+			SurvivedRestart: survived,
+		}
+	}
+}
+
+func oneAnswer(s RequestState) bool {
+	s.AnswersRecorded <= 1
+}
+
+func deliveredAtMostOnce(s RequestState) bool {
+	s.Deliveries <= 1
+}
+
+func neverToADeadSession(s RequestState) bool {
+	!s.DeliveredToDeadSession
+}
+
+func noOpenRequestWithoutSession(s RequestState) bool {
+	!(!s.SessionAlive && IsRequestPendingResponse(s.Status))
+}
+
+law NewRequestRequiresLiveSession(k RequestKind) {
+	let mut blocked = false
+	let _ = OpenRequestWithStatus(RequestID("req-dead"), k, SessionOffline) catch {
+	case RequestRequiresLiveSession:
+		blocked = true
+		RequestState{
+			ID:                     RequestID("dead"),
+			Kind:                   k,
+			SessionAlive:           false,
+			Status:                 RequestExpired,
+			AnswersRecorded:        0,
+			Deliveries:             0,
+			DeliveredToDeadSession: false,
+			LateAnswerRejected:     false,
+			SurvivedRestart:        false,
+		}
+	case RequestAlreadyAnswered, RequestAlreadyDelivered, InvalidRequestTransition:
+		RequestState{
+			ID:                     RequestID("dead"),
+			Kind:                   k,
+			SessionAlive:           false,
+			Status:                 RequestExpired,
+			AnswersRecorded:        0,
+			Deliveries:             0,
+			DeliveredToDeadSession: false,
+			LateAnswerRejected:     false,
+			SurvivedRestart:        false,
+		}
+	}
+	blocked
+}
+
+type ActReqDispatch {}
+
+type ActAnswerPrimary {}
+
+type ActAnswerSecondary {}
+
+type ActReqDeliver {}
+
+type ActDetachSession {}
+
+type ActReattachSession {}
+
+type ActExpirePending {}
+
+type RequestAct = ActReqDispatch | ActAnswerPrimary | ActAnswerSecondary | ActReqDeliver | ActDetachSession | ActReattachSession | ActExpirePending
+
+func firstRequestState() RequestState {
+	NewRequest(RequestID("req-1"), RequestApproval)
+}
+
+func stepRequestState(s RequestState, a RequestAct) machines.Decision[RequestState, string] {
+	let act = match a {
+	case ActReqDispatch:
+		ReqDispatch
+	case ActAnswerPrimary:
+		ReqAnswer{Answer: "allow", By: ResponderPrimary}
+	case ActAnswerSecondary:
+		ReqAnswer{Answer: "deny", By: ResponderSecondary}
+	case ActReqDeliver:
+		ReqDeliver
+	case ActDetachSession:
+		ReqDetachSession
+	case ActReattachSession:
+		ReqReattachSession
+	case ActExpirePending:
+		ReqExpirePending
+	}
+	let next = StepRequest(s, act) catch {
+	case r:
+		match r {
+		case RequestAlreadyAnswered:
+			if s.LateAnswerRejected {
+				return machines.Ignore
+			}
+			return machines.Enter[RequestState]{Next: RequestState{..s, LateAnswerRejected: true}}
+		case RequestRequiresLiveSession, RequestAlreadyDelivered, InvalidRequestTransition:
+			return machines.Ignore
+		}
+	}
+	machines.Enter[RequestState]{Next: next}
+}
+
+func answeredAndDelivered(s RequestState) bool {
+	s.AnswersRecorded == 1 && s.Deliveries == 1
+}
+
+func secondResponderBlocked(s RequestState) bool {
+	s.LateAnswerRejected && s.AnswersRecorded == 1
+}
+
+func bufferedAcrossSessionRestart(s RequestState) bool {
+	match s.Status {
+	case RequestAnswered:
+		!s.SessionAlive && s.Deliveries == 0
+	case RequestQueued, RequestDispatched, RequestDelivered, RequestExpired:
+		false
+	}
+}
+
+// RequestLifecycle exhaustively models M4 one-answer and live-session delivery invariants.
+type RequestLifecycle machine[RequestState, RequestAct] {
+	initial: firstRequestState(),
+	step:    stepRequestState,
+
+	law OneAnswer always oneAnswer,
+	law DeliveredAtMostOnce always deliveredAtMostOnce,
+	law NeverToADeadSession always neverToADeadSession,
+	law NoOpenRequestWithoutSession always noOpenRequestWithoutSession,
+
+	law AnsweredAndDelivered sometimes answeredAndDelivered,
+	law SecondResponderBlocked sometimes secondResponderBlocked,
+	law BufferedAcrossSessionRestart sometimes bufferedAcrossSessionRestart,
+}
+
+test RequestBlocksDeliveryToDeadSessionUntilReattached {
+	let r0 = NewRequest(RequestID("req-live"), RequestQuestion)
+	let r1 = try StepRequest(r0, ReqDispatch)
+	let r2 = try StepRequest(r1, ReqAnswer{Answer: "yes", By: ResponderPrimary})
+	let r3 = try StepRequest(r2, ReqDetachSession)
+	let mut deliverBlocked = false
+	let _ = StepRequest(r3, ReqDeliver) catch {
+	case e:
+		match e {
+		case RequestRequiresLiveSession:
+			deliverBlocked = true
+			r3
+		case RequestAlreadyAnswered, RequestAlreadyDelivered, InvalidRequestTransition:
+			r3
+		}
+	}
+	assert deliverBlocked
+	let r4 = try StepRequest(r3, ReqReattachSession)
+	let r5 = try StepRequest(r4, ReqDeliver)
+	assert r5.Deliveries == 1
+}

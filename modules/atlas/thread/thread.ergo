@@ -1,0 +1,883 @@
+import github.com/cevr/ergo/modules/atlas/adapter
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/session
+import github.com/cevr/ergo/modules/atlas/turn
+import machines
+import option
+
+// OriginLocal identifies a thread created locally by the primary operator.
+type OriginLocal {}
+
+// OriginMcpScoped identifies a thread scoped to a single /mcp caller thread ID per D63.
+type OriginMcpScoped {
+	BoundThread handle.ThreadID,
+}
+
+// OriginRemotePeer identifies a linked thread originated by a specific federated host peer per D63.
+type OriginRemotePeer {
+	PeerID string,
+}
+
+// OriginSubagentChild identifies a child thread anchored to its parent thread ID.
+type OriginSubagentChild {
+	ParentID handle.ThreadID,
+}
+
+// LinkOrigin records the trust origin binding a thread for D63 fencing checks.
+type LinkOrigin = OriginLocal | OriginMcpScoped | OriginRemotePeer | OriginSubagentChild
+
+// CallerLocal represents the trusted local runtime/TUI operator.
+type CallerLocal {}
+
+// CallerMcp represents a per-thread /mcp bearer caller bound to one thread ID.
+type CallerMcp {
+	ThreadID handle.ThreadID,
+}
+
+// CallerPeer represents a remote host peer caller presenting its PeerID.
+type CallerPeer {
+	PeerID string,
+}
+
+// CallerParent represents a parent orchestrator thread addressing a subagent thread.
+type CallerParent {
+	ParentThreadID handle.ThreadID,
+}
+
+// AccessCaller identifies the principal attempting to read or mutate a thread.
+type AccessCaller = CallerLocal | CallerMcp | CallerPeer | CallerParent
+
+// QueuedPrompt stores a follow-up user prompt queued FIFO on a thread while busy.
+type QueuedPrompt {
+	ID            string,
+	Body          string,
+	RequestedMode adapter.PermissionMode,
+}
+
+// Thread holds the shared Thread/Session/Turn domain model across Meta and Direct modes.
+type Thread {
+	ID                       handle.ThreadID,
+	ParentThreadID           option.Option[handle.ThreadID],
+	Driver                   adapter.DriverKind,
+	Capabilities             adapter.Capabilities,
+	Mode                     adapter.ExecutionPath,
+	PermissionMode           adapter.PermissionMode,
+	Model                    adapter.ModelID,
+	ModelOrigin              adapter.ModelOrigin,
+	ContinuationKey          adapter.ContinuationKey,
+	LinkOrigin               LinkOrigin,
+	Archived                 bool,
+	ActiveSession            option.Option[session.SessionRecord],
+	ActiveTurn               option.Option[turn.TurnState],
+	LastTurnOutcome          option.Option[turn.TurnOutcome],
+	PromptQueue              []QueuedPrompt,
+	TurnsStarted             int,
+	TurnsCompleted           int,
+	ConcurrentTurnsObserved  bool,
+	UnauthorizedLinkObserved bool,
+	ModeSwitchCount          int,
+	SessionSeq               int,
+}
+
+// ThreadArchivedRefusal refuses mutating or starting turns on an archived thread.
+type ThreadArchivedRefusal {
+	ID handle.ThreadID,
+}
+
+// TurnAlreadyActiveOnThread refuses starting a second concurrent turn or switching driver mid-turn.
+type TurnAlreadyActiveOnThread {
+	ID handle.ThreadID,
+}
+
+// ThreadNoActiveTurn refuses turn-step operations when no active turn is attached.
+type ThreadNoActiveTurn {
+	ID handle.ThreadID,
+}
+
+// ThreadAccessDenied refuses an AccessCaller that violates D63 LinkOrigin fencing.
+type ThreadAccessDenied {
+	ID handle.ThreadID,
+}
+
+// ThreadAdapterRefusal wraps a capability or driver-gate failure from adapter.
+type ThreadAdapterRefusal {
+	Cause adapter.AdapterRefusal,
+}
+
+// ThreadTurnRefusal wraps a turn transition refusal from turn.StepTurn.
+type ThreadTurnRefusal {
+	Cause turn.TurnRefusal,
+}
+
+// ThreadSessionRefusal wraps a session lifecycle refusal from session.StepSession.
+type ThreadSessionRefusal {
+	Cause session.SessionRefusal,
+}
+
+// ThreadRefusal classifies all rejected Thread transitions.
+type ThreadRefusal = ThreadArchivedRefusal | TurnAlreadyActiveOnThread | ThreadNoActiveTurn | ThreadAccessDenied | ThreadAdapterRefusal | ThreadTurnRefusal | ThreadSessionRefusal
+
+// ThreadSpec groups the configuration parameters needed to initialize a new Thread.
+type ThreadSpec {
+	ID                 handle.ThreadID,
+	ParentThreadID     option.Option[handle.ThreadID],
+	Driver             adapter.DriverKind,
+	AgyDirectSupported bool,
+	RequestedMode      adapter.PermissionMode,
+	Instance           adapter.InstanceID,
+	ConfigDir          string,
+	SharedHome         option.Option[string],
+	Model              adapter.ModelID,
+	LinkOrigin         LinkOrigin,
+}
+
+// DriverSwitchSpec groups the configuration parameters for switching a Thread between Meta and Direct paths.
+type DriverSwitchSpec {
+	NextDriver         adapter.DriverKind,
+	AgyDirectSupported bool,
+	RequestedMode      adapter.PermissionMode,
+	Instance           adapter.InstanceID,
+	ConfigDir          string,
+	SharedHome         option.Option[string],
+}
+
+// NewThread initializes a thread shared cleanly across Meta and Direct paths.
+func NewThread(spec ThreadSpec) Thread fails ThreadRefusal {
+	let caps = adapter.CapabilitiesFor(spec.Driver, spec.AgyDirectSupported)
+	let _ = adapter.CanStartDriver(spec.Driver, caps) catch {
+	case e:
+		return ThreadAdapterRefusal{Cause: e}
+	}
+	let resolvedMode = adapter.ResolvePermissionMode(caps, spec.RequestedMode)
+	let contKey = adapter.MakeContinuationKey(spec.Driver, spec.Instance, spec.ConfigDir, spec.SharedHome)
+	Thread{
+		ID:                       spec.ID,
+		ParentThreadID:           spec.ParentThreadID,
+		Driver:                   spec.Driver,
+		Capabilities:             caps,
+		Mode:                     adapter.PathOfDriver(spec.Driver),
+		PermissionMode:           resolvedMode,
+		Model:                    spec.Model,
+		ModelOrigin:              adapter.DefaultOrigin,
+		ContinuationKey:          contKey,
+		LinkOrigin:               spec.LinkOrigin,
+		Archived:                 false,
+		ActiveSession:            option.None,
+		ActiveTurn:               option.None,
+		LastTurnOutcome:          option.None,
+		PromptQueue:              []QueuedPrompt{},
+		TurnsStarted:             0,
+		TurnsCompleted:           0,
+		ConcurrentTurnsObserved:  false,
+		UnauthorizedLinkObserved: false,
+		ModeSwitchCount:          0,
+		SessionSeq:               0,
+	}
+}
+
+// IsThreadInTurn reports whether the thread has an open turn (ignoring post-turn bookkeeping per D6).
+func IsThreadInTurn(t Thread) bool {
+	match t.ActiveTurn {
+	case option.None:
+		false
+	case option.Some[turn.TurnState] as cur:
+		turn.IsTurnOpen(cur.Value)
+	}
+}
+
+// CanAccessLinkedThread checks D63 LinkOrigin fencing rules for an AccessCaller.
+func CanAccessLinkedThread(t Thread, caller AccessCaller) bool {
+	match caller {
+	case CallerLocal:
+		true
+	case CallerMcp as mcp:
+		match t.LinkOrigin {
+		case OriginLocal, OriginSubagentChild:
+			mcp.ThreadID == t.ID
+		case OriginMcpScoped as scoped:
+			mcp.ThreadID == scoped.BoundThread && mcp.ThreadID == t.ID
+		case OriginRemotePeer:
+			false
+		}
+	case CallerPeer as peer:
+		match t.LinkOrigin {
+		case OriginRemotePeer as linked:
+			peer.PeerID == linked.PeerID
+		case OriginLocal, OriginMcpScoped, OriginSubagentChild:
+			false
+		}
+	case CallerParent as parent:
+		match t.LinkOrigin {
+		case OriginSubagentChild as child:
+			parent.ParentThreadID == child.ParentID
+		case OriginLocal, OriginMcpScoped, OriginRemotePeer:
+			match t.ParentThreadID {
+			case option.Some[handle.ThreadID] as p:
+				parent.ParentThreadID == p.Value
+			case option.None:
+				false
+			}
+		}
+	}
+}
+
+// RequireLinkedAccess returns true if caller passes D63 LinkOrigin fencing or fails ThreadAccessDenied.
+func RequireLinkedAccess(t Thread, caller AccessCaller) bool fails ThreadRefusal {
+	if !CanAccessLinkedThread(t, caller) {
+		return ThreadAccessDenied{ID: t.ID}
+	}
+	true
+}
+
+func noneSession() option.Option[session.SessionRecord] {
+	option.None
+}
+
+func nonePrompt() option.Option[QueuedPrompt] {
+	option.None
+}
+
+func openFreshAttachedSession(t Thread, nowMs int64) (session.SessionRecord, int) fails ThreadRefusal {
+	let seq = t.SessionSeq + 1
+	let fresh = session.NewSession(handle.SessionID("sess"), t.ID, t.Driver, t.Capabilities) catch {
+	case e:
+		return ThreadSessionRefusal{Cause: e}
+	}
+	let starting = session.StepSession(fresh, session.ActStartSession{NowMs: nowMs}) catch {
+	case e:
+		return ThreadSessionRefusal{Cause: e}
+	}
+	let attached = session.StepSession(starting, session.ActAttachSession{NowMs: nowMs}) catch {
+	case e:
+		return ThreadSessionRefusal{Cause: e}
+	}
+	(attached, seq)
+}
+
+// SwitchDriver switches a thread's driver (including Meta <-> Direct) between turns without altering ThreadID.
+func SwitchDriver(t Thread, spec DriverSwitchSpec) Thread fails ThreadRefusal {
+	if t.Archived {
+		return ThreadArchivedRefusal{ID: t.ID}
+	}
+	if IsThreadInTurn(t) {
+		return TurnAlreadyActiveOnThread{ID: t.ID}
+	}
+	let nextCaps = adapter.CapabilitiesFor(spec.NextDriver, spec.AgyDirectSupported)
+	let _ = adapter.CanStartDriver(spec.NextDriver, nextCaps) catch {
+	case e:
+		return ThreadAdapterRefusal{Cause: e}
+	}
+	let nextMode = adapter.ResolvePermissionMode(nextCaps, spec.RequestedMode)
+	let nextKey = adapter.MakeContinuationKey(spec.NextDriver, spec.Instance, spec.ConfigDir, spec.SharedHome)
+	let nextPath = adapter.PathOfDriver(spec.NextDriver)
+	match t.ActiveSession {
+	case option.None:
+	case option.Some[session.SessionRecord] as s:
+		if session.IsSessionLive(s.Value) {
+			let _ = session.StepSession(s.Value, session.ActReleaseSession) catch {
+			case _:
+				s.Value
+			}
+		}
+	}
+	Thread{
+		..t,
+		Driver:          spec.NextDriver,
+		Capabilities:    nextCaps,
+		Mode:            nextPath,
+		PermissionMode:  nextMode,
+		ContinuationKey: nextKey,
+		ActiveSession:   noneSession(),
+		ModeSwitchCount: t.ModeSwitchCount + 1,
+	}
+}
+
+// EnqueuePrompt appends a prompt to the thread's FIFO queue.
+func EnqueuePrompt(t Thread, prompt QueuedPrompt) Thread fails ThreadRefusal {
+	if t.Archived {
+		return ThreadArchivedRefusal{ID: t.ID}
+	}
+	Thread{..t, PromptQueue: t.PromptQueue.Append(prompt)}
+}
+
+// DequeueNextPrompt removes and returns the head of the thread's FIFO prompt queue when idle.
+func DequeueNextPrompt(t Thread) (Thread, option.Option[QueuedPrompt]) fails ThreadRefusal {
+	if t.Archived {
+		return ThreadArchivedRefusal{ID: t.ID}
+	}
+	if IsThreadInTurn(t) {
+		return TurnAlreadyActiveOnThread{ID: t.ID}
+	}
+	if t.PromptQueue.Len() == 0 {
+		return (t, nonePrompt())
+	}
+	let head = t.PromptQueue[0]
+	let mut rest = []QueuedPrompt{}
+	let mut idx = 1
+	for idx < t.PromptQueue.Len() {
+		rest = rest.Append(t.PromptQueue[idx])
+		idx = idx + 1
+	}
+	(Thread{..t, PromptQueue: rest}, option.Some[QueuedPrompt]{Value: head})
+}
+
+// StartTurnOnThread attaches/reuses a live session and dispatches one active turn on the thread.
+func StartTurnOnThread(t Thread, turnID turn.TurnID, nowMs int64) Thread fails ThreadRefusal {
+	if t.Archived {
+		return ThreadArchivedRefusal{ID: t.ID}
+	}
+	if IsThreadInTurn(t) {
+		return TurnAlreadyActiveOnThread{ID: t.ID}
+	}
+	let (liveSess, nextSeq) = match t.ActiveSession {
+	case option.Some[session.SessionRecord] as s:
+		if session.IsSessionLive(s.Value) && s.Value.Phase == session.SessionAttached {
+			(s.Value, t.SessionSeq)
+		} else {
+			try openFreshAttachedSession(t, nowMs)
+		}
+	case option.None:
+		try openFreshAttachedSession(t, nowMs)
+	}
+
+	let inTurnSess = session.StepSession(liveSess, session.ActBeginTurn{TurnID: turnID, NowMs: nowMs}) catch {
+	case e:
+		return ThreadSessionRefusal{Cause: e}
+	}
+	let newTurn = turn.NewTurn(turnID, t.Driver, t.Capabilities, t.PermissionMode) catch {
+	case e:
+		return ThreadTurnRefusal{Cause: e}
+	}
+	let dispatchedTurn = turn.StepTurn(newTurn, turn.ActionDispatch) catch {
+	case e:
+		return ThreadTurnRefusal{Cause: e}
+	}
+	Thread{
+		..t,
+		ActiveSession: option.Some[session.SessionRecord]{Value: inTurnSess},
+		ActiveTurn:    option.Some[turn.TurnState]{Value: dispatchedTurn},
+		TurnsStarted:  t.TurnsStarted + 1,
+		SessionSeq:    nextSeq,
+	}
+}
+
+// StepThreadTurn advances the thread's current turn and returns the attached session to idle when ended.
+func StepThreadTurn(t Thread, act turn.TurnAction) Thread fails ThreadRefusal {
+	let cur = match t.ActiveTurn {
+	case option.Some[turn.TurnState] as ts:
+		ts.Value
+	case option.None:
+		return ThreadNoActiveTurn{ID: t.ID}
+	}
+	let wasOpen = turn.IsTurnOpen(cur)
+	let nextTurn = turn.StepTurn(cur, act) catch {
+	case e:
+		return ThreadTurnRefusal{Cause: e}
+	}
+	let nowOpen = turn.IsTurnOpen(nextTurn)
+	let nextSess = if wasOpen && !nowOpen {
+		match t.ActiveSession {
+		case option.Some[session.SessionRecord] as sr:
+			let ended = session.StepSession(sr.Value, session.ActEndTurn) catch {
+			case e:
+				return ThreadSessionRefusal{Cause: e}
+			}
+			option.Some[session.SessionRecord]{Value: ended}
+		case option.None:
+			noneSession()
+		}
+	} else {
+		t.ActiveSession
+	}
+	let completedInc = if wasOpen && !nowOpen { 1 } else { 0 }
+	let outcome = match nextTurn.Outcome {
+	case option.Some:
+		nextTurn.Outcome
+	case option.None:
+		t.LastTurnOutcome
+	}
+	Thread{
+		..t,
+		ActiveSession:   nextSess,
+		ActiveTurn:      option.Some[turn.TurnState]{Value: nextTurn},
+		LastTurnOutcome: outcome,
+		TurnsCompleted:  t.TurnsCompleted + completedInc,
+	}
+}
+
+// ArchiveThread marks a thread archived when no turn is actively running.
+func ArchiveThread(t Thread) Thread fails ThreadRefusal {
+	if IsThreadInTurn(t) {
+		return TurnAlreadyActiveOnThread{ID: t.ID}
+	}
+	let released = match t.ActiveSession {
+	case option.None:
+		noneSession()
+	case option.Some[session.SessionRecord] as sr:
+		if session.IsSessionLive(sr.Value) {
+			let r = session.StepSession(sr.Value, session.ActReleaseSession) catch {
+			case _:
+				sr.Value
+			}
+			option.Some[session.SessionRecord]{Value: r}
+		} else {
+			t.ActiveSession
+		}
+	}
+	Thread{..t, Archived: true, ActiveSession: released}
+}
+
+func threadOneThreadInvariant(t Thread) bool {
+	t.ID == handle.ThreadID("th-1") && (t.Mode == adapter.PathOfDriver(t.Driver))
+}
+
+func threadNoConcurrentTurns(t Thread) bool {
+	!t.ConcurrentTurnsObserved
+}
+
+func threadNoDirectAgyUnlessSupported(t Thread) bool {
+	!(adapter.IsAntigravityDirect(t.Driver) && !t.Capabilities.OfficiallySupported)
+}
+
+func threadNoRetryAfterFirstDelta(t Thread) bool {
+	match t.ActiveTurn {
+	case option.None:
+		true
+	case option.Some[turn.TurnState] as ts:
+		!(ts.Value.HasDelta && ts.Value.RetriedAfterDelta)
+	}
+}
+
+func threadNoWriteWithoutApproval(t Thread) bool {
+	match t.ActiveTurn {
+	case option.None:
+		true
+	case option.Some[turn.TurnState] as ts:
+		match ts.Value.PermissionMode {
+		case adapter.ModeAsk, adapter.ModeSupervised:
+			ts.Value.WritesExecuted <= ts.Value.ApprovalGrants
+		case adapter.ModeAutoEdit, adapter.ModeYolo:
+			true
+		}
+	}
+}
+
+func threadNeverEmulateMissingCapability(t Thread) bool {
+	match t.PermissionMode {
+	case adapter.ModeAutoEdit:
+		t.Capabilities.SupportsAutoEdit
+	case adapter.ModeYolo:
+		t.Capabilities.SupportsYolo
+	case adapter.ModeAsk, adapter.ModeSupervised:
+		true
+	}
+}
+
+func threadLinkOriginFencesCallers(t Thread) bool {
+	!t.UnauthorizedLinkObserved
+}
+
+law SwitchDriverPreservesThreadIDAndModeParity(reqMode adapter.PermissionMode) {
+	let t0 = NewThread(
+		ThreadSpec{
+			ID:                 handle.ThreadID("th-parity"),
+			ParentThreadID:     option.None,
+			Driver:             adapter.CodexDirect,
+			AgyDirectSupported: false,
+			RequestedMode:      reqMode,
+			Instance:           adapter.InstanceID("inst-1"),
+			ConfigDir:          "/cfg",
+			SharedHome:         option.None,
+			Model:              adapter.ModelID("gpt-5"),
+			LinkOrigin:         OriginLocal,
+		},
+	) catch {
+	case _:
+		return false
+	}
+	let t1 = SwitchDriver(
+		t0,
+		DriverSwitchSpec{
+			NextDriver:         adapter.ClaudeMeta,
+			AgyDirectSupported: false,
+			RequestedMode:      reqMode,
+			Instance:           adapter.InstanceID("inst-2"),
+			ConfigDir:          "/cfg",
+			SharedHome:         option.None,
+		},
+	) catch {
+	case _:
+		return false
+	}
+	t0.Mode == adapter.DirectPath && t1.Mode == adapter.MetaPath && t1.ID == t0.ID && threadNeverEmulateMissingCapability(t1)
+}
+
+law LinkOriginFencingBlocksWrongScope(peerA string, peerB string) {
+	if peerA == peerB {
+		return true
+	}
+	let t = NewThread(
+		ThreadSpec{
+			ID:                 handle.ThreadID("th-peer"),
+			ParentThreadID:     option.None,
+			Driver:             adapter.ClaudeMeta,
+			AgyDirectSupported: false,
+			RequestedMode:      adapter.ModeAsk,
+			Instance:           adapter.InstanceID("inst-1"),
+			ConfigDir:          "/cfg",
+			SharedHome:         option.None,
+			Model:              adapter.ModelID("claude-sonnet"),
+			LinkOrigin:         OriginRemotePeer{PeerID: peerA},
+		},
+	) catch {
+	case _:
+		return false
+	}
+	CanAccessLinkedThread(t, CallerPeer{PeerID: peerA}) && !CanAccessLinkedThread(t, CallerPeer{PeerID: peerB}) && !CanAccessLinkedThread(t, CallerMcp{ThreadID: handle.ThreadID("th-peer")})
+}
+
+type ActThStartTurn {}
+
+type ActThDelta {}
+
+type ActThRetry {}
+
+type ActThReqWrite {}
+
+type ActThExecWrite {}
+
+type ActThFinishTurn {}
+
+type ActThStartBookkeeping {}
+
+type ActThSwitchToClaude {}
+
+type ActThSwitchToCodex {}
+
+type ActThEnqueue {}
+
+type ActThDequeue {}
+
+type ActThTryOtherMcp {}
+
+type ThreadAct = ActThStartTurn | ActThDelta | ActThRetry | ActThReqWrite | ActThExecWrite | ActThFinishTurn | ActThStartBookkeeping | ActThSwitchToClaude | ActThSwitchToCodex | ActThEnqueue | ActThDequeue | ActThTryOtherMcp
+
+type ThreadWorld {
+	Thread            Thread,
+	OtherMcpDenied    bool,
+	QueueDequeueCount int,
+}
+
+func firstThreadWorld() ThreadWorld {
+	let t = NewThread(
+		ThreadSpec{
+			ID:                 handle.ThreadID("th-1"),
+			ParentThreadID:     option.None,
+			Driver:             adapter.CodexDirect,
+			AgyDirectSupported: false,
+			RequestedMode:      adapter.ModeAsk,
+			Instance:           adapter.InstanceID("inst-codex"),
+			ConfigDir:          "/cfg-codex",
+			SharedHome:         option.None,
+			Model:              adapter.ModelID("gpt-5"),
+			LinkOrigin:         OriginMcpScoped{BoundThread: handle.ThreadID("th-1")},
+		},
+	) catch {
+	case _:
+		Thread{
+			ID:                       handle.ThreadID("th-1"),
+			ParentThreadID:           option.None,
+			Driver:                   adapter.CodexDirect,
+			Capabilities:             adapter.CapabilitiesFor(adapter.CodexDirect, false),
+			Mode:                     adapter.DirectPath,
+			PermissionMode:           adapter.ModeAsk,
+			Model:                    adapter.ModelID("gpt-5"),
+			ModelOrigin:              adapter.DefaultOrigin,
+			ContinuationKey:          adapter.ContinuationKey(""),
+			LinkOrigin:               OriginLocal,
+			Archived:                 false,
+			ActiveSession:            option.None,
+			ActiveTurn:               option.None,
+			LastTurnOutcome:          option.None,
+			PromptQueue:              []QueuedPrompt{},
+			TurnsStarted:             0,
+			TurnsCompleted:           0,
+			ConcurrentTurnsObserved:  false,
+			UnauthorizedLinkObserved: false,
+			ModeSwitchCount:          0,
+			SessionSeq:               0,
+		}
+	}
+	ThreadWorld{
+		Thread:            t,
+		OtherMcpDenied:    false,
+		QueueDequeueCount: 0,
+	}
+}
+
+func stepThreadWorld(w ThreadWorld, a ThreadAct) machines.Decision[ThreadWorld, string] {
+	let t = w.Thread
+	match a {
+	case ActThStartTurn:
+		if t.TurnsStarted >= 2 {
+			return machines.Ignore
+		}
+		let wasInTurn = IsThreadInTurn(t)
+		let tid = if t.TurnsStarted == 0 { turn.TurnID("t-1") } else { turn.TurnID("t-2") }
+		let next = StartTurnOnThread(t, tid, 1000) catch {
+		case _:
+			return machines.Ignore
+		}
+		machines.Enter[ThreadWorld]{
+			Next: ThreadWorld{
+				..w,
+				Thread: Thread{..next, ConcurrentTurnsObserved: next.ConcurrentTurnsObserved || wasInTurn},
+			},
+		}
+
+	case ActThDelta:
+		match t.ActiveTurn {
+		case option.Some[turn.TurnState] as ts:
+			if ts.Value.HasDelta {
+				return machines.Ignore
+			}
+		case option.None:
+			return machines.Ignore
+		}
+		let next = StepThreadTurn(t, turn.ActionReceiveDelta) catch {
+		case _:
+			return machines.Ignore
+		}
+		machines.Enter[ThreadWorld]{Next: ThreadWorld{..w, Thread: next}}
+
+	case ActThRetry:
+		let next = StepThreadTurn(t, turn.ActionRetryTransient{Class: turn.FailureTransport}) catch {
+		case _:
+			return machines.Ignore
+		}
+		machines.Enter[ThreadWorld]{Next: ThreadWorld{..w, Thread: next}}
+
+	case ActThReqWrite:
+		match t.ActiveTurn {
+		case option.Some[turn.TurnState] as ts:
+			if ts.Value.PendingApproval {
+				return machines.Ignore
+			}
+		case option.None:
+			return machines.Ignore
+		}
+		let next = StepThreadTurn(t, turn.ActionRequestWriteApproval) catch {
+		case _:
+			return machines.Ignore
+		}
+		machines.Enter[ThreadWorld]{Next: ThreadWorld{..w, Thread: next}}
+
+	case ActThExecWrite:
+		let next = StepThreadTurn(t, turn.ActionExecuteWrite) catch {
+		case _:
+			return machines.Ignore
+		}
+		machines.Enter[ThreadWorld]{Next: ThreadWorld{..w, Thread: next}}
+
+	case ActThFinishTurn:
+		let next = StepThreadTurn(t, turn.ActionFinishTurn{Outcome: turn.OutcomeCompleted}) catch {
+		case _:
+			return machines.Ignore
+		}
+		machines.Enter[ThreadWorld]{Next: ThreadWorld{..w, Thread: next}}
+
+	case ActThStartBookkeeping:
+		match t.ActiveTurn {
+		case option.Some[turn.TurnState] as ts:
+			if ts.Value.BookkeepingPending {
+				return machines.Ignore
+			}
+		case option.None:
+			return machines.Ignore
+		}
+		let next = StepThreadTurn(t, turn.ActionStartBookkeeping) catch {
+		case _:
+			return machines.Ignore
+		}
+		machines.Enter[ThreadWorld]{Next: ThreadWorld{..w, Thread: next}}
+
+	case ActThSwitchToClaude:
+		if t.Driver == adapter.ClaudeMeta || t.ModeSwitchCount >= 2 {
+			return machines.Ignore
+		}
+		let next = SwitchDriver(
+			t,
+			DriverSwitchSpec{
+				NextDriver:         adapter.ClaudeMeta,
+				AgyDirectSupported: false,
+				RequestedMode:      adapter.ModeAutoEdit,
+				Instance:           adapter.InstanceID("inst-claude"),
+				ConfigDir:          "/cfg-claude",
+				SharedHome:         option.None,
+			},
+		) catch {
+		case _:
+			return machines.Ignore
+		}
+		machines.Enter[ThreadWorld]{Next: ThreadWorld{..w, Thread: next}}
+
+	case ActThSwitchToCodex:
+		if t.Driver == adapter.CodexDirect || t.ModeSwitchCount >= 2 {
+			return machines.Ignore
+		}
+		let next = SwitchDriver(
+			t,
+			DriverSwitchSpec{
+				NextDriver:         adapter.CodexDirect,
+				AgyDirectSupported: false,
+				RequestedMode:      adapter.ModeAsk,
+				Instance:           adapter.InstanceID("inst-codex"),
+				ConfigDir:          "/cfg-codex",
+				SharedHome:         option.None,
+			},
+		) catch {
+		case _:
+			return machines.Ignore
+		}
+		machines.Enter[ThreadWorld]{Next: ThreadWorld{..w, Thread: next}}
+
+	case ActThEnqueue:
+		if t.PromptQueue.Len() >= 1 {
+			return machines.Ignore
+		}
+		let next = EnqueuePrompt(t, QueuedPrompt{ID: "q-1", Body: "follow up", RequestedMode: adapter.ModeAsk}) catch {
+		case _:
+			return machines.Ignore
+		}
+		machines.Enter[ThreadWorld]{Next: ThreadWorld{..w, Thread: next}}
+
+	case ActThDequeue:
+		let (next, popped) = DequeueNextPrompt(t) catch {
+		case _:
+			return machines.Ignore
+		}
+		match popped {
+		case option.Some[QueuedPrompt]:
+			if w.QueueDequeueCount >= 1 {
+				return machines.Ignore
+			}
+			machines.Enter[ThreadWorld]{Next: ThreadWorld{..w, Thread: next, QueueDequeueCount: w.QueueDequeueCount + 1}}
+		case option.None:
+			machines.Ignore
+		}
+
+	case ActThTryOtherMcp:
+		if w.OtherMcpDenied {
+			return machines.Ignore
+		}
+		let _ = RequireLinkedAccess(t, CallerMcp{ThreadID: handle.ThreadID("th-other")}) catch {
+		case ThreadAccessDenied:
+			return machines.Enter[ThreadWorld]{Next: ThreadWorld{..w, OtherMcpDenied: true}}
+		case ThreadArchivedRefusal, TurnAlreadyActiveOnThread, ThreadNoActiveTurn, ThreadAdapterRefusal, ThreadTurnRefusal, ThreadSessionRefusal:
+			return machines.Ignore
+		}
+		machines.Enter[ThreadWorld]{
+			Next: ThreadWorld{
+				..w,
+				Thread: Thread{..t, UnauthorizedLinkObserved: true},
+			},
+		}
+	}
+}
+
+func worldOneThreadInvariant(w ThreadWorld) bool { threadOneThreadInvariant(w.Thread) }
+
+func worldNoConcurrentTurns(w ThreadWorld) bool { threadNoConcurrentTurns(w.Thread) }
+
+func worldNoDirectAgyUnlessSupported(w ThreadWorld) bool { threadNoDirectAgyUnlessSupported(w.Thread) }
+
+func worldNoRetryAfterFirstDelta(w ThreadWorld) bool { threadNoRetryAfterFirstDelta(w.Thread) }
+
+func worldNoWriteWithoutApproval(w ThreadWorld) bool { threadNoWriteWithoutApproval(w.Thread) }
+
+func worldNeverEmulateMissingCapability(w ThreadWorld) bool {
+	threadNeverEmulateMissingCapability(w.Thread)
+}
+
+func worldLinkOriginFencesCallers(w ThreadWorld) bool { threadLinkOriginFencesCallers(w.Thread) }
+
+func switchedMetaAndDirectOnSameThread(w ThreadWorld) bool {
+	w.Thread.Mode == adapter.MetaPath && w.Thread.ModeSwitchCount > 0 && w.Thread.TurnsCompleted >= 1
+}
+
+func secondTurnStartedWhileBookkeepingEnded(w ThreadWorld) bool {
+	w.Thread.TurnsStarted == 2 && w.Thread.TurnsCompleted == 2
+}
+
+func limitedCallerFencedOut(w ThreadWorld) bool {
+	w.OtherMcpDenied && !w.Thread.UnauthorizedLinkObserved
+}
+
+// ThreadLifecycle exhaustively verifies Meta <-> Direct single-thread parity and safety invariants.
+type ThreadLifecycle machine[ThreadWorld, ThreadAct] {
+	initial: firstThreadWorld(),
+	step:    stepThreadWorld,
+
+	law OneThreadInvariant always worldOneThreadInvariant,
+	law NoConcurrentTurnsOnThread always worldNoConcurrentTurns,
+	law NoDirectAgyUnlessSupported always worldNoDirectAgyUnlessSupported,
+	law NoRetryAfterFirstDelta always worldNoRetryAfterFirstDelta,
+	law NoWriteToolWithoutApproval always worldNoWriteWithoutApproval,
+	law NeverEmulateMissingCapability always worldNeverEmulateMissingCapability,
+	law LinkOriginFencesLimitedCallers always worldLinkOriginFencesCallers,
+
+	law SwitchedMetaAndDirectOnSameThread sometimes switchedMetaAndDirectOnSameThread,
+	law SecondTurnStartedWhileBookkeepingEnded sometimes secondTurnStartedWhileBookkeepingEnded,
+	law LimitedCallerFencedOut sometimes limitedCallerFencedOut,
+}
+
+test ThreadStartsTurnsSwitchesModeEnqueuesAndFences {
+	let t0 = try NewThread(
+		ThreadSpec{
+			ID:                 handle.ThreadID("th-e2e"),
+			ParentThreadID:     option.None,
+			Driver:             adapter.CodexDirect,
+			AgyDirectSupported: false,
+			RequestedMode:      adapter.ModeAsk,
+			Instance:           adapter.InstanceID("inst-a"),
+			ConfigDir:          "/cfg-a",
+			SharedHome:         option.None,
+			Model:              adapter.ModelID("gpt-5"),
+			LinkOrigin:         OriginRemotePeer{PeerID: "peer-1"},
+		},
+	)
+	assert CanAccessLinkedThread(t0, CallerPeer{PeerID: "peer-1"})
+	assert !CanAccessLinkedThread(t0, CallerPeer{PeerID: "peer-2"})
+
+	let t1 = try StartTurnOnThread(t0, turn.TurnID("t-1"), 100)
+	let t2 = try EnqueuePrompt(t1, QueuedPrompt{ID: "p-1", Body: "next", RequestedMode: adapter.ModeAsk})
+	let mut switchBlocked = false
+	let claudeSwitch = DriverSwitchSpec{
+		NextDriver:         adapter.ClaudeMeta,
+		AgyDirectSupported: false,
+		RequestedMode:      adapter.ModeAutoEdit,
+		Instance:           adapter.InstanceID("inst-b"),
+		ConfigDir:          "/cfg-b",
+		SharedHome:         option.None,
+	}
+	let _ = SwitchDriver(t2, claudeSwitch) catch {
+	case TurnAlreadyActiveOnThread:
+		switchBlocked = true
+		t2
+	case ThreadArchivedRefusal, ThreadNoActiveTurn, ThreadAccessDenied, ThreadAdapterRefusal, ThreadTurnRefusal, ThreadSessionRefusal:
+		t2
+	}
+	assert switchBlocked
+
+	let t3 = try StepThreadTurn(t2, turn.ActionFinishTurn{Outcome: turn.OutcomeCompleted})
+	let t4 = try StepThreadTurn(t3, turn.ActionStartBookkeeping)
+	assert !IsThreadInTurn(t4)
+
+	let t5 = try SwitchDriver(t4, claudeSwitch)
+	assert t5.ID == t0.ID
+	assert t5.Mode == adapter.MetaPath
+	let (t6, popped) = try DequeueNextPrompt(t5)
+	assert popped == option.Some[QueuedPrompt]{Value: QueuedPrompt{ID: "p-1", Body: "next", RequestedMode: adapter.ModeAsk}}
+	let t7 = try ArchiveThread(t6)
+	assert t7.Archived
+}

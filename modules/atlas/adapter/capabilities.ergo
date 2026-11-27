@@ -1,0 +1,500 @@
+import option
+
+// ExecutionPath distinguishes external harness processes from Atlas's built-in loop.
+type ExecutionPath = MetaPath{} | DirectPath{}
+
+// ExecutionPathName returns the canonical lowercase wire name of an ExecutionPath.
+func ExecutionPathName(p ExecutionPath) string {
+	match p {
+	case MetaPath:
+		"meta"
+	case DirectPath:
+		"direct"
+	}
+}
+
+// ParseExecutionPath parses a canonical execution path name.
+func ParseExecutionPath(text string) option.Option[ExecutionPath] {
+	match text {
+	case "meta":
+		option.Some[ExecutionPath]{Value: MetaPath}
+	case "direct":
+		option.Some[ExecutionPath]{Value: DirectPath}
+	case _:
+		option.None
+	}
+}
+
+// ExecutionPathNameRoundTrips verifies that every ExecutionPath survives formatting and parsing.
+law ExecutionPathNameRoundTrips(p ExecutionPath) {
+	ParseExecutionPath(ExecutionPathName(p)) == option.Some[ExecutionPath]{Value: p}
+}
+
+// DriverKind identifies the concrete Meta harness or Direct provider driver.
+type DriverKind = ClaudeMeta{} | CodexMeta{} | AntigravityMeta{} | GenericAcpMeta{} | PaneFallbackMeta{} | CodexDirect{} | OpenCodeConsoleDirect{} | OpenCodeGoDirect{} | AnthropicDirect{} | AntigravityDirect{}
+
+// DriverName returns the canonical external identifier of a DriverKind.
+func DriverName(d DriverKind) string {
+	match d {
+	case ClaudeMeta:
+		"claude-meta"
+	case CodexMeta:
+		"codex-meta"
+	case AntigravityMeta:
+		"antigravity-meta"
+	case GenericAcpMeta:
+		"generic-acp-meta"
+	case PaneFallbackMeta:
+		"pane-fallback-meta"
+	case CodexDirect:
+		"codex-direct"
+	case OpenCodeConsoleDirect:
+		"opencode-console-direct"
+	case OpenCodeGoDirect:
+		"opencode-go-direct"
+	case AnthropicDirect:
+		"anthropic-direct"
+	case AntigravityDirect:
+		"antigravity-direct"
+	}
+}
+
+// ParseDriverKind parses a canonical external driver name.
+func ParseDriverKind(text string) option.Option[DriverKind] {
+	match text {
+	case "claude-meta":
+		option.Some[DriverKind]{Value: ClaudeMeta}
+	case "codex-meta":
+		option.Some[DriverKind]{Value: CodexMeta}
+	case "antigravity-meta":
+		option.Some[DriverKind]{Value: AntigravityMeta}
+	case "generic-acp-meta":
+		option.Some[DriverKind]{Value: GenericAcpMeta}
+	case "pane-fallback-meta":
+		option.Some[DriverKind]{Value: PaneFallbackMeta}
+	case "codex-direct":
+		option.Some[DriverKind]{Value: CodexDirect}
+	case "opencode-console-direct":
+		option.Some[DriverKind]{Value: OpenCodeConsoleDirect}
+	case "opencode-go-direct":
+		option.Some[DriverKind]{Value: OpenCodeGoDirect}
+	case "anthropic-direct":
+		option.Some[DriverKind]{Value: AnthropicDirect}
+	case "antigravity-direct":
+		option.Some[DriverKind]{Value: AntigravityDirect}
+	case _:
+		option.None
+	}
+}
+
+// DriverNameRoundTrips verifies that every DriverKind survives formatting and parsing.
+law DriverNameRoundTrips(d DriverKind) {
+	ParseDriverKind(DriverName(d)) == option.Some[DriverKind]{Value: d}
+}
+
+// PathOfDriver returns whether a driver runs via Meta or Direct.
+func PathOfDriver(d DriverKind) ExecutionPath {
+	match d {
+	case ClaudeMeta, CodexMeta, AntigravityMeta, GenericAcpMeta, PaneFallbackMeta:
+		MetaPath
+	case CodexDirect, OpenCodeConsoleDirect, OpenCodeGoDirect, AnthropicDirect, AntigravityDirect:
+		DirectPath
+	}
+}
+
+// IsAntigravityDirect reports whether d is the gated direct Antigravity/Gemini adapter.
+func IsAntigravityDirect(d DriverKind) bool {
+	match d {
+	case AntigravityDirect:
+		true
+	case ClaudeMeta, CodexMeta, AntigravityMeta, GenericAcpMeta, PaneFallbackMeta, CodexDirect, OpenCodeConsoleDirect, OpenCodeGoDirect, AnthropicDirect:
+		false
+	}
+}
+
+// InstanceID identifies one configured provider instance (account/profile/settings).
+type InstanceID string
+
+// ModelID identifies a configured model identifier.
+type ModelID string
+
+// ModelOrigin records why a thread carries its current model selection.
+type ModelOrigin = DefaultOrigin{} | UserSelectedOrigin{} | InheritedOrigin{} | ProviderDefaultOrigin{}
+
+// ModelOriginName returns the canonical external name of a ModelOrigin.
+func ModelOriginName(o ModelOrigin) string {
+	match o {
+	case DefaultOrigin:
+		"default"
+	case UserSelectedOrigin:
+		"user"
+	case InheritedOrigin:
+		"inherited"
+	case ProviderDefaultOrigin:
+		"provider-default"
+	}
+}
+
+// PermissionMode governs tool execution approval behavior.
+type PermissionMode = ModeAsk{} | ModeAutoEdit{} | ModeYolo{} | ModeSupervised{}
+
+// PermissionModeName returns the canonical external name of a PermissionMode.
+func PermissionModeName(m PermissionMode) string {
+	match m {
+	case ModeAsk:
+		"ask"
+	case ModeAutoEdit:
+		"auto_edit"
+	case ModeYolo:
+		"yolo"
+	case ModeSupervised:
+		"supervised"
+	}
+}
+
+// ParsePermissionMode parses a canonical external permission mode name.
+func ParsePermissionMode(text string) option.Option[PermissionMode] {
+	match text {
+	case "ask":
+		option.Some[PermissionMode]{Value: ModeAsk}
+	case "auto_edit":
+		option.Some[PermissionMode]{Value: ModeAutoEdit}
+	case "yolo":
+		option.Some[PermissionMode]{Value: ModeYolo}
+	case "supervised":
+		option.Some[PermissionMode]{Value: ModeSupervised}
+	case _:
+		option.None
+	}
+}
+
+// PermissionModeNameRoundTrips verifies that every PermissionMode survives formatting and parsing.
+law PermissionModeNameRoundTrips(m PermissionMode) {
+	ParsePermissionMode(PermissionModeName(m)) == option.Some[PermissionMode]{Value: m}
+}
+
+// Capabilities declares the static operations supported by an adapter without emulation.
+type Capabilities {
+	Steer                        bool,
+	SteerInterruptsTools         bool,
+	SteerByInterruptRestart      bool,
+	QueuedMessages               bool,
+	NativeResume                 bool,
+	Fork                         bool,
+	ForkFromTurn                 bool,
+	ForkWhileRunning             bool,
+	ForkFromSubagent             bool,
+	Rollback                     bool,
+	ModelSwitchInSession         bool,
+	RuntimeModeSwitchInSession   bool,
+	MultiThreadPerSession        bool,
+	ThreadSnapshotRead           bool,
+	McpTools                     bool,
+	DynamicToolCallbacks         bool,
+	StructuredQuestions          bool,
+	ProposedPlans                bool,
+	SubagentControl              bool,
+	PendingRequestsSurviveReboot bool,
+	SupportsAutoEdit             bool,
+	SupportsYolo                 bool,
+	OfficiallySupported          bool,
+}
+
+func baseCapabilities(official bool) Capabilities {
+	Capabilities{
+		Steer:                        false,
+		SteerInterruptsTools:         false,
+		SteerByInterruptRestart:      false,
+		QueuedMessages:               false,
+		NativeResume:                 false,
+		Fork:                         false,
+		ForkFromTurn:                 false,
+		ForkWhileRunning:             false,
+		ForkFromSubagent:             false,
+		Rollback:                     false,
+		ModelSwitchInSession:         false,
+		RuntimeModeSwitchInSession:   false,
+		MultiThreadPerSession:        false,
+		ThreadSnapshotRead:           false,
+		McpTools:                     false,
+		DynamicToolCallbacks:         false,
+		StructuredQuestions:          false,
+		ProposedPlans:                false,
+		SubagentControl:              false,
+		PendingRequestsSurviveReboot: false,
+		SupportsAutoEdit:             false,
+		SupportsYolo:                 false,
+		OfficiallySupported:          official,
+	}
+}
+
+// AntigravityMetaCapabilities returns the Antigravity ACP capability profile calibrated by CLI version >= 1.5.0.
+func AntigravityMetaCapabilities(atLeast150 bool) Capabilities {
+	let b = baseCapabilities(true)
+	Capabilities{
+		..b,
+		Steer:                      atLeast150,
+		ModelSwitchInSession:       true,
+		RuntimeModeSwitchInSession: true,
+		McpTools:                   true,
+	}
+}
+
+// CapabilitiesFor returns the honest static capability record for driver.
+func CapabilitiesFor(driver DriverKind, agyDirectSupported bool) Capabilities {
+	let b = baseCapabilities(true)
+	match driver {
+	case ClaudeMeta:
+		Capabilities{
+			..b,
+			Steer:                true,
+			QueuedMessages:       true,
+			NativeResume:         true,
+			Fork:                 true,
+			ForkFromTurn:         true,
+			Rollback:             true,
+			ModelSwitchInSession: true,
+			McpTools:             true,
+			DynamicToolCallbacks: true,
+			StructuredQuestions:  true,
+			ProposedPlans:        true,
+			SupportsAutoEdit:     true,
+			SupportsYolo:         true,
+		}
+	case CodexMeta:
+		Capabilities{
+			..b,
+			Steer:                      true,
+			SteerByInterruptRestart:    true,
+			QueuedMessages:             true,
+			NativeResume:               true,
+			Fork:                       true,
+			ForkFromTurn:               true,
+			ForkWhileRunning:           true,
+			ForkFromSubagent:           true,
+			Rollback:                   true,
+			ModelSwitchInSession:       true,
+			RuntimeModeSwitchInSession: true,
+			MultiThreadPerSession:      true,
+			ThreadSnapshotRead:         true,
+			McpTools:                   true,
+			DynamicToolCallbacks:       true,
+			SupportsAutoEdit:           true,
+			SupportsYolo:               true,
+		}
+	case AntigravityMeta:
+		AntigravityMetaCapabilities(false)
+	case GenericAcpMeta:
+		Capabilities{
+			..b,
+			McpTools: true,
+		}
+	case PaneFallbackMeta:
+		b
+	case CodexDirect, OpenCodeConsoleDirect, OpenCodeGoDirect, AnthropicDirect:
+		Capabilities{
+			..b,
+			Steer:                      true,
+			QueuedMessages:             true,
+			NativeResume:               true,
+			Fork:                       true,
+			ForkFromTurn:               true,
+			Rollback:                   true,
+			ModelSwitchInSession:       true,
+			RuntimeModeSwitchInSession: true,
+			McpTools:                   true,
+			SubagentControl:            true,
+			SupportsAutoEdit:           true,
+			SupportsYolo:               true,
+		}
+	case AntigravityDirect:
+		Capabilities{
+			..baseCapabilities(agyDirectSupported),
+			Steer:                      agyDirectSupported,
+			QueuedMessages:             agyDirectSupported,
+			NativeResume:               agyDirectSupported,
+			Fork:                       agyDirectSupported,
+			ModelSwitchInSession:       agyDirectSupported,
+			RuntimeModeSwitchInSession: agyDirectSupported,
+			McpTools:                   agyDirectSupported,
+			SupportsAutoEdit:           agyDirectSupported,
+			SupportsYolo:               agyDirectSupported,
+		}
+	}
+}
+
+// CapabilityUnsupported refuses invoking an operation disabled in Adapter.Capabilities.
+type CapabilityUnsupported { Capability string, Driver DriverKind }
+
+// DirectDriverDisabled refuses starting a Direct adapter whose official support gate is off.
+type DirectDriverDisabled { Driver DriverKind }
+
+// WriteApprovalRequired refuses executing a write tool without explicit approval under the active permission mode.
+type WriteApprovalRequired {}
+
+// AdapterRefusal is the closed union of capability and permission policy refusals.
+type AdapterRefusal = CapabilityUnsupported | DirectDriverDisabled | WriteApprovalRequired
+
+// ResolvePermissionMode resolves requested against caps, falling back to ModeSupervised when unsupported.
+func ResolvePermissionMode(caps Capabilities, requested PermissionMode) PermissionMode {
+	match requested {
+	case ModeAsk:
+		ModeAsk
+	case ModeSupervised:
+		ModeSupervised
+	case ModeAutoEdit:
+		if caps.SupportsAutoEdit {
+			ModeAutoEdit
+		} else {
+			ModeSupervised
+		}
+	case ModeYolo:
+		if caps.SupportsYolo {
+			ModeYolo
+		} else {
+			ModeSupervised
+		}
+	}
+}
+
+// CanStartDriver checks whether driver may start under caps.
+func CanStartDriver(driver DriverKind, caps Capabilities) bool fails AdapterRefusal {
+	if !caps.OfficiallySupported {
+		return DirectDriverDisabled{Driver: driver}
+	}
+	true
+}
+
+// RequireSteer verifies that active steering is supported natively and not emulated.
+func RequireSteer(driver DriverKind, caps Capabilities, turnActive bool, pendingPerm bool) bool fails AdapterRefusal {
+	if !caps.Steer {
+		return CapabilityUnsupported{Capability: "steer", Driver: driver}
+	}
+	if !turnActive || pendingPerm {
+		return CapabilityUnsupported{Capability: "steer_requires_active_unblocked_turn", Driver: driver}
+	}
+	true
+}
+
+// RequireWriteApproval checks whether a write tool call may proceed under mode.
+func RequireWriteApproval(mode PermissionMode, approved bool) bool fails AdapterRefusal {
+	match mode {
+	case ModeYolo:
+		true
+	case ModeAsk, ModeSupervised, ModeAutoEdit:
+		if !approved {
+			return WriteApprovalRequired
+		}
+		true
+	}
+}
+
+// RequireFork verifies whether thread/turn fork is natively supported by caps.
+func RequireFork(driver DriverKind, caps Capabilities, fromTurn bool) bool fails AdapterRefusal {
+	if !caps.Fork {
+		return CapabilityUnsupported{Capability: "fork", Driver: driver}
+	}
+	if fromTurn && !caps.ForkFromTurn {
+		return CapabilityUnsupported{Capability: "fork_from_turn", Driver: driver}
+	}
+	true
+}
+
+// Adapter defines the honest capability contract shared across Meta and Direct adapters.
+type Adapter {
+	Driver() DriverKind,
+	Capabilities() Capabilities,
+	ResolveMode(requested PermissionMode) PermissionMode,
+	CheckSteer(turnActive bool, pendingPerm bool) bool fails AdapterRefusal,
+	CanStart() bool fails AdapterRefusal,
+
+	law NeverEmulatesUnsupportedSteer(turnActive bool, pendingPerm bool) {
+		let caps = Capabilities()
+		let res = CheckSteer(turnActive, pendingPerm) catch {
+		case CapabilityUnsupported:
+			return !caps.Steer || !turnActive || pendingPerm
+		case _:
+			return false
+		}
+		res && caps.Steer && turnActive && !pendingPerm
+	},
+
+	law UnsupportedPermissionFallsBackToSupervised(requested PermissionMode) {
+		let caps = Capabilities()
+		let got = ResolveMode(requested)
+		match requested {
+		case ModeAutoEdit:
+			if caps.SupportsAutoEdit { got == ModeAutoEdit } else { got == ModeSupervised }
+		case ModeYolo:
+			if caps.SupportsYolo { got == ModeYolo } else { got == ModeSupervised }
+		case ModeAsk, ModeSupervised:
+			got == requested
+		}
+	},
+
+	law DirectAntigravityOffUnlessSupported() {
+		let d = Driver()
+		let caps = Capabilities()
+		let started = CanStart() catch {
+		case DirectDriverDisabled:
+			return !caps.OfficiallySupported
+		case _:
+			return false
+		}
+		if IsAntigravityDirect(d) && !caps.OfficiallySupported {
+			return false
+		}
+		started && caps.OfficiallySupported
+	},
+}
+
+// DirectAntigravityDefaultDisabled verifies that AntigravityDirect is disabled unless officially supported.
+law DirectAntigravityDefaultDisabled() {
+	let caps = CapabilitiesFor(AntigravityDirect, false)
+	let mut disabled = false
+	let _ = CanStartDriver(AntigravityDirect, caps) catch {
+	case DirectDriverDisabled:
+		disabled = true
+		false
+	case _:
+		false
+	}
+	disabled && !caps.OfficiallySupported && !caps.Steer && !caps.Fork
+}
+
+// ResolveModeNeverEmulatesYolo verifies unsupported yolo or auto_edit always degrades to ModeSupervised.
+law ResolveModeNeverEmulatesYolo(requested PermissionMode) {
+	let agyCaps = CapabilitiesFor(AntigravityMeta, false)
+	let got = ResolvePermissionMode(agyCaps, requested)
+	match requested {
+	case ModeYolo, ModeAutoEdit:
+		got == ModeSupervised
+	case ModeAsk, ModeSupervised:
+		got == requested
+	}
+}
+
+// WriteApprovalGateEnforced verifies ModeAsk, ModeSupervised, and ModeAutoEdit refuse unapproved writes.
+law WriteApprovalGateEnforced(mode PermissionMode, approved bool) {
+	let ok = RequireWriteApproval(mode, approved) catch {
+	case WriteApprovalRequired:
+		return !approved && mode != ModeYolo
+	case _:
+		return false
+	}
+	ok && (approved || mode == ModeYolo)
+}
+
+// ForkRefusesUnsupportedDrivers verifies adapters without Fork never accept fork requests.
+law ForkRefusesUnsupportedDrivers(fromTurn bool) {
+	let caps = CapabilitiesFor(AntigravityMeta, false)
+	let mut refused = false
+	let _ = RequireFork(AntigravityMeta, caps, fromTurn) catch {
+	case CapabilityUnsupported:
+		refused = true
+		false
+	case _:
+		false
+	}
+	refused
+}

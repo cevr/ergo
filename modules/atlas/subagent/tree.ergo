@@ -1,0 +1,763 @@
+import github.com/cevr/ergo/modules/atlas/adapter
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/thread
+import machines
+import option
+
+// RoleRoot identifies the top-level coordinator thread.
+type RoleRoot {}
+
+// RolePlanner identifies a planning subagent node.
+type RolePlanner {}
+
+// RoleImplementor identifies an implementation subagent node.
+type RoleImplementor {}
+
+// RoleVerifier identifies a verification subagent node.
+type RoleVerifier {}
+
+// RoleReviewer identifies a review subagent node.
+type RoleReviewer {}
+
+// RoleWorker identifies a bounded mechanical worker subagent node.
+type RoleWorker {}
+
+// AgentRole categorizes the role of a node in the recursive subagent tree.
+type AgentRole = RoleRoot | RolePlanner | RoleImplementor | RoleVerifier | RoleReviewer | RoleWorker
+
+// NodeIdle indicates an initialized node not currently awaiting handles or executing.
+type NodeIdle {}
+
+// NodeRunning indicates a node currently holding the active execution turn.
+type NodeRunning {}
+
+// NodeParked indicates a zero-spin node suspended until a child or handle wakes it.
+type NodeParked {}
+
+// NodeDone indicates a finalized node that has cleanly handed back.
+type NodeDone {}
+
+// NodeState tracks the zero-spin lifecycle phase of one subagent node.
+type NodeState = NodeIdle | NodeRunning | NodeParked | NodeDone
+
+// TreeBounds bounds recursive subagent depth, per-parent fan-out, and total spawn budget per M8.
+type TreeBounds {
+	MaxDepth  int,
+	MaxFanOut int,
+	MaxBudget int,
+}
+
+// SubagentNode stores one thread's hierarchical position, open handles, and hand-back accounting.
+type SubagentNode {
+	ThreadID                  handle.ThreadID,
+	ParentThreadID            option.Option[handle.ThreadID],
+	Role                      AgentRole,
+	Depth                     int,
+	State                     NodeState,
+	OpenHandles               []handle.HandleID,
+	Children                  []handle.ThreadID,
+	HandBackCount             int,
+	HandedBackWithOpenHandles bool,
+	HandedBackWithActiveChild bool,
+}
+
+// Tree models the bounded parent-child subagent execution graph.
+type Tree {
+	RootID                handle.ThreadID,
+	Nodes                 Map[handle.ThreadID, SubagentNode],
+	Order                 []handle.ThreadID,
+	Bounds                TreeBounds,
+	BudgetUsed            int,
+	OutOfSubtreeViolation bool,
+}
+
+// ParentNodeNotFound refuses spawning beneath a missing parent thread ID.
+type ParentNodeNotFound {
+	ID handle.ThreadID,
+}
+
+// NodeNotFound refuses addressing a missing subagent node ID.
+type NodeNotFound {
+	ID handle.ThreadID,
+}
+
+// DuplicateSubagentID refuses spawning a thread ID that already exists in the tree.
+type DuplicateSubagentID {
+	ID handle.ThreadID,
+}
+
+// MaxDepthExceeded refuses spawning beyond TreeBounds.MaxDepth.
+type MaxDepthExceeded {
+	Depth int,
+	Limit int,
+}
+
+// MaxFanOutExceeded refuses adding a child beyond TreeBounds.MaxFanOut.
+type MaxFanOutExceeded {
+	FanOut int,
+	Limit  int,
+}
+
+// BudgetExhausted refuses spawning beyond TreeBounds.MaxBudget.
+type BudgetExhausted {
+	Used  int,
+	Limit int,
+}
+
+// OutsideSubtreeScope refuses controlling or inspecting a node outside caller's subtree per M8.
+type OutsideSubtreeScope {
+	Caller handle.ThreadID,
+	Target handle.ThreadID,
+}
+
+// OpenHandlesBlockHandBack refuses finalizing a child node while it still holds open handles.
+type OpenHandlesBlockHandBack {
+	ID    handle.ThreadID,
+	Count int,
+}
+
+// ActiveChildBlocksHandBack refuses finalizing a node while a descendant has not finished cleanly.
+type ActiveChildBlocksHandBack {
+	ID handle.ThreadID,
+}
+
+// InvalidSubagentState refuses an operation incompatible with the node's current state.
+type InvalidSubagentState {
+	ID     handle.ThreadID,
+	State  NodeState,
+	Action string,
+}
+
+// SubagentRefusal classifies all rejected operations on a subagent Tree.
+type SubagentRefusal = ParentNodeNotFound | NodeNotFound | DuplicateSubagentID | MaxDepthExceeded | MaxFanOutExceeded | BudgetExhausted | OutsideSubtreeScope | OpenHandlesBlockHandBack | ActiveChildBlocksHandBack | InvalidSubagentState
+
+// NewTree initializes a subagent tree containing its active root thread node.
+func NewTree(rootID handle.ThreadID, bounds TreeBounds) Tree {
+	let root = SubagentNode{
+		ThreadID:                  rootID,
+		ParentThreadID:            option.None,
+		Role:                      RoleRoot,
+		Depth:                     0,
+		State:                     NodeRunning,
+		OpenHandles:               []handle.HandleID{},
+		Children:                  []handle.ThreadID{},
+		HandBackCount:             0,
+		HandedBackWithOpenHandles: false,
+		HandedBackWithActiveChild: false,
+	}
+	Tree{
+		RootID:                rootID,
+		Nodes:                 Map[handle.ThreadID, SubagentNode]{rootID: root},
+		Order:                 []handle.ThreadID{rootID},
+		Bounds:                bounds,
+		BudgetUsed:            0,
+		OutOfSubtreeViolation: false,
+	}
+}
+
+// HasOpenHandles reports whether a subagent node currently holds any unsettled wake handles.
+func HasOpenHandles(node SubagentNode) bool {
+	node.OpenHandles.Len() > 0
+}
+
+// IsDescendant reports whether candidate is within ancestor's subtree (including ancestor itself).
+func IsDescendant(tree Tree, ancestor handle.ThreadID, candidate handle.ThreadID) bool {
+	let mut cur option.Option[handle.ThreadID] = option.Some[handle.ThreadID]{Value: candidate}
+	let mut steps = 0
+	let maxSteps = tree.Order.Len() + 1
+	for steps < maxSteps {
+		steps = steps + 1
+		let id = match cur {
+		case option.None:
+			return false
+		case option.Some[handle.ThreadID] as v:
+			v.Value
+		}
+		if id == ancestor {
+			return true
+		}
+		let node = match tree.Nodes.Get(id) {
+		case option.None:
+			return false
+		case option.Some[SubagentNode] as n:
+			n.Value
+		}
+		match node.ParentThreadID {
+		case option.None:
+			return false
+		case option.Some[handle.ThreadID] as p:
+			cur = option.Some[handle.ThreadID]{Value: p.Value}
+		}
+	}
+	false
+}
+
+// HasActiveDescendant reports whether any proper descendant of nodeID is non-Done or holds open handles.
+func HasActiveDescendant(tree Tree, nodeID handle.ThreadID) bool {
+	for _, id in tree.Order {
+		if id == nodeID {
+			continue
+		}
+		if !IsDescendant(tree, nodeID, id) {
+			continue
+		}
+		match tree.Nodes.Get(id) {
+		case option.Some[SubagentNode] as desc:
+			if desc.Value.State != NodeDone || HasOpenHandles(desc.Value) {
+				return true
+			}
+		case option.None:
+		}
+	}
+	false
+}
+
+// CanControlSubtree enforces that caller may only control nodes inside its own subtree.
+func CanControlSubtree(tree Tree, caller handle.ThreadID, target handle.ThreadID) bool fails SubagentRefusal {
+	if !IsDescendant(tree, caller, target) {
+		return OutsideSubtreeScope{Caller: caller, Target: target}
+	}
+	true
+}
+
+// ThreadMatchesParent reports whether a domain Thread records the same parentThreadID as its tree node.
+func ThreadMatchesParent(tree Tree, t thread.Thread) bool {
+	match tree.Nodes.Get(t.ID) {
+	case option.None:
+		false
+	case option.Some[SubagentNode] as n:
+		n.Value.ParentThreadID == t.ParentThreadID
+	}
+}
+
+// SpawnChild adds a child subagent beneath parentID, enforcing depth, fan-out, and budget bounds.
+func SpawnChild(tree Tree, parentID handle.ThreadID, childID handle.ThreadID, role AgentRole) Tree fails SubagentRefusal {
+	let parent = match tree.Nodes.Get(parentID) {
+	case option.None:
+		return ParentNodeNotFound{ID: parentID}
+	case option.Some[SubagentNode] as n:
+		n.Value
+	}
+	if parent.State == NodeDone {
+		return InvalidSubagentState{ID: parentID, State: parent.State, Action: "spawn_child"}
+	}
+	match tree.Nodes.Get(childID) {
+	case option.Some[SubagentNode]:
+		return DuplicateSubagentID{ID: childID}
+	case option.None:
+	}
+	let nextDepth = parent.Depth + 1
+	if nextDepth > tree.Bounds.MaxDepth {
+		return MaxDepthExceeded{Depth: nextDepth, Limit: tree.Bounds.MaxDepth}
+	}
+	let nextFanOut = parent.Children.Len() + 1
+	if nextFanOut > tree.Bounds.MaxFanOut {
+		return MaxFanOutExceeded{FanOut: nextFanOut, Limit: tree.Bounds.MaxFanOut}
+	}
+	if tree.BudgetUsed+1 > tree.Bounds.MaxBudget {
+		return BudgetExhausted{Used: tree.BudgetUsed, Limit: tree.Bounds.MaxBudget}
+	}
+
+	let parkedParent = SubagentNode{
+		..parent,
+		State:    NodeParked,
+		Children: parent.Children.Append(childID),
+	}
+	let child = SubagentNode{
+		ThreadID:                  childID,
+		ParentThreadID:            option.Some[handle.ThreadID]{Value: parentID},
+		Role:                      role,
+		Depth:                     nextDepth,
+		State:                     NodeRunning,
+		OpenHandles:               []handle.HandleID{},
+		Children:                  []handle.ThreadID{},
+		HandBackCount:             0,
+		HandedBackWithOpenHandles: false,
+		HandedBackWithActiveChild: false,
+	}
+	let nodes = tree.Nodes.Put(parentID, parkedParent).Put(childID, child)
+	Tree{
+		..tree,
+		Nodes:      nodes,
+		Order:      tree.Order.Append(childID),
+		BudgetUsed: tree.BudgetUsed + 1,
+	}
+}
+
+func containsHandle(hs []handle.HandleID, hid handle.HandleID) bool {
+	for _, h in hs {
+		if h == hid {
+			return true
+		}
+	}
+	false
+}
+
+func removeHandle(hs []handle.HandleID, hid handle.HandleID) []handle.HandleID {
+	let mut next = []handle.HandleID{}
+	for _, h in hs {
+		if h != hid {
+			next = next.Append(h)
+		}
+	}
+	next
+}
+
+// OpenHandleOnNode parks nodeID while recording an unsettled wake handle under its ownership.
+func OpenHandleOnNode(tree Tree, nodeID handle.ThreadID, hid handle.HandleID) Tree fails SubagentRefusal {
+	let node = match tree.Nodes.Get(nodeID) {
+	case option.None:
+		return NodeNotFound{ID: nodeID}
+	case option.Some[SubagentNode] as n:
+		n.Value
+	}
+	if node.State == NodeDone {
+		return InvalidSubagentState{ID: nodeID, State: node.State, Action: "open_handle"}
+	}
+	if containsHandle(node.OpenHandles, hid) {
+		return InvalidSubagentState{ID: nodeID, State: node.State, Action: "duplicate_handle"}
+	}
+	let updated = SubagentNode{
+		..node,
+		State:       NodeParked,
+		OpenHandles: node.OpenHandles.Append(hid),
+	}
+	Tree{..tree, Nodes: tree.Nodes.Put(nodeID, updated)}
+}
+
+func maybeWakeNode(tree Tree, node SubagentNode) SubagentNode {
+	if node.State != NodeParked {
+		return node
+	}
+	if HasOpenHandles(node) || HasActiveDescendant(tree, node.ThreadID) {
+		return node
+	}
+	SubagentNode{..node, State: NodeRunning}
+}
+
+// SettleHandleOnNode settles one handle owned by nodeID and resumes the node only when unblocked.
+func SettleHandleOnNode(tree Tree, nodeID handle.ThreadID, hid handle.HandleID) Tree fails SubagentRefusal {
+	let node = match tree.Nodes.Get(nodeID) {
+	case option.None:
+		return NodeNotFound{ID: nodeID}
+	case option.Some[SubagentNode] as n:
+		n.Value
+	}
+	if !containsHandle(node.OpenHandles, hid) {
+		return InvalidSubagentState{ID: nodeID, State: node.State, Action: "settle_missing_handle"}
+	}
+	let remaining = removeHandle(node.OpenHandles, hid)
+	let settled = SubagentNode{..node, OpenHandles: remaining}
+	let nextTree = Tree{..tree, Nodes: tree.Nodes.Put(nodeID, settled)}
+	let resumed = maybeWakeNode(nextTree, settled)
+	Tree{..nextTree, Nodes: nextTree.Nodes.Put(nodeID, resumed)}
+}
+
+// CanFinalizeHandBack verifies zero open handles and zero non-done descendants before child hand-back.
+func CanFinalizeHandBack(tree Tree, nodeID handle.ThreadID) bool fails SubagentRefusal {
+	let node = match tree.Nodes.Get(nodeID) {
+	case option.None:
+		return NodeNotFound{ID: nodeID}
+	case option.Some[SubagentNode] as n:
+		n.Value
+	}
+	match node.ParentThreadID {
+	case option.None:
+		return InvalidSubagentState{ID: nodeID, State: node.State, Action: "handback_root"}
+	case option.Some[handle.ThreadID]:
+	}
+	if node.State == NodeDone || node.HandBackCount >= 1 {
+		return InvalidSubagentState{ID: nodeID, State: node.State, Action: "duplicate_handback"}
+	}
+	if HasOpenHandles(node) {
+		return OpenHandlesBlockHandBack{ID: nodeID, Count: node.OpenHandles.Len()}
+	}
+	if HasActiveDescendant(tree, nodeID) {
+		return ActiveChildBlocksHandBack{ID: nodeID}
+	}
+	true
+}
+
+// FinalizeHandBack performs a child's single final hand-back and wakes its parent when unblocked.
+func FinalizeHandBack(tree Tree, nodeID handle.ThreadID) Tree fails SubagentRefusal {
+	let _ = try CanFinalizeHandBack(tree, nodeID)
+	let child = match tree.Nodes.Get(nodeID) {
+	case option.Some[SubagentNode] as n:
+		n.Value
+	case option.None:
+		return NodeNotFound{ID: nodeID}
+	}
+	let hadOpenHandles = HasOpenHandles(child)
+	let hadActiveChild = HasActiveDescendant(tree, nodeID)
+	let doneChild = SubagentNode{
+		..child,
+		State:                     NodeDone,
+		HandBackCount:             child.HandBackCount + 1,
+		HandedBackWithOpenHandles: hadOpenHandles,
+		HandedBackWithActiveChild: hadActiveChild,
+	}
+	let withDone = Tree{..tree, Nodes: tree.Nodes.Put(nodeID, doneChild)}
+	match doneChild.ParentThreadID {
+	case option.None:
+		withDone
+	case option.Some[handle.ThreadID] as pid:
+		match withDone.Nodes.Get(pid.Value) {
+		case option.None:
+			withDone
+		case option.Some[SubagentNode] as pNode:
+			let wokeParent = maybeWakeNode(withDone, pNode.Value)
+			Tree{..withDone, Nodes: withDone.Nodes.Put(pid.Value, wokeParent)}
+		}
+	}
+}
+
+// ControlOpenHandle opens or controls a handle on target strictly within caller's subtree.
+func ControlOpenHandle(tree Tree, caller handle.ThreadID, target handle.ThreadID, hid handle.HandleID) Tree fails SubagentRefusal {
+	let _ = try CanControlSubtree(tree, caller, target)
+	OpenHandleOnNode(tree, target, hid)
+}
+
+func zeroSpinParkedTree(tree Tree) bool {
+	for _, id in tree.Order {
+		match tree.Nodes.Get(id) {
+		case option.Some[SubagentNode] as n:
+			let node = n.Value
+			if (HasOpenHandles(node) || HasActiveDescendant(tree, id)) && node.State == NodeRunning {
+				return false
+			}
+		case option.None:
+		}
+	}
+	true
+}
+
+func zeroChildHandBackWithOpenHandles(tree Tree) bool {
+	for _, id in tree.Order {
+		match tree.Nodes.Get(id) {
+		case option.Some[SubagentNode] as n:
+			let node = n.Value
+			if node.HandedBackWithOpenHandles {
+				return false
+			}
+			if node.State == NodeDone && HasOpenHandles(node) {
+				return false
+			}
+		case option.None:
+		}
+	}
+	true
+}
+
+func childWaitsForDescendants(tree Tree) bool {
+	for _, id in tree.Order {
+		match tree.Nodes.Get(id) {
+		case option.Some[SubagentNode] as n:
+			let node = n.Value
+			if node.HandedBackWithActiveChild {
+				return false
+			}
+			if node.State == NodeDone && HasActiveDescendant(tree, id) {
+				return false
+			}
+		case option.None:
+		}
+	}
+	true
+}
+
+func depthBounded(tree Tree) bool {
+	for _, id in tree.Order {
+		match tree.Nodes.Get(id) {
+		case option.Some[SubagentNode] as n:
+			if n.Value.Depth > tree.Bounds.MaxDepth {
+				return false
+			}
+		case option.None:
+		}
+	}
+	true
+}
+
+func fanOutBounded(tree Tree) bool {
+	for _, id in tree.Order {
+		match tree.Nodes.Get(id) {
+		case option.Some[SubagentNode] as n:
+			if n.Value.Children.Len() > tree.Bounds.MaxFanOut {
+				return false
+			}
+		case option.None:
+		}
+	}
+	true
+}
+
+func budgetHeld(tree Tree) bool {
+	tree.BudgetUsed <= tree.Bounds.MaxBudget
+}
+
+func singleHandBackWakePerChild(tree Tree) bool {
+	for _, id in tree.Order {
+		match tree.Nodes.Get(id) {
+		case option.Some[SubagentNode] as n:
+			if n.Value.HandBackCount > 1 {
+				return false
+			}
+		case option.None:
+		}
+	}
+	true
+}
+
+law RootHasNoParentThread(maxDepth int) {
+	let clampedDepth = if maxDepth < 1 { 1 } else { maxDepth }
+	let tree = NewTree(handle.ThreadID("root"), TreeBounds{MaxDepth: clampedDepth, MaxFanOut: 2, MaxBudget: 4})
+	let zero = tree.Nodes.Get(handle.ThreadID("root"))
+	match zero {
+	case option.None:
+		false
+	case option.Some[SubagentNode] as r:
+		let isRootParent = match r.Value.ParentThreadID {
+		case option.None:
+			true
+		case option.Some[handle.ThreadID]:
+			false
+		}
+		isRootParent && depthBounded(tree) && budgetHeld(tree)
+	}
+}
+
+type ActSubSpawnC1 {}
+
+type ActSubSpawnC2 {}
+
+type ActSubSpawnGrand {}
+
+type ActSubOpenHandleC1 {}
+
+type ActSubSettleHandleC1 {}
+
+type ActSubHandBackGrand {}
+
+type ActSubHandBackC1 {}
+
+type ActSubSiblingControl {}
+
+type SubagentAct = ActSubSpawnC1 | ActSubSpawnC2 | ActSubSpawnGrand | ActSubOpenHandleC1 | ActSubSettleHandleC1 | ActSubHandBackGrand | ActSubHandBackC1 | ActSubSiblingControl
+
+type SubagentWorld {
+	Tree                  Tree,
+	HandBackOpenBlocked   bool,
+	SiblingControlBlocked bool,
+}
+
+func idRoot() handle.ThreadID { handle.ThreadID("root") }
+
+func idC1() handle.ThreadID { handle.ThreadID("child-1") }
+
+func idC2() handle.ThreadID { handle.ThreadID("child-2") }
+
+func idGrand() handle.ThreadID { handle.ThreadID("grand-1") }
+
+func firstSubagentWorld() SubagentWorld {
+	SubagentWorld{
+		Tree:                  NewTree(idRoot(), TreeBounds{MaxDepth: 2, MaxFanOut: 2, MaxBudget: 3}),
+		HandBackOpenBlocked:   false,
+		SiblingControlBlocked: false,
+	}
+}
+
+func stepSubagentWorld(w SubagentWorld, a SubagentAct) machines.Decision[SubagentWorld, string] {
+	match a {
+	case ActSubSpawnC1:
+		let next = SpawnChild(w.Tree, idRoot(), idC1(), RoleImplementor) catch {
+		case _:
+			return machines.Ignore
+		}
+		machines.Enter[SubagentWorld]{Next: SubagentWorld{..w, Tree: next}}
+
+	case ActSubSpawnC2:
+		let next = SpawnChild(w.Tree, idRoot(), idC2(), RoleVerifier) catch {
+		case _:
+			return machines.Ignore
+		}
+		machines.Enter[SubagentWorld]{Next: SubagentWorld{..w, Tree: next}}
+
+	case ActSubSpawnGrand:
+		let next = SpawnChild(w.Tree, idC1(), idGrand(), RoleWorker) catch {
+		case _:
+			return machines.Ignore
+		}
+		machines.Enter[SubagentWorld]{Next: SubagentWorld{..w, Tree: next}}
+
+	case ActSubOpenHandleC1:
+		let next = OpenHandleOnNode(w.Tree, idC1(), handle.HandleID("h-c1")) catch {
+		case _:
+			return machines.Ignore
+		}
+		machines.Enter[SubagentWorld]{Next: SubagentWorld{..w, Tree: next}}
+
+	case ActSubSettleHandleC1:
+		let next = SettleHandleOnNode(w.Tree, idC1(), handle.HandleID("h-c1")) catch {
+		case _:
+			return machines.Ignore
+		}
+		machines.Enter[SubagentWorld]{Next: SubagentWorld{..w, Tree: next}}
+
+	case ActSubHandBackGrand:
+		let next = FinalizeHandBack(w.Tree, idGrand()) catch {
+		case _:
+			return machines.Ignore
+		}
+		machines.Enter[SubagentWorld]{Next: SubagentWorld{..w, Tree: next}}
+
+	case ActSubHandBackC1:
+		let next = FinalizeHandBack(w.Tree, idC1()) catch {
+		case r:
+			match r {
+			case OpenHandlesBlockHandBack:
+				if !w.HandBackOpenBlocked {
+					return machines.Enter[SubagentWorld]{Next: SubagentWorld{..w, HandBackOpenBlocked: true}}
+				}
+			case ParentNodeNotFound, NodeNotFound, DuplicateSubagentID, MaxDepthExceeded, MaxFanOutExceeded, BudgetExhausted, OutsideSubtreeScope, ActiveChildBlocksHandBack, InvalidSubagentState:
+			}
+			return machines.Ignore
+		}
+		machines.Enter[SubagentWorld]{Next: SubagentWorld{..w, Tree: next}}
+
+	case ActSubSiblingControl:
+		match w.Tree.Nodes.Get(idC1()) {
+		case option.None:
+			return machines.Ignore
+		case option.Some[SubagentNode]:
+		}
+		match w.Tree.Nodes.Get(idC2()) {
+		case option.None:
+			return machines.Ignore
+		case option.Some[SubagentNode]:
+		}
+		if w.SiblingControlBlocked {
+			return machines.Ignore
+		}
+		let next = ControlOpenHandle(w.Tree, idC2(), idC1(), handle.HandleID("h-cross")) catch {
+		case OutsideSubtreeScope:
+			return machines.Enter[SubagentWorld]{Next: SubagentWorld{..w, SiblingControlBlocked: true}}
+		case ParentNodeNotFound, NodeNotFound, DuplicateSubagentID, MaxDepthExceeded, MaxFanOutExceeded, BudgetExhausted, OpenHandlesBlockHandBack, ActiveChildBlocksHandBack, InvalidSubagentState:
+			return machines.Ignore
+		}
+		machines.Enter[SubagentWorld]{
+			Next: SubagentWorld{..w, Tree: Tree{..next, OutOfSubtreeViolation: true}},
+		}
+	}
+}
+
+func worldZeroSpinParkedTree(w SubagentWorld) bool { zeroSpinParkedTree(w.Tree) }
+
+func worldZeroChildHandBackWithOpenHandles(w SubagentWorld) bool { zeroChildHandBackWithOpenHandles(w.Tree) }
+
+func worldChildWaitsForDescendants(w SubagentWorld) bool { childWaitsForDescendants(w.Tree) }
+
+func worldDepthBounded(w SubagentWorld) bool { depthBounded(w.Tree) }
+
+func worldFanOutBounded(w SubagentWorld) bool { fanOutBounded(w.Tree) }
+
+func worldBudgetHeld(w SubagentWorld) bool { budgetHeld(w.Tree) }
+
+func worldOnlyInOwnSubtree(w SubagentWorld) bool { !w.Tree.OutOfSubtreeViolation }
+
+func worldSingleHandBackWakePerChild(w SubagentWorld) bool { singleHandBackWakePerChild(w.Tree) }
+
+func grandchildFinishedThenChildHandedBack(w SubagentWorld) bool {
+	match (w.Tree.Nodes.Get(idGrand()), w.Tree.Nodes.Get(idC1())) {
+	case (option.Some[SubagentNode] as g, option.Some[SubagentNode] as c):
+		g.Value.State == NodeDone && c.Value.State == NodeDone && c.Value.HandBackCount == 1
+	case (_, _):
+		false
+	}
+}
+
+func childBlockedWhileHandleOpen(w SubagentWorld) bool {
+	w.HandBackOpenBlocked
+}
+
+func siblingControlDenied(w SubagentWorld) bool {
+	w.SiblingControlBlocked && !w.Tree.OutOfSubtreeViolation
+}
+
+// SubagentLifecycle exhaustively proves recursive tree bounds, zero-spin parking, handle-gated hand-back, and subtree isolation.
+type SubagentLifecycle machine[SubagentWorld, SubagentAct] {
+	initial: firstSubagentWorld(),
+	step:    stepSubagentWorld,
+
+	law ZeroSpinParkedTree always worldZeroSpinParkedTree,
+	law ZeroChildHandBackWithOpenHandles always worldZeroChildHandBackWithOpenHandles,
+	law ChildWaitsForDescendants always worldChildWaitsForDescendants,
+	law DepthBounded always worldDepthBounded,
+	law FanOutBounded always worldFanOutBounded,
+	law BudgetHeld always worldBudgetHeld,
+	law OnlyInOwnSubtree always worldOnlyInOwnSubtree,
+	law SingleHandBackWakePerChild always worldSingleHandBackWakePerChild,
+
+	law GrandchildFinishedThenChildHandedBack sometimes grandchildFinishedThenChildHandedBack,
+	law ChildBlockedWhileHandleOpen sometimes childBlockedWhileHandleOpen,
+	law SiblingControlDenied sometimes siblingControlDenied,
+}
+
+test SubagentBlocksHandBackOnOpenHandlesAndEnforcesSubtreeAndParentID {
+	let bounds = TreeBounds{MaxDepth: 2, MaxFanOut: 1, MaxBudget: 2}
+	let t0 = NewTree(idRoot(), bounds)
+	let t1 = try SpawnChild(t0, idRoot(), idC1(), RoleImplementor)
+	match t1.Nodes.Get(idRoot()) {
+	case option.Some[SubagentNode] as r:
+		assert r.Value.State == NodeParked
+	case option.None:
+		assert false
+	}
+
+	let t2 = try SpawnChild(t1, idC1(), idGrand(), RoleWorker)
+	let t3 = try OpenHandleOnNode(t2, idC1(), handle.HandleID("h-1"))
+
+	let mut childBlocked = false
+	let _ = FinalizeHandBack(t3, idC1()) catch {
+	case OpenHandlesBlockHandBack:
+		childBlocked = true
+		t3
+	case ParentNodeNotFound, NodeNotFound, DuplicateSubagentID, MaxDepthExceeded, MaxFanOutExceeded, BudgetExhausted, OutsideSubtreeScope, ActiveChildBlocksHandBack, InvalidSubagentState:
+		t3
+	}
+	assert childBlocked
+
+	let t4 = try SettleHandleOnNode(t3, idC1(), handle.HandleID("h-1"))
+	let mut descBlocked = false
+	let _ = FinalizeHandBack(t4, idC1()) catch {
+	case ActiveChildBlocksHandBack:
+		descBlocked = true
+		t4
+	case ParentNodeNotFound, NodeNotFound, DuplicateSubagentID, MaxDepthExceeded, MaxFanOutExceeded, BudgetExhausted, OutsideSubtreeScope, OpenHandlesBlockHandBack, InvalidSubagentState:
+		t4
+	}
+	assert descBlocked
+
+	let t5 = try FinalizeHandBack(t4, idGrand())
+	let t6 = try FinalizeHandBack(t5, idC1())
+	match t6.Nodes.Get(idRoot()) {
+	case option.Some[SubagentNode] as r:
+		assert r.Value.State == NodeRunning
+	case option.None:
+		assert false
+	}
+	let childThread = try thread.NewThread(
+		thread.ThreadSpec{
+			ID:                 idC1(),
+			ParentThreadID:     option.Some[handle.ThreadID]{Value: idRoot()},
+			Driver:             adapter.CodexDirect,
+			AgyDirectSupported: false,
+			RequestedMode:      adapter.ModeAsk,
+			Instance:           adapter.InstanceID("inst-sub"),
+			ConfigDir:          "/cfg",
+			SharedHome:         option.None,
+			Model:              adapter.ModelID("gpt-5"),
+			LinkOrigin:         thread.OriginSubagentChild{ParentID: idRoot()},
+		},
+	)
+	assert ThreadMatchesParent(t6, childThread)
+}

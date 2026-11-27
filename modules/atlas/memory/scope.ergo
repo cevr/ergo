@@ -1,0 +1,375 @@
+import github.com/cevr/ergo/modules/atlas/cutover
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/reconcile
+import github.com/cevr/ergo/modules/atlas/subagent
+import github.com/cevr/ergo/modules/atlas/thread
+import github.com/cevr/ergo/modules/atlas/turn
+import option
+
+func scopeWithThread(dst State, src State, id handle.ThreadID) State {
+	match src.Threads.Get(id) {
+	case option.None:
+		dst
+	case option.Some[thread.Thread] as t:
+		State{
+			..dst,
+			Threads:     dst.Threads.Put(id, t.Value),
+			ThreadOrder: appendUniqueThreadID(dst.ThreadOrder, id),
+		}
+	}
+}
+
+func scopeWithTree(dst State, src State, rootOpt option.Option[handle.ThreadID]) State {
+	let rootID = match rootOpt {
+	case option.None:
+		return dst
+	case option.Some[handle.ThreadID] as r:
+		r.Value
+	}
+	match src.Trees.Get(rootID) {
+	case option.None:
+		dst
+	case option.Some[subagent.Tree] as tr:
+		State{
+			..dst,
+			Trees:     dst.Trees.Put(rootID, tr.Value),
+			TreeOrder: appendUniqueThreadID(dst.TreeOrder, rootID),
+		}
+	}
+}
+
+func scopeWithHandle(dst State, src State, id handle.HandleID) State {
+	let reg = dst.Registry
+	let nextHandles = match src.Registry.Handles.Get(id) {
+	case option.Some[handle.WakeHandle] as h:
+		reg.Handles.Put(id, h.Value)
+	case option.None:
+		reg.Handles
+	}
+	let nextOrder = match src.Registry.Handles.Get(id) {
+	case option.Some[handle.WakeHandle]:
+		appendUniqueHandleID(reg.Order, id)
+	case option.None:
+		reg.Order
+	}
+	let nextLetters = match src.Registry.WakeLetters.Get(id) {
+	case option.Some[int] as n:
+		reg.WakeLetters.Put(id, n.Value)
+	case option.None:
+		reg.WakeLetters
+	}
+	let delivID = handle.WakeDeliveryID(id)
+	let nextWakes = match src.Wakes.Get(delivID) {
+	case option.Some[reconcile.WakeRecord] as w:
+		dst.Wakes.Put(delivID, w.Value)
+	case option.None:
+		dst.Wakes
+	}
+	let nextWakeOrd = match src.Wakes.Get(delivID) {
+	case option.Some[reconcile.WakeRecord]:
+		appendUniqueString(dst.WakeOrder, delivID)
+	case option.None:
+		dst.WakeOrder
+	}
+	State{
+		..dst,
+		Registry:  handle.RegistryState{Handles: nextHandles, Order: nextOrder, WakeLetters: nextLetters},
+		Wakes:     nextWakes,
+		WakeOrder: nextWakeOrd,
+	}
+}
+
+func scopeWithWake(dst State, src State, deliveryID string) State {
+	match src.Wakes.Get(deliveryID) {
+	case option.None:
+		dst
+	case option.Some[reconcile.WakeRecord] as w:
+		State{
+			..dst,
+			Wakes:     dst.Wakes.Put(deliveryID, w.Value),
+			WakeOrder: appendUniqueString(dst.WakeOrder, deliveryID),
+		}
+	}
+}
+
+func scopeWithLease(dst State, src State, leaseID string) State {
+	if leaseID == "" {
+		return dst
+	}
+	match src.Leases.Get(leaseID) {
+	case option.None:
+		dst
+	case option.Some[LeaseRecord] as lr:
+		State{
+			..dst,
+			Leases:     dst.Leases.Put(leaseID, lr.Value),
+			LeaseOrder: appendUniqueString(dst.LeaseOrder, leaseID),
+		}
+	}
+}
+
+func scopeThreadCmd(dst State, src State, cmd Command) State {
+	match cmd {
+	case CmdCreateThread as c:
+		let d1 = scopeWithThread(dst, src, c.Spec.ID)
+		match c.Spec.ParentThreadID {
+		case option.Some[handle.ThreadID] as pid:
+			scopeWithThread(d1, src, pid.Value)
+		case option.None:
+			d1
+		}
+	case CmdAddBranchEdge as c:
+		let d1 = scopeWithThread(dst, src, c.Branch.ParentThreadID)
+		let d2 = scopeWithThread(d1, src, c.Branch.ChildThreadID)
+		let mut edges = d2.BranchEdges
+		for _, e in src.BranchEdges {
+			if e.ParentThreadID == c.Branch.ParentThreadID && e.ChildThreadID == c.Branch.ChildThreadID {
+				edges = edges.Append(e)
+			}
+		}
+		State{..d2, BranchEdges: edges}
+	case CmdSwitchDriver as c:
+		scopeWithThread(dst, src, c.ThreadID)
+	case CmdEnqueuePrompt as c:
+		scopeWithThread(dst, src, c.ThreadID)
+	case CmdDequeuePrompt as c:
+		scopeWithThread(dst, src, c.TargetThreadID)
+	case CmdStartTurn as c:
+		scopeWithThread(dst, src, c.ThreadID)
+	case CmdStepTurn as c:
+		scopeWithThread(dst, src, c.ThreadID)
+	case CmdArchiveThread as c:
+		scopeWithThread(dst, src, c.ID)
+	case _:
+		dst
+	}
+}
+
+func scopeHandleAndSubagentCmd(dst State, src State, cmd Command) State {
+	match cmd {
+	case CmdInitSubagentTree as c:
+		scopeWithTree(dst, src, option.Some[handle.ThreadID]{Value: c.RootID})
+	case CmdSpawnSubagent as c:
+		scopeWithTree(dst, src, option.Some[handle.ThreadID]{Value: c.RootID})
+	case CmdSubagentControlHandle as c:
+		scopeWithTree(dst, src, option.Some[handle.ThreadID]{Value: c.RootID})
+	case CmdSubagentSettleHandle as c:
+		scopeWithTree(dst, src, option.Some[handle.ThreadID]{Value: c.RootID})
+	case CmdSubagentHandBack as c:
+		scopeWithTree(dst, src, option.Some[handle.ThreadID]{Value: c.RootID})
+	case CmdOpenHandle as c:
+		let d1 = scopeWithHandle(dst, src, c.Spec.ID)
+		scopeWithTree(d1, src, c.SubagentRoot)
+	case CmdMarkHandleHanded as c:
+		scopeWithHandle(dst, src, c.CallID)
+	case CmdSettleHandle as c:
+		let d1 = scopeWithHandle(dst, src, c.ID)
+		scopeWithTree(d1, src, c.SubagentRoot)
+	case CmdRetireOwnerCalls as c:
+		let mut cur = dst
+		for _, hid in src.Registry.Order {
+			match src.Registry.Handles.Get(hid) {
+			case option.Some[handle.WakeHandle] as h:
+				if h.Value.Owner == c.DeadOwner {
+					cur = scopeWithHandle(cur, src, hid)
+				}
+			case option.None:
+			}
+		}
+		cur
+	case _:
+		dst
+	}
+}
+
+func scopeWakeQuestionPoolCmd(dst State, src State, cmd Command) State {
+	match cmd {
+	case CmdRecordWake as c:
+		scopeWithWake(dst, src, c.Wake.DeliveryID)
+	case CmdMarkWakeDelivered as c:
+		scopeWithWake(dst, src, c.WakeDeliveryID)
+	case CmdOpenPoolHold as c:
+		match src.Holds.Get(c.HoldKey) {
+		case option.Some[PoolHold] as h:
+			State{..dst, Holds: dst.Holds.Put(c.HoldKey, h.Value), HoldOrder: appendUniqueString(dst.HoldOrder, c.HoldKey)}
+		case option.None:
+			dst
+		}
+	case CmdTransitionHold as c:
+		let d1 = match src.Holds.Get(c.HoldKey) {
+		case option.Some[PoolHold] as h:
+			let withHold = State{..dst, Holds: dst.Holds.Put(c.HoldKey, h.Value), HoldOrder: appendUniqueString(dst.HoldOrder, c.HoldKey)}
+			scopeWithWake(withHold, src, h.Value.DeliveryID)
+		case option.None:
+			dst
+		}
+		d1
+	case CmdAskUserAsync as c:
+		let d1 = match src.Questions.Get(c.ID) {
+		case option.Some[AsyncQuestion] as q:
+			State{..dst, Questions: dst.Questions.Put(c.ID, q.Value), QuestionOrder: appendUniqueRequestID(dst.QuestionOrder, c.ID)}
+		case option.None:
+			dst
+		}
+		scopeWithHandle(d1, src, c.HandleID)
+	case CmdAnswerAsyncQuestion as c:
+		let d1 = match src.Questions.Get(c.ID) {
+		case option.Some[AsyncQuestion] as q:
+			let withQ = State{..dst, Questions: dst.Questions.Put(c.ID, q.Value), QuestionOrder: appendUniqueRequestID(dst.QuestionOrder, c.ID)}
+			scopeWithHandle(withQ, src, q.Value.HandleID)
+		case option.None:
+			dst
+		}
+		match src.Requests.Get(c.ID) {
+		case option.Some[turn.RequestState] as rq:
+			State{..d1, Requests: d1.Requests.Put(c.ID, rq.Value), RequestOrder: appendUniqueRequestID(d1.RequestOrder, c.ID)}
+		case option.None:
+			d1
+		}
+	case CmdWithdrawAsyncQuestion as c:
+		let d1 = match src.Questions.Get(c.ID) {
+		case option.Some[AsyncQuestion] as q:
+			let withQ = State{..dst, Questions: dst.Questions.Put(c.ID, q.Value), QuestionOrder: appendUniqueRequestID(dst.QuestionOrder, c.ID)}
+			scopeWithHandle(withQ, src, q.Value.HandleID)
+		case option.None:
+			dst
+		}
+		match src.Requests.Get(c.ID) {
+		case option.Some[turn.RequestState] as rq:
+			State{..d1, Requests: d1.Requests.Put(c.ID, rq.Value), RequestOrder: appendUniqueRequestID(d1.RequestOrder, c.ID)}
+		case option.None:
+			d1
+		}
+	case CmdUpsertPoolAccount as c:
+		match src.Accounts.Get(c.Pool.ID) {
+		case option.Some[PoolAccount] as a:
+			State{..dst, Accounts: dst.Accounts.Put(c.Pool.ID, a.Value), AccountOrder: appendUniqueAccountID(dst.AccountOrder, c.Pool.ID)}
+		case option.None:
+			dst
+		}
+	case CmdAdjustPoolInflight as c:
+		match src.Accounts.Get(c.AccountID) {
+		case option.Some[PoolAccount] as a:
+			State{..dst, Accounts: dst.Accounts.Put(c.AccountID, a.Value), AccountOrder: appendUniqueAccountID(dst.AccountOrder, c.AccountID)}
+		case option.None:
+			dst
+		}
+	case CmdClaimResetDispatch as c:
+		let ck = FormatResetClaimKey(c.AccountID, c.WindowKind, c.PeriodKey)
+		match src.ResetClaims.Get(ck) {
+		case option.Some[ResetClaim] as cl:
+			State{..dst, ResetClaims: dst.ResetClaims.Put(ck, cl.Value), ClaimOrder: appendUniqueString(dst.ClaimOrder, ck)}
+		case option.None:
+			dst
+		}
+	case CmdSetOwnerPush as c:
+		match src.Pushes.Get(c.Reserve.PushID) {
+		case option.Some[OwnerPush] as p:
+			State{..dst, Pushes: dst.Pushes.Put(c.Reserve.PushID, p.Value), PushOrder: appendUniqueString(dst.PushOrder, c.Reserve.PushID)}
+		case option.None:
+			dst
+		}
+	case CmdStepLimitRecovery as c:
+		let lk = turn.FormatLimitRecoveryKey(c.Key)
+		match src.Limits.Get(lk) {
+		case option.Some[turn.LimitState] as ls:
+			State{..dst, Limits: dst.Limits.Put(lk, ls.Value), LimitOrder: appendUniqueString(dst.LimitOrder, lk)}
+		case option.None:
+			dst
+		}
+	case _:
+		dst
+	}
+}
+
+func scopeKernelLeaseBootCmd(dst State, src State, cmd Command) State {
+	match cmd {
+	case CmdSaveKernelSnapshot as c:
+		match src.Snapshots.Get(c.SessionID) {
+		case option.Some[KernelSnapshot] as sn:
+			State{..dst, Snapshots: dst.Snapshots.Put(c.SessionID, sn.Value), SnapshotOrder: appendUniqueSessionID(dst.SnapshotOrder, c.SessionID)}
+		case option.None:
+			dst
+		}
+	case CmdRecordKernelCut as c:
+		let d1 = match src.Journals.Get(c.CutID) {
+		case option.Some[KernelCutJournal] as j:
+			State{..dst, Journals: dst.Journals.Put(c.CutID, j.Value), JournalOrder: appendUniqueString(dst.JournalOrder, c.CutID)}
+		case option.None:
+			dst
+		}
+		match src.RootUsages.Get(c.RootThreadID) {
+		case option.Some[KernelRootUsage] as u:
+			State{..d1, RootUsages: d1.RootUsages.Put(c.RootThreadID, u.Value), RootUsageOrd: appendUniqueThreadID(d1.RootUsageOrd, c.RootThreadID)}
+		case option.None:
+			d1
+		}
+	case CmdAcquireLease as c:
+		scopeWithLease(dst, src, c.LeaseID)
+	case CmdStepLeaseCutover as c:
+		let d1 = scopeWithLease(dst, src, c.LeaseID)
+		match c.Action {
+		case cutover.ActDeliverH1Wake as dl:
+			scopeWithWake(d1, src, handle.WakeDeliveryID(dl.ID))
+		case _:
+			d1
+		}
+	case CmdApplyBootReconcile as c:
+		let d1 = State{
+			..dst,
+			Registry:     src.Registry,
+			Wakes:        src.Wakes,
+			WakeOrder:    src.WakeOrder,
+			Threads:      src.Threads,
+			ThreadOrder:  src.ThreadOrder,
+			Requests:     src.Requests,
+			RequestOrder: src.RequestOrder,
+		}
+		scopeWithTree(d1, src, c.RootID)
+	case _:
+		dst
+	}
+}
+
+// Scope returns the minimal slice of State inspected by Decide(s, env) for one command execution.
+func Scope(s State, env Envelope) State {
+	let base = InitialState()
+	let withCmd = match s.Commands.Get(env.ID) {
+	case option.Some[CommandReceipt] as rec:
+		State{..base, Commands: base.Commands.Put(env.ID, rec.Value)}
+	case option.None:
+		base
+	}
+	let withFence = match env.LeaseFence {
+	case option.Some[LeaseFenceCheck] as f:
+		scopeWithLease(withCmd, s, f.Value.LeaseID)
+	case option.None:
+		withCmd
+	}
+	let d1 = scopeThreadCmd(withFence, s, env.Command)
+	let d2 = scopeHandleAndSubagentCmd(d1, s, env.Command)
+	let d3 = scopeWakeQuestionPoolCmd(d2, s, env.Command)
+	scopeKernelLeaseBootCmd(d3, s, env.Command)
+}
+
+func decideOutcomeEqual(a State, b State, env Envelope) bool {
+	let full = Decide(a, env) catch {
+	case errA:
+		let other = Decide(b, env) catch {
+		case errB:
+			return errA == errB
+		}
+		let _ = other
+		return false
+	}
+	let scoped = Decide(b, env) catch {
+	case _:
+		return false
+	}
+	full == scoped
+}
+
+// DecideReadsOnlyItsScope verifies that Decide depends exclusively on the slice returned by Scope.
+law DecideReadsOnlyItsScope(s State, env Envelope) {
+	decideOutcomeEqual(s, Scope(s, env), env)
+}

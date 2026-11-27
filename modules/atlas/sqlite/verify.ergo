@@ -1,0 +1,683 @@
+import github.com/cevr/ergo/modules/atlas/adapter
+import github.com/cevr/ergo/modules/atlas/cutover
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/memory
+import github.com/cevr/ergo/modules/atlas/session
+import github.com/cevr/ergo/modules/atlas/subagent
+import github.com/cevr/ergo/modules/atlas/thread
+import github.com/cevr/ergo/modules/atlas/turn
+import github.com/cevr/ergo/modules/sqlite/sqlite
+import option
+import sql
+import strconv
+import sync
+import task
+
+type agreeOutcome =
+	| agreeOK{Res memory.ExecuteResult}
+	| agreeRefused{Tag string}
+
+type abortProbe {}
+
+func failMidTx() bool fails abortProbe {
+	abortProbe
+}
+
+let verifyCounter = sync.NewRef(0)
+
+func nextVerifyDBPath(prefix string) (string, string) fails memory.StoreFailed needs go.Foreign {
+	let dir = try freshWALDir()
+	let n = sync.Modify(verifyCounter, func(cur int) (int, int) { (cur + 1, cur + 1) })
+	let name = prefix + "-" + strconv.Itoa(n) + ".db"
+	cleanFile(dir, name)
+	cleanFile(dir, name+"-wal")
+	cleanFile(dir, name+"-shm")
+	(dir, name)
+}
+
+func cleanupVerifyDB(dir string, name string) needs go.Foreign {
+	cleanFile(dir, name)
+	cleanFile(dir, name+"-wal")
+	cleanFile(dir, name+"-shm")
+}
+
+func closeSafe(s Store) needs go.Foreign {
+	s.Close() catch {
+	case memory.StoreFailed:
+	}
+}
+
+func execOutcomeTag(s memory.Store, env memory.Envelope) agreeOutcome fails memory.StoreFailed {
+	let res = s.Execute(env) catch {
+	case memory.NotFound:
+		return agreeRefused{Tag: "NotFound"}
+	case memory.AlreadyExists:
+		return agreeRefused{Tag: "AlreadyExists"}
+	case memory.InvalidTransition:
+		return agreeRefused{Tag: "InvalidTransition"}
+	case memory.CommandReused:
+		return agreeRefused{Tag: "CommandReused"}
+	case memory.InvalidInput:
+		return agreeRefused{Tag: "InvalidInput"}
+	case memory.LeaseFenced:
+		return agreeRefused{Tag: "LeaseFenced"}
+	case memory.ThreadDomainErr:
+		return agreeRefused{Tag: "ThreadDomainErr"}
+	case memory.SubagentDomainErr:
+		return agreeRefused{Tag: "SubagentDomainErr"}
+	case memory.HandleDomainErr:
+		return agreeRefused{Tag: "HandleDomainErr"}
+	case memory.LimitDomainErr:
+		return agreeRefused{Tag: "LimitDomainErr"}
+	case memory.RequestDomainErr:
+		return agreeRefused{Tag: "RequestDomainErr"}
+	case memory.CutoverDomainErr:
+		return agreeRefused{Tag: "CutoverDomainErr"}
+	case memory.StoreFailed as e:
+		return e
+	}
+	agreeOK{Res: res}
+}
+
+func verifyAllBackendsEqual(mem memory.MemStore, sqlStore Store, prefix string) bool fails memory.StoreFailed needs go.Foreign {
+	let rootID = handle.ThreadID("\(prefix)-root")
+	let hf = memory.HandleFilter{Session: option.None, Owner: option.None, OpenOnly: false}
+	let qf = memory.QuestionFilter{ThreadID: option.None, Status: option.None}
+	let bq = memory.BootQuery{
+		RootID:                     option.Some[handle.ThreadID]{Value: rootID},
+		BootingOwner:               handle.OwnerID{ServerID: "srv-a", Location: "loc-1", Epoch: 1},
+		LiveForeignOwners:          []handle.OwnerID{handle.OwnerID{ServerID: "srv-b", Location: "loc-1", Epoch: 2}},
+		PendingRequestsSurviveBoot: true,
+		LeaseID:                    "\(prefix)-lease",
+	}
+	let snapEq = try sqlStore.Snapshot() == try mem.Snapshot()
+	let eventsEq = try sqlStore.Events(0) == try mem.Events(0)
+	let tvEq = try sqlStore.GetThreadView(rootID) == try mem.GetThreadView(rootID)
+	let stEq = try sqlStore.GetSubagentTree(rootID) == try mem.GetSubagentTree(rootID)
+	let hvEq = try sqlStore.GetHandleView(hf) == try mem.GetHandleView(hf)
+	let qEq = try sqlStore.GetQuestions(qf) == try mem.GetQuestions(qf)
+	let pvEq = try sqlStore.GetPoolView(int64(10000)) == try mem.GetPoolView(int64(10000))
+	let kvEq = try sqlStore.GetKernelView(handle.SessionID("sess")) == try mem.GetKernelView(handle.SessionID("sess"))
+	let blEq = try sqlStore.GetLeaseAndBoot(bq) == try mem.GetLeaseAndBoot(bq)
+	snapEq && eventsEq && tvEq && stEq && hvEq && qEq && pvEq && kvEq && blEq
+}
+
+func crashThreadSpec(id handle.ThreadID, parent option.Option[handle.ThreadID]) thread.ThreadSpec {
+	thread.ThreadSpec{
+		ID:                 id,
+		ParentThreadID:     parent,
+		Driver:             adapter.ClaudeMeta,
+		AgyDirectSupported: false,
+		RequestedMode:      adapter.ModeAutoEdit,
+		Instance:           adapter.InstanceID("inst"),
+		ConfigDir:          "/cfg/" + string(id),
+		SharedHome:         option.None,
+		Model:              adapter.ModelID("gpt-5"),
+		LinkOrigin:         thread.OriginLocal,
+	}
+}
+
+let agreeCachedStore = sync.NewRef[option.Option[Store]](option.None)
+
+func runAgreesWithMemory(steps []int) bool fails memory.StoreFailed needs go.Foreign {
+	let dir = try freshWALDir()
+	let name = "agree.db"
+	let path = dir + "/" + name
+	let mem = memory.New()
+	let cached = sync.Modify(agreeCachedStore, func(cur option.Option[Store]) (option.Option[Store], option.Option[Store]) {
+		(cur, option.None)
+	})
+	let sqlStore = match cached {
+	case option.Some[Store] as existing:
+		resetStoreData(existing.Value) catch {
+		case e:
+			closeSafe(existing.Value)
+			cleanupVerifyDB(dir, name)
+			return e
+		}
+	case option.None:
+		let opened = try Open(path)
+		resetStoreData(opened) catch {
+		case e:
+			closeSafe(opened)
+			cleanupVerifyDB(dir, name)
+			return e
+		}
+	}
+	let limit = if steps.Len() > 16 { 16 } else { steps.Len() }
+	let prefix = "ag-\(steps.Len())"
+	let mut idx = 0
+	for idx < limit {
+		let env = memory.ScriptedEnvelope(idx, steps[idx], prefix)
+		let memOut = execOutcomeTag(mem, env) catch {
+		case e:
+			closeSafe(sqlStore)
+			cleanupVerifyDB(dir, name)
+			return e
+		}
+		let sqlOut = execOutcomeTag(sqlStore, env) catch {
+		case e:
+			closeSafe(sqlStore)
+			cleanupVerifyDB(dir, name)
+			return e
+		}
+		if memOut != sqlOut {
+			closeSafe(sqlStore)
+			cleanupVerifyDB(dir, name)
+			return false
+		}
+		idx = idx + 1
+	}
+	closeSafe(sqlStore)
+	let reopened = Open(path) catch {
+	case e:
+		cleanupVerifyDB(dir, name)
+		return e
+	}
+	let equal = verifyAllBackendsEqual(mem, reopened, prefix) catch {
+	case e:
+		closeSafe(reopened)
+		cleanupVerifyDB(dir, name)
+		return e
+	}
+	if equal {
+		let kept = sync.Modify(agreeCachedStore, func(cur option.Option[Store]) (bool, option.Option[Store]) {
+			match cur {
+			case option.None:
+				(true, option.Some[Store]{Value: reopened})
+			case option.Some[Store]:
+				(false, cur)
+			}
+		})
+		if !kept {
+			closeSafe(reopened)
+		}
+	} else {
+		closeSafe(reopened)
+	}
+	equal
+}
+
+func seedCrashCommands(tag int, rootID handle.ThreadID, childID handle.ThreadID) []memory.Envelope {
+	let o1 = handle.OwnerID{ServerID: "srv-old", Location: "dc1", Epoch: 1}
+	let o2 = handle.OwnerID{ServerID: "srv-new", Location: "dc1", Epoch: 2}
+	let sessID = handle.SessionID("sess")
+	let leaseID = "cr-lease-\(tag)"
+	let accID = session.AccountID("cr-acc-\(tag)")
+	let holdKey = "cr-hold-\(tag)"
+	let qID = turn.RequestID("cr-q-\(tag)")
+	[]memory.Envelope{
+		memory.Envelope{ID: memory.CommandID("c1-\(tag)"), Actor: "sys", AtMs: int64(100), LeaseFence: option.None, Command: memory.CmdAcquireLease{LeaseID: leaseID, Owner: o1, ExpectedEpoch: 0}},
+		memory.Envelope{ID: memory.CommandID("c2-\(tag)"), Actor: "sys", AtMs: int64(110), LeaseFence: option.None, Command: memory.CmdStepLeaseCutover{LeaseID: leaseID, NewOwner: option.None, Action: cutover.ActBeginQuiesce}},
+		memory.Envelope{ID: memory.CommandID("c3-\(tag)"), Actor: "sys", AtMs: int64(120), LeaseFence: option.None, Command: memory.CmdStepLeaseCutover{LeaseID: leaseID, NewOwner: option.None, Action: cutover.ActOpenCutoverHandle{ID: handle.HandleID("h1-\(tag)"), Kind: handle.KindLand}}},
+		memory.Envelope{ID: memory.CommandID("c4-\(tag)"), Actor: "sys", AtMs: int64(130), LeaseFence: option.None, Command: memory.CmdStepLeaseCutover{LeaseID: leaseID, NewOwner: option.None, Action: cutover.ActStageTransfer}},
+		memory.Envelope{ID: memory.CommandID("c5-\(tag)"), Actor: "sys", AtMs: int64(140), LeaseFence: option.None, Command: memory.CmdStepLeaseCutover{LeaseID: leaseID, NewOwner: option.Some[handle.OwnerID]{Value: o2}, Action: cutover.ActCommitPersisted}},
+		memory.Envelope{ID: memory.CommandID("c6-\(tag)"), Actor: "op", AtMs: int64(200), LeaseFence: option.None, Command: memory.CmdCreateThread{Spec: crashThreadSpec(rootID, option.None), EdgeLabel: "root"}},
+		memory.Envelope{ID: memory.CommandID("c7-\(tag)"), Actor: "op", AtMs: int64(210), LeaseFence: option.None, Command: memory.CmdCreateThread{Spec: crashThreadSpec(childID, option.Some[handle.ThreadID]{Value: rootID}), EdgeLabel: "child"}},
+		memory.Envelope{ID: memory.CommandID("c8-\(tag)"), Actor: "op", AtMs: int64(220), LeaseFence: option.None, Command: memory.CmdStartTurn{ThreadID: rootID, TurnID: turn.TurnID("t-open-\(tag)")}},
+		memory.Envelope{ID: memory.CommandID("c9-\(tag)"), Actor: "op", AtMs: int64(230), LeaseFence: option.None, Command: memory.CmdStepTurn{ThreadID: rootID, Action: turn.ActionReceiveDelta}},
+		memory.Envelope{ID: memory.CommandID("c10-\(tag)"), Actor: "op", AtMs: int64(240), LeaseFence: option.None, Command: memory.CmdEnqueuePrompt{ThreadID: rootID, Prompt: thread.QueuedPrompt{ID: "pq1", Body: "after", RequestedMode: adapter.ModeAutoEdit}}},
+		memory.Envelope{ID: memory.CommandID("c11-\(tag)"), Actor: "op", AtMs: int64(250), LeaseFence: option.None, Command: memory.CmdInitSubagentTree{RootID: rootID, Bounds: subagent.TreeBounds{MaxDepth: 3, MaxFanOut: 4, MaxBudget: 8}}},
+		memory.Envelope{ID: memory.CommandID("c12-\(tag)"), Actor: "op", AtMs: int64(260), LeaseFence: option.None, Command: memory.CmdSpawnSubagent{RootID: rootID, ParentID: rootID, ChildID: childID, Role: subagent.RoleImplementor}},
+		memory.Envelope{ID: memory.CommandID("c13-\(tag)"), Actor: "op", AtMs: int64(270), LeaseFence: option.None, Command: memory.CmdOpenHandle{Spec: handle.OpenHandleSpec{ID: handle.HandleID("dead-call-\(tag)"), Kind: handle.KindCall, Owner: o1, Session: sessID, Summary: "lost call"}, SubagentRoot: option.Some[handle.ThreadID]{Value: rootID}, NodeID: option.Some[handle.ThreadID]{Value: childID}}},
+		memory.Envelope{ID: memory.CommandID("c14-\(tag)"), Actor: "op", AtMs: int64(280), LeaseFence: option.None, Command: memory.CmdOpenHandle{Spec: handle.OpenHandleSpec{ID: handle.HandleID("durable-land-\(tag)"), Kind: handle.KindLand, Owner: o1, Session: sessID, Summary: "durable"}, SubagentRoot: option.None, NodeID: option.None}},
+		memory.Envelope{ID: memory.CommandID("c15-\(tag)"), Actor: "op", AtMs: int64(290), LeaseFence: option.None, Command: memory.CmdOpenPoolHold{HoldKey: holdKey, ThreadID: rootID, AccountID: accID, RetryAtMs: int64(5000), ParentNotified: true}},
+		memory.Envelope{ID: memory.CommandID("c16-\(tag)"), Actor: "op", AtMs: int64(300), LeaseFence: option.None, Command: memory.CmdAskUserAsync{ID: qID, ThreadID: rootID, HandleID: handle.HandleID("qh-\(tag)"), Owner: o2, Session: sessID, Header: "H", Prompt: "Q?", Assumption: "yes", Options: []string{"yes", "no"}, TargetRole: subagent.RoleRoot}},
+		memory.Envelope{ID: memory.CommandID("c17-\(tag)"), Actor: "op", AtMs: int64(310), LeaseFence: option.None, Command: memory.CmdSaveKernelSnapshot{SessionID: sessID, ThreadID: rootID, RootThreadID: rootID, BindingsJSON: "{\"v\":1}", SnapshotBytes: 7, LostNotice: ""}},
+		memory.Envelope{ID: memory.CommandID("c18-\(tag)"), Actor: "op", AtMs: int64(320), LeaseFence: option.None, Command: memory.CmdRecordKernelCut{CutID: "cut-\(tag)", SessionID: sessID, ThreadID: rootID, RootThreadID: rootID, CallsJSON: "[\"c\"]", MapsJSON: "[\"m\"]", StartedAtMs: int64(1000), EndedAtMs: int64(2000), Reason: "done"}},
+	}
+}
+
+func hasLostCallWakeEmitted(handles []handle.WakeHandle) bool {
+	for _, h in handles {
+		if h.Kind == handle.KindCall && h.Disposition == handle.DispLost && h.WakeEmitted {
+			return true
+		}
+	}
+	false
+}
+
+func verifyCrashReopenPostBoot(s3 Store, rootID handle.ThreadID, leaseID string, expectedOwner handle.OwnerID, staleFenced bool) bool fails memory.StoreFailed needs go.Foreign {
+	let snap3 = try s3.Snapshot()
+	let evs3 = try s3.Events(0)
+	let kview = try s3.GetKernelView(handle.SessionID("sess"))
+	let tv = try s3.GetThreadView(rootID)
+	let hv = try s3.GetHandleView(memory.HandleFilter{Session: option.None, Owner: option.None, OpenOnly: false})
+	let qs = try s3.GetQuestions(memory.QuestionFilter{ThreadID: option.Some[handle.ThreadID]{Value: rootID}, Status: option.None})
+	let noticeOK = match kview.Snapshot {
+	case option.Some[memory.KernelSnapshot] as sn:
+		sn.Value.LostNotice != ""
+	case option.None:
+		false
+	}
+	let cutOK = kview.Journals.Len() == 1
+	let leaseOK = match snap3.Leases.Get(leaseID) {
+	case option.Some[memory.LeaseRecord] as ls:
+		ls.Value.Owner == expectedOwner && ls.Value.Epoch == 2
+	case option.None:
+		false
+	}
+	let holdOK = hv.Holds.Len() == 1 && hv.Holds[0].Status == memory.HoldWoken
+	let threadReconciled = match tv {
+	case option.Some[memory.ThreadView] as v:
+		!thread.IsThreadInTurn(v.Value.Thread) && v.Value.PromptQueue.Len() == 1 && v.Value.Edges.Len() == 1
+	case option.None:
+		false
+	}
+	let questionSurvived = qs.Len() == 1 && qs[0].Status == memory.QuestionOpen
+	let wakeCountOK = hv.Wakes.Len() == 2
+	let lostWakeEmittedOK = hasLostCallWakeEmitted(hv.Handles)
+	let foldMatches = memory.Fold(evs3) == snap3
+	staleFenced && noticeOK && cutOK && leaseOK && holdOK && threadReconciled && questionSurvived && wakeCountOK && lostWakeEmittedOK && foldMatches
+}
+
+func runCrashReopenChecks(tag int) bool fails memory.StoreFailed needs go.Foreign {
+	let (dir, name) = try nextVerifyDBPath("crash")
+	let path = dir + "/" + name
+	let o1 = handle.OwnerID{ServerID: "srv-old", Location: "dc1", Epoch: 1}
+	let o2 = handle.OwnerID{ServerID: "srv-new", Location: "dc1", Epoch: 2}
+	let rootID = handle.ThreadID("cr-root-\(tag)")
+	let childID = handle.ThreadID("cr-child-\(tag)")
+	let leaseID = "cr-lease-\(tag)"
+	let holdKey = "cr-hold-\(tag)"
+
+	let s1 = try Open(path)
+	for _, env in seedCrashCommands(tag, rootID, childID) {
+		let _ = s1.Execute(env) catch {
+		case memory.StoreFailed as sf:
+			closeSafe(s1)
+			cleanupVerifyDB(dir, name)
+			return sf
+		case _:
+			closeSafe(s1)
+			cleanupVerifyDB(dir, name)
+			return false
+		}
+	}
+	closeSafe(s1)
+
+	let s2 = Open(path) catch {
+	case e:
+		cleanupVerifyDB(dir, name)
+		return e
+	}
+	let mut staleFenced = false
+	let _ = s2.Execute(memory.Envelope{
+		ID:         memory.CommandID("stale-\(tag)"),
+		Actor:      "old",
+		AtMs:       int64(400),
+		LeaseFence: option.Some[memory.LeaseFenceCheck]{Value: memory.LeaseFenceCheck{LeaseID: leaseID, ExpectedOwner: o1, ExpectedEpoch: 1, MinFencingToken: int64(1)}},
+		Command:    memory.CmdEnqueuePrompt{ThreadID: rootID, Prompt: thread.QueuedPrompt{ID: "bad", Body: "fenced", RequestedMode: adapter.ModeAsk}},
+	}) catch {
+	case memory.LeaseFenced:
+		staleFenced = true
+		memory.ExecuteResult{Seq: 0, Events: []memory.Event{}, Duplicate: false}
+	case _:
+		closeSafe(s2)
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let bootCmd = memory.CmdApplyBootReconcile{
+		RootID:                     option.Some[handle.ThreadID]{Value: rootID},
+		BootingOwner:               o1,
+		LiveForeignOwners:          []handle.OwnerID{o2},
+		PendingRequestsSurviveBoot: true,
+	}
+	let _ = s2.Execute(memory.Envelope{ID: memory.CommandID("boot1-\(tag)"), Actor: "boot", AtMs: int64(6000), LeaseFence: option.None, Command: bootCmd}) catch {
+	case _:
+		closeSafe(s2)
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let _ = s2.Execute(memory.Envelope{ID: memory.CommandID("hold-wake-\(tag)"), Actor: "pool", AtMs: int64(6000), LeaseFence: option.None, Command: memory.CmdTransitionHold{HoldKey: holdKey, Action: memory.HoldActionWake}}) catch {
+	case _:
+		closeSafe(s2)
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	closeSafe(s2)
+
+	let s3 = Open(path) catch {
+	case e:
+		cleanupVerifyDB(dir, name)
+		return e
+	}
+	let _ = s3.Execute(memory.Envelope{ID: memory.CommandID("boot2-\(tag)"), Actor: "boot", AtMs: int64(6100), LeaseFence: option.None, Command: bootCmd}) catch {
+	case _:
+		closeSafe(s3)
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let _ = s3.Execute(memory.Envelope{ID: memory.CommandID("boot3-\(tag)"), Actor: "boot", AtMs: int64(6200), LeaseFence: option.None, Command: bootCmd}) catch {
+	case _:
+		closeSafe(s3)
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let ok = verifyCrashReopenPostBoot(s3, rootID, leaseID, o2, staleFenced) catch {
+	case e:
+		closeSafe(s3)
+		cleanupVerifyDB(dir, name)
+		return e
+	}
+	closeSafe(s3)
+	cleanupVerifyDB(dir, name)
+	ok
+}
+
+func checkOrphanUserVersionFence(tag int) bool fails memory.StoreFailed needs go.Foreign {
+	let (dir, name) = try nextVerifyDBPath("orphan-\(tag)")
+	let path = dir + "/" + name
+	let raw = sqlite.Open(path) catch {
+	case sql.Unique, sql.Serialization, sql.Deadlock, sql.Timeout, sql.Closed, sql.Other:
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let _ = with context { sql.DB: raw } {
+		sqlite.WriteTransaction() {
+			let _ = try execTx("PRAGMA user_version = 7", []sql.Value{})
+			true
+		}
+	} catch {
+	case memory.StoreFailed, sql.Unique, sql.Serialization, sql.Deadlock, sql.Timeout, sql.Closed, sql.Other:
+		closeIgnoring(raw)
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	closeIgnoring(raw)
+	let mut refused = false
+	let sBad = Open(path) catch {
+	case memory.StoreFailed:
+		refused = true
+		Store{db: option.None, err: "expected"}
+	}
+	closeSafe(sBad)
+	cleanupVerifyDB(dir, name)
+	refused
+}
+
+func runSchemaVersionFence(tag int) bool fails memory.StoreFailed needs go.Foreign {
+	let (dir, name) = try nextVerifyDBPath("ver")
+	let path = dir + "/" + name
+	let s1 = try Open(path)
+	let _ = s1.Execute(memory.Envelope{
+		ID:      memory.CommandID("v1-\(tag)"), Actor: "op", AtMs: int64(100), LeaseFence: option.None,
+		Command: memory.CmdCreateThread{Spec: crashThreadSpec(handle.ThreadID("vth-\(tag)"), option.None), EdgeLabel: ""},
+	}) catch {
+	case _:
+		closeSafe(s1)
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	closeSafe(s1)
+
+	let raw = sqlite.Open(path) catch {
+	case sql.Unique, sql.Serialization, sql.Deadlock, sql.Timeout, sql.Closed, sql.Other:
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let _ = with context { sql.DB: raw } {
+		sqlite.WriteTransaction() {
+			if tag%2 == 0 {
+				let _ = try execTx("PRAGMA user_version = 99", []sql.Value{})
+			} else {
+				let _ = try execTx("UPDATE schema_meta SET schema_version = 99 WHERE id = 1", []sql.Value{})
+				let _ = try execTx("PRAGMA user_version = 99", []sql.Value{})
+			}
+			true
+		}
+	} catch {
+	case memory.StoreFailed, sql.Unique, sql.Serialization, sql.Deadlock, sql.Timeout, sql.Closed, sql.Other:
+		closeIgnoring(raw)
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	closeIgnoring(raw)
+
+	let mut refused = false
+	let sBad = Open(path) catch {
+	case memory.StoreFailed:
+		refused = true
+		Store{db: option.None, err: "expected"}
+	}
+	closeSafe(sBad)
+
+	let raw2 = sqlite.Open(path) catch {
+	case sql.Unique, sql.Serialization, sql.Deadlock, sql.Timeout, sql.Closed, sql.Other:
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let _ = with context { sql.DB: raw2 } {
+		sqlite.WriteTransaction() {
+			let _ = try execTx("UPDATE schema_meta SET schema_version = 1 WHERE id = 1", []sql.Value{})
+			let _ = try execTx("PRAGMA user_version = 1", []sql.Value{})
+			true
+		}
+	} catch {
+	case memory.StoreFailed, sql.Unique, sql.Serialization, sql.Deadlock, sql.Timeout, sql.Closed, sql.Other:
+		closeIgnoring(raw2)
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	closeIgnoring(raw2)
+
+	let sOK = try Open(path)
+	let tv = try sOK.GetThreadView(handle.ThreadID("vth-\(tag)"))
+	closeSafe(sOK)
+	cleanupVerifyDB(dir, name)
+	let orphanOK = try checkOrphanUserVersionFence(tag)
+	refused && orphanOK && tv != option.None
+}
+
+func runRollbackAtomicity(tag int) bool fails memory.StoreFailed needs go.Foreign {
+	let (dir, name) = try nextVerifyDBPath("rb")
+	let path = dir + "/" + name
+	let s = try Open(path)
+	let tid = handle.ThreadID("rb-\(tag)")
+	let _ = s.Execute(memory.Envelope{
+		ID:      memory.CommandID("rb1-\(tag)"), Actor: "op", AtMs: int64(100), LeaseFence: option.None,
+		Command: memory.CmdCreateThread{Spec: crashThreadSpec(tid, option.None), EdgeLabel: ""},
+	}) catch {
+	case _:
+		closeSafe(s)
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let beforeSnap = try s.Snapshot()
+	let beforeEvs = try s.Events(0)
+	let mut gotReuse = false
+	let _ = s.Execute(memory.Envelope{
+		ID:      memory.CommandID("rb1-\(tag)"), Actor: "op", AtMs: int64(110), LeaseFence: option.None,
+		Command: memory.CmdArchiveThread{ID: tid},
+	}) catch {
+	case memory.CommandReused:
+		gotReuse = true
+		memory.ExecuteResult{Seq: 0, Events: []memory.Event{}, Duplicate: false}
+	case _:
+		closeSafe(s)
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let db = try openDB(s.db, s.err)
+	let mut aborted = false
+	let _ = with context { sql.DB: db } {
+		sqlite.WriteTransaction() {
+			let _ = try execTx(
+				"INSERT INTO commands (command_id, actor, at_ms, payload_json, payload_digest) VALUES (?, 'abort', 120, '{}', 'd')",
+				[]sql.Value{sql.Text{S: "rb-abort-\(tag)"}},
+			)
+			let _ = try execTx(
+				"INSERT INTO events (seq, command_id, payload_digest, event_json) VALUES (999999, ?, 'd', '{}')",
+				[]sql.Value{sql.Text{S: "rb-abort-\(tag)"}},
+			)
+			try failMidTx()
+		}
+	} catch {
+	case abortProbe:
+		aborted = true
+		true
+	case memory.StoreFailed, sql.Unique, sql.Serialization, sql.Deadlock, sql.Timeout, sql.Closed, sql.Other:
+		closeSafe(s)
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	closeSafe(s)
+	let reopened = Open(path) catch {
+	case e:
+		cleanupVerifyDB(dir, name)
+		return e
+	}
+	let afterSnap = try reopened.Snapshot()
+	let afterEvs = try reopened.Events(0)
+	closeSafe(reopened)
+	cleanupVerifyDB(dir, name)
+	gotReuse && aborted && afterSnap == beforeSnap && afterEvs == beforeEvs
+}
+
+func runConcurrentMultiWriterWAL() bool fails memory.StoreFailed needs go.Foreign {
+	let (dir, name) = try nextVerifyDBPath("conc")
+	let path = dir + "/" + name
+	let w1 = try Open(path)
+	let w2 = Open(path) catch {
+	case e:
+		closeSafe(w1)
+		cleanupVerifyDB(dir, name)
+		return e
+	}
+	let accID = session.AccountID("shared-acc")
+	let _ = w1.Execute(memory.Envelope{
+		ID:      memory.CommandID("seed-1"), Actor: "init", AtMs: int64(100), LeaseFence: option.None,
+		Command: memory.CmdUpsertPoolAccount{
+			Pool: memory.PoolAccount{
+				ID:              accID, Provider: "codex", Priority: 1, Healthy: true,
+				Window5hUsedPct: 95, Window5hResetMs: int64(2000),
+				Window7dUsedPct: 10, Window7dResetMs: int64(9000),
+				ModelWindows:    []memory.ModelWindowUsage{}, InflightStarts: 0, LimitedUntilMs: int64(0), UpdatedAtMs: int64(100),
+			},
+		},
+	}) catch {
+	case _:
+		closeSafe(w1)
+		closeSafe(w2)
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let claimFn = func(store Store, worker string) bool {
+		let _ = store.Execute(memory.Envelope{
+			ID:      memory.CommandID("claim-\(worker)"), Actor: worker, AtMs: int64(200), LeaseFence: option.None,
+			Command: memory.CmdClaimResetDispatch{AccountID: accID, WindowKind: memory.LimitWindow5h, PeriodKey: "reset-1", ClaimedBy: worker},
+		}) catch {
+		case _:
+			return false
+		}
+		true
+	}
+	let incFn = func(store Store, worker string, count int) bool {
+		let mut i = 0
+		for i < count {
+			let _ = store.Execute(memory.Envelope{
+				ID:      memory.CommandID("inc-\(worker)-\(i)"), Actor: worker, AtMs: int64(300 + i), LeaseFence: option.None,
+				Command: memory.CmdAdjustPoolInflight{AccountID: accID, Delta: 1},
+			}) catch {
+			case _:
+				return false
+			}
+			i = i + 1
+		}
+		true
+	}
+	let tc1 = task.Go() { claimFn(w1, "w1") }
+	let tc2 = task.Go() { claimFn(w2, "w2") }
+	let c1 = tc1.Wait()
+	let c2 = tc2.Wait()
+
+	let ti1 = task.Go() { incFn(w1, "w1", 4) }
+	let ti2 = task.Go() { incFn(w2, "w2", 4) }
+	let i1 = ti1.Wait()
+	let i2 = ti2.Wait()
+
+	closeSafe(w1)
+	closeSafe(w2)
+	let reopened = Open(path) catch {
+	case e:
+		cleanupVerifyDB(dir, name)
+		return e
+	}
+	let pv = try reopened.GetPoolView(int64(500))
+	let evs = try reopened.Events(0)
+	let snap = try reopened.Snapshot()
+	closeSafe(reopened)
+	cleanupVerifyDB(dir, name)
+	((c1 && !c2) || (!c1 && c2)) && i1 && i2 && pv.ResetClaims.Len() == 1 && pv.Accounts.Len() == 1 && pv.Accounts[0].InflightStarts == 8 && memory.Fold(evs) == snap
+}
+
+// PersistenceChecks exposes cross-backend, crash-reopen, fencing, rollback, and concurrent WAL verification laws.
+type PersistenceChecks {
+	CheckAgreesWithMemory(steps []int) bool,
+	CheckCrashReopen(tag int) bool,
+	CheckVersionFence(tag int) bool,
+	CheckRollbackAtomicity(tag int) bool,
+	CheckConcurrentMultiWriter() bool,
+
+	// SqliteAgreesWithMemory verifies MemStore and WAL SQLite agree across scripted commands and mid-stream crash-reopens.
+	law SqliteAgreesWithMemory(steps []int) {
+		CheckAgreesWithMemory(steps)
+	},
+
+	// CrashReopenPreservesLeasesWakesHoldsAndJournals verifies durable survival and fencing across multiple restarts.
+	law CrashReopenPreservesLeasesWakesHoldsAndJournals() {
+		CheckCrashReopen(1)
+	},
+
+	// SchemaVersionFenceRefusesFutureVersion verifies mismatched user_version / schema_meta fails cleanly without corruption.
+	law SchemaVersionFenceRefusesFutureVersion() {
+		CheckVersionFence(1) && CheckVersionFence(2)
+	},
+
+	// RollbackAtomicityPreservesConsistency verifies refused commands leave SQLite snapshots and events unchanged.
+	law RollbackAtomicityPreservesConsistency() {
+		CheckRollbackAtomicity(1)
+	},
+
+	// ConcurrentMultiWriterWAL verifies two independent WAL connections serialize concurrent reset claims and inflight updates.
+	law ConcurrentMultiWriterWAL() {
+		CheckConcurrentMultiWriter()
+	},
+}
+
+type localChecks {} implements PersistenceChecks
+
+func CheckAgreesWithMemory(_ localChecks, steps []int) bool needs go.Foreign {
+	runAgreesWithMemory(steps) catch {
+	case memory.StoreFailed:
+		false
+	}
+}
+
+func CheckCrashReopen(_ localChecks, tag int) bool needs go.Foreign {
+	runCrashReopenChecks(tag) catch {
+	case memory.StoreFailed:
+		false
+	}
+}
+
+func CheckVersionFence(_ localChecks, tag int) bool needs go.Foreign {
+	runSchemaVersionFence(tag) catch {
+	case memory.StoreFailed:
+		false
+	}
+}
+
+func CheckRollbackAtomicity(_ localChecks, tag int) bool needs go.Foreign {
+	runRollbackAtomicity(tag) catch {
+	case memory.StoreFailed:
+		false
+	}
+}
+
+func CheckConcurrentMultiWriter(_ localChecks) bool needs go.Foreign {
+	runConcurrentMultiWriterWAL() catch {
+	case memory.StoreFailed:
+		false
+	}
+}

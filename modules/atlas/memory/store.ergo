@@ -1,0 +1,445 @@
+import github.com/cevr/ergo/modules/atlas/adapter
+import github.com/cevr/ergo/modules/atlas/cutover
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/subagent
+import github.com/cevr/ergo/modules/atlas/thread
+import option
+import sync
+
+// Store defines the atomic Decide -> Commit -> Act contract implemented by MemStore and SQLite stores.
+type Store {
+	// Execute validates and persists one Envelope atomically with all projections.
+	Execute(env Envelope) ExecuteResult fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | LeaseFenced | ThreadDomainErr | SubagentDomainErr | HandleDomainErr | LimitDomainErr | RequestDomainErr | CutoverDomainErr | StoreFailed,
+
+	// Snapshot returns the complete projected domain State.
+	Snapshot() State fails StoreFailed,
+
+	// Events returns all persisted StoredEvents with Seq > fromSeq in ascending order.
+	Events(fromSeq int) []StoredEvent fails StoreFailed,
+
+	// GetThreadView queries one projected Thread, its BranchEdges, and its FIFO PromptQueue.
+	GetThreadView(id handle.ThreadID) option.Option[ThreadView] fails StoreFailed,
+
+	// GetSubagentTree queries one bounded subagent execution Tree by RootID.
+	GetSubagentTree(rootID handle.ThreadID) option.Option[subagent.Tree] fails StoreFailed,
+
+	// GetHandleView queries filtered DELIVERS handles, wake records, and pool holds.
+	GetHandleView(filter HandleFilter) HandleView fails StoreFailed,
+
+	// GetQuestions queries persisted ask_user_async entries matching filter.
+	GetQuestions(filter QuestionFilter) []AsyncQuestion fails StoreFailed,
+
+	// GetPoolView queries pool windows, unsettled starts, reset claims, pushes, and due holds at nowMs.
+	GetPoolView(nowMs int64) PoolView fails StoreFailed,
+
+	// GetKernelView queries kernel cell snapshots, cut journals, root usages, limits, and requests.
+	GetKernelView(sessionID handle.SessionID) KernelView fails StoreFailed,
+
+	// GetLeaseAndBoot queries ownership leases, open call owners, and a reconcile.BootSnapshot.
+	GetLeaseAndBoot(query BootQuery) BootLeaseView fails StoreFailed,
+
+	// StoreReplayMatchesSnapshot verifies Fold(Events(0)) == Snapshot() across arbitrary step streams.
+	law StoreReplayMatchesSnapshot(steps []int) {
+		let prefix = "replay-\(steps.Len())"
+		for i, code in steps {
+			let env = ScriptedEnvelope(i, code, prefix)
+			let _ = Execute(env) catch {
+			case StoreFailed:
+				return true
+			case _:
+				ExecuteResult{Seq: 0, Events: []Event{}, Duplicate: false}
+			}
+		}
+		let stored = Events(0) catch {
+		case StoreFailed:
+			return true
+		}
+		let snap = Snapshot() catch {
+		case StoreFailed:
+			return true
+		}
+		Fold(stored) == snap
+	},
+
+	// StoreIdempotentExecute verifies identical CommandID replay is a no-op and differing reuse fails CommandReused.
+	law StoreIdempotentExecute(tag int) {
+		let cid = CommandID("idem-cmd-\(tag)")
+		let tid = handle.ThreadID("idem-th-\(tag)")
+		let spec = thread.ThreadSpec{
+			ID:                 tid,
+			ParentThreadID:     option.None,
+			Driver:             adapter.ClaudeMeta,
+			AgyDirectSupported: false,
+			RequestedMode:      adapter.ModeAutoEdit,
+			Instance:           adapter.InstanceID("inst-idem"),
+			ConfigDir:          "/cfg/idem",
+			SharedHome:         option.None,
+			Model:              adapter.ModelID("gpt-5"),
+			LinkOrigin:         thread.OriginLocal,
+		}
+		let env1 = Envelope{
+			ID:         cid,
+			Actor:      "worker",
+			AtMs:       int64(1000),
+			LeaseFence: option.None,
+			Command:    CmdCreateThread{Spec: spec, EdgeLabel: "root"},
+		}
+		let first = Execute(env1) catch {
+		case StoreFailed:
+			return true
+		case _:
+			return false
+		}
+		let second = Execute(env1) catch {
+		case StoreFailed:
+			return true
+		case _:
+			return false
+		}
+		let mut reused = false
+		let _ = Execute(Envelope{
+			..env1,
+			Command: CmdCreateThread{Spec: spec, EdgeLabel: "tampered"},
+		}) catch {
+		case CommandReused:
+			reused = true
+			ExecuteResult{Seq: 0, Events: []Event{}, Duplicate: false}
+		case StoreFailed:
+			return true
+		case _:
+			return false
+		}
+		!first.Duplicate && second.Duplicate && second.Events.Len() == 0 && second.Seq == first.Seq && reused
+	},
+
+	// StoreRefusedLeavesStateUnchanged verifies rejected commands leave both Snapshot and Events untouched.
+	law StoreRefusedLeavesStateUnchanged(tag int) {
+		let beforeSnap = Snapshot() catch {
+		case StoreFailed:
+			return true
+		}
+		let beforeEvents = Events(0) catch {
+		case StoreFailed:
+			return true
+		}
+		let mut refused = false
+		let _ = Execute(Envelope{
+			ID:         CommandID("refuse-cmd-\(tag)"),
+			Actor:      "worker",
+			AtMs:       int64(2000),
+			LeaseFence: option.None,
+			Command:    CmdArchiveThread{ID: handle.ThreadID("nonexistent-\(tag)")},
+		}) catch {
+		case NotFound:
+			refused = true
+			ExecuteResult{Seq: 0, Events: []Event{}, Duplicate: false}
+		case StoreFailed:
+			return true
+		case _:
+			return false
+		}
+		let afterSnap = Snapshot() catch {
+		case StoreFailed:
+			return true
+		}
+		let afterEvents = Events(0) catch {
+		case StoreFailed:
+			return true
+		}
+		refused && afterSnap == beforeSnap && afterEvents == beforeEvents
+	},
+
+	// StoreQueriesMatchSnapshot verifies all indexed Store queries agree with pure snapshot queries.
+	law StoreQueriesMatchSnapshot(tag int) {
+		let prefix = "q-\(tag)"
+		let steps = []int{0, 1, 2, 3, 9, 10, 11, 14, 16, 18, 20, 21, 22, 23, 25, 26, 27}
+		for i, code in steps {
+			let _ = Execute(ScriptedEnvelope(i, code, prefix)) catch {
+			case StoreFailed:
+				return true
+			case _:
+				ExecuteResult{Seq: 0, Events: []Event{}, Duplicate: false}
+			}
+		}
+		let snap = Snapshot() catch {
+		case StoreFailed:
+			return true
+		}
+		let rootID = handle.ThreadID("\(prefix)-root")
+		let tv = GetThreadView(rootID) catch {
+		case StoreFailed:
+			return true
+		}
+		let st = GetSubagentTree(rootID) catch {
+		case StoreFailed:
+			return true
+		}
+		let hf = HandleFilter{Session: option.None, Owner: option.None, OpenOnly: false}
+		let hv = GetHandleView(hf) catch {
+		case StoreFailed:
+			return true
+		}
+		let qf = QuestionFilter{ThreadID: option.Some[handle.ThreadID]{Value: rootID}, Status: option.None}
+		let qs = GetQuestions(qf) catch {
+		case StoreFailed:
+			return true
+		}
+		let pv = GetPoolView(int64(10000)) catch {
+		case StoreFailed:
+			return true
+		}
+		let kv = GetKernelView(handle.SessionID("sess")) catch {
+		case StoreFailed:
+			return true
+		}
+		let bq = BootQuery{
+			RootID:                     option.Some[handle.ThreadID]{Value: rootID},
+			BootingOwner:               ownerOne(),
+			LiveForeignOwners:          []handle.OwnerID{ownerTwo()},
+			PendingRequestsSurviveBoot: true,
+			LeaseID:                    "\(prefix)-lease",
+		}
+		let bl = GetLeaseAndBoot(bq) catch {
+		case StoreFailed:
+			return true
+		}
+		tv == StateThreadView(snap, rootID) && st == StateSubagentTree(snap, rootID) && hv == StateHandleView(snap, hf) && qs == StateQuestions(snap, qf) && pv == StatePoolView(snap, int64(10000)) && kv == StateKernelView(snap, handle.SessionID("sess")) && bl == StateLeaseAndBoot(snap, bq)
+	},
+
+	// StoreLeaseFencesStaleOwner verifies lease cutover increments fencing tokens and blocks stale owners.
+	law StoreLeaseFencesStaleOwner(tag int) {
+		let lid = "lease-\(tag)"
+		let o1 = handle.OwnerID{ServerID: "srv-1", Location: "dc1", Epoch: 1}
+		let o2 = handle.OwnerID{ServerID: "srv-2", Location: "dc1", Epoch: 2}
+		let tid = handle.ThreadID("fenced-th-\(tag)")
+		let prep = []Envelope{
+			Envelope{ID: CommandID("fl1-\(tag)"), Actor: "sys", AtMs: int64(100), LeaseFence: option.None, Command: CmdAcquireLease{LeaseID: lid, Owner: o1, ExpectedEpoch: 0}},
+			Envelope{ID: CommandID("fl2-\(tag)"), Actor: "sys", AtMs: int64(110), LeaseFence: option.None, Command: CmdStepLeaseCutover{LeaseID: lid, NewOwner: option.None, Action: cutover.ActBeginQuiesce}},
+			Envelope{ID: CommandID("fl3-\(tag)"), Actor: "sys", AtMs: int64(120), LeaseFence: option.None, Command: CmdStepLeaseCutover{LeaseID: lid, NewOwner: option.None, Action: cutover.ActStageTransfer}},
+			Envelope{ID: CommandID("fl4-\(tag)"), Actor: "sys", AtMs: int64(130), LeaseFence: option.None, Command: CmdStepLeaseCutover{LeaseID: lid, NewOwner: option.Some[handle.OwnerID]{Value: o2}, Action: cutover.ActCommitPersisted}},
+		}
+		for _, e in prep {
+			let _ = Execute(e) catch {
+			case StoreFailed:
+				return true
+			case _:
+				return false
+			}
+		}
+		let mut fenced = false
+		let _ = Execute(Envelope{
+			ID:         CommandID("fl5-\(tag)"),
+			Actor:      "old-srv",
+			AtMs:       int64(140),
+			LeaseFence: option.Some[LeaseFenceCheck]{Value: LeaseFenceCheck{LeaseID: lid, ExpectedOwner: o1, ExpectedEpoch: 1, MinFencingToken: int64(1)}},
+			Command:    CmdCreateThread{Spec: makeThreadSpec(string(tid), option.None, adapter.ClaudeMeta, thread.OriginLocal), EdgeLabel: ""},
+		}) catch {
+		case LeaseFenced:
+			fenced = true
+			ExecuteResult{Seq: 0, Events: []Event{}, Duplicate: false}
+		case StoreFailed:
+			return true
+		case _:
+			return false
+		}
+		let newOK = Execute(Envelope{
+			ID:         CommandID("fl6-\(tag)"),
+			Actor:      "new-srv",
+			AtMs:       int64(150),
+			LeaseFence: option.Some[LeaseFenceCheck]{Value: LeaseFenceCheck{LeaseID: lid, ExpectedOwner: o2, ExpectedEpoch: 2, MinFencingToken: int64(2)}},
+			Command:    CmdCreateThread{Spec: makeThreadSpec(string(tid), option.None, adapter.ClaudeMeta, thread.OriginLocal), EdgeLabel: ""},
+		}) catch {
+		case StoreFailed:
+			return true
+		case _:
+			return false
+		}
+		fenced && !newOK.Duplicate
+	},
+
+	// StoreBootReconcileIdempotent verifies boot reconciliation settles lost calls once without duplicate wakes.
+	law StoreBootReconcileIdempotent(tag int) {
+		let prefix = "boot-\(tag)"
+		let setup = []int{1, 2, 9, 10, 11, 14}
+		for i, code in setup {
+			let _ = Execute(ScriptedEnvelope(i, code, prefix)) catch {
+			case StoreFailed:
+				return true
+			case _:
+				return false
+			}
+		}
+		let bootCmd = CmdApplyBootReconcile{
+			RootID:                     option.Some[handle.ThreadID]{Value: handle.ThreadID("\(prefix)-root")},
+			BootingOwner:               ownerOne(),
+			LiveForeignOwners:          []handle.OwnerID{ownerTwo()},
+			PendingRequestsSurviveBoot: true,
+		}
+		let _ = Execute(Envelope{ID: CommandID("boot-1-\(tag)"), Actor: "boot", AtMs: int64(2000), LeaseFence: option.None, Command: bootCmd}) catch {
+		case StoreFailed:
+			return true
+		case _:
+			return false
+		}
+		let afterFirst = Snapshot() catch {
+		case StoreFailed:
+			return true
+		}
+		let _ = Execute(Envelope{ID: CommandID("boot-2-\(tag)"), Actor: "boot", AtMs: int64(2100), LeaseFence: option.None, Command: bootCmd}) catch {
+		case StoreFailed:
+			return true
+		case _:
+			return false
+		}
+		let afterSecond = Snapshot() catch {
+		case StoreFailed:
+			return true
+		}
+		let _ = Execute(Envelope{ID: CommandID("boot-3-\(tag)"), Actor: "boot", AtMs: int64(2200), LeaseFence: option.None, Command: bootCmd}) catch {
+		case StoreFailed:
+			return true
+		case _:
+			return false
+		}
+		let afterThird = Snapshot() catch {
+		case StoreFailed:
+			return true
+		}
+		afterSecond.Registry == afterFirst.Registry && afterSecond.Trees == afterFirst.Trees && afterSecond.Wakes.Len() == afterFirst.Wakes.Len() && afterThird.Registry == afterSecond.Registry && afterThird.Wakes == afterSecond.Wakes && afterThird.Trees == afterSecond.Trees
+	},
+}
+
+type ledgerBook {
+	state State,
+	log   []StoredEvent,
+}
+
+type memExecOutcome = memExecRefused{Err Refusal} | memExecAccepted{Res ExecuteResult}
+
+// MemStore is a linearizable in-memory reference provider of Store backed by sync.Ref.
+type MemStore {
+	cell sync.Ref[ledgerBook],
+} implements Store
+
+// New constructs an empty in-memory Atlas Store.
+func New() MemStore {
+	MemStore{cell: sync.NewRef(ledgerBook{state: InitialState(), log: []StoredEvent{}})}
+}
+
+// NewMemStore constructs an empty in-memory Atlas Store for Store contract law discovery.
+func NewMemStore() MemStore {
+	New()
+}
+
+func raiseMemRefusal(err Refusal) ExecuteResult fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | LeaseFenced | ThreadDomainErr | SubagentDomainErr | HandleDomainErr | LimitDomainErr | RequestDomainErr | CutoverDomainErr {
+	match err {
+	case NotFound as e:
+		e
+	case AlreadyExists as e:
+		e
+	case InvalidTransition as e:
+		e
+	case CommandReused as e:
+		e
+	case InvalidInput as e:
+		e
+	case LeaseFenced as e:
+		e
+	case ThreadDomainErr as e:
+		e
+	case SubagentDomainErr as e:
+		e
+	case HandleDomainErr as e:
+		e
+	case LimitDomainErr as e:
+		e
+	case RequestDomainErr as e:
+		e
+	case CutoverDomainErr as e:
+		e
+	}
+}
+
+// Execute validates and applies one Envelope atomically against MemStore.
+func Execute(s MemStore, env Envelope) ExecuteResult fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | LeaseFenced | ThreadDomainErr | SubagentDomainErr | HandleDomainErr | LimitDomainErr | RequestDomainErr | CutoverDomainErr | StoreFailed {
+	let outcome = sync.Modify(s.cell, func(b ledgerBook) (memExecOutcome, ledgerBook) {
+		let events = Decide(b.state, env) catch {
+		case e:
+			return (memExecRefused{Err: e}, b)
+		}
+		if events.Len() == 0 {
+			return (memExecAccepted{Res: ExecuteResult{Seq: b.state.Seq, Events: []Event{}, Duplicate: true}}, b)
+		}
+		let mut stored = []StoredEvent{}
+		let mut nextSeq = b.state.Seq
+		for _, ev in events {
+			nextSeq = nextSeq + 1
+			stored = stored.Append(StoredEvent{Seq: nextSeq, CommandID: env.ID, Event: ev})
+		}
+		let mut nextLog = b.log
+		for _, se in stored {
+			nextLog = nextLog.Append(se)
+		}
+		let cur = ApplyAll(b.state, stored)
+		let res = ExecuteResult{Seq: cur.Seq, Events: events, Duplicate: false}
+		(memExecAccepted{Res: res}, ledgerBook{state: cur, log: nextLog})
+	})
+	match outcome {
+	case memExecRefused as r:
+		try raiseMemRefusal(r.Err)
+	case memExecAccepted as ok:
+		ok.Res
+	}
+}
+
+// Snapshot reads the current projected State from MemStore.
+func Snapshot(s MemStore) State fails StoreFailed {
+	s.cell.Get().state
+}
+
+// Events reads all persisted StoredEvents with Seq > fromSeq from MemStore.
+func Events(s MemStore, fromSeq int) []StoredEvent fails StoreFailed {
+	let b = s.cell.Get()
+	let mut out = []StoredEvent{}
+	for _, se in b.log {
+		if se.Seq > fromSeq {
+			out = out.Append(se)
+		}
+	}
+	out
+}
+
+// GetThreadView queries one projected Thread, its BranchEdges, and its PromptQueue in MemStore.
+func GetThreadView(s MemStore, id handle.ThreadID) option.Option[ThreadView] fails StoreFailed {
+	StateThreadView(s.cell.Get().state, id)
+}
+
+// GetSubagentTree queries one bounded subagent execution Tree in MemStore.
+func GetSubagentTree(s MemStore, rootID handle.ThreadID) option.Option[subagent.Tree] fails StoreFailed {
+	StateSubagentTree(s.cell.Get().state, rootID)
+}
+
+// GetHandleView queries filtered handles, wakes, and pool holds in MemStore.
+func GetHandleView(s MemStore, filter HandleFilter) HandleView fails StoreFailed {
+	StateHandleView(s.cell.Get().state, filter)
+}
+
+// GetQuestions queries persisted ask_user_async questions in MemStore.
+func GetQuestions(s MemStore, filter QuestionFilter) []AsyncQuestion fails StoreFailed {
+	StateQuestions(s.cell.Get().state, filter)
+}
+
+// GetPoolView queries pool windows, unsettled starts, claims, pushes, and holds in MemStore.
+func GetPoolView(s MemStore, nowMs int64) PoolView fails StoreFailed {
+	StatePoolView(s.cell.Get().state, nowMs)
+}
+
+// GetKernelView queries kernel snapshots, journals, root usages, limits, and requests in MemStore.
+func GetKernelView(s MemStore, sessionID handle.SessionID) KernelView fails StoreFailed {
+	StateKernelView(s.cell.Get().state, sessionID)
+}
+
+// GetLeaseAndBoot queries leases, open owners, and BootSnapshot in MemStore.
+func GetLeaseAndBoot(s MemStore, query BootQuery) BootLeaseView fails StoreFailed {
+	StateLeaseAndBoot(s.cell.Get().state, query)
+}

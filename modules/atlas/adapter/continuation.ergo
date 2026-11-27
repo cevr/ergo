@@ -1,0 +1,76 @@
+import option
+
+// DefaultHandoffTokens is the default portable context handoff budget (16,000 tokens).
+let DefaultHandoffTokens = 16000
+
+// MinHandoffTokens is the lower clamp bound for portable context handoffs (1,024 tokens).
+let MinHandoffTokens = 1024
+
+// MaxHandoffTokens is the upper clamp bound for portable context handoffs (64,000 tokens).
+let MaxHandoffTokens = 64000
+
+// ContinuationKey identifies the native conversation-continuation equivalence group for an adapter instance.
+type ContinuationKey string
+
+// MakeContinuationKey builds the continuation key for driver, instance, configDir, and optional sharedHome.
+func MakeContinuationKey(driver DriverKind, instance InstanceID, configDir string, sharedHome option.Option[string]) ContinuationKey {
+	match driver {
+	case ClaudeMeta:
+		ContinuationKey("claude:home:\(configDir)")
+	case CodexMeta, CodexDirect:
+		let root = match sharedHome {
+		case option.Some[string] as h:
+			h.Value
+		case option.None:
+			configDir
+		}
+		ContinuationKey("codex:home:\(root)")
+	case AntigravityMeta, AntigravityDirect, GenericAcpMeta, PaneFallbackMeta, OpenCodeConsoleDirect, OpenCodeGoDirect, AnthropicDirect:
+		ContinuationKey("\(DriverName(driver)):instance:\(string(instance))")
+	}
+}
+
+// CanContinueNatively reports whether two continuation keys can resume natively without a portable handoff.
+func CanContinueNatively(from ContinuationKey, to ContinuationKey) bool {
+	string(from) != "" && from == to
+}
+
+// ClampHandoffBudget clamps a requested handoff token budget into [1024, 64000] with default 16000 for <= 0.
+func ClampHandoffBudget(requestedTokens int) int {
+	if requestedTokens <= 0 {
+		return DefaultHandoffTokens
+	}
+	if requestedTokens < MinHandoffTokens {
+		return MinHandoffTokens
+	}
+	if requestedTokens > MaxHandoffTokens {
+		return MaxHandoffTokens
+	}
+	requestedTokens
+}
+
+// ClampHandoffBudgetStaysBounded verifies handoff budgets always lie within [MinHandoffTokens, MaxHandoffTokens].
+law ClampHandoffBudgetStaysBounded(n int) {
+	let b = ClampHandoffBudget(n)
+	b >= MinHandoffTokens && b <= MaxHandoffTokens && (n > 0 || b == DefaultHandoffTokens)
+}
+
+// ClaudeConfigDirsStayIsolated verifies distinct Claude config dirs never share a native continuation key.
+law ClaudeConfigDirsStayIsolated(a string, b string) {
+	let ka = MakeContinuationKey(ClaudeMeta, InstanceID("inst-a"), a, option.None)
+	let kb = MakeContinuationKey(ClaudeMeta, InstanceID("inst-b"), b, option.None)
+	CanContinueNatively(ka, kb) == (a == b)
+}
+
+// CodexShadowHomesShareContinuation verifies Codex shadow overlays share native continuation via sharedHome.
+test CodexShadowHomesShareContinuation {
+	let shared = option.Some[string]{Value: "/var/atlas/codex-shared"}
+	let k1 = MakeContinuationKey(CodexMeta, InstanceID("acct-1"), "/var/atlas/codex-1", shared)
+	let k2 = MakeContinuationKey(CodexMeta, InstanceID("acct-2"), "/var/atlas/codex-2", shared)
+	let k3 = MakeContinuationKey(CodexMeta, InstanceID("acct-3"), "/var/atlas/codex-other", option.None)
+	assert CanContinueNatively(k1, k2)
+	assert !CanContinueNatively(k1, k3)
+	let agy1 = MakeContinuationKey(AntigravityMeta, InstanceID("agy-1"), "/p1", option.None)
+	let agy2 = MakeContinuationKey(AntigravityMeta, InstanceID("agy-2"), "/p1", option.None)
+	assert !CanContinueNatively(agy1, agy2)
+}

@@ -1,0 +1,956 @@
+import github.com/cevr/ergo/modules/atlas/cutover
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/reconcile
+import github.com/cevr/ergo/modules/atlas/session
+import github.com/cevr/ergo/modules/atlas/subagent
+import github.com/cevr/ergo/modules/atlas/thread
+import github.com/cevr/ergo/modules/atlas/turn
+import option
+
+func wrapThreadStep(t thread.Thread, res func() thread.Thread fails thread.ThreadRefusal) thread.Thread fails Refusal {
+	let _ = t.ID
+	res() catch {
+	case e:
+		return ThreadDomainErr{ThreadErr: e}
+	}
+}
+
+func decideLeaseFence(s State, env Envelope) fails Refusal {
+	let fence = match env.LeaseFence {
+	case option.None:
+		return
+	case option.Some[LeaseFenceCheck] as f:
+		f.Value
+	}
+	if fence.LeaseID == "" {
+		return InvalidInput{Field: "lease_fence.lease_id", Reason: "empty lease_id"}
+	}
+	let lease = match s.Leases.Get(fence.LeaseID) {
+	case option.None:
+		return NotFound{Entity: "lease", Target: fence.LeaseID}
+	case option.Some[LeaseRecord] as l:
+		l.Value
+	}
+	if lease.Phase == cutover.CutoverTransfer {
+		return LeaseFenced{LeaseID: fence.LeaseID, ActiveEpoch: lease.Epoch, ActiveToken: lease.FencingToken}
+	}
+	if lease.Owner != fence.ExpectedOwner || lease.Epoch != fence.ExpectedEpoch || lease.FencingToken < fence.MinFencingToken {
+		return LeaseFenced{LeaseID: fence.LeaseID, ActiveEpoch: lease.Epoch, ActiveToken: lease.FencingToken}
+	}
+}
+
+func requireThread(s State, id handle.ThreadID) thread.Thread fails Refusal {
+	match s.Threads.Get(id) {
+	case option.Some[thread.Thread] as t:
+		t.Value
+	case option.None:
+		NotFound{Entity: "thread", Target: string(id)}
+	}
+}
+
+func hasBranchEdge(edges []BranchEdge, parent handle.ThreadID, child handle.ThreadID) bool {
+	for _, e in edges {
+		if e.ParentThreadID == parent && e.ChildThreadID == child {
+			return true
+		}
+	}
+	false
+}
+
+func inferBranchKind(origin thread.LinkOrigin) BranchKind {
+	match origin {
+	case thread.OriginSubagentChild:
+		BranchSubagent
+	case thread.OriginLocal, thread.OriginMcpScoped, thread.OriginRemotePeer:
+		BranchFork
+	}
+}
+
+func decideThreadCmd(s State, env Envelope) []Event fails Refusal {
+	match env.Command {
+	case CmdCreateThread as cmd:
+		if cmd.Spec.ID == handle.ThreadID("") {
+			return InvalidInput{Field: "spec.id", Reason: "empty thread_id"}
+		}
+		match s.Threads.Get(cmd.Spec.ID) {
+		case option.Some[thread.Thread]:
+			return AlreadyExists{Scope: "thread", Key: string(cmd.Spec.ID)}
+		case option.None:
+		}
+		let edge = match cmd.Spec.ParentThreadID {
+		case option.None:
+			option.None
+		case option.Some[handle.ThreadID] as pid:
+			if pid.Value == cmd.Spec.ID {
+				return InvalidInput{Field: "spec.parent_thread_id", Reason: "self_parent"}
+			}
+			let _ = try requireThread(s, pid.Value)
+			option.Some[BranchEdge]{Value: BranchEdge{
+				ParentThreadID: pid.Value,
+				ChildThreadID:  cmd.Spec.ID,
+				Kind:           inferBranchKind(cmd.Spec.LinkOrigin),
+				Label:          cmd.EdgeLabel,
+				CreatedAtMs:    env.AtMs,
+			}}
+		}
+		let created = thread.NewThread(cmd.Spec) catch {
+		case e:
+			return ThreadDomainErr{ThreadErr: e}
+		}
+		[]Event{EvThreadUpserted{Thread: created, NewEdge: edge}}
+
+	case CmdAddBranchEdge as cmd:
+		let e = cmd.Branch
+		if e.ParentThreadID == e.ChildThreadID {
+			return InvalidInput{Field: "branch_edge", Reason: "self_edge"}
+		}
+		let _ = try requireThread(s, e.ParentThreadID)
+		let _ = try requireThread(s, e.ChildThreadID)
+		if hasBranchEdge(s.BranchEdges, e.ParentThreadID, e.ChildThreadID) {
+			return AlreadyExists{Scope: "branch_edge", Key: "\(string(e.ParentThreadID))->\(string(e.ChildThreadID))"}
+		}
+		[]Event{EvBranchEdgeAdded{Edge: e}}
+
+	case CmdSwitchDriver as cmd:
+		let cur = try requireThread(s, cmd.ThreadID)
+		let next = try wrapThreadStep(cur) func() thread.Thread fails thread.ThreadRefusal {
+			thread.SwitchDriver(cur, cmd.Spec)
+		}
+		let mut out = []Event{EvThreadUpserted{Thread: next, NewEdge: option.None}}
+		match cur.ActiveSession {
+		case option.Some[session.SessionRecord] as sr:
+			if session.IsSessionLive(sr.Value) {
+				out = out.Append(EvSessionHandlesCancelled{Session: sr.Value.ID})
+			}
+		case option.None:
+		}
+		out
+
+	case CmdEnqueuePrompt as cmd:
+		let cur = try requireThread(s, cmd.ThreadID)
+		let next = try wrapThreadStep(cur) func() thread.Thread fails thread.ThreadRefusal {
+			thread.EnqueuePrompt(cur, cmd.Prompt)
+		}
+		[]Event{EvThreadUpserted{Thread: next, NewEdge: option.None}}
+
+	case CmdDequeuePrompt as cmd:
+		let cur = try requireThread(s, cmd.TargetThreadID)
+		let (next, popped) = thread.DequeueNextPrompt(cur) catch {
+		case e:
+			return ThreadDomainErr{ThreadErr: e}
+		}
+		match popped {
+		case option.None:
+			return NotFound{Entity: "queued_prompt", Target: string(cmd.TargetThreadID)}
+		case option.Some[thread.QueuedPrompt]:
+			[]Event{EvThreadUpserted{Thread: next, NewEdge: option.None}}
+		}
+
+	case CmdStartTurn as cmd:
+		let cur = try requireThread(s, cmd.ThreadID)
+		let next = try wrapThreadStep(cur) func() thread.Thread fails thread.ThreadRefusal {
+			thread.StartTurnOnThread(cur, cmd.TurnID, env.AtMs)
+		}
+		[]Event{EvThreadUpserted{Thread: next, NewEdge: option.None}}
+
+	case CmdStepTurn as cmd:
+		let cur = try requireThread(s, cmd.ThreadID)
+		let next = try wrapThreadStep(cur) func() thread.Thread fails thread.ThreadRefusal {
+			thread.StepThreadTurn(cur, cmd.Action)
+		}
+		[]Event{EvThreadUpserted{Thread: next, NewEdge: option.None}}
+
+	case CmdArchiveThread as cmd:
+		let cur = try requireThread(s, cmd.ID)
+		let next = try wrapThreadStep(cur) func() thread.Thread fails thread.ThreadRefusal {
+			thread.ArchiveThread(cur)
+		}
+		[]Event{EvThreadUpserted{Thread: next, NewEdge: option.None}}
+
+	case _:
+		[]Event{}
+	}
+}
+
+func requireTree(s State, rootID handle.ThreadID) subagent.Tree fails Refusal {
+	match s.Trees.Get(rootID) {
+	case option.Some[subagent.Tree] as t:
+		t.Value
+	case option.None:
+		NotFound{Entity: "subagent_tree", Target: string(rootID)}
+	}
+}
+
+func decideSubagentCmd(s State, env Envelope) []Event fails Refusal {
+	match env.Command {
+	case CmdInitSubagentTree as cmd:
+		if cmd.RootID == handle.ThreadID("") {
+			return InvalidInput{Field: "root_id", Reason: "empty root_id"}
+		}
+		match s.Trees.Get(cmd.RootID) {
+		case option.Some[subagent.Tree]:
+			return AlreadyExists{Scope: "subagent_tree", Key: string(cmd.RootID)}
+		case option.None:
+		}
+		if cmd.Bounds.MaxDepth <= 0 || cmd.Bounds.MaxFanOut <= 0 || cmd.Bounds.MaxBudget < 0 {
+			return InvalidInput{Field: "bounds", Reason: "invalid subagent tree bounds"}
+		}
+		let tree = subagent.NewTree(cmd.RootID, cmd.Bounds)
+		[]Event{EvSubagentTreeSaved{Snapshot: FromSubagentTree(tree)}}
+
+	case CmdSpawnSubagent as cmd:
+		let tree = try requireTree(s, cmd.RootID)
+		let next = subagent.SpawnChild(tree, cmd.ParentID, cmd.ChildID, cmd.Role) catch {
+		case e:
+			return SubagentDomainErr{SubagentErr: e}
+		}
+		[]Event{EvSubagentTreeSaved{Snapshot: FromSubagentTree(next)}}
+
+	case CmdSubagentControlHandle as cmd:
+		let tree = try requireTree(s, cmd.RootID)
+		let next = subagent.ControlOpenHandle(tree, cmd.CallerID, cmd.TargetID, cmd.HandleID) catch {
+		case e:
+			return SubagentDomainErr{SubagentErr: e}
+		}
+		[]Event{EvSubagentTreeSaved{Snapshot: FromSubagentTree(next)}}
+
+	case CmdSubagentSettleHandle as cmd:
+		let tree = try requireTree(s, cmd.RootID)
+		let next = subagent.SettleHandleOnNode(tree, cmd.NodeID, cmd.HandleID) catch {
+		case e:
+			return SubagentDomainErr{SubagentErr: e}
+		}
+		[]Event{EvSubagentTreeSaved{Snapshot: FromSubagentTree(next)}}
+
+	case CmdSubagentHandBack as cmd:
+		let tree = try requireTree(s, cmd.RootID)
+		let next = subagent.FinalizeHandBack(tree, cmd.NodeID) catch {
+		case e:
+			return SubagentDomainErr{SubagentErr: e}
+		}
+		[]Event{EvSubagentTreeSaved{Snapshot: FromSubagentTree(next)}}
+
+	case _:
+		[]Event{}
+	}
+}
+
+func decideSubagentHandleOpen(s State, rootOpt option.Option[handle.ThreadID], nodeOpt option.Option[handle.ThreadID], hid handle.HandleID) []Event fails Refusal {
+	let rootID = match rootOpt {
+	case option.None:
+		return []Event{}
+	case option.Some[handle.ThreadID] as r:
+		r.Value
+	}
+	let nodeID = match nodeOpt {
+	case option.None:
+		return InvalidInput{Field: "node_id", Reason: "subagent_root requires node_id"}
+	case option.Some[handle.ThreadID] as n:
+		n.Value
+	}
+	let tree = try requireTree(s, rootID)
+	let next = subagent.OpenHandleOnNode(tree, nodeID, hid) catch {
+	case e:
+		return SubagentDomainErr{SubagentErr: e}
+	}
+	[]Event{EvSubagentTreeSaved{Snapshot: FromSubagentTree(next)}}
+}
+
+func decideSubagentHandleSettle(s State, rootOpt option.Option[handle.ThreadID], nodeOpt option.Option[handle.ThreadID], hid handle.HandleID) []Event fails Refusal {
+	let rootID = match rootOpt {
+	case option.None:
+		return []Event{}
+	case option.Some[handle.ThreadID] as r:
+		r.Value
+	}
+	let nodeID = match nodeOpt {
+	case option.None:
+		return InvalidInput{Field: "node_id", Reason: "subagent_root requires node_id"}
+	case option.Some[handle.ThreadID] as n:
+		n.Value
+	}
+	let tree = try requireTree(s, rootID)
+	let next = subagent.SettleHandleOnNode(tree, nodeID, hid) catch {
+	case e:
+		return SubagentDomainErr{SubagentErr: e}
+	}
+	[]Event{EvSubagentTreeSaved{Snapshot: FromSubagentTree(next)}}
+}
+
+func decideHandleCmd(s State, env Envelope) []Event fails Refusal {
+	match env.Command {
+	case CmdOpenHandle as cmd:
+		if cmd.Spec.ID == handle.HandleID("") {
+			return InvalidInput{Field: "spec.id", Reason: "empty handle_id"}
+		}
+		let nextReg = if handle.CanRegistryOpen(cmd.Spec.Kind) {
+			handle.OpenRegistryHandle(s.Registry, cmd.Spec) catch {
+			case e:
+				return HandleDomainErr{HandleErr: e}
+			}
+		} else {
+			handle.OpenHostHandle(s.Registry, cmd.Spec) catch {
+			case e:
+				return HandleDomainErr{HandleErr: e}
+			}
+		}
+		let opened = match nextReg.Handles.Get(cmd.Spec.ID) {
+		case option.Some[handle.WakeHandle] as h:
+			h.Value
+		case option.None:
+			return InvalidTransition{From: "open_handle", Action: "missing opened handle"}
+		}
+		let mut out = []Event{EvHandleOpened{Handle: opened}}
+		let subEvents = try decideSubagentHandleOpen(s, cmd.SubagentRoot, cmd.NodeID, cmd.Spec.ID)
+		for _, se in subEvents {
+			out = out.Append(se)
+		}
+		out
+
+	case CmdMarkHandleHanded as cmd:
+		let _ = handle.MarkHanded(s.Registry, cmd.CallID, cmd.SpawnedID) catch {
+		case e:
+			return HandleDomainErr{HandleErr: e}
+		}
+		[]Event{EvHandleHanded{CallID: cmd.CallID, SpawnedID: cmd.SpawnedID}}
+
+	case CmdSettleHandle as cmd:
+		let (_, shouldEmit) = handle.SettleHandle(s.Registry, cmd.ID, cmd.Disposition) catch {
+		case e:
+			return HandleDomainErr{HandleErr: e}
+		}
+		let subEvents = try decideSubagentHandleSettle(s, cmd.SubagentRoot, cmd.NodeID, cmd.ID)
+		let mut out = []Event{EvHandleSettled{ID: cmd.ID, Disposition: cmd.Disposition, EmitWake: shouldEmit}}
+		if shouldEmit {
+			let delivID = handle.WakeDeliveryID(cmd.ID)
+			match s.Wakes.Get(delivID) {
+			case option.None:
+				out = out.Append(EvWakeUpserted{Record: reconcile.WakeRecord{
+					DeliveryID:     delivID,
+					HandleID:       cmd.ID,
+					Delivered:      false,
+					PayloadSummary: cmd.Summary,
+				}})
+			case option.Some[reconcile.WakeRecord]:
+			}
+		}
+		for _, se in subEvents {
+			out = out.Append(se)
+		}
+		out
+
+	case CmdRetireOwnerCalls as cmd:
+		let (_, retired) = handle.RetireOwnerCalls(s.Registry, cmd.DeadOwner)
+		if retired.Len() == 0 {
+			return []Event{}
+		}
+		let mut out = []Event{EvHandlesRetired{DeadOwner: cmd.DeadOwner, RetiredIDs: retired}}
+		for _, hid in retired {
+			let delivID = handle.WakeDeliveryID(hid)
+			match s.Wakes.Get(delivID) {
+			case option.None:
+				out = out.Append(EvWakeUpserted{Record: reconcile.WakeRecord{
+					DeliveryID:     delivID,
+					HandleID:       hid,
+					Delivered:      false,
+					PayloadSummary: "retired:" + handle.OwnerText(cmd.DeadOwner),
+				}})
+			case option.Some[reconcile.WakeRecord]:
+			}
+		}
+		out
+
+	case _:
+		[]Event{}
+	}
+}
+
+func decideWakeHoldCmd(s State, env Envelope) []Event fails Refusal {
+	match env.Command {
+	case CmdRecordWake as cmd:
+		let w = cmd.Wake
+		if w.DeliveryID == "" {
+			return InvalidInput{Field: "wake.delivery_id", Reason: "empty delivery_id"}
+		}
+		match s.Wakes.Get(w.DeliveryID) {
+		case option.Some[reconcile.WakeRecord] as existing:
+			if existing.Value.HandleID != w.HandleID {
+				return AlreadyExists{Scope: "wake", Key: w.DeliveryID}
+			}
+			[]Event{}
+		case option.None:
+			[]Event{EvWakeUpserted{Record: w}}
+		}
+
+	case CmdMarkWakeDelivered as cmd:
+		match s.Wakes.Get(cmd.WakeDeliveryID) {
+		case option.None:
+			NotFound{Entity: "wake", Target: cmd.WakeDeliveryID}
+		case option.Some[reconcile.WakeRecord] as w:
+			if w.Value.Delivered {
+				return []Event{}
+			}
+			[]Event{EvWakeDelivered{DeliveryID: cmd.WakeDeliveryID}}
+		}
+
+	case CmdOpenPoolHold as cmd:
+		if cmd.HoldKey == "" || cmd.RetryAtMs <= 0 {
+			return InvalidInput{Field: "pool_hold", Reason: "empty hold_key or non-positive retry_at_ms"}
+		}
+		match s.Holds.Get(cmd.HoldKey) {
+		case option.Some[PoolHold]:
+			return AlreadyExists{Scope: "pool_hold", Key: cmd.HoldKey}
+		case option.None:
+		}
+		let hold = PoolHold{
+			HoldKey:        cmd.HoldKey,
+			ThreadID:       cmd.ThreadID,
+			AccountID:      cmd.AccountID,
+			RetryAtMs:      cmd.RetryAtMs,
+			DeliveryID:     handle.HoldWakeDeliveryID(cmd.ThreadID, cmd.RetryAtMs),
+			Status:         HoldWaiting,
+			ParentNotified: cmd.ParentNotified,
+			CreatedAtMs:    env.AtMs,
+			UpdatedAtMs:    env.AtMs,
+		}
+		[]Event{EvHoldUpserted{Hold: hold}}
+
+	case CmdTransitionHold as cmd:
+		let cur = match s.Holds.Get(cmd.HoldKey) {
+		case option.None:
+			return NotFound{Entity: "pool_hold", Target: cmd.HoldKey}
+		case option.Some[PoolHold] as h:
+			h.Value
+		}
+		match cmd.Action {
+		case HoldActionWake:
+			match cur.Status {
+			case HoldWoken:
+				return []Event{}
+			case HoldCancelled:
+				return InvalidTransition{From: "hold_cancelled", Action: "wake_hold"}
+			case HoldWaiting:
+				if env.AtMs < cur.RetryAtMs {
+					return InvalidTransition{From: "hold_waiting_before_retry", Action: "wake_hold"}
+				}
+				let next = PoolHold{..cur, Status: HoldWoken, UpdatedAtMs: env.AtMs}
+				let mut out = []Event{EvHoldUpserted{Hold: next}}
+				match s.Wakes.Get(cur.DeliveryID) {
+				case option.None:
+					out = out.Append(EvWakeUpserted{Record: reconcile.WakeRecord{
+						DeliveryID:     cur.DeliveryID,
+						HandleID:       handle.HandleID(cur.HoldKey),
+						Delivered:      false,
+						PayloadSummary: "hold_open:" + cur.HoldKey,
+					}})
+				case option.Some[reconcile.WakeRecord]:
+				}
+				out
+			}
+		case HoldActionCancel:
+			match cur.Status {
+			case HoldCancelled:
+				return []Event{}
+			case HoldWoken:
+				return InvalidTransition{From: "hold_woken", Action: "cancel_hold"}
+			case HoldWaiting:
+				[]Event{EvHoldUpserted{Hold: PoolHold{..cur, Status: HoldCancelled, UpdatedAtMs: env.AtMs}}}
+			}
+		}
+
+	case _:
+		[]Event{}
+	}
+}
+
+func decideQuestionCmd(s State, env Envelope) []Event fails Refusal {
+	match env.Command {
+	case CmdAskUserAsync as cmd:
+		if cmd.ID == turn.RequestID("") || cmd.Prompt == "" || cmd.HandleID == handle.HandleID("") {
+			return InvalidInput{Field: "question", Reason: "empty id, handle_id, or prompt"}
+		}
+		match s.Questions.Get(cmd.ID) {
+		case option.Some[AsyncQuestion]:
+			return AlreadyExists{Scope: "question", Key: string(cmd.ID)}
+		case option.None:
+		}
+		let spec = handle.OpenHandleSpec{
+			ID:      cmd.HandleID,
+			Kind:    handle.KindQuestion,
+			Owner:   cmd.Owner,
+			Session: cmd.Session,
+			Summary: cmd.Header,
+		}
+		let nextReg = handle.OpenHostHandle(s.Registry, spec) catch {
+		case e:
+			return HandleDomainErr{HandleErr: e}
+		}
+		let opened = match nextReg.Handles.Get(cmd.HandleID) {
+		case option.Some[handle.WakeHandle] as h:
+			h.Value
+		case option.None:
+			return InvalidTransition{From: "ask_user_async", Action: "missing question handle"}
+		}
+		let queuedReq = turn.OpenRequestWithStatus(cmd.ID, turn.RequestQuestion, turn.SessionOnline) catch {
+		case e:
+			return RequestDomainErr{RequestErr: e}
+		}
+		let req = turn.StepRequest(queuedReq, turn.ReqDispatch) catch {
+		case e:
+			return RequestDomainErr{RequestErr: e}
+		}
+		let q = AsyncQuestion{
+			ID:          cmd.ID,
+			ThreadID:    cmd.ThreadID,
+			HandleID:    cmd.HandleID,
+			Header:      cmd.Header,
+			Prompt:      cmd.Prompt,
+			Assumption:  cmd.Assumption,
+			Options:     cmd.Options,
+			TargetRole:  cmd.TargetRole,
+			Status:      QuestionOpen,
+			Answer:      option.None,
+			AnsweredBy:  option.None,
+			AskedAtMs:   env.AtMs,
+			UpdatedAtMs: env.AtMs,
+		}
+		[]Event{EvHandleOpened{Handle: opened}, EvQuestionSaved{Question: q, Request: req}}
+
+	case CmdAnswerAsyncQuestion as cmd:
+		let q = match s.Questions.Get(cmd.ID) {
+		case option.None:
+			return NotFound{Entity: "question", Target: string(cmd.ID)}
+		case option.Some[AsyncQuestion] as found:
+			found.Value
+		}
+		if q.Status != QuestionOpen {
+			return InvalidTransition{From: QuestionStatusName(q.Status), Action: "answer_question"}
+		}
+		let req = match s.Requests.Get(cmd.ID) {
+		case option.None:
+			return NotFound{Entity: "request", Target: string(cmd.ID)}
+		case option.Some[turn.RequestState] as found:
+			found.Value
+		}
+		let resolvedAnswer = if cmd.Answer != "" { cmd.Answer } else { q.Assumption }
+		if resolvedAnswer == "" {
+			return InvalidInput{Field: "answer", Reason: "empty answer and assumption"}
+		}
+		let nextReq = turn.StepRequest(req, turn.ReqAnswer{Answer: resolvedAnswer, By: cmd.By}) catch {
+		case e:
+			return RequestDomainErr{RequestErr: e}
+		}
+		let (_, shouldEmit) = handle.SettleHandle(s.Registry, q.HandleID, handle.DispSucceeded) catch {
+		case e:
+			return HandleDomainErr{HandleErr: e}
+		}
+		let nextQ = AsyncQuestion{
+			..q,
+			Status:      QuestionAnswered,
+			Answer:      option.Some[string]{Value: resolvedAnswer},
+			AnsweredBy:  option.Some[turn.Responder]{Value: cmd.By},
+			UpdatedAtMs: env.AtMs,
+		}
+		let mut out = []Event{
+			EvHandleSettled{ID: q.HandleID, Disposition: handle.DispSucceeded, EmitWake: shouldEmit},
+			EvQuestionSaved{Question: nextQ, Request: nextReq},
+		}
+		let delivID = handle.WakeDeliveryID(q.HandleID)
+		match s.Wakes.Get(delivID) {
+		case option.None:
+			out = out.Append(EvWakeUpserted{Record: reconcile.WakeRecord{
+				DeliveryID:     delivID,
+				HandleID:       q.HandleID,
+				Delivered:      false,
+				PayloadSummary: "question_answered:" + resolvedAnswer,
+			}})
+		case option.Some[reconcile.WakeRecord]:
+		}
+		out
+
+	case CmdWithdrawAsyncQuestion as cmd:
+		let q = match s.Questions.Get(cmd.ID) {
+		case option.None:
+			return NotFound{Entity: "question", Target: string(cmd.ID)}
+		case option.Some[AsyncQuestion] as found:
+			found.Value
+		}
+		match q.Status {
+		case QuestionWithdrawn:
+			return []Event{}
+		case QuestionAnswered:
+			return InvalidTransition{From: "answered", Action: "withdraw_question"}
+		case QuestionOpen:
+		}
+		let req = match s.Requests.Get(cmd.ID) {
+		case option.None:
+			return NotFound{Entity: "request", Target: string(cmd.ID)}
+		case option.Some[turn.RequestState] as found:
+			found.Value
+		}
+		let nextReq = turn.StepRequest(req, turn.ReqExpirePending) catch {
+		case e:
+			return RequestDomainErr{RequestErr: e}
+		}
+		let (_, shouldEmit) = handle.SettleHandle(s.Registry, q.HandleID, handle.DispCancelled) catch {
+		case e:
+			return HandleDomainErr{HandleErr: e}
+		}
+		let nextQ = AsyncQuestion{..q, Status: QuestionWithdrawn, UpdatedAtMs: env.AtMs}
+		[]Event{
+			EvHandleSettled{ID: q.HandleID, Disposition: handle.DispCancelled, EmitWake: shouldEmit},
+			EvQuestionSaved{Question: nextQ, Request: nextReq},
+		}
+
+	case _:
+		[]Event{}
+	}
+}
+
+func decidePoolCmd(s State, env Envelope) []Event fails Refusal {
+	match env.Command {
+	case CmdUpsertPoolAccount as cmd:
+		let acc = cmd.Pool
+		if acc.ID == session.AccountID("") || acc.InflightStarts < 0 {
+			return InvalidInput{Field: "pool_account", Reason: "empty account_id or negative inflight_starts"}
+		}
+		if acc.Window5hUsedPct < 0 || acc.Window5hUsedPct > 100 || acc.Window7dUsedPct < 0 || acc.Window7dUsedPct > 100 {
+			return InvalidInput{Field: "pool_account.pct", Reason: "window percentage must be within 0..100"}
+		}
+		[]Event{EvPoolAccountSaved{Account: PoolAccount{..acc, UpdatedAtMs: env.AtMs}}}
+
+	case CmdAdjustPoolInflight as cmd:
+		let acc = match s.Accounts.Get(cmd.AccountID) {
+		case option.None:
+			return NotFound{Entity: "pool_account", Target: string(cmd.AccountID)}
+		case option.Some[PoolAccount] as found:
+			found.Value
+		}
+		let nextInflight = acc.InflightStarts + cmd.Delta
+		if nextInflight < 0 {
+			return InvalidTransition{From: "inflight_zero", Action: "decrement_inflight"}
+		}
+		[]Event{EvPoolAccountSaved{Account: PoolAccount{..acc, InflightStarts: nextInflight, UpdatedAtMs: env.AtMs}}}
+
+	case CmdClaimResetDispatch as cmd:
+		if cmd.AccountID == session.AccountID("") || cmd.PeriodKey == "" {
+			return InvalidInput{Field: "reset_claim", Reason: "empty account_id or period_key"}
+		}
+		let ck = FormatResetClaimKey(cmd.AccountID, cmd.WindowKind, cmd.PeriodKey)
+		match s.ResetClaims.Get(ck) {
+		case option.Some[ResetClaim]:
+			return AlreadyExists{Scope: "reset_claim", Key: ck}
+		case option.None:
+		}
+		let claim = ResetClaim{
+			ClaimKey:    ck,
+			AccountID:   cmd.AccountID,
+			WindowKind:  cmd.WindowKind,
+			PeriodKey:   cmd.PeriodKey,
+			ClaimedBy:   cmd.ClaimedBy,
+			ClaimedAtMs: env.AtMs,
+		}
+		[]Event{EvResetClaimed{Claim: claim}}
+
+	case CmdSetOwnerPush as cmd:
+		let p = cmd.Reserve
+		if p.PushID == "" || p.ExtraPct <= 0 || p.EndsAtMs <= p.StartsAtMs {
+			return InvalidInput{Field: "owner_push", Reason: "invalid push_id, extra_pct, or window range"}
+		}
+		[]Event{EvOwnerPushSaved{Push: OwnerPush{..p, UpdatedMs: env.AtMs}}}
+
+	case CmdStepLimitRecovery as cmd:
+		let keyStr = turn.FormatLimitRecoveryKey(cmd.Key)
+		let cur = match s.Limits.Get(keyStr) {
+		case option.Some[turn.LimitState] as found:
+			found.Value
+		case option.None:
+			turn.NewLimitState(cmd.Key)
+		}
+		let next = turn.StepLimitRecovery(cur, cmd.Action) catch {
+		case e:
+			return LimitDomainErr{LimitErr: e}
+		}
+		[]Event{EvLimitSaved{LimitKey: keyStr, Limit: next}}
+
+	case _:
+		[]Event{}
+	}
+}
+
+func decideKernelCmd(s State, env Envelope) []Event fails Refusal {
+	match env.Command {
+	case CmdSaveKernelSnapshot as cmd:
+		if cmd.SessionID == handle.SessionID("") {
+			return InvalidInput{Field: "session_id", Reason: "empty session_id"}
+		}
+		if cmd.SnapshotBytes < 0 || cmd.SnapshotBytes > MaxKernelSnapshotBytes() {
+			return InvalidInput{Field: "snapshot_bytes", Reason: "snapshot bytes outside 0..131072"}
+		}
+		if cmd.LostNotice.Len() > handle.MaxLostNoticeChars {
+			return InvalidInput{Field: "lost_notice", Reason: "lost_notice exceeds 160 chars"}
+		}
+		let nextSeq = match s.Snapshots.Get(cmd.SessionID) {
+		case option.Some[KernelSnapshot] as prev:
+			prev.Value.SnapshotSeq + 1
+		case option.None:
+			1
+		}
+		let snap = KernelSnapshot{
+			SessionID:     cmd.SessionID,
+			ThreadID:      cmd.ThreadID,
+			RootThreadID:  cmd.RootThreadID,
+			BindingsJSON:  cmd.BindingsJSON,
+			SnapshotSeq:   nextSeq,
+			SnapshotBytes: cmd.SnapshotBytes,
+			UpdatedAtMs:   env.AtMs,
+			LostNotice:    cmd.LostNotice,
+		}
+		[]Event{EvKernelSnapshotSaved{Snapshot: snap}}
+
+	case CmdRecordKernelCut as cmd:
+		if cmd.CutID == "" || cmd.EndedAtMs < cmd.StartedAtMs {
+			return InvalidInput{Field: "kernel_cut", Reason: "empty cut_id or ended_at_ms < started_at_ms"}
+		}
+		match s.Journals.Get(cmd.CutID) {
+		case option.Some[KernelCutJournal]:
+			return AlreadyExists{Scope: "kernel_journal", Key: cmd.CutID}
+		case option.None:
+		}
+		let dur = cmd.EndedAtMs - cmd.StartedAtMs
+		let prevUsage = match s.RootUsages.Get(cmd.RootThreadID) {
+		case option.Some[KernelRootUsage] as u:
+			u.Value
+		case option.None:
+			KernelRootUsage{
+				RootThreadID:  cmd.RootThreadID,
+				ActiveCellMs:  0,
+				WindowStartMs: cmd.StartedAtMs,
+				LastUpdatedMs: cmd.EndedAtMs,
+				Flagged:       false,
+			}
+		}
+		let resetWindow = cmd.StartedAtMs-prevUsage.WindowStartMs >= KernelRootWindowMs()
+		let baseActive = if resetWindow { int64(0) } else { prevUsage.ActiveCellMs }
+		let windowStart = if resetWindow { cmd.StartedAtMs } else { prevUsage.WindowStartMs }
+		let nextActive = baseActive + dur
+		let flagged = nextActive*int64(100) >= KernelRootSharePct()*KernelRootWindowMs()
+		let nextUsage = KernelRootUsage{
+			RootThreadID:  cmd.RootThreadID,
+			ActiveCellMs:  nextActive,
+			WindowStartMs: windowStart,
+			LastUpdatedMs: cmd.EndedAtMs,
+			Flagged:       flagged,
+		}
+		let journal = KernelCutJournal{
+			CutID:             cmd.CutID,
+			SessionID:         cmd.SessionID,
+			ThreadID:          cmd.ThreadID,
+			RootThreadID:      cmd.RootThreadID,
+			CallsJSON:         cmd.CallsJSON,
+			MapsJSON:          cmd.MapsJSON,
+			StartedAtMs:       cmd.StartedAtMs,
+			EndedAtMs:         cmd.EndedAtMs,
+			Reason:            cmd.Reason,
+			RootShareExceeded: flagged,
+		}
+		[]Event{EvKernelCutRecorded{Journal: journal, RootUsage: nextUsage}}
+
+	case _:
+		[]Event{}
+	}
+}
+
+func decideAcquireLease(s State, env Envelope, cmd CmdAcquireLease) []Event fails Refusal {
+	if cmd.LeaseID == "" || cmd.Owner.Epoch <= 0 {
+		return InvalidInput{Field: "lease", Reason: "empty lease_id or non-positive epoch"}
+	}
+	match s.Leases.Get(cmd.LeaseID) {
+	case option.None:
+		if cmd.ExpectedEpoch != 0 {
+			return LeaseFenced{LeaseID: cmd.LeaseID, ActiveEpoch: 0, ActiveToken: int64(0)}
+		}
+		let emptyRec = LeaseRecord{
+			LeaseID:             cmd.LeaseID,
+			Owner:               cmd.Owner,
+			Epoch:               cmd.Owner.Epoch,
+			FencingToken:        int64(1),
+			Phase:               cutover.CutoverOld,
+			ActiveOwner:         cutover.OwnerOld,
+			CommitPersisted:     false,
+			NewLeaseToken:       0,
+			OldDrainFinished:    false,
+			AbortedBeforeCommit: false,
+			CrashRecovered:      false,
+			OldActedAfterCommit: false,
+			DroppedCount:        0,
+			WakesDelivered:      0,
+			HandleOrder:         []handle.HandleID{},
+			Handles:             []cutover.CutoverHandle{},
+			AcquiredAtMs:        env.AtMs,
+			UpdatedAtMs:         env.AtMs,
+		}
+		let fresh = PackCutoverState(emptyRec, cutover.NewCutoverState(), cmd.Owner, int64(1), env.AtMs)
+		[]Event{EvLeaseSaved{Lease: fresh}}
+	case option.Some[LeaseRecord] as cur:
+		let lv = cur.Value
+		if cmd.ExpectedEpoch != lv.Epoch || cmd.Owner.Epoch <= lv.Epoch {
+			return LeaseFenced{LeaseID: cmd.LeaseID, ActiveEpoch: lv.Epoch, ActiveToken: lv.FencingToken}
+		}
+		let renewed = PackCutoverState(lv, cutover.NewCutoverState(), cmd.Owner, lv.FencingToken+int64(1), env.AtMs)
+		[]Event{EvLeaseSaved{Lease: renewed}}
+	}
+}
+
+func decideStepLeaseCutover(s State, env Envelope, cmd CmdStepLeaseCutover) []Event fails Refusal {
+	let lv = match s.Leases.Get(cmd.LeaseID) {
+	case option.None:
+		return NotFound{Entity: "lease", Target: cmd.LeaseID}
+	case option.Some[LeaseRecord] as found:
+		found.Value
+	}
+	let nextCut = cutover.ApplyCutover(ToCutoverState(lv), cmd.Action) catch {
+	case e:
+		return CutoverDomainErr{CutoverErr: e}
+	}
+	let (nextOwner, nextToken) = match cmd.Action {
+	case cutover.ActCommitPersisted:
+		match cmd.NewOwner {
+		case option.None:
+			return InvalidInput{Field: "new_owner", Reason: "commit_persisted requires new_owner"}
+		case option.Some[handle.OwnerID] as no:
+			if no.Value == lv.Owner || no.Value.Epoch < lv.Epoch {
+				return InvalidInput{Field: "new_owner", Reason: "new_owner must differ and not regress epoch"}
+			}
+			(no.Value, lv.FencingToken + int64(1))
+		}
+	case _:
+		(lv.Owner, lv.FencingToken)
+	}
+	let updated = PackCutoverState(lv, nextCut, nextOwner, nextToken, env.AtMs)
+	let mut out = []Event{EvLeaseSaved{Lease: updated}}
+	match cmd.Action {
+	case cutover.ActDeliverH1Wake as dl:
+		let delivID = handle.WakeDeliveryID(dl.ID)
+		match s.Wakes.Get(delivID) {
+		case option.None:
+			out = out.Append(EvWakeUpserted{Record: reconcile.WakeRecord{
+				DeliveryID:     delivID,
+				HandleID:       dl.ID,
+				Delivered:      true,
+				PayloadSummary: "h1_cutover_wake",
+			}})
+		case option.Some[reconcile.WakeRecord] as w:
+			if !w.Value.Delivered {
+				out = out.Append(EvWakeDelivered{DeliveryID: delivID})
+			}
+		}
+	case _:
+	}
+	out
+}
+
+func decideLeaseCmd(s State, env Envelope) []Event fails Refusal {
+	match env.Command {
+	case CmdAcquireLease as cmd:
+		try decideAcquireLease(s, env, cmd)
+	case CmdStepLeaseCutover as cmd:
+		try decideStepLeaseCutover(s, env, cmd)
+	case _:
+		[]Event{}
+	}
+}
+
+func decideBootReconcileCmd(s State, cmd CmdApplyBootReconcile) []Event fails Refusal {
+	let snap = BuildBootSnapshot(s, BootQuery{
+		RootID:                     cmd.RootID,
+		BootingOwner:               cmd.BootingOwner,
+		LiveForeignOwners:          cmd.LiveForeignOwners,
+		PendingRequestsSurviveBoot: cmd.PendingRequestsSurviveBoot,
+		LeaseID:                    "",
+	})
+	let plan = reconcile.BootReconcile(snap)
+	let treeOpt = match cmd.RootID {
+	case option.Some[handle.ThreadID] as rid:
+		match s.Trees.Get(rid.Value) {
+		case option.Some[subagent.Tree]:
+			option.Some[SubagentTreeSnapshot]{Value: FromSubagentTree(plan.NextTree)}
+		case option.None:
+			option.None
+		}
+	case option.None:
+		option.None
+	}
+	let mut out = []Event{EvBootReconciled{
+		NextWakes:          plan.NextPendingWakes,
+		ReconciledTurns:    plan.ReconciledTurns,
+		ReconciledRequests: plan.ReconciledRequests,
+		LostCallIDs:        plan.LostCallIDs,
+		LostNotice:         plan.LostNotice,
+		SubagentTree:       treeOpt,
+	}}
+	for _, hid in plan.LostCallIDs {
+		let delivID = handle.WakeDeliveryID(hid)
+		match s.Wakes.Get(delivID) {
+		case option.None:
+			out = out.Append(EvWakeUpserted{Record: reconcile.WakeRecord{
+				DeliveryID:     delivID,
+				HandleID:       hid,
+				Delivered:      false,
+				PayloadSummary: "boot_lost:" + string(hid),
+			}})
+		case option.Some[reconcile.WakeRecord]:
+		}
+	}
+	out
+}
+
+func dispatchCommand(s State, env Envelope) []Event fails Refusal {
+	match env.Command {
+	case CmdCreateThread, CmdAddBranchEdge, CmdSwitchDriver, CmdEnqueuePrompt, CmdDequeuePrompt, CmdStartTurn, CmdStepTurn, CmdArchiveThread:
+		try decideThreadCmd(s, env)
+	case CmdInitSubagentTree, CmdSpawnSubagent, CmdSubagentControlHandle, CmdSubagentSettleHandle, CmdSubagentHandBack:
+		try decideSubagentCmd(s, env)
+	case CmdOpenHandle, CmdMarkHandleHanded, CmdSettleHandle, CmdRetireOwnerCalls:
+		try decideHandleCmd(s, env)
+	case CmdRecordWake, CmdMarkWakeDelivered, CmdOpenPoolHold, CmdTransitionHold:
+		try decideWakeHoldCmd(s, env)
+	case CmdAskUserAsync, CmdAnswerAsyncQuestion, CmdWithdrawAsyncQuestion:
+		try decideQuestionCmd(s, env)
+	case CmdUpsertPoolAccount, CmdAdjustPoolInflight, CmdClaimResetDispatch, CmdSetOwnerPush, CmdStepLimitRecovery:
+		try decidePoolCmd(s, env)
+	case CmdSaveKernelSnapshot, CmdRecordKernelCut:
+		try decideKernelCmd(s, env)
+	case CmdAcquireLease, CmdStepLeaseCutover:
+		try decideLeaseCmd(s, env)
+	case CmdApplyBootReconcile as b:
+		try decideBootReconcileCmd(s, b)
+	}
+}
+
+// Decide validates env against State (idempotency, fencing, and domain invariants) and emits atomic Events.
+func Decide(s State, env Envelope) []Event fails Refusal {
+	if env.ID == CommandID("") {
+		return InvalidInput{Field: "command_id", Reason: "empty command_id"}
+	}
+	match s.Commands.Get(env.ID) {
+	case option.Some[CommandReceipt] as rec:
+		if rec.Value.Command == env.Command {
+			return []Event{}
+		}
+		return CommandReused{ID: env.ID}
+	case option.None:
+	}
+	try decideLeaseFence(s, env)
+	let domainEvents = try dispatchCommand(s, env)
+	let mut out = []Event{EvCommandAccepted{
+		ID:      env.ID,
+		Actor:   env.Actor,
+		AtMs:    env.AtMs,
+		Command: env.Command,
+	}}
+	for _, ev in domainEvents {
+		out = out.Append(ev)
+	}
+	out
+}

@@ -1,0 +1,439 @@
+import core
+import explore
+import github.com/cevr/ergo/modules/atlas/adapter
+import github.com/cevr/ergo/modules/atlas/cutover
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/memory
+import github.com/cevr/ergo/modules/atlas/session
+import github.com/cevr/ergo/modules/atlas/subagent
+import github.com/cevr/ergo/modules/atlas/thread
+import github.com/cevr/ergo/modules/atlas/turn
+import machines
+import option
+import sync
+import testing
+
+// SQLPathState models persisted Atlas WAL state across command execution and reopen checks.
+type SQLPathState {
+	HasThread   bool,
+	HasLease    bool,
+	CutPhase    int,
+	HasHold     bool,
+	HoldWoken   bool,
+	HasQuestion bool,
+	QAnswered   bool,
+	HasSnapshot bool,
+}
+
+// SQLAcquireLease acquires the initial ownership lease in WAL SQLite.
+type SQLAcquireLease {}
+
+// SQLBeginQuiesce begins cutover quiesce in WAL SQLite.
+type SQLBeginQuiesce {}
+
+// SQLStageTransfer stages cutover transfer in WAL SQLite.
+type SQLStageTransfer {}
+
+// SQLCommitCutover commits lease transfer in WAL SQLite.
+type SQLCommitCutover {}
+
+// SQLCreateThread creates a durable thread in WAL SQLite.
+type SQLCreateThread {}
+
+// SQLOpenHold opens a waiting quota pool hold in WAL SQLite.
+type SQLOpenHold {}
+
+// SQLWakeHold wakes a waiting pool hold in WAL SQLite.
+type SQLWakeHold {}
+
+// SQLAskQuestion opens a persistent ask_user_async question in WAL SQLite.
+type SQLAskQuestion {}
+
+// SQLAnswerQuestion answers an open ask_user_async question in WAL SQLite.
+type SQLAnswerQuestion {}
+
+// SQLSaveSnapshot saves a bounded kernel snapshot in WAL SQLite.
+type SQLSaveSnapshot {}
+
+// SQLPathCmd enumerates commands explored over WAL SQLite.
+type SQLPathCmd =
+	| SQLAcquireLease
+	| SQLBeginQuiesce
+	| SQLStageTransfer
+	| SQLCommitCutover
+	| SQLCreateThread
+	| SQLOpenHold
+	| SQLWakeHold
+	| SQLAskQuestion
+	| SQLAnswerQuestion
+	| SQLSaveSnapshot
+
+// SQLReply carries optional step reply text for SQLite path checks.
+type SQLReply {
+	note string,
+}
+
+// SQLDriveErr reports an unexpected infrastructure failure during SQLite path checks.
+type SQLDriveErr {
+	detail string,
+}
+
+func sqlStep(s SQLPathState, e SQLPathCmd) machines.Decision[SQLPathState, SQLReply] {
+	match e {
+	case SQLAcquireLease:
+		if s.HasLease {
+			return machines.Reject
+		}
+		machines.Enter[SQLPathState]{Next: SQLPathState{..s, HasLease: true, CutPhase: 0}}
+	case SQLBeginQuiesce:
+		if !s.HasLease || s.CutPhase != 0 {
+			return machines.Reject
+		}
+		machines.Enter[SQLPathState]{Next: SQLPathState{..s, CutPhase: 1}}
+	case SQLStageTransfer:
+		if !s.HasLease || s.CutPhase != 1 {
+			return machines.Reject
+		}
+		machines.Enter[SQLPathState]{Next: SQLPathState{..s, CutPhase: 2}}
+	case SQLCommitCutover:
+		if !s.HasLease || s.CutPhase != 2 {
+			return machines.Reject
+		}
+		machines.Enter[SQLPathState]{Next: SQLPathState{..s, CutPhase: 3}}
+	case SQLCreateThread:
+		if s.HasThread {
+			return machines.Reject
+		}
+		machines.Enter[SQLPathState]{Next: SQLPathState{..s, HasThread: true}}
+	case SQLOpenHold:
+		if s.HasHold {
+			return machines.Reject
+		}
+		machines.Enter[SQLPathState]{Next: SQLPathState{..s, HasHold: true}}
+	case SQLWakeHold:
+		if !s.HasHold || s.HoldWoken {
+			return machines.Reject
+		}
+		machines.Enter[SQLPathState]{Next: SQLPathState{..s, HoldWoken: true}}
+	case SQLAskQuestion:
+		if s.HasQuestion {
+			return machines.Reject
+		}
+		machines.Enter[SQLPathState]{Next: SQLPathState{..s, HasQuestion: true}}
+	case SQLAnswerQuestion:
+		if !s.HasQuestion || s.QAnswered {
+			return machines.Reject
+		}
+		machines.Enter[SQLPathState]{Next: SQLPathState{..s, QAnswered: true}}
+	case SQLSaveSnapshot:
+		if s.HasSnapshot {
+			return machines.Reject
+		}
+		machines.Enter[SQLPathState]{Next: SQLPathState{..s, HasSnapshot: true}}
+	}
+}
+
+func sqlPathModel() explore.PathModel[SQLPathState, SQLPathCmd, SQLPathState, SQLReply, core.Never] {
+	explore.PathModelOfMachine(
+		[]SQLPathState{SQLPathState{HasThread: false, HasLease: false, CutPhase: 0, HasHold: false, HoldWoken: false, HasQuestion: false, QAnswered: false, HasSnapshot: false}},
+		[]SQLPathCmd{SQLAcquireLease, SQLBeginQuiesce, SQLStageTransfer, SQLCommitCutover, SQLCreateThread, SQLOpenHold, SQLWakeHold, SQLAskQuestion, SQLAnswerQuestion, SQLSaveSnapshot},
+		sqlStep,
+	)
+}
+
+func projectSQLState(store Store, prefix string) SQLPathState needs go.Foreign {
+	let snap = store.Snapshot() catch {
+	case _:
+		memory.InitialState()
+	}
+	let leaseOpt = snap.Leases.Get("\(prefix)-lease")
+	let cutPhase = match leaseOpt {
+	case option.None:
+		0
+	case option.Some[memory.LeaseRecord] as lr:
+		match lr.Value.Phase {
+		case cutover.CutoverOld:
+			0
+		case cutover.CutoverQuiesce:
+			1
+		case cutover.CutoverTransfer:
+			2
+		case cutover.CutoverCommitted, cutover.CutoverDone:
+			3
+		}
+	}
+	let (hasHold, holdWoken) = match snap.Holds.Get("\(prefix)-hold") {
+	case option.None:
+		(false, false)
+	case option.Some[memory.PoolHold] as h:
+		(true, h.Value.Status == memory.HoldWoken)
+	}
+	let (hasQ, qAns) = match snap.Questions.Get(turn.RequestID("\(prefix)-q")) {
+	case option.None:
+		(false, false)
+	case option.Some[memory.AsyncQuestion] as q:
+		(true, q.Value.Status == memory.QuestionAnswered)
+	}
+	SQLPathState{
+		HasThread:   snap.Threads.Get(handle.ThreadID("\(prefix)-th")) != option.None,
+		HasLease:    leaseOpt != option.None,
+		CutPhase:    cutPhase,
+		HasHold:     hasHold,
+		HoldWoken:   holdWoken,
+		HasQuestion: hasQ,
+		QAnswered:   qAns,
+		HasSnapshot: snap.Snapshots.Get(handle.SessionID("\(prefix)-sess")) != option.None,
+	}
+}
+
+func sqlPathEnvelope(prefix string, seq int, cmd SQLPathCmd) memory.Envelope {
+	let cid = memory.CommandID("\(prefix)-\(seq)")
+	let o1 = handle.OwnerID{ServerID: "s1", Location: "dc1", Epoch: 1}
+	let o2 = handle.OwnerID{ServerID: "s2", Location: "dc1", Epoch: 2}
+	match cmd {
+	case SQLAcquireLease:
+		memory.Envelope{ID: cid, Actor: "sp", AtMs: int64(1000), LeaseFence: option.None, Command: memory.CmdAcquireLease{LeaseID: "\(prefix)-lease", Owner: o1, ExpectedEpoch: 0}}
+	case SQLBeginQuiesce:
+		memory.Envelope{ID: cid, Actor: "sp", AtMs: int64(1100), LeaseFence: option.None, Command: memory.CmdStepLeaseCutover{LeaseID: "\(prefix)-lease", NewOwner: option.None, Action: cutover.ActBeginQuiesce}}
+	case SQLStageTransfer:
+		memory.Envelope{ID: cid, Actor: "sp", AtMs: int64(1200), LeaseFence: option.None, Command: memory.CmdStepLeaseCutover{LeaseID: "\(prefix)-lease", NewOwner: option.None, Action: cutover.ActStageTransfer}}
+	case SQLCommitCutover:
+		memory.Envelope{ID: cid, Actor: "sp", AtMs: int64(1300), LeaseFence: option.None, Command: memory.CmdStepLeaseCutover{LeaseID: "\(prefix)-lease", NewOwner: option.Some[handle.OwnerID]{Value: o2}, Action: cutover.ActCommitPersisted}}
+	case SQLCreateThread:
+		memory.Envelope{
+			ID:      cid, Actor: "sp", AtMs: int64(1400), LeaseFence: option.None,
+			Command: memory.CmdCreateThread{
+				Spec: thread.ThreadSpec{
+					ID:                 handle.ThreadID("\(prefix)-th"), ParentThreadID: option.None, Driver: adapter.ClaudeMeta,
+					AgyDirectSupported: false, RequestedMode: adapter.ModeAutoEdit, Instance: adapter.InstanceID("inst"),
+					ConfigDir:          "/cfg", SharedHome: option.None, Model: adapter.ModelID("gpt-5"), LinkOrigin: thread.OriginLocal,
+				},
+				EdgeLabel: "",
+			},
+		}
+	case SQLOpenHold:
+		memory.Envelope{ID: cid, Actor: "sp", AtMs: int64(1500), LeaseFence: option.None, Command: memory.CmdOpenPoolHold{HoldKey: "\(prefix)-hold", ThreadID: handle.ThreadID("\(prefix)-th"), AccountID: session.AccountID("acc"), RetryAtMs: int64(2000), ParentNotified: false}}
+	case SQLWakeHold:
+		memory.Envelope{ID: cid, Actor: "sp", AtMs: int64(2500), LeaseFence: option.None, Command: memory.CmdTransitionHold{HoldKey: "\(prefix)-hold", Action: memory.HoldActionWake}}
+	case SQLAskQuestion:
+		memory.Envelope{
+			ID:      cid, Actor: "sp", AtMs: int64(1600), LeaseFence: option.None,
+			Command: memory.CmdAskUserAsync{
+				ID:    turn.RequestID("\(prefix)-q"), ThreadID: handle.ThreadID("\(prefix)-th"), HandleID: handle.HandleID("\(prefix)-qh"),
+				Owner: o1, Session: handle.SessionID("\(prefix)-sess"), Header: "H", Prompt: "P", Assumption: "ok", Options: []string{"ok"}, TargetRole: subagent.RoleRoot,
+			},
+		}
+	case SQLAnswerQuestion:
+		memory.Envelope{ID: cid, Actor: "sp", AtMs: int64(1700), LeaseFence: option.None, Command: memory.CmdAnswerAsyncQuestion{ID: turn.RequestID("\(prefix)-q"), Answer: "ok", By: turn.ResponderPrimary}}
+	case SQLSaveSnapshot:
+		memory.Envelope{ID: cid, Actor: "sp", AtMs: int64(1800), LeaseFence: option.None, Command: memory.CmdSaveKernelSnapshot{SessionID: handle.SessionID("\(prefix)-sess"), ThreadID: handle.ThreadID("\(prefix)-th"), RootThreadID: handle.ThreadID("\(prefix)-th"), BindingsJSON: "{\"k\":1}", SnapshotBytes: 7, LostNotice: ""}}
+	}
+}
+
+func sqlReject(s SQLPathState) explore.Observed[SQLPathState, SQLReply, core.Never] {
+	explore.StepResult[SQLPathState, SQLReply, core.Never]{
+		Step: explore.StepObs[SQLPathState, SQLReply, core.Never]{Kind: explore.DisReject, State: option.Some[SQLPathState]{Value: s}, Outputs: []SQLReply{}, Error: option.None, Terminal: false},
+	}
+}
+
+type sqlSlot {
+	store  Store,
+	prefix string,
+	step   sync.Ref[int],
+	closed sync.Ref[bool],
+}
+
+let sqlCachedStore = sync.NewRef[option.Option[Store]](option.None)
+let sqlNextSlotID = sync.NewRef(0)
+let sqlSlots = sync.NewRef(Map[int, sqlSlot]{})
+let sqlOpens = sync.NewRef(0)
+let sqlCloses = sync.NewRef(0)
+
+// AtlasSQLitePaths exposes the model-based WAL SQLite path contract verified up to depth 3.
+type AtlasSQLitePaths {
+	OpenSession() int fails SQLDriveErr,
+	ReadSession(id int) explore.Observed[SQLPathState, SQLReply, core.Never] fails SQLDriveErr,
+	ApplySession(id int, cmd SQLPathCmd) explore.Observed[SQLPathState, SQLReply, core.Never] fails SQLDriveErr,
+	CloseSession(id int),
+	ClosePathCache(),
+	Counts() (int, int),
+
+	// PathsAgree checks bounded WAL SQLite path execution against the pure state machine model.
+	law PathsAgree() {
+		let (openBefore, closeBefore) = Counts()
+		let res = explore.CheckPathsWithSink(
+			sqlPathModel(),
+			explore.ToDepth{Depth: 3},
+			explore.PathBounds{
+				MaxStates: 4096,
+				MaxEdges:  8192,
+				MaxPaths:  4096,
+				MaxSteps:  16384,
+				MaxWork:   1048576,
+				MaxBytes:  4194304,
+			},
+			func(_ SQLPathState) explore.PathSession[SQLPathCmd, explore.Observed[SQLPathState, SQLReply, core.Never], SQLDriveErr] fails SQLDriveErr {
+				let id = try OpenSession()
+				sqlPathHandle{
+					read:  func() explore.Observed[SQLPathState, SQLReply, core.Never] fails SQLDriveErr { try ReadSession(id) },
+					apply: func(cmd SQLPathCmd) explore.Observed[SQLPathState, SQLReply, core.Never] fails SQLDriveErr { try ApplySession(id, cmd) },
+					close: func() { CloseSession(id) },
+				}
+			},
+			testing.ActiveEvidenceSink(),
+		)
+		let (openAfter, closeAfter) = Counts()
+		ClosePathCache()
+		let openDelta = openAfter - openBefore
+		let closeDelta = closeAfter - closeBefore
+		assert openDelta > 0 && openDelta == closeDelta
+		match res.Verdict {
+		case explore.CampaignPassed:
+			true
+		case explore.CampaignRefuted, explore.CampaignIncomplete:
+			false
+		}
+	},
+}
+
+type sqlPathHandle {
+	read  func() explore.Observed[SQLPathState, SQLReply, core.Never] fails SQLDriveErr,
+	apply func(cmd SQLPathCmd) explore.Observed[SQLPathState, SQLReply, core.Never] fails SQLDriveErr,
+	close func(),
+} implements explore.PathSession[SQLPathCmd, explore.Observed[SQLPathState, SQLReply, core.Never], SQLDriveErr]
+
+func Read(h sqlPathHandle) explore.Observed[SQLPathState, SQLReply, core.Never] fails SQLDriveErr {
+	try h.read()
+}
+
+func Apply(h sqlPathHandle, cmd SQLPathCmd) explore.Observed[SQLPathState, SQLReply, core.Never] fails SQLDriveErr {
+	try h.apply(cmd)
+}
+
+func Close(h sqlPathHandle) {
+	h.close()
+}
+
+type atlasSQLitePathProvider {} implements AtlasSQLitePaths
+
+func ClosePathCache(_ atlasSQLitePathProvider) needs go.Foreign {
+	let stOpt = sync.Modify(sqlCachedStore, func(cur option.Option[Store]) (option.Option[Store], option.Option[Store]) {
+		(cur, option.None)
+	})
+	match stOpt {
+	case option.Some[Store] as s:
+		closeSafe(s.Value)
+	case option.None:
+	}
+	let dir = lawWALDir.Get()
+	if dir != "" {
+		cleanupVerifyDB(dir, "atlas-paths.db")
+	}
+}
+
+func lookupSQLSlot(id int) sqlSlot fails SQLDriveErr {
+	match sqlSlots.Get().Get(id) {
+	case option.Some[sqlSlot] as s:
+		s.Value
+	case option.None:
+		SQLDriveErr{detail: "missing slot \(id)"}
+	}
+}
+
+func OpenSession(_ atlasSQLitePathProvider) int fails SQLDriveErr needs go.Foreign {
+	let dir = freshWALDir() catch {
+	case memory.StoreFailed as e:
+		return SQLDriveErr{detail: e.Reason}
+	}
+	let name = "atlas-paths.db"
+	let cached = sync.Modify(sqlCachedStore, func(cur option.Option[Store]) (option.Option[Store], option.Option[Store]) {
+		(cur, option.None)
+	})
+	let st = match cached {
+	case option.Some[Store] as existing:
+		resetStoreData(existing.Value) catch {
+		case memory.StoreFailed as e:
+			return SQLDriveErr{detail: e.Reason}
+		}
+	case option.None:
+		cleanupVerifyDB(dir, name)
+		let opened = Open("\(dir)/\(name)") catch {
+		case memory.StoreFailed as e:
+			cleanupVerifyDB(dir, name)
+			return SQLDriveErr{detail: e.Reason}
+		}
+		resetStoreData(opened) catch {
+		case memory.StoreFailed as e:
+			closeSafe(opened)
+			cleanupVerifyDB(dir, name)
+			return SQLDriveErr{detail: e.Reason}
+		}
+	}
+	let id = sync.Modify(sqlNextSlotID, func(cur int) (int, int) { (cur + 1, cur + 1) })
+	sqlOpens.Update(func(cur int) int { cur + 1 })
+	let slot = sqlSlot{
+		store:  st,
+		prefix: "sp-\(id)",
+		step:   sync.NewRef(0),
+		closed: sync.NewRef(false),
+	}
+	sqlSlots.Update(func(m Map[int, sqlSlot]) Map[int, sqlSlot] { m.Put(id, slot) })
+	id
+}
+
+func ReadSession(_ atlasSQLitePathProvider, id int) explore.Observed[SQLPathState, SQLReply, core.Never] fails SQLDriveErr needs go.Foreign {
+	let slot = try lookupSQLSlot(id)
+	explore.InitialRead[SQLPathState]{State: projectSQLState(slot.store, slot.prefix)}
+}
+
+func ApplySession(_ atlasSQLitePathProvider, id int, cmd SQLPathCmd) explore.Observed[SQLPathState, SQLReply, core.Never] fails SQLDriveErr needs go.Foreign {
+	let slot = try lookupSQLSlot(id)
+	let before = projectSQLState(slot.store, slot.prefix)
+	match cmd {
+	case SQLWakeHold:
+		if !before.HasHold || before.HoldWoken {
+			return sqlReject(before)
+		}
+	case SQLAnswerQuestion:
+		if !before.HasQuestion || before.QAnswered {
+			return sqlReject(before)
+		}
+	case SQLSaveSnapshot:
+		if before.HasSnapshot {
+			return sqlReject(before)
+		}
+	case _:
+	}
+	let n = slot.step.Get() + 1
+	slot.step.Set(n)
+	let env = sqlPathEnvelope(slot.prefix, n, cmd)
+	let _ = slot.store.Execute(env) catch {
+	case memory.StoreFailed as e:
+		return SQLDriveErr{detail: e.Reason}
+	case _:
+		return sqlReject(projectSQLState(slot.store, slot.prefix))
+	}
+	let after = projectSQLState(slot.store, slot.prefix)
+	explore.StepResult[SQLPathState, SQLReply, core.Never]{
+		Step: explore.StepObs[SQLPathState, SQLReply, core.Never]{Kind: explore.DisEnter, State: option.Some[SQLPathState]{Value: after}, Outputs: []SQLReply{}, Error: option.None, Terminal: false},
+	}
+}
+
+func CloseSession(_ atlasSQLitePathProvider, id int) needs go.Foreign {
+	let slot = match sqlSlots.Get().Get(id) {
+	case option.Some[sqlSlot] as s:
+		s.Value
+	case option.None:
+		return
+	}
+	if slot.closed.Get() {
+		return
+	}
+	slot.closed.Set(true)
+	sqlCloses.Update(func(cur int) int { cur + 1 })
+	sqlCachedStore.Set(option.Some[Store]{Value: slot.store})
+}
+
+func Counts(_ atlasSQLitePathProvider) (int, int) {
+	(sqlOpens.Get(), sqlCloses.Get())
+}

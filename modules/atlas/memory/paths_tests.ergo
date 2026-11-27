@@ -1,0 +1,311 @@
+import core
+import explore
+import github.com/cevr/ergo/modules/atlas/adapter
+import github.com/cevr/ergo/modules/atlas/cutover
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/session
+import github.com/cevr/ergo/modules/atlas/subagent
+import github.com/cevr/ergo/modules/atlas/thread
+import github.com/cevr/ergo/modules/atlas/turn
+import machines
+import option
+import sync
+import testing
+
+// PmState models reachable persisted Atlas state dimensions for model-based path tests.
+type PmState {
+	HasThread   bool,
+	HasLease    bool,
+	CutPhase    int,
+	HasHold     bool,
+	HoldWoken   bool,
+	HasQuestion bool,
+	QAnswered   bool,
+	HasSnapshot bool,
+}
+
+// PmAcquireLease acquires the initial fenced ownership lease.
+type PmAcquireLease {}
+
+// PmBeginQuiesce transitions an active lease into quiesce.
+type PmBeginQuiesce {}
+
+// PmStageTransfer stages cutover transfer on the active lease.
+type PmStageTransfer {}
+
+// PmCommitCutover commits lease ownership transfer to the new server.
+type PmCommitCutover {}
+
+// PmCreateThread creates the durable thread record.
+type PmCreateThread {}
+
+// PmOpenHold parks a waiting quota pool hold.
+type PmOpenHold {}
+
+// PmWakeHold wakes a waiting quota pool hold.
+type PmWakeHold {}
+
+// PmAskQuestion opens a persistent ask_user_async question.
+type PmAskQuestion {}
+
+// PmAnswerQuestion answers an open ask_user_async question once.
+type PmAnswerQuestion {}
+
+// PmSaveSnapshot saves a kernel binding snapshot.
+type PmSaveSnapshot {}
+
+// PmCmd enumerates the path-test commands applied to both the model and MemStore.
+type PmCmd =
+	| PmAcquireLease
+	| PmBeginQuiesce
+	| PmStageTransfer
+	| PmCommitCutover
+	| PmCreateThread
+	| PmOpenHold
+	| PmWakeHold
+	| PmAskQuestion
+	| PmAnswerQuestion
+	| PmSaveSnapshot
+
+type pmReply {
+	note string,
+}
+
+type pmDriveErr {
+	detail string,
+}
+
+func pmStep(s PmState, e PmCmd) machines.Decision[PmState, pmReply] {
+	match e {
+	case PmAcquireLease:
+		if s.HasLease {
+			return machines.Reject
+		}
+		machines.Enter[PmState]{Next: PmState{..s, HasLease: true, CutPhase: 0}}
+	case PmBeginQuiesce:
+		if !s.HasLease || s.CutPhase != 0 {
+			return machines.Reject
+		}
+		machines.Enter[PmState]{Next: PmState{..s, CutPhase: 1}}
+	case PmStageTransfer:
+		if !s.HasLease || s.CutPhase != 1 {
+			return machines.Reject
+		}
+		machines.Enter[PmState]{Next: PmState{..s, CutPhase: 2}}
+	case PmCommitCutover:
+		if !s.HasLease || s.CutPhase != 2 {
+			return machines.Reject
+		}
+		machines.Enter[PmState]{Next: PmState{..s, CutPhase: 3}}
+	case PmCreateThread:
+		if s.HasThread {
+			return machines.Reject
+		}
+		machines.Enter[PmState]{Next: PmState{..s, HasThread: true}}
+	case PmOpenHold:
+		if s.HasHold {
+			return machines.Reject
+		}
+		machines.Enter[PmState]{Next: PmState{..s, HasHold: true}}
+	case PmWakeHold:
+		if !s.HasHold || s.HoldWoken {
+			return machines.Reject
+		}
+		machines.Enter[PmState]{Next: PmState{..s, HoldWoken: true}}
+	case PmAskQuestion:
+		if s.HasQuestion {
+			return machines.Reject
+		}
+		machines.Enter[PmState]{Next: PmState{..s, HasQuestion: true}}
+	case PmAnswerQuestion:
+		if !s.HasQuestion || s.QAnswered {
+			return machines.Reject
+		}
+		machines.Enter[PmState]{Next: PmState{..s, QAnswered: true}}
+	case PmSaveSnapshot:
+		if s.HasSnapshot {
+			return machines.Reject
+		}
+		machines.Enter[PmState]{Next: PmState{..s, HasSnapshot: true}}
+	}
+}
+
+func pmModel() explore.PathModel[PmState, PmCmd, PmState, pmReply, core.Never] {
+	explore.PathModelOfMachine(
+		[]PmState{PmState{HasThread: false, HasLease: false, CutPhase: 0, HasHold: false, HoldWoken: false, HasQuestion: false, QAnswered: false, HasSnapshot: false}},
+		[]PmCmd{PmAcquireLease, PmBeginQuiesce, PmStageTransfer, PmCommitCutover, PmCreateThread, PmOpenHold, PmWakeHold, PmAskQuestion, PmAnswerQuestion, PmSaveSnapshot},
+		pmStep,
+	)
+}
+
+type pmSession {
+	store  MemStore,
+	step   sync.Ref[int],
+	closed sync.Ref[bool],
+} implements explore.PathSession[PmCmd, explore.Observed[PmState, pmReply, core.Never], pmDriveErr]
+
+func pmProjectStore(s MemStore) PmState {
+	let snap = Snapshot(s) catch {
+	case _:
+		InitialState()
+	}
+	let leaseOpt = snap.Leases.Get("pm-lease")
+	let cutPhase = match leaseOpt {
+	case option.None:
+		0
+	case option.Some[LeaseRecord] as lr:
+		match lr.Value.Phase {
+		case cutover.CutoverOld:
+			0
+		case cutover.CutoverQuiesce:
+			1
+		case cutover.CutoverTransfer:
+			2
+		case cutover.CutoverCommitted, cutover.CutoverDone:
+			3
+		}
+	}
+	let (hasHold, holdWoken) = match snap.Holds.Get("pm-hold") {
+	case option.None:
+		(false, false)
+	case option.Some[PoolHold] as h:
+		(true, h.Value.Status == HoldWoken)
+	}
+	let (hasQ, qAns) = match snap.Questions.Get(turn.RequestID("pm-q")) {
+	case option.None:
+		(false, false)
+	case option.Some[AsyncQuestion] as q:
+		(true, q.Value.Status == QuestionAnswered)
+	}
+	PmState{
+		HasThread:   snap.Threads.Get(handle.ThreadID("pm-th")) != option.None,
+		HasLease:    leaseOpt != option.None,
+		CutPhase:    cutPhase,
+		HasHold:     hasHold,
+		HoldWoken:   holdWoken,
+		HasQuestion: hasQ,
+		QAnswered:   qAns,
+		HasSnapshot: snap.Snapshots.Get(handle.SessionID("pm-sess")) != option.None,
+	}
+}
+
+func Close(sess pmSession) {
+	sess.closed.Set(true)
+}
+
+func Read(sess pmSession) explore.Observed[PmState, pmReply, core.Never] fails pmDriveErr {
+	explore.InitialRead[PmState]{State: pmProjectStore(sess.store)}
+}
+
+func pmEnvelope(seq int, cmd PmCmd) Envelope {
+	let cid = CommandID("pm-\(seq)")
+	let o1 = handle.OwnerID{ServerID: "s1", Location: "dc1", Epoch: 1}
+	let o2 = handle.OwnerID{ServerID: "s2", Location: "dc1", Epoch: 2}
+	match cmd {
+	case PmAcquireLease:
+		Envelope{ID: cid, Actor: "pm", AtMs: int64(1000), LeaseFence: option.None, Command: CmdAcquireLease{LeaseID: "pm-lease", Owner: o1, ExpectedEpoch: 0}}
+	case PmBeginQuiesce:
+		Envelope{ID: cid, Actor: "pm", AtMs: int64(1100), LeaseFence: option.None, Command: CmdStepLeaseCutover{LeaseID: "pm-lease", NewOwner: option.None, Action: cutover.ActBeginQuiesce}}
+	case PmStageTransfer:
+		Envelope{ID: cid, Actor: "pm", AtMs: int64(1200), LeaseFence: option.None, Command: CmdStepLeaseCutover{LeaseID: "pm-lease", NewOwner: option.None, Action: cutover.ActStageTransfer}}
+	case PmCommitCutover:
+		Envelope{ID: cid, Actor: "pm", AtMs: int64(1300), LeaseFence: option.None, Command: CmdStepLeaseCutover{LeaseID: "pm-lease", NewOwner: option.Some[handle.OwnerID]{Value: o2}, Action: cutover.ActCommitPersisted}}
+	case PmCreateThread:
+		Envelope{
+			ID:      cid, Actor: "pm", AtMs: int64(1400), LeaseFence: option.None,
+			Command: CmdCreateThread{
+				Spec: thread.ThreadSpec{
+					ID:                 handle.ThreadID("pm-th"),
+					ParentThreadID:     option.None,
+					Driver:             adapter.ClaudeMeta,
+					AgyDirectSupported: false,
+					RequestedMode:      adapter.ModeAutoEdit,
+					Instance:           adapter.InstanceID("inst"),
+					ConfigDir:          "/cfg",
+					SharedHome:         option.None,
+					Model:              adapter.ModelID("gpt-5"),
+					LinkOrigin:         thread.OriginLocal,
+				},
+				EdgeLabel: "",
+			},
+		}
+	case PmOpenHold:
+		Envelope{ID: cid, Actor: "pm", AtMs: int64(1500), LeaseFence: option.None, Command: CmdOpenPoolHold{HoldKey: "pm-hold", ThreadID: handle.ThreadID("pm-th"), AccountID: session.AccountID("pm-acc"), RetryAtMs: int64(2000), ParentNotified: false}}
+	case PmWakeHold:
+		Envelope{ID: cid, Actor: "pm", AtMs: int64(2500), LeaseFence: option.None, Command: CmdTransitionHold{HoldKey: "pm-hold", Action: HoldActionWake}}
+	case PmAskQuestion:
+		Envelope{
+			ID:      cid, Actor: "pm", AtMs: int64(1600), LeaseFence: option.None,
+			Command: CmdAskUserAsync{
+				ID:    turn.RequestID("pm-q"), ThreadID: handle.ThreadID("pm-th"), HandleID: handle.HandleID("pm-qh"),
+				Owner: o1, Session: handle.SessionID("pm-sess"), Header: "H", Prompt: "P", Assumption: "ok", Options: []string{"ok"}, TargetRole: subagent.RoleRoot,
+			},
+		}
+	case PmAnswerQuestion:
+		Envelope{ID: cid, Actor: "pm", AtMs: int64(1700), LeaseFence: option.None, Command: CmdAnswerAsyncQuestion{ID: turn.RequestID("pm-q"), Answer: "ok", By: turn.ResponderPrimary}}
+	case PmSaveSnapshot:
+		Envelope{ID: cid, Actor: "pm", AtMs: int64(1800), LeaseFence: option.None, Command: CmdSaveKernelSnapshot{SessionID: handle.SessionID("pm-sess"), ThreadID: handle.ThreadID("pm-th"), RootThreadID: handle.ThreadID("pm-th"), BindingsJSON: "{\"k\":1}", SnapshotBytes: 7, LostNotice: ""}}
+	}
+}
+
+func pmReject(s PmState) explore.Observed[PmState, pmReply, core.Never] {
+	explore.StepResult[PmState, pmReply, core.Never]{
+		Step: explore.StepObs[PmState, pmReply, core.Never]{Kind: explore.DisReject, State: option.Some[PmState]{Value: s}, Outputs: []pmReply{}, Error: option.None, Terminal: false},
+	}
+}
+
+func Apply(sess pmSession, cmd PmCmd) explore.Observed[PmState, pmReply, core.Never] fails pmDriveErr {
+	let before = pmProjectStore(sess.store)
+	match cmd {
+	case PmWakeHold:
+		if !before.HasHold || before.HoldWoken {
+			return pmReject(before)
+		}
+	case PmAnswerQuestion:
+		if !before.HasQuestion || before.QAnswered {
+			return pmReject(before)
+		}
+	case PmSaveSnapshot:
+		if before.HasSnapshot {
+			return pmReject(before)
+		}
+	case _:
+	}
+	let n = sess.step.Get() + 1
+	sess.step.Set(n)
+	let env = pmEnvelope(n, cmd)
+	let _ = Execute(sess.store, env) catch {
+	case _:
+		return pmReject(pmProjectStore(sess.store))
+	}
+	let after = pmProjectStore(sess.store)
+	explore.StepResult[PmState, pmReply, core.Never]{
+		Step: explore.StepObs[PmState, pmReply, core.Never]{Kind: explore.DisEnter, State: option.Some[PmState]{Value: after}, Outputs: []pmReply{}, Error: option.None, Terminal: false},
+	}
+}
+
+// MemStoreMatchesPathModel explores reachable sequences up to depth 3 across lease, thread, hold, question, and kernel state transitions.
+test MemStoreMatchesPathModel {
+	let res = explore.CheckPathsWithSink(
+		pmModel(),
+		explore.ToDepth{Depth: 3},
+		explore.PathBounds{
+			MaxStates: 4096,
+			MaxEdges:  8192,
+			MaxPaths:  4096,
+			MaxSteps:  16384,
+			MaxWork:   1048576,
+			MaxBytes:  4194304,
+		},
+		func(start PmState) explore.PathSession[PmCmd, explore.Observed[PmState, pmReply, core.Never], pmDriveErr] fails pmDriveErr {
+			let _ = start.HasThread
+			pmSession{store: New(), step: sync.NewRef(0), closed: sync.NewRef(false)}
+		},
+		testing.ActiveEvidenceSink(),
+	)
+	match res.Verdict {
+	case explore.CampaignPassed:
+	case explore.CampaignRefuted, explore.CampaignIncomplete:
+		assert false
+	}
+}

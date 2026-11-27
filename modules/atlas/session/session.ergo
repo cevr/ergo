@@ -1,0 +1,503 @@
+import github.com/cevr/ergo/modules/atlas/adapter
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/turn
+import machines
+import option
+import strconv
+
+// SessionFresh indicates an allocated session record before driver process launch.
+type SessionFresh {}
+
+// SessionStarting indicates a driver process launch is in progress.
+type SessionStarting {}
+
+// SessionAttached indicates an attached live driver process ready for turns.
+type SessionAttached {}
+
+// SessionInTurn indicates an attached session is actively executing a turn.
+type SessionInTurn {}
+
+// SessionReleased indicates the session was intentionally released and shut down.
+type SessionReleased {}
+
+// SessionFailed indicates the session terminated abnormally and must be replaced.
+type SessionFailed {}
+
+// SessionPhase models the M2 lifecycle states of a driver session and process handle.
+type SessionPhase = SessionFresh | SessionStarting | SessionAttached | SessionInTurn | SessionReleased | SessionFailed
+
+// McpToken tracks a per-thread bearer token bound to session generation and turn-only touch per D11.
+type McpToken {
+	ThreadID      handle.ThreadID,
+	Gen           int,
+	Secret        string,
+	IssuedAtMs    int64,
+	LastTouchedMs int64,
+	Live          bool,
+	Expired       bool,
+}
+
+// McpTokenIdleExpiryMs returns the 24-hour idle expiration window per D11.
+func McpTokenIdleExpiryMs() int64 {
+	86400000
+}
+
+// SessionRecord captures one driver session, its single process lease, and its /mcp token state.
+type SessionRecord {
+	ID                   handle.SessionID,
+	ThreadID             handle.ThreadID,
+	Driver               adapter.DriverKind,
+	Phase                SessionPhase,
+	Gen                  int,
+	LiveProcCount        int,
+	ActiveTurn           option.Option[turn.TurnID],
+	Token                McpToken,
+	LastMcpAccepted      bool,
+	RejectedCallCount    int,
+	StaleTokenUsed       bool,
+	McpCallExtendedToken bool,
+}
+
+// InvalidSessionTransition refuses an invalid lifecycle transition on a session.
+type InvalidSessionTransition {
+	ID     handle.SessionID,
+	Phase  SessionPhase,
+	Action string,
+}
+
+// SessionDriverBlocked refuses starting a session whose driver or capability gate fails.
+type SessionDriverBlocked {
+	Cause adapter.AdapterRefusal,
+}
+
+// McpAuthDenied refuses an /mcp bearer authentication attempt that fails generation or expiry checks.
+type McpAuthDenied {
+	Reason string,
+}
+
+// SessionRefusal classifies rejected session and /mcp token operations.
+type SessionRefusal = InvalidSessionTransition | SessionDriverBlocked | McpAuthDenied
+
+// ActStartSession starts process attachment from SessionFresh.
+type ActStartSession {
+	NowMs int64,
+}
+
+// ActAttachSession confirms process readiness and issues the current-generation /mcp token.
+type ActAttachSession {
+	NowMs int64,
+}
+
+// ActBeginTurn starts a turn on an attached session and touches the /mcp token per D11.
+type ActBeginTurn {
+	TurnID turn.TurnID,
+	NowMs  int64,
+}
+
+// ActEndTurn returns an active turn session back to SessionAttached.
+type ActEndTurn {}
+
+// ActAuthenticateMcp authenticates an incoming /mcp call without refreshing idle expiry.
+type ActAuthenticateMcp {
+	PresentedSecret string,
+	PresentedGen    int,
+	NowMs           int64,
+}
+
+// ActReleaseSession cleanly terminates the session process and invalidates the /mcp token.
+type ActReleaseSession {}
+
+// ActFailSession abruptly terminates the session process and invalidates the /mcp token.
+type ActFailSession {}
+
+// ActReviveExpiredAttempt tests whether a non-turn operation can un-expire a dead or idle-expired token.
+type ActReviveExpiredAttempt {
+	NowMs int64,
+}
+
+// SessionAction enumerates pure commands applied to a SessionRecord.
+type SessionAction = ActStartSession | ActAttachSession | ActBeginTurn | ActEndTurn | ActAuthenticateMcp | ActReleaseSession | ActFailSession | ActReviveExpiredAttempt
+
+func tokenSecret(threadID handle.ThreadID, gen int) string {
+	string(threadID) + "-tok-" + strconv.Itoa(gen)
+}
+
+// NewSession initializes a fresh session record prior to driver launch.
+func NewSession(id handle.SessionID, threadID handle.ThreadID, driver adapter.DriverKind, caps adapter.Capabilities) SessionRecord fails SessionRefusal {
+	let _ = adapter.CanStartDriver(driver, caps) catch {
+	case e:
+		return SessionDriverBlocked{Cause: e}
+	}
+	SessionRecord{
+		ID:            id,
+		ThreadID:      threadID,
+		Driver:        driver,
+		Phase:         SessionFresh,
+		Gen:           0,
+		LiveProcCount: 0,
+		ActiveTurn:    option.None,
+		Token:         McpToken{
+			ThreadID:      threadID,
+			Gen:           0,
+			Secret:        "",
+			IssuedAtMs:    0,
+			LastTouchedMs: 0,
+			Live:          false,
+			Expired:       false,
+		},
+		LastMcpAccepted:      false,
+		RejectedCallCount:    0,
+		StaleTokenUsed:       false,
+		McpCallExtendedToken: false,
+	}
+}
+
+// IsSessionLive reports whether the session currently holds an active attached or in-turn process.
+func IsSessionLive(s SessionRecord) bool {
+	match s.Phase {
+	case SessionStarting, SessionAttached, SessionInTurn:
+		true
+	case SessionFresh, SessionReleased, SessionFailed:
+		false
+	}
+}
+
+// IsTokenExpiredAt reports whether a token has passed the 24-hour idle window at nowMs.
+func IsTokenExpiredAt(tok McpToken, nowMs int64) bool {
+	if !tok.Live || tok.Expired {
+		return true
+	}
+	nowMs-tok.LastTouchedMs >= McpTokenIdleExpiryMs()
+}
+
+// StepSession validates and applies a single SessionAction to a SessionRecord.
+func StepSession(s SessionRecord, act SessionAction) SessionRecord fails SessionRefusal {
+	match act {
+	case ActStartSession:
+		match s.Phase {
+		case SessionFresh:
+			if s.LiveProcCount != 0 {
+				return InvalidSessionTransition{ID: s.ID, Phase: s.Phase, Action: "start_session"}
+			}
+			SessionRecord{
+				..s,
+				Phase:         SessionStarting,
+				Gen:           s.Gen + 1,
+				LiveProcCount: 1,
+			}
+		case SessionStarting, SessionAttached, SessionInTurn, SessionReleased, SessionFailed:
+			InvalidSessionTransition{ID: s.ID, Phase: s.Phase, Action: "start_session"}
+		}
+
+	case ActAttachSession as at:
+		match s.Phase {
+		case SessionStarting:
+			if s.LiveProcCount != 1 {
+				return InvalidSessionTransition{ID: s.ID, Phase: s.Phase, Action: "attach_session"}
+			}
+			let tok = McpToken{
+				ThreadID:      s.ThreadID,
+				Gen:           s.Gen,
+				Secret:        tokenSecret(s.ThreadID, s.Gen),
+				IssuedAtMs:    at.NowMs,
+				LastTouchedMs: at.NowMs,
+				Live:          true,
+				Expired:       false,
+			}
+			SessionRecord{
+				..s,
+				Phase: SessionAttached,
+				Token: tok,
+			}
+		case SessionFresh, SessionAttached, SessionInTurn, SessionReleased, SessionFailed:
+			InvalidSessionTransition{ID: s.ID, Phase: s.Phase, Action: "attach_session"}
+		}
+
+	case ActBeginTurn as bt:
+		match s.Phase {
+		case SessionAttached:
+			let nextTok = if s.Token.Live {
+				McpToken{..s.Token, LastTouchedMs: bt.NowMs, Expired: false}
+			} else {
+				McpToken{
+					ThreadID:      s.ThreadID,
+					Gen:           s.Gen,
+					Secret:        tokenSecret(s.ThreadID, s.Gen),
+					IssuedAtMs:    bt.NowMs,
+					LastTouchedMs: bt.NowMs,
+					Live:          true,
+					Expired:       false,
+				}
+			}
+			SessionRecord{
+				..s,
+				Phase:      SessionInTurn,
+				ActiveTurn: option.Some[turn.TurnID]{Value: bt.TurnID},
+				Token:      nextTok,
+			}
+		case SessionFresh, SessionStarting, SessionInTurn, SessionReleased, SessionFailed:
+			InvalidSessionTransition{ID: s.ID, Phase: s.Phase, Action: "begin_turn"}
+		}
+
+	case ActEndTurn:
+		match s.Phase {
+		case SessionInTurn:
+			SessionRecord{
+				..s,
+				Phase:      SessionAttached,
+				ActiveTurn: option.None,
+			}
+		case SessionFresh, SessionStarting, SessionAttached, SessionReleased, SessionFailed:
+			InvalidSessionTransition{ID: s.ID, Phase: s.Phase, Action: "end_turn"}
+		}
+
+	case ActAuthenticateMcp as call:
+		if !IsSessionLive(s) || !s.Token.Live {
+			return McpAuthDenied{Reason: "session_not_live"}
+		}
+		if call.PresentedGen != s.Gen || call.PresentedGen != s.Token.Gen {
+			return McpAuthDenied{Reason: "stale_generation"}
+		}
+		if call.PresentedSecret != s.Token.Secret {
+			return McpAuthDenied{Reason: "secret_mismatch"}
+		}
+		if IsTokenExpiredAt(s.Token, call.NowMs) {
+			return McpAuthDenied{Reason: "idle_expired"}
+		}
+		SessionRecord{
+			..s,
+			LastMcpAccepted: true,
+		}
+
+	case ActReleaseSession:
+		match s.Phase {
+		case SessionStarting, SessionAttached, SessionInTurn:
+			SessionRecord{
+				..s,
+				Phase:         SessionReleased,
+				LiveProcCount: 0,
+				ActiveTurn:    option.None,
+				Token:         McpToken{
+					..s.Token,
+					Live:    false,
+					Expired: true,
+				},
+			}
+		case SessionFresh, SessionReleased, SessionFailed:
+			InvalidSessionTransition{ID: s.ID, Phase: s.Phase, Action: "release_session"}
+		}
+
+	case ActFailSession:
+		match s.Phase {
+		case SessionFresh, SessionStarting, SessionAttached, SessionInTurn:
+			SessionRecord{
+				..s,
+				Phase:         SessionFailed,
+				LiveProcCount: 0,
+				ActiveTurn:    option.None,
+				Token:         McpToken{
+					..s.Token,
+					Live:    false,
+					Expired: true,
+				},
+			}
+		case SessionReleased, SessionFailed:
+			InvalidSessionTransition{ID: s.ID, Phase: s.Phase, Action: "fail_session"}
+		}
+
+	case ActReviveExpiredAttempt:
+		McpAuthDenied{Reason: "only_turn_execution_touches_token"}
+	}
+}
+
+func oneProcess(s SessionRecord) bool {
+	s.LiveProcCount <= 1
+}
+
+func noOrphan(s SessionRecord) bool {
+	match s.Phase {
+	case SessionFresh, SessionReleased, SessionFailed:
+		s.LiveProcCount == 0
+	case SessionStarting, SessionAttached, SessionInTurn:
+		true
+	}
+}
+
+func processOnlyWhileAttached(s SessionRecord) bool {
+	if s.LiveProcCount > 0 {
+		return IsSessionLive(s)
+	}
+	true
+}
+
+func tokenDiesWithSession(s SessionRecord) bool {
+	match s.Phase {
+	case SessionReleased, SessionFailed:
+		!s.Token.Live && s.Token.Expired
+	case SessionFresh, SessionStarting, SessionAttached, SessionInTurn:
+		true
+	}
+}
+
+func noStaleToken(s SessionRecord) bool {
+	!s.StaleTokenUsed
+}
+
+func onlyATurnRevives(s SessionRecord) bool {
+	!s.McpCallExtendedToken
+}
+
+law NewSessionValidatesDriverGate(d adapter.DriverKind, agy bool) {
+	let caps = adapter.CapabilitiesFor(d, agy)
+	let s = NewSession(handle.SessionID("s-law"), handle.ThreadID("t-law"), d, caps) catch {
+	case _:
+		return adapter.IsAntigravityDirect(d) && !agy
+	}
+	oneProcess(s) && noOrphan(s) && s.Token.Gen == 0
+}
+
+type ActSessStart {}
+
+type ActSessAttach {}
+
+type ActSessBeginTurn {}
+
+type ActSessEndTurn {}
+
+type ActSessMcpCurrent {}
+
+type ActSessMcpStaleGen {}
+
+type ActSessMcpExpiredClock {}
+
+type ActSessRelease {}
+
+type ActSessFail {}
+
+type SessionAct = ActSessStart | ActSessAttach | ActSessBeginTurn | ActSessEndTurn | ActSessMcpCurrent | ActSessMcpStaleGen | ActSessMcpExpiredClock | ActSessRelease | ActSessFail
+
+func firstSessionRecord() SessionRecord {
+	let caps = adapter.CapabilitiesFor(adapter.CodexDirect, false)
+	NewSession(handle.SessionID("s-1"), handle.ThreadID("th-1"), adapter.CodexDirect, caps) catch {
+	case _:
+		SessionRecord{
+			ID:                   handle.SessionID("s-fallback"),
+			ThreadID:             handle.ThreadID("th-1"),
+			Driver:               adapter.CodexDirect,
+			Phase:                SessionFresh,
+			Gen:                  0,
+			LiveProcCount:        0,
+			ActiveTurn:           option.None,
+			Token:                McpToken{ThreadID: handle.ThreadID("th-1"), Gen: 0, Secret: "", IssuedAtMs: 0, LastTouchedMs: 0, Live: false, Expired: false},
+			LastMcpAccepted:      false,
+			RejectedCallCount:    0,
+			StaleTokenUsed:       false,
+			McpCallExtendedToken: false,
+		}
+	}
+}
+
+func stepSessionRecord(s SessionRecord, a SessionAct) machines.Decision[SessionRecord, string] {
+	let beforeTouch = s.Token.LastTouchedMs
+	let act = match a {
+	case ActSessStart:
+		ActStartSession{NowMs: 1000}
+	case ActSessAttach:
+		ActAttachSession{NowMs: 1000}
+	case ActSessBeginTurn:
+		ActBeginTurn{TurnID: turn.TurnID("turn-1"), NowMs: 2000}
+	case ActSessEndTurn:
+		ActEndTurn
+	case ActSessMcpCurrent:
+		ActAuthenticateMcp{PresentedSecret: tokenSecret(s.ThreadID, 1), PresentedGen: 1, NowMs: 3000}
+	case ActSessMcpStaleGen:
+		ActAuthenticateMcp{PresentedSecret: tokenSecret(s.ThreadID, 0), PresentedGen: 0, NowMs: 3000}
+	case ActSessMcpExpiredClock:
+		ActAuthenticateMcp{PresentedSecret: tokenSecret(s.ThreadID, 1), PresentedGen: 1, NowMs: 2000 + McpTokenIdleExpiryMs() + 1}
+	case ActSessRelease:
+		ActReleaseSession
+	case ActSessFail:
+		ActFailSession
+	}
+	let next = StepSession(s, act) catch {
+	case r:
+		match r {
+		case McpAuthDenied:
+			if s.RejectedCallCount >= 2 {
+				return machines.Ignore
+			}
+			return machines.Enter[SessionRecord]{
+				Next: SessionRecord{
+					..s,
+					LastMcpAccepted:   false,
+					RejectedCallCount: s.RejectedCallCount + 1,
+				},
+			}
+		case InvalidSessionTransition, SessionDriverBlocked:
+			return machines.Ignore
+		}
+	}
+	let extendedByMcp = match act {
+	case ActAuthenticateMcp:
+		next.Token.LastTouchedMs != beforeTouch
+	case ActStartSession, ActAttachSession, ActBeginTurn, ActEndTurn, ActReleaseSession, ActFailSession, ActReviveExpiredAttempt:
+		false
+	}
+	machines.Enter[SessionRecord]{
+		Next: SessionRecord{..next, McpCallExtendedToken: s.McpCallExtendedToken || extendedByMcp},
+	}
+}
+
+func mcpAuthenticatedInTurn(s SessionRecord) bool {
+	s.Phase == SessionInTurn && s.LastMcpAccepted && s.LiveProcCount == 1
+}
+
+func staleOrExpiredRejected(s SessionRecord) bool {
+	s.RejectedCallCount > 0 && !s.LastMcpAccepted
+}
+
+func releasedDropsProcAndToken(s SessionRecord) bool {
+	s.Phase == SessionReleased && s.LiveProcCount == 0 && !s.Token.Live
+}
+
+// SessionLifecycle exhaustively verifies M2 single-process and D11 turn-only /mcp token invariants.
+type SessionLifecycle machine[SessionRecord, SessionAct] {
+	initial: firstSessionRecord(),
+	step:    stepSessionRecord,
+
+	law OneProcess always oneProcess,
+	law NoOrphan always noOrphan,
+	law ProcessOnlyWhileAttached always processOnlyWhileAttached,
+	law TokenDiesWithSession always tokenDiesWithSession,
+	law NoStaleToken always noStaleToken,
+	law OnlyATurnRevives always onlyATurnRevives,
+
+	law McpAuthenticatedInTurn sometimes mcpAuthenticatedInTurn,
+	law StaleOrExpiredRejected sometimes staleOrExpiredRejected,
+	law ReleasedDropsProcAndToken sometimes releasedDropsProcAndToken,
+}
+
+test SessionTokenNeverExtendedByMcpCallsAndExpiresAt24h {
+	let caps = adapter.CapabilitiesFor(adapter.ClaudeMeta, false)
+	let s0 = try NewSession(handle.SessionID("s-tok"), handle.ThreadID("th-tok"), adapter.ClaudeMeta, caps)
+	let s1 = try StepSession(s0, ActStartSession{NowMs: 100})
+	let s2 = try StepSession(s1, ActAttachSession{NowMs: 100})
+	let s3 = try StepSession(s2, ActAuthenticateMcp{PresentedSecret: s2.Token.Secret, PresentedGen: s2.Gen, NowMs: 5000})
+	assert s3.LastMcpAccepted
+	assert s3.Token.LastTouchedMs == 100
+
+	let mut expiredDenied = false
+	let _ = StepSession(s3, ActAuthenticateMcp{PresentedSecret: s3.Token.Secret, PresentedGen: s3.Gen, NowMs: 100 + McpTokenIdleExpiryMs()}) catch {
+	case McpAuthDenied:
+		expiredDenied = true
+		s3
+	case InvalidSessionTransition, SessionDriverBlocked:
+		s3
+	}
+	assert expiredDenied
+
+	let s4 = try StepSession(s3, ActBeginTurn{TurnID: turn.TurnID("t-touch"), NowMs: 200000})
+	assert s4.Token.LastTouchedMs == 200000
+	let s5 = try StepSession(s4, ActAuthenticateMcp{PresentedSecret: s4.Token.Secret, PresentedGen: s4.Gen, NowMs: 200050})
+	assert s5.LastMcpAccepted
+}

@@ -1,0 +1,317 @@
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/reconcile
+import github.com/cevr/ergo/modules/atlas/subagent
+import github.com/cevr/ergo/modules/atlas/thread
+import github.com/cevr/ergo/modules/atlas/turn
+import option
+
+// StateThreadView returns a projected Thread, its connected BranchEdges, and its FIFO PromptQueue.
+func StateThreadView(s State, id handle.ThreadID) option.Option[ThreadView] {
+	let t = match s.Threads.Get(id) {
+	case option.Some[thread.Thread] as found:
+		found.Value
+	case option.None:
+		return option.None
+	}
+	let mut edges = []BranchEdge{}
+	for _, e in s.BranchEdges {
+		if e.ParentThreadID == id || e.ChildThreadID == id {
+			edges = edges.Append(e)
+		}
+	}
+	option.Some[ThreadView]{Value: ThreadView{Thread: t, Edges: edges, PromptQueue: t.PromptQueue}}
+}
+
+// StateSubagentTree returns the projected subagent.Tree rooted at rootID.
+func StateSubagentTree(s State, rootID handle.ThreadID) option.Option[subagent.Tree] {
+	s.Trees.Get(rootID)
+}
+
+func matchesHandleFilter(h handle.WakeHandle, filter HandleFilter) bool {
+	if filter.OpenOnly && !handle.IsOpen(h.Disposition) {
+		return false
+	}
+	match filter.Session {
+	case option.Some[handle.SessionID] as sid:
+		if h.Session != sid.Value {
+			return false
+		}
+	case option.None:
+	}
+	match filter.Owner {
+	case option.Some[handle.OwnerID] as own:
+		if h.Owner != own.Value {
+			return false
+		}
+	case option.None:
+	}
+	true
+}
+
+func filterWakes(s State, filter HandleFilter, matchedIDs Map[handle.HandleID, bool]) []reconcile.WakeRecord {
+	let hasScopeFilter = filter.Session != option.None || filter.Owner != option.None
+	let mut wakes = []reconcile.WakeRecord{}
+	for _, did in s.WakeOrder {
+		match s.Wakes.Get(did) {
+		case option.Some[reconcile.WakeRecord] as w:
+			let wv = w.Value
+			if filter.OpenOnly && wv.Delivered {
+				continue
+			}
+			if !hasScopeFilter || matchedIDs.Get(wv.HandleID) != option.None {
+				wakes = wakes.Append(wv)
+			}
+		case option.None:
+		}
+	}
+	wakes
+}
+
+func filterHolds(s State, openOnly bool) []PoolHold {
+	let mut holds = []PoolHold{}
+	for _, hk in s.HoldOrder {
+		match s.Holds.Get(hk) {
+		case option.Some[PoolHold] as ph:
+			if !openOnly || ph.Value.Status == HoldWaiting {
+				holds = holds.Append(ph.Value)
+			}
+		case option.None:
+		}
+	}
+	holds
+}
+
+// StateHandleView returns filtered DELIVERS handles, wake records, and pool holds.
+func StateHandleView(s State, filter HandleFilter) HandleView {
+	let mut handles = []handle.WakeHandle{}
+	let mut matchedIDs = Map[handle.HandleID, bool]{}
+	for _, hid in s.Registry.Order {
+		match s.Registry.Handles.Get(hid) {
+		case option.Some[handle.WakeHandle] as h:
+			if matchesHandleFilter(h.Value, filter) {
+				handles = handles.Append(h.Value)
+				matchedIDs = matchedIDs.Put(hid, true)
+			}
+		case option.None:
+		}
+	}
+	HandleView{
+		Handles: handles,
+		Wakes:   filterWakes(s, filter, matchedIDs),
+		Holds:   filterHolds(s, filter.OpenOnly),
+	}
+}
+
+// StateQuestions returns ask_user_async entries matching filter in creation order.
+func StateQuestions(s State, filter QuestionFilter) []AsyncQuestion {
+	let mut out = []AsyncQuestion{}
+	for _, qid in s.QuestionOrder {
+		match s.Questions.Get(qid) {
+		case option.Some[AsyncQuestion] as q:
+			let qv = q.Value
+			let threadOK = match filter.ThreadID {
+			case option.Some[handle.ThreadID] as tid:
+				qv.ThreadID == tid.Value
+			case option.None:
+				true
+			}
+			let statusOK = match filter.Status {
+			case option.Some[QuestionStatus] as st:
+				qv.Status == st.Value
+			case option.None:
+				true
+			}
+			if threadOK && statusOK {
+				out = out.Append(qv)
+			}
+		case option.None:
+		}
+	}
+	out
+}
+
+// StatePoolView returns pool accounts, reset claims, active pushes at nowMs, and holds.
+func StatePoolView(s State, nowMs int64) PoolView {
+	let mut accounts = []PoolAccount{}
+	for _, aid in s.AccountOrder {
+		match s.Accounts.Get(aid) {
+		case option.Some[PoolAccount] as a:
+			accounts = accounts.Append(a.Value)
+		case option.None:
+		}
+	}
+	let mut claims = []ResetClaim{}
+	for _, ck in s.ClaimOrder {
+		match s.ResetClaims.Get(ck) {
+		case option.Some[ResetClaim] as c:
+			claims = claims.Append(c.Value)
+		case option.None:
+		}
+	}
+	let mut activePushes = []OwnerPush{}
+	for _, pid in s.PushOrder {
+		match s.Pushes.Get(pid) {
+		case option.Some[OwnerPush] as p:
+			let pv = p.Value
+			if !pv.Cancelled && nowMs >= pv.StartsAtMs && nowMs < pv.EndsAtMs {
+				activePushes = activePushes.Append(pv)
+			}
+		case option.None:
+		}
+	}
+	let mut dueHolds = []PoolHold{}
+	let mut allHolds = []PoolHold{}
+	for _, hk in s.HoldOrder {
+		match s.Holds.Get(hk) {
+		case option.Some[PoolHold] as h:
+			let hv = h.Value
+			allHolds = allHolds.Append(hv)
+			if hv.Status == HoldWaiting && nowMs >= hv.RetryAtMs {
+				dueHolds = dueHolds.Append(hv)
+			}
+		case option.None:
+		}
+	}
+	PoolView{
+		Accounts:     accounts,
+		ResetClaims:  claims,
+		ActivePushes: activePushes,
+		DueHolds:     dueHolds,
+		AllHolds:     allHolds,
+	}
+}
+
+// StateKernelView returns kernel snapshots, journals (optionally filtered by sessionID), root usages, limits, and requests.
+func StateKernelView(s State, sessionID handle.SessionID) KernelView {
+	let snap = if sessionID == handle.SessionID("") {
+		option.None
+	} else {
+		s.Snapshots.Get(sessionID)
+	}
+	let mut journals = []KernelCutJournal{}
+	for _, cid in s.JournalOrder {
+		match s.Journals.Get(cid) {
+		case option.Some[KernelCutJournal] as j:
+			if sessionID == handle.SessionID("") || j.Value.SessionID == sessionID {
+				journals = journals.Append(j.Value)
+			}
+		case option.None:
+		}
+	}
+	let mut usages = []KernelRootUsage{}
+	for _, rid in s.RootUsageOrd {
+		match s.RootUsages.Get(rid) {
+		case option.Some[KernelRootUsage] as u:
+			usages = usages.Append(u.Value)
+		case option.None:
+		}
+	}
+	let mut limits = []turn.LimitState{}
+	for _, lk in s.LimitOrder {
+		match s.Limits.Get(lk) {
+		case option.Some[turn.LimitState] as ls:
+			limits = limits.Append(ls.Value)
+		case option.None:
+		}
+	}
+	let mut reqs = []turn.RequestState{}
+	for _, rid in s.RequestOrder {
+		match s.Requests.Get(rid) {
+		case option.Some[turn.RequestState] as rq:
+			reqs = reqs.Append(rq.Value)
+		case option.None:
+		}
+	}
+	KernelView{
+		Snapshot:   snap,
+		Journals:   journals,
+		RootUsages: usages,
+		Limits:     limits,
+		Requests:   reqs,
+	}
+}
+
+// QueryOpenOwners returns distinct owners currently holding open KindCall handles.
+func QueryOpenOwners(s State) []handle.OwnerID {
+	handle.OpenOwners(s.Registry)
+}
+
+// BuildBootSnapshot constructs a deterministic reconcile.BootSnapshot from State.
+func BuildBootSnapshot(s State, query BootQuery) reconcile.BootSnapshot {
+	let mut pendingWakes = []reconcile.WakeRecord{}
+	for _, did in s.WakeOrder {
+		match s.Wakes.Get(did) {
+		case option.Some[reconcile.WakeRecord] as w:
+			pendingWakes = pendingWakes.Append(w.Value)
+		case option.None:
+		}
+	}
+	let mut openTurns = []turn.TurnState{}
+	for _, tid in s.ThreadOrder {
+		match s.Threads.Get(tid) {
+		case option.Some[thread.Thread] as t:
+			match t.Value.ActiveTurn {
+			case option.Some[turn.TurnState] as at:
+				openTurns = openTurns.Append(at.Value)
+			case option.None:
+			}
+		case option.None:
+		}
+	}
+	let mut openReqs = []turn.RequestState{}
+	for _, rid in s.RequestOrder {
+		match s.Requests.Get(rid) {
+		case option.Some[turn.RequestState] as r:
+			openReqs = openReqs.Append(r.Value)
+		case option.None:
+		}
+	}
+	let fallbackTree = subagent.NewTree(
+		handle.ThreadID("__boot__"),
+		subagent.TreeBounds{MaxDepth: 8, MaxFanOut: 32, MaxBudget: 128},
+	)
+	let tree = match query.RootID {
+	case option.Some[handle.ThreadID] as rid:
+		match s.Trees.Get(rid.Value) {
+		case option.Some[subagent.Tree] as found:
+			found.Value
+		case option.None:
+			fallbackTree
+		}
+	case option.None:
+		fallbackTree
+	}
+	reconcile.BootSnapshot{
+		BootingOwner:               query.BootingOwner,
+		LiveForeignOwners:          query.LiveForeignOwners,
+		Registry:                   s.Registry,
+		PendingWakes:               pendingWakes,
+		OpenTurns:                  openTurns,
+		OpenRequests:               openReqs,
+		PendingRequestsSurviveBoot: query.PendingRequestsSurviveBoot,
+		AgentTree:                  tree,
+	}
+}
+
+// StateLeaseAndBoot returns active lease fencing state, all leases, open owners, and a BootSnapshot.
+func StateLeaseAndBoot(s State, query BootQuery) BootLeaseView {
+	let active = if query.LeaseID == "" {
+		option.None
+	} else {
+		s.Leases.Get(query.LeaseID)
+	}
+	let mut allLeases = []LeaseRecord{}
+	for _, lid in s.LeaseOrder {
+		match s.Leases.Get(lid) {
+		case option.Some[LeaseRecord] as lr:
+			allLeases = allLeases.Append(lr.Value)
+		case option.None:
+		}
+	}
+	BootLeaseView{
+		ActiveLease:  active,
+		AllLeases:    allLeases,
+		OpenOwners:   QueryOpenOwners(s),
+		BootSnapshot: BuildBootSnapshot(s, query),
+	}
+}

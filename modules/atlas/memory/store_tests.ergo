@@ -1,0 +1,323 @@
+import github.com/cevr/ergo/modules/atlas/adapter
+import github.com/cevr/ergo/modules/atlas/cutover
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/reconcile
+import github.com/cevr/ergo/modules/atlas/session
+import github.com/cevr/ergo/modules/atlas/subagent
+import github.com/cevr/ergo/modules/atlas/thread
+import github.com/cevr/ergo/modules/atlas/turn
+import option
+
+func testThreadSpec(id string, parent option.Option[handle.ThreadID], origin thread.LinkOrigin) thread.ThreadSpec {
+	thread.ThreadSpec{
+		ID:                 handle.ThreadID(id),
+		ParentThreadID:     parent,
+		Driver:             adapter.ClaudeMeta,
+		AgyDirectSupported: false,
+		RequestedMode:      adapter.ModeAutoEdit,
+		Instance:           adapter.InstanceID("inst"),
+		ConfigDir:          "/cfg/" + id,
+		SharedHome:         option.None,
+		Model:              adapter.ModelID("gpt-5"),
+		LinkOrigin:         origin,
+	}
+}
+
+func testOwner(srv string, epoch int) handle.OwnerID {
+	handle.OwnerID{ServerID: srv, Location: "dc1", Epoch: epoch}
+}
+
+func emptyExecRes() ExecuteResult {
+	ExecuteResult{Seq: 0, Events: []Event{}, Duplicate: false}
+}
+
+// TestMemStoreThreadsEdgesQueueAndRefusals exercises thread, branch edge, queue, driver switch, and domain error wrappers.
+test TestMemStoreThreadsEdgesQueueAndRefusals {
+	let s = New()
+	let rootID = handle.ThreadID("th-root")
+	let childID = handle.ThreadID("th-child")
+	let _ = try Execute(s, Envelope{
+		ID:      CommandID("c1"), Actor: "op", AtMs: int64(100), LeaseFence: option.None,
+		Command: CmdCreateThread{Spec: testThreadSpec("th-root", option.None, thread.OriginLocal), EdgeLabel: "root"},
+	})
+	let _ = try Execute(s, Envelope{
+		ID:      CommandID("c2"), Actor: "op", AtMs: int64(110), LeaseFence: option.None,
+		Command: CmdCreateThread{Spec: testThreadSpec("th-child", option.Some[handle.ThreadID]{Value: rootID}, thread.OriginMcpScoped{BoundThread: childID}), EdgeLabel: "fork"},
+	})
+	let _ = try Execute(s, Envelope{
+		ID:      CommandID("c3"), Actor: "op", AtMs: int64(120), LeaseFence: option.None,
+		Command: CmdAddBranchEdge{Branch: BranchEdge{ParentThreadID: childID, ChildThreadID: rootID, Kind: BranchHandoff, Label: "back", CreatedAtMs: int64(120)}},
+	})
+	let _ = try Execute(s, Envelope{
+		ID:      CommandID("c4"), Actor: "op", AtMs: int64(130), LeaseFence: option.None,
+		Command: CmdEnqueuePrompt{ThreadID: rootID, Prompt: thread.QueuedPrompt{ID: "p1", Body: "first", RequestedMode: adapter.ModeAsk}},
+	})
+	let _ = try Execute(s, Envelope{
+		ID:      CommandID("c5"), Actor: "op", AtMs: int64(140), LeaseFence: option.None,
+		Command: CmdDequeuePrompt{TargetThreadID: rootID},
+	})
+	let _ = try Execute(s, Envelope{
+		ID:      CommandID("c6"), Actor: "op", AtMs: int64(150), LeaseFence: option.None,
+		Command: CmdStartTurn{ThreadID: rootID, TurnID: turn.TurnID("t1")},
+	})
+	let _ = try Execute(s, Envelope{
+		ID:      CommandID("c7"), Actor: "op", AtMs: int64(160), LeaseFence: option.None,
+		Command: CmdStepTurn{ThreadID: rootID, Action: turn.ActionFinishTurn{Outcome: turn.OutcomeCompleted}},
+	})
+	let _ = try Execute(s, Envelope{
+		ID:      CommandID("c8"), Actor: "op", AtMs: int64(170), LeaseFence: option.None,
+		Command: CmdSwitchDriver{ThreadID: rootID, Spec: thread.DriverSwitchSpec{
+			NextDriver: adapter.CodexDirect, AgyDirectSupported: false, RequestedMode: adapter.ModeYolo,
+			Instance:   adapter.InstanceID("inst-d"), ConfigDir: "/cfg/d", SharedHome: option.None,
+		}},
+	})
+	let _ = try Execute(s, Envelope{
+		ID:      CommandID("c9"), Actor: "op", AtMs: int64(180), LeaseFence: option.None,
+		Command: CmdArchiveThread{ID: rootID},
+	})
+
+	let view = match try s.GetThreadView(rootID) {
+	case option.Some[ThreadView] as tv:
+		tv.Value
+	case option.None:
+		assert false
+		return
+	}
+	assert view.Thread.Archived
+	assert view.Thread.Mode == adapter.DirectPath
+	assert view.Edges.Len() == 2
+	assert view.PromptQueue.Len() == 0
+
+	let mut gotThreadErr = false
+	let _ = Execute(s, Envelope{
+		ID:      CommandID("c10"), Actor: "op", AtMs: int64(190), LeaseFence: option.None,
+		Command: CmdStartTurn{ThreadID: rootID, TurnID: turn.TurnID("t-bad")},
+	}) catch {
+	case ThreadDomainErr:
+		gotThreadErr = true
+		emptyExecRes()
+	case _:
+		assert false
+		emptyExecRes()
+	}
+	assert gotThreadErr
+}
+
+// TestMemStoreSubagentsHandlesWakesHoldsQuestionsAndPool verifies all remaining domain transitions and failure classes.
+test TestMemStoreSubagentsHandlesWakesHoldsQuestionsAndPool {
+	let s = New()
+	let o1 = testOwner("srv1", 1)
+	let rootID = handle.ThreadID("sr-root")
+	let childID = handle.ThreadID("sr-child")
+	let _ = try Execute(s, Envelope{ID: CommandID("s1"), Actor: "a", AtMs: int64(10), LeaseFence: option.None, Command: CmdInitSubagentTree{RootID: rootID, Bounds: subagent.TreeBounds{MaxDepth: 2, MaxFanOut: 2, MaxBudget: 4}}})
+	let _ = try Execute(s, Envelope{ID: CommandID("s2"), Actor: "a", AtMs: int64(20), LeaseFence: option.None, Command: CmdSpawnSubagent{RootID: rootID, ParentID: rootID, ChildID: childID, Role: subagent.RoleWorker}})
+	let _ = try Execute(s, Envelope{ID: CommandID("s3"), Actor: "a", AtMs: int64(30), LeaseFence: option.None, Command: CmdSubagentControlHandle{RootID: rootID, CallerID: rootID, TargetID: childID, HandleID: handle.HandleID("sh-1")}})
+	let _ = try Execute(s, Envelope{ID: CommandID("s4"), Actor: "a", AtMs: int64(40), LeaseFence: option.None, Command: CmdSubagentSettleHandle{RootID: rootID, NodeID: childID, HandleID: handle.HandleID("sh-1")}})
+	let _ = try Execute(s, Envelope{ID: CommandID("s5"), Actor: "a", AtMs: int64(50), LeaseFence: option.None, Command: CmdSubagentHandBack{RootID: rootID, NodeID: childID}})
+
+	let mut gotSubErr = false
+	let _ = Execute(s, Envelope{ID: CommandID("s5-dup"), Actor: "a", AtMs: int64(51), LeaseFence: option.None, Command: CmdSubagentHandBack{RootID: rootID, NodeID: childID}}) catch {
+	case SubagentDomainErr:
+		gotSubErr = true
+		emptyExecRes()
+	case _:
+		assert false
+		emptyExecRes()
+	}
+	assert gotSubErr
+
+	let mut gotHandleErr = false
+	let _ = Execute(s, Envelope{ID: CommandID("h-bad"), Actor: "a", AtMs: int64(60), LeaseFence: option.None, Command: CmdMarkHandleHanded{CallID: handle.HandleID("missing"), SpawnedID: handle.HandleID("x")}}) catch {
+	case HandleDomainErr:
+		gotHandleErr = true
+		emptyExecRes()
+	case _:
+		assert false
+		emptyExecRes()
+	}
+	assert gotHandleErr
+
+	let _ = try Execute(s, Envelope{ID: CommandID("w1"), Actor: "a", AtMs: int64(70), LeaseFence: option.None, Command: CmdRecordWake{Wake: reconcile.WakeRecord{DeliveryID: "w-manual", HandleID: handle.HandleID("hm"), Delivered: false, PayloadSummary: "m"}}})
+	let _ = try Execute(s, Envelope{ID: CommandID("w2"), Actor: "a", AtMs: int64(75), LeaseFence: option.None, Command: CmdMarkWakeDelivered{WakeDeliveryID: "w-manual"}})
+
+	let _ = try Execute(s, Envelope{ID: CommandID("ph1"), Actor: "a", AtMs: int64(80), LeaseFence: option.None, Command: CmdOpenPoolHold{HoldKey: "hk-cancel", ThreadID: rootID, AccountID: session.AccountID("acc1"), RetryAtMs: int64(500), ParentNotified: false}})
+	let _ = try Execute(s, Envelope{ID: CommandID("ph2"), Actor: "a", AtMs: int64(85), LeaseFence: option.None, Command: CmdTransitionHold{HoldKey: "hk-cancel", Action: HoldActionCancel}})
+
+	let _ = try Execute(s, Envelope{
+		ID:      CommandID("qa1"), Actor: "a", AtMs: int64(90), LeaseFence: option.None,
+		Command: CmdAskUserAsync{
+			ID:    turn.RequestID("req-wd"), ThreadID: rootID, HandleID: handle.HandleID("qh-wd"),
+			Owner: o1, Session: handle.SessionID("s-wd"), Header: "H", Prompt: "Withdraw?", Assumption: "no", Options: []string{"yes", "no"}, TargetRole: subagent.RolePlanner,
+		},
+	})
+	let _ = try Execute(s, Envelope{ID: CommandID("qa2"), Actor: "a", AtMs: int64(95), LeaseFence: option.None, Command: CmdWithdrawAsyncQuestion{ID: turn.RequestID("req-wd")}})
+
+	let mut gotReqErr = false
+	let _ = Execute(s, Envelope{ID: CommandID("qa-late"), Actor: "a", AtMs: int64(96), LeaseFence: option.None, Command: CmdAnswerAsyncQuestion{ID: turn.RequestID("req-wd"), Answer: "yes", By: turn.ResponderPrimary}}) catch {
+	case InvalidTransition:
+		gotReqErr = true
+		emptyExecRes()
+	case _:
+		assert false
+		emptyExecRes()
+	}
+	assert gotReqErr
+
+	let _ = try Execute(s, Envelope{ID: CommandID("qa3"), Actor: "a", AtMs: int64(100), LeaseFence: option.None, Command: CmdAskUserAsync{ID: turn.RequestID("req-ans"), ThreadID: rootID, HandleID: handle.HandleID("qh-ans"), Owner: o1, Session: handle.SessionID("s-ans"), Header: "H2", Prompt: "Deploy?", Assumption: "yes", Options: []string{"yes"}, TargetRole: subagent.RoleVerifier}})
+	let _ = try Execute(s, Envelope{ID: CommandID("qa4"), Actor: "a", AtMs: int64(105), LeaseFence: option.None, Command: CmdAnswerAsyncQuestion{ID: turn.RequestID("req-ans"), Answer: "", By: turn.ResponderTimeout}})
+
+	let mut gotLimitErr = false
+	let _ = Execute(s, Envelope{
+		ID:      CommandID("lim-bad"), Actor: "a", AtMs: int64(110), LeaseFence: option.None,
+		Command: CmdStepLimitRecovery{
+			Key:    turn.LimitRecoveryKey{ThreadID: string(rootID), Kind: turn.LimitRate, ResetAtMs: int64(0)},
+			Action: turn.ActArmLimit{NowMs: int64(110), AlreadyHandled: false},
+		},
+	}) catch {
+	case LimitDomainErr:
+		gotLimitErr = true
+		emptyExecRes()
+	case _:
+		assert false
+		emptyExecRes()
+	}
+	assert gotLimitErr
+
+	let _ = try Execute(s, Envelope{
+		ID:      CommandID("kcut-heavy"), Actor: "a", AtMs: int64(120), LeaseFence: option.None,
+		Command: CmdRecordKernelCut{
+			CutID:     "cut-heavy", SessionID: handle.SessionID("s-ans"), ThreadID: rootID, RootThreadID: rootID,
+			CallsJSON: "[\"bash\"]", MapsJSON: "[\"map\"]", StartedAtMs: int64(1000), EndedAtMs: int64(600000), Reason: "heavy",
+		},
+	})
+	let kview = try s.GetKernelView(handle.SessionID("s-ans"))
+	assert kview.Journals.Len() == 1
+	assert kview.Journals[0].RootShareExceeded
+	assert kview.RootUsages[0].Flagged
+
+	let _ = try Execute(s, Envelope{ID: CommandID("l-1"), Actor: "a", AtMs: int64(200), LeaseFence: option.None, Command: CmdAcquireLease{LeaseID: "main-lease", Owner: o1, ExpectedEpoch: 0}})
+	let mut gotCutErr = false
+	let _ = Execute(s, Envelope{ID: CommandID("l-bad"), Actor: "a", AtMs: int64(205), LeaseFence: option.None, Command: CmdStepLeaseCutover{LeaseID: "main-lease", NewOwner: option.None, Action: cutover.ActAbortBeforeCommit}}) catch {
+	case CutoverDomainErr:
+		gotCutErr = true
+		emptyExecRes()
+	case _:
+		assert false
+		emptyExecRes()
+	}
+	assert gotCutErr
+
+	let mut gotInputErr = false
+	let _ = Execute(s, Envelope{ID: CommandID(""), Actor: "a", AtMs: int64(210), LeaseFence: option.None, Command: CmdArchiveThread{ID: rootID}}) catch {
+	case InvalidInput:
+		gotInputErr = true
+		emptyExecRes()
+	case _:
+		assert false
+		emptyExecRes()
+	}
+	assert gotInputErr
+
+	let _ = try Execute(s, Envelope{ID: CommandID("ret-open"), Actor: "a", AtMs: int64(220), LeaseFence: option.None, Command: CmdOpenHandle{Spec: handle.OpenHandleSpec{ID: handle.HandleID("dead-call"), Kind: handle.KindCall, Owner: testOwner("dead-srv", 1), Session: handle.SessionID("dead-s"), Summary: "dead"}, SubagentRoot: option.None, NodeID: option.None}})
+	let _ = try Execute(s, Envelope{ID: CommandID("ret-run"), Actor: "a", AtMs: int64(230), LeaseFence: option.None, Command: CmdRetireOwnerCalls{DeadOwner: testOwner("dead-srv", 1)}})
+	let hv = try s.GetHandleView(HandleFilter{Session: option.None, Owner: option.None, OpenOnly: false})
+	let qs = try s.GetQuestions(QuestionFilter{ThreadID: option.Some[handle.ThreadID]{Value: rootID}, Status: option.Some[QuestionStatus]{Value: QuestionAnswered}})
+	assert qs.Len() == 1
+	assert hv.Handles.Len() >= 3
+}
+
+// TestMemStoreBoundsAndNegativeGuards enforces snapshot byte caps, inflight non-negativity, and early hold wake rejection.
+test TestMemStoreBoundsAndNegativeGuards {
+	let s = New()
+	let accID = session.AccountID("acc-guard")
+	let tid = handle.ThreadID("th-guard")
+	let _ = try Execute(s, Envelope{
+		ID:      CommandID("g1"), Actor: "op", AtMs: int64(100), LeaseFence: option.None,
+		Command: CmdUpsertPoolAccount{
+			Pool: PoolAccount{
+				ID:              accID, Provider: "codex", Priority: 1, Healthy: true,
+				Window5hUsedPct: 10, Window5hResetMs: int64(2000),
+				Window7dUsedPct: 5, Window7dResetMs: int64(9000),
+				ModelWindows:    []ModelWindowUsage{}, InflightStarts: 0, LimitedUntilMs: int64(0), UpdatedAtMs: int64(100),
+			},
+		},
+	})
+	let mut gotInflightErr = false
+	let _ = Execute(s, Envelope{
+		ID:      CommandID("g2"), Actor: "op", AtMs: int64(110), LeaseFence: option.None,
+		Command: CmdAdjustPoolInflight{AccountID: accID, Delta: -1},
+	}) catch {
+	case InvalidTransition:
+		gotInflightErr = true
+		emptyExecRes()
+	case _:
+		assert false
+		emptyExecRes()
+	}
+	assert gotInflightErr
+
+	let _ = try Execute(s, Envelope{
+		ID:      CommandID("g3"), Actor: "op", AtMs: int64(120), LeaseFence: option.None,
+		Command: CmdOpenPoolHold{HoldKey: "hk-early", ThreadID: tid, AccountID: accID, RetryAtMs: int64(5000), ParentNotified: false},
+	})
+	let mut gotEarlyHold = false
+	let _ = Execute(s, Envelope{
+		ID:      CommandID("g4"), Actor: "op", AtMs: int64(4999), LeaseFence: option.None,
+		Command: CmdTransitionHold{HoldKey: "hk-early", Action: HoldActionWake},
+	}) catch {
+	case InvalidTransition:
+		gotEarlyHold = true
+		emptyExecRes()
+	case _:
+		assert false
+		emptyExecRes()
+	}
+	assert gotEarlyHold
+
+	let mut gotSnapCap = false
+	let _ = Execute(s, Envelope{
+		ID:      CommandID("g5"), Actor: "op", AtMs: int64(130), LeaseFence: option.None,
+		Command: CmdSaveKernelSnapshot{
+			SessionID:    handle.SessionID("sess-cap"), ThreadID: tid, RootThreadID: tid,
+			BindingsJSON: "{}", SnapshotBytes: MaxKernelSnapshotBytes() + 1, LostNotice: "",
+		},
+	}) catch {
+	case InvalidInput:
+		gotSnapCap = true
+		emptyExecRes()
+	case _:
+		assert false
+		emptyExecRes()
+	}
+	assert gotSnapCap
+
+	let _ = try Execute(s, Envelope{
+		ID:      CommandID("g6"), Actor: "op", AtMs: int64(140), LeaseFence: option.None,
+		Command: CmdSetOwnerPush{Reserve: OwnerPush{PushID: "p-edge", Scope: PushAllAccounts, ExtraPct: 10, StartsAtMs: int64(1000), EndsAtMs: int64(5000), Cancelled: false, UpdatedMs: int64(140)}},
+	})
+	let pvAt4999 = try s.GetPoolView(int64(4999))
+	let pvAt5000 = try s.GetPoolView(int64(5000))
+	assert pvAt4999.ActivePushes.Len() == 1
+	assert pvAt4999.DueHolds.Len() == 0
+	assert pvAt5000.ActivePushes.Len() == 0
+	assert pvAt5000.DueHolds.Len() == 1
+
+	let o1 = testOwner("srv-xfer", 1)
+	let _ = try Execute(s, Envelope{ID: CommandID("g7"), Actor: "op", AtMs: int64(150), LeaseFence: option.None, Command: CmdAcquireLease{LeaseID: "lx", Owner: o1, ExpectedEpoch: 0}})
+	let _ = try Execute(s, Envelope{ID: CommandID("g8"), Actor: "op", AtMs: int64(160), LeaseFence: option.None, Command: CmdStepLeaseCutover{LeaseID: "lx", NewOwner: option.None, Action: cutover.ActBeginQuiesce}})
+	let _ = try Execute(s, Envelope{ID: CommandID("g9"), Actor: "op", AtMs: int64(170), LeaseFence: option.None, Command: CmdStepLeaseCutover{LeaseID: "lx", NewOwner: option.None, Action: cutover.ActStageTransfer}})
+	let mut gotTransferFence = false
+	let _ = Execute(s, Envelope{
+		ID:         CommandID("g10"), Actor: "op", AtMs: int64(180),
+		LeaseFence: option.Some[LeaseFenceCheck]{Value: LeaseFenceCheck{LeaseID: "lx", ExpectedOwner: o1, ExpectedEpoch: 1, MinFencingToken: int64(1)}},
+		Command:    CmdSetOwnerPush{Reserve: OwnerPush{PushID: "p-bad", Scope: PushAllAccounts, ExtraPct: 5, StartsAtMs: int64(1000), EndsAtMs: int64(2000), Cancelled: false, UpdatedMs: int64(180)}},
+	}) catch {
+	case LeaseFenced:
+		gotTransferFence = true
+		emptyExecRes()
+	case _:
+		assert false
+		emptyExecRes()
+	}
+	assert gotTransferFence
+}

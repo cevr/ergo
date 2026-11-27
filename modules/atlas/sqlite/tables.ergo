@@ -1,0 +1,415 @@
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/memory
+import github.com/cevr/ergo/modules/atlas/subagent
+import github.com/cevr/ergo/modules/atlas/thread
+import github.com/cevr/ergo/modules/atlas/turn
+import hex
+import json
+import sha256
+import sql
+import strconv
+
+// CurrentSchemaVersion returns the supported Atlas SQLite schema version.
+func CurrentSchemaVersion() int {
+	1
+}
+
+func commandDigest(payloadJSON string) string {
+	hex.Encode(sha256.Sum(payloadJSON))
+}
+
+func encodeWire[T wire](v T) string needs wired[T] {
+	let c = json.Codec[T]{MaxBytes: 0, MaxDepth: 0}
+	json.Encode(c, v)
+}
+
+func decodeCommand(text string) memory.Command fails memory.StoreFailed {
+	json.Decode(json.Codec[memory.Command]{MaxBytes: 0, MaxDepth: 0}, text) catch {
+	case json.Malformed as e:
+		return memory.StoreFailed{Reason: "decode command: \(e.Reason)"}
+	case WireMissingField as e:
+		return memory.StoreFailed{Reason: "decode command: missing \(e.Field)"}
+	case WireUnknownTag as e:
+		return memory.StoreFailed{Reason: "decode command: tag \(e.Tag)"}
+	case WireWrongKind as e:
+		return memory.StoreFailed{Reason: "decode command: want \(e.Want)"}
+	}
+}
+
+func decodeEvent(text string) memory.Event fails memory.StoreFailed {
+	json.Decode(json.Codec[memory.Event]{MaxBytes: 0, MaxDepth: 0}, text) catch {
+	case json.Malformed as e:
+		return memory.StoreFailed{Reason: "decode event: \(e.Reason)"}
+	case WireMissingField as e:
+		return memory.StoreFailed{Reason: "decode event: missing \(e.Field)"}
+	case WireUnknownTag as e:
+		return memory.StoreFailed{Reason: "decode event: tag \(e.Tag)"}
+	case WireWrongKind as e:
+		return memory.StoreFailed{Reason: "decode event: want \(e.Want)"}
+	}
+}
+
+func decodeThread(text string) thread.Thread fails memory.StoreFailed {
+	json.Decode(json.Codec[thread.Thread]{MaxBytes: 0, MaxDepth: 0}, text) catch {
+	case json.Malformed as e:
+		return memory.StoreFailed{Reason: "decode thread: \(e.Reason)"}
+	case WireMissingField as e:
+		return memory.StoreFailed{Reason: "decode thread: missing \(e.Field)"}
+	case WireUnknownTag as e:
+		return memory.StoreFailed{Reason: "decode thread: tag \(e.Tag)"}
+	case WireWrongKind as e:
+		return memory.StoreFailed{Reason: "decode thread: want \(e.Want)"}
+	}
+}
+
+func decodeQueuedPrompt(text string) thread.QueuedPrompt fails memory.StoreFailed {
+	json.Decode(json.Codec[thread.QueuedPrompt]{MaxBytes: 0, MaxDepth: 0}, text) catch {
+	case json.Malformed as e:
+		return memory.StoreFailed{Reason: "decode queued_prompt: \(e.Reason)"}
+	case WireMissingField as e:
+		return memory.StoreFailed{Reason: "decode queued_prompt: missing \(e.Field)"}
+	case WireUnknownTag as e:
+		return memory.StoreFailed{Reason: "decode queued_prompt: tag \(e.Tag)"}
+	case WireWrongKind as e:
+		return memory.StoreFailed{Reason: "decode queued_prompt: want \(e.Want)"}
+	}
+}
+
+func decodeTreeBounds(text string) subagent.TreeBounds fails memory.StoreFailed {
+	json.Decode(json.Codec[subagent.TreeBounds]{MaxBytes: 0, MaxDepth: 0}, text) catch {
+	case json.Malformed as e:
+		return memory.StoreFailed{Reason: "decode tree_bounds: \(e.Reason)"}
+	case WireMissingField as e:
+		return memory.StoreFailed{Reason: "decode tree_bounds: missing \(e.Field)"}
+	case WireWrongKind as e:
+		return memory.StoreFailed{Reason: "decode tree_bounds: want \(e.Want)"}
+	}
+}
+
+func decodeTreeOrder(text string) []handle.ThreadID fails memory.StoreFailed {
+	json.Decode(json.Codec[[]handle.ThreadID]{MaxBytes: 0, MaxDepth: 0}, text) catch {
+	case json.Malformed as e:
+		return memory.StoreFailed{Reason: "decode tree_order: \(e.Reason)"}
+	case WireWrongKind as e:
+		return memory.StoreFailed{Reason: "decode tree_order: want \(e.Want)"}
+	}
+}
+
+func decodeSubagentNode(text string) subagent.SubagentNode fails memory.StoreFailed {
+	json.Decode(json.Codec[subagent.SubagentNode]{MaxBytes: 0, MaxDepth: 0}, text) catch {
+	case json.Malformed as e:
+		return memory.StoreFailed{Reason: "decode subagent_node: \(e.Reason)"}
+	case WireMissingField as e:
+		return memory.StoreFailed{Reason: "decode subagent_node: missing \(e.Field)"}
+	case WireUnknownTag as e:
+		return memory.StoreFailed{Reason: "decode subagent_node: tag \(e.Tag)"}
+	case WireWrongKind as e:
+		return memory.StoreFailed{Reason: "decode subagent_node: want \(e.Want)"}
+	}
+}
+
+func decodeWakeHandle(text string) handle.WakeHandle fails memory.StoreFailed {
+	json.Decode(json.Codec[handle.WakeHandle]{MaxBytes: 0, MaxDepth: 0}, text) catch {
+	case json.Malformed as e:
+		return memory.StoreFailed{Reason: "decode wake_handle: \(e.Reason)"}
+	case WireMissingField as e:
+		return memory.StoreFailed{Reason: "decode wake_handle: missing \(e.Field)"}
+	case WireUnknownTag as e:
+		return memory.StoreFailed{Reason: "decode wake_handle: tag \(e.Tag)"}
+	case WireWrongKind as e:
+		return memory.StoreFailed{Reason: "decode wake_handle: want \(e.Want)"}
+	}
+}
+
+func decodePoolHold(text string) memory.PoolHold fails memory.StoreFailed {
+	json.Decode(json.Codec[memory.PoolHold]{MaxBytes: 0, MaxDepth: 0}, text) catch {
+	case json.Malformed as e:
+		return memory.StoreFailed{Reason: "decode pool_hold: \(e.Reason)"}
+	case WireMissingField as e:
+		return memory.StoreFailed{Reason: "decode pool_hold: missing \(e.Field)"}
+	case WireUnknownTag as e:
+		return memory.StoreFailed{Reason: "decode pool_hold: tag \(e.Tag)"}
+	case WireWrongKind as e:
+		return memory.StoreFailed{Reason: "decode pool_hold: want \(e.Want)"}
+	}
+}
+
+func decodeQuestion(text string) memory.AsyncQuestion fails memory.StoreFailed {
+	json.Decode(json.Codec[memory.AsyncQuestion]{MaxBytes: 0, MaxDepth: 0}, text) catch {
+	case json.Malformed as e:
+		return memory.StoreFailed{Reason: "decode question: \(e.Reason)"}
+	case WireMissingField as e:
+		return memory.StoreFailed{Reason: "decode question: missing \(e.Field)"}
+	case WireUnknownTag as e:
+		return memory.StoreFailed{Reason: "decode question: tag \(e.Tag)"}
+	case WireWrongKind as e:
+		return memory.StoreFailed{Reason: "decode question: want \(e.Want)"}
+	}
+}
+
+func decodeRequest(text string) turn.RequestState fails memory.StoreFailed {
+	json.Decode(json.Codec[turn.RequestState]{MaxBytes: 0, MaxDepth: 0}, text) catch {
+	case json.Malformed as e:
+		return memory.StoreFailed{Reason: "decode request: \(e.Reason)"}
+	case WireMissingField as e:
+		return memory.StoreFailed{Reason: "decode request: missing \(e.Field)"}
+	case WireUnknownTag as e:
+		return memory.StoreFailed{Reason: "decode request: tag \(e.Tag)"}
+	case WireWrongKind as e:
+		return memory.StoreFailed{Reason: "decode request: want \(e.Want)"}
+	}
+}
+
+func decodePoolAccount(text string) memory.PoolAccount fails memory.StoreFailed {
+	json.Decode(json.Codec[memory.PoolAccount]{MaxBytes: 0, MaxDepth: 0}, text) catch {
+	case json.Malformed as e:
+		return memory.StoreFailed{Reason: "decode pool_account: \(e.Reason)"}
+	case WireMissingField as e:
+		return memory.StoreFailed{Reason: "decode pool_account: missing \(e.Field)"}
+	case WireWrongKind as e:
+		return memory.StoreFailed{Reason: "decode pool_account: want \(e.Want)"}
+	}
+}
+
+func decodeResetClaim(text string) memory.ResetClaim fails memory.StoreFailed {
+	json.Decode(json.Codec[memory.ResetClaim]{MaxBytes: 0, MaxDepth: 0}, text) catch {
+	case json.Malformed as e:
+		return memory.StoreFailed{Reason: "decode reset_claim: \(e.Reason)"}
+	case WireMissingField as e:
+		return memory.StoreFailed{Reason: "decode reset_claim: missing \(e.Field)"}
+	case WireUnknownTag as e:
+		return memory.StoreFailed{Reason: "decode reset_claim: tag \(e.Tag)"}
+	case WireWrongKind as e:
+		return memory.StoreFailed{Reason: "decode reset_claim: want \(e.Want)"}
+	}
+}
+
+func decodeOwnerPush(text string) memory.OwnerPush fails memory.StoreFailed {
+	json.Decode(json.Codec[memory.OwnerPush]{MaxBytes: 0, MaxDepth: 0}, text) catch {
+	case json.Malformed as e:
+		return memory.StoreFailed{Reason: "decode owner_push: \(e.Reason)"}
+	case WireMissingField as e:
+		return memory.StoreFailed{Reason: "decode owner_push: missing \(e.Field)"}
+	case WireUnknownTag as e:
+		return memory.StoreFailed{Reason: "decode owner_push: tag \(e.Tag)"}
+	case WireWrongKind as e:
+		return memory.StoreFailed{Reason: "decode owner_push: want \(e.Want)"}
+	}
+}
+
+func decodeLimitState(text string) turn.LimitState fails memory.StoreFailed {
+	json.Decode(json.Codec[turn.LimitState]{MaxBytes: 0, MaxDepth: 0}, text) catch {
+	case json.Malformed as e:
+		return memory.StoreFailed{Reason: "decode limit_state: \(e.Reason)"}
+	case WireMissingField as e:
+		return memory.StoreFailed{Reason: "decode limit_state: missing \(e.Field)"}
+	case WireUnknownTag as e:
+		return memory.StoreFailed{Reason: "decode limit_state: tag \(e.Tag)"}
+	case WireWrongKind as e:
+		return memory.StoreFailed{Reason: "decode limit_state: want \(e.Want)"}
+	}
+}
+
+func decodeKernelSnapshot(text string) memory.KernelSnapshot fails memory.StoreFailed {
+	json.Decode(json.Codec[memory.KernelSnapshot]{MaxBytes: 0, MaxDepth: 0}, text) catch {
+	case json.Malformed as e:
+		return memory.StoreFailed{Reason: "decode kernel_snapshot: \(e.Reason)"}
+	case WireMissingField as e:
+		return memory.StoreFailed{Reason: "decode kernel_snapshot: missing \(e.Field)"}
+	case WireWrongKind as e:
+		return memory.StoreFailed{Reason: "decode kernel_snapshot: want \(e.Want)"}
+	}
+}
+
+func decodeKernelJournal(text string) memory.KernelCutJournal fails memory.StoreFailed {
+	json.Decode(json.Codec[memory.KernelCutJournal]{MaxBytes: 0, MaxDepth: 0}, text) catch {
+	case json.Malformed as e:
+		return memory.StoreFailed{Reason: "decode kernel_journal: \(e.Reason)"}
+	case WireMissingField as e:
+		return memory.StoreFailed{Reason: "decode kernel_journal: missing \(e.Field)"}
+	case WireWrongKind as e:
+		return memory.StoreFailed{Reason: "decode kernel_journal: want \(e.Want)"}
+	}
+}
+
+func decodeLeaseRecord(text string) memory.LeaseRecord fails memory.StoreFailed {
+	json.Decode(json.Codec[memory.LeaseRecord]{MaxBytes: 0, MaxDepth: 0}, text) catch {
+	case json.Malformed as e:
+		return memory.StoreFailed{Reason: "decode lease_record: \(e.Reason)"}
+	case WireMissingField as e:
+		return memory.StoreFailed{Reason: "decode lease_record: missing \(e.Field)"}
+	case WireUnknownTag as e:
+		return memory.StoreFailed{Reason: "decode lease_record: tag \(e.Tag)"}
+	case WireWrongKind as e:
+		return memory.StoreFailed{Reason: "decode lease_record: want \(e.Want)"}
+	}
+}
+
+func sqlErrMsg(err sql.Failure) string {
+	match err {
+	case sql.Unique as e:
+		"unique: " + e.Constraint
+	case sql.Serialization as e:
+		"busy: " + e.Message
+	case sql.Deadlock as e:
+		"deadlock: " + e.Message
+	case sql.Timeout as e:
+		"timeout: " + e.Message
+	case sql.NoRows as e:
+		"no rows: " + e.Statement
+	case sql.Closed as e:
+		"closed: " + e.Message
+	case sql.Other as e:
+		"other: " + e.Message
+	}
+}
+
+func execTx(stmt string, args []sql.Value) sql.Result fails memory.StoreFailed needs sql.Tx {
+	sql.Tx.Exec(stmt, args) catch {
+	case sql.Unique as e:
+		return memory.StoreFailed{Reason: "exec \(sqlErrMsg(e))"}
+	case sql.Serialization as e:
+		return memory.StoreFailed{Reason: "exec \(sqlErrMsg(e))"}
+	case sql.Deadlock as e:
+		return memory.StoreFailed{Reason: "exec \(sqlErrMsg(e))"}
+	case sql.Timeout as e:
+		return memory.StoreFailed{Reason: "exec \(sqlErrMsg(e))"}
+	case sql.Closed as e:
+		return memory.StoreFailed{Reason: "exec \(sqlErrMsg(e))"}
+	case sql.Other as e:
+		return memory.StoreFailed{Reason: "exec \(sqlErrMsg(e))"}
+	}
+}
+
+func queryTx(stmt string, args []sql.Value) []sql.Row fails memory.StoreFailed needs sql.Tx {
+	sql.Tx.Query(stmt, args) catch {
+	case sql.Unique as e:
+		return memory.StoreFailed{Reason: "query \(sqlErrMsg(e))"}
+	case sql.Serialization as e:
+		return memory.StoreFailed{Reason: "query \(sqlErrMsg(e))"}
+	case sql.Deadlock as e:
+		return memory.StoreFailed{Reason: "query \(sqlErrMsg(e))"}
+	case sql.Timeout as e:
+		return memory.StoreFailed{Reason: "query \(sqlErrMsg(e))"}
+	case sql.Closed as e:
+		return memory.StoreFailed{Reason: "query \(sqlErrMsg(e))"}
+	case sql.Other as e:
+		return memory.StoreFailed{Reason: "query \(sqlErrMsg(e))"}
+	}
+}
+
+func textAt(row sql.Row, idx int) string fails memory.StoreFailed {
+	if idx < 0 || idx >= row.Values.Len() {
+		return memory.StoreFailed{Reason: "missing column at \(idx)"}
+	}
+	match row.Values[idx] {
+	case sql.Text as t:
+		t.S
+	case _:
+		memory.StoreFailed{Reason: "column at \(idx) is not TEXT"}
+	}
+}
+
+func intAt(row sql.Row, idx int) int fails memory.StoreFailed {
+	if idx < 0 || idx >= row.Values.Len() {
+		return memory.StoreFailed{Reason: "missing column at \(idx)"}
+	}
+	match row.Values[idx] {
+	case sql.Int as v:
+		int(v.N)
+	case _:
+		memory.StoreFailed{Reason: "column at \(idx) is not INTEGER"}
+	}
+}
+
+func int64At(row sql.Row, idx int) int64 fails memory.StoreFailed {
+	if idx < 0 || idx >= row.Values.Len() {
+		return memory.StoreFailed{Reason: "missing column at \(idx)"}
+	}
+	match row.Values[idx] {
+	case sql.Int as v:
+		v.N
+	case _:
+		memory.StoreFailed{Reason: "column at \(idx) is not INTEGER"}
+	}
+}
+
+func boolAt(row sql.Row, idx int) bool fails memory.StoreFailed {
+	let n = try int64At(row, idx)
+	n != int64(0)
+}
+
+func boolIntVal(b bool) sql.Value {
+	if b { sql.Int{N: int64(1)} } else { sql.Int{N: int64(0)} }
+}
+
+func schemaStatements() []string {
+	[]string{
+		"CREATE TABLE schema_meta (id INTEGER PRIMARY KEY CHECK (id = 1), schema_version INTEGER NOT NULL, updated_at INTEGER NOT NULL)",
+		"CREATE TABLE commands (command_id TEXT PRIMARY KEY, actor TEXT NOT NULL, at_ms INTEGER NOT NULL, payload_json TEXT NOT NULL, payload_digest TEXT NOT NULL)",
+		"CREATE TABLE events (seq INTEGER PRIMARY KEY, command_id TEXT NOT NULL, payload_digest TEXT NOT NULL, event_json TEXT NOT NULL)",
+		"CREATE TABLE threads (thread_id TEXT PRIMARY KEY, seq_order INTEGER NOT NULL, parent_thread_id TEXT, archived INTEGER NOT NULL, mode TEXT NOT NULL, driver TEXT NOT NULL, in_turn INTEGER NOT NULL, thread_json TEXT NOT NULL)",
+		"CREATE TABLE thread_edges (parent_thread_id TEXT NOT NULL, child_thread_id TEXT NOT NULL, kind TEXT NOT NULL, label TEXT NOT NULL, created_at_ms INTEGER NOT NULL, seq_order INTEGER NOT NULL, PRIMARY KEY (parent_thread_id, child_thread_id))",
+		"CREATE INDEX idx_thread_edges_child ON thread_edges(child_thread_id)",
+		"CREATE TABLE prompt_queue (thread_id TEXT NOT NULL, pos INTEGER NOT NULL, prompt_id TEXT NOT NULL, body TEXT NOT NULL, requested_mode TEXT NOT NULL, prompt_json TEXT NOT NULL, PRIMARY KEY (thread_id, pos))",
+		"CREATE TABLE subagent_trees (root_id TEXT PRIMARY KEY, seq_order INTEGER NOT NULL, budget_used INTEGER NOT NULL, out_of_subtree_violation INTEGER NOT NULL, bounds_json TEXT NOT NULL, order_json TEXT NOT NULL)",
+		"CREATE TABLE subagent_nodes (root_id TEXT NOT NULL, thread_id TEXT NOT NULL, parent_thread_id TEXT, depth INTEGER NOT NULL, state TEXT NOT NULL, hand_back_count INTEGER NOT NULL, node_json TEXT NOT NULL, PRIMARY KEY (root_id, thread_id))",
+		"CREATE TABLE handles (handle_id TEXT PRIMARY KEY, seq_order INTEGER NOT NULL, kind TEXT NOT NULL, deliverer TEXT NOT NULL, disposition TEXT NOT NULL, session_id TEXT NOT NULL, server_id TEXT NOT NULL, location TEXT NOT NULL, epoch INTEGER NOT NULL, wake_emitted INTEGER NOT NULL, wake_letter_count INTEGER NOT NULL, handle_json TEXT NOT NULL)",
+		"CREATE INDEX idx_handles_open_owner ON handles(kind, disposition, server_id, location, epoch)",
+		"CREATE INDEX idx_handles_session ON handles(session_id)",
+		"CREATE TABLE wakes (delivery_id TEXT PRIMARY KEY, seq_order INTEGER NOT NULL, handle_id TEXT NOT NULL, delivered INTEGER NOT NULL, payload_summary TEXT NOT NULL)",
+		"CREATE INDEX idx_wakes_delivered ON wakes(delivered, seq_order)",
+		"CREATE TABLE holds (hold_key TEXT PRIMARY KEY, seq_order INTEGER NOT NULL, thread_id TEXT NOT NULL, account_id TEXT NOT NULL, retry_at_ms INTEGER NOT NULL, delivery_id TEXT NOT NULL, status TEXT NOT NULL, parent_notified INTEGER NOT NULL, hold_json TEXT NOT NULL)",
+		"CREATE INDEX idx_holds_status_retry ON holds(status, retry_at_ms)",
+		"CREATE TABLE questions (question_id TEXT PRIMARY KEY, seq_order INTEGER NOT NULL, thread_id TEXT NOT NULL, handle_id TEXT NOT NULL, status TEXT NOT NULL, question_json TEXT NOT NULL)",
+		"CREATE INDEX idx_questions_thread_status ON questions(thread_id, status)",
+		"CREATE TABLE requests (request_id TEXT PRIMARY KEY, seq_order INTEGER NOT NULL, status TEXT NOT NULL, request_json TEXT NOT NULL)",
+		"CREATE TABLE pool_accounts (account_id TEXT PRIMARY KEY, seq_order INTEGER NOT NULL, provider TEXT NOT NULL, priority INTEGER NOT NULL, healthy INTEGER NOT NULL, inflight_starts INTEGER NOT NULL, account_json TEXT NOT NULL)",
+		"CREATE TABLE pool_resets (claim_key TEXT PRIMARY KEY, seq_order INTEGER NOT NULL, account_id TEXT NOT NULL, period_key TEXT NOT NULL, claimed_by TEXT NOT NULL, claimed_at_ms INTEGER NOT NULL, claim_json TEXT NOT NULL)",
+		"CREATE TABLE pool_pushes (push_id TEXT PRIMARY KEY, seq_order INTEGER NOT NULL, starts_at_ms INTEGER NOT NULL, ends_at_ms INTEGER NOT NULL, cancelled INTEGER NOT NULL, push_json TEXT NOT NULL)",
+		"CREATE TABLE limit_states (limit_key TEXT PRIMARY KEY, seq_order INTEGER NOT NULL, limit_json TEXT NOT NULL)",
+		"CREATE TABLE kernel_snapshots (session_id TEXT PRIMARY KEY, seq_order INTEGER NOT NULL, thread_id TEXT NOT NULL, root_thread_id TEXT NOT NULL, snapshot_seq INTEGER NOT NULL, snapshot_bytes INTEGER NOT NULL, updated_at_ms INTEGER NOT NULL, snapshot_json TEXT NOT NULL)",
+		"CREATE TABLE kernel_journals (cut_id TEXT PRIMARY KEY, seq_order INTEGER NOT NULL, session_id TEXT NOT NULL, thread_id TEXT NOT NULL, root_thread_id TEXT NOT NULL, started_at_ms INTEGER NOT NULL, ended_at_ms INTEGER NOT NULL, root_share_exceeded INTEGER NOT NULL, journal_json TEXT NOT NULL)",
+		"CREATE INDEX idx_kernel_journals_session ON kernel_journals(session_id, seq_order)",
+		"CREATE TABLE kernel_root_usage (root_thread_id TEXT PRIMARY KEY, seq_order INTEGER NOT NULL, active_cell_ms INTEGER NOT NULL, window_start_ms INTEGER NOT NULL, last_updated_ms INTEGER NOT NULL, flagged INTEGER NOT NULL)",
+		"CREATE TABLE leases (lease_id TEXT PRIMARY KEY, seq_order INTEGER NOT NULL, owner_server TEXT NOT NULL, owner_location TEXT NOT NULL, owner_epoch INTEGER NOT NULL, fencing_token INTEGER NOT NULL, cutover_phase TEXT NOT NULL, active_owner TEXT NOT NULL, commit_persisted INTEGER NOT NULL, lease_json TEXT NOT NULL)",
+	}
+}
+
+func initSchema() fails memory.StoreFailed needs sql.Tx {
+	let uvRows = try queryTx("PRAGMA user_version", []sql.Value{})
+	let userVer = if uvRows.Len() > 0 { try intAt(uvRows[0], 0) } else { 0 }
+	let metaTableRows = try queryTx(
+		"SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'schema_meta'",
+		[]sql.Value{},
+	)
+	if metaTableRows.Len() > 0 {
+		let metaRows = try queryTx("SELECT schema_version FROM schema_meta WHERE id = 1", []sql.Value{})
+		if metaRows.Len() == 0 {
+			return memory.StoreFailed{Reason: "schema_meta row missing"}
+		}
+		let metaVer = try intAt(metaRows[0], 0)
+		if metaVer != CurrentSchemaVersion() || userVer != metaVer {
+			return memory.StoreFailed{Reason: "unsupported schema version: user_version=\(userVer) meta=\(metaVer)"}
+		}
+		return
+	}
+	if userVer != 0 {
+		return memory.StoreFailed{Reason: "unsupported schema user_version=\(userVer) without schema_meta"}
+	}
+	let existingTables = try queryTx(
+		"SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
+		[]sql.Value{},
+	)
+	if existingTables.Len() > 0 && try intAt(existingTables[0], 0) > 0 {
+		return memory.StoreFailed{Reason: "existing tables present without schema_meta"}
+	}
+	for _, ddl in schemaStatements() {
+		let _ = try execTx(ddl, []sql.Value{})
+	}
+	let _ = try execTx(
+		"INSERT INTO schema_meta (id, schema_version, updated_at) VALUES (1, ?, 0)",
+		[]sql.Value{sql.Int{N: int64(CurrentSchemaVersion())}},
+	)
+	let _ = try execTx("PRAGMA user_version = "+strconv.Itoa(CurrentSchemaVersion()), []sql.Value{})
+}

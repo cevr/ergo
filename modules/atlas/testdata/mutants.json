@@ -1,0 +1,646 @@
+{
+  "about": "atlas-core domain invariants across adapter capabilities, handles, turn/request/limit, sessions/rotation, threads, subagent trees, boot reconciliation, and live cutover.",
+  "mutants": [
+    {
+      "name": "atlas-core-adapter-emulates-steer",
+      "origin": "ATLAS-CORE",
+      "file": "modules/atlas/adapter/capabilities.ergo",
+      "from": "\tif !caps.Steer {\n\t\treturn CapabilityUnsupported{Capability: \"steer\", Driver: driver}\n\t}\n",
+      "to": "\tif false && !caps.Steer {\n\t\treturn CapabilityUnsupported{Capability: \"steer\", Driver: driver}\n\t}\n",
+      "rule": "Adapters must never emulate unsupported steer operations when Capabilities.Steer is false.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/adapter:law:Adapter.NeverEmulatesUnsupportedSteer"
+        ]
+      },
+      "killers": [
+        "modules/atlas/adapter:law:Adapter.NeverEmulatesUnsupportedSteer"
+      ]
+    },
+    {
+      "name": "atlas-core-adapter-yolo-fallback-skips-supervised",
+      "origin": "ATLAS-CORE",
+      "file": "modules/atlas/adapter/capabilities.ergo",
+      "from": "\tcase ModeYolo:\n\t\tif caps.SupportsYolo {\n\t\t\tModeYolo\n\t\t} else {\n\t\t\tModeSupervised\n\t\t}\n",
+      "to": "\tcase ModeYolo:\n\t\tModeYolo\n",
+      "rule": "Unsupported ModeYolo requests must fall back strictly to ModeSupervised rather than proceeding.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/adapter:law:ResolveModeNeverEmulatesYolo"
+        ]
+      },
+      "killers": [
+        "modules/atlas/adapter:law:ResolveModeNeverEmulatesYolo"
+      ]
+    },
+    {
+      "name": "atlas-core-adapter-allows-unsupported-direct-agy",
+      "origin": "ATLAS-CORE",
+      "file": "modules/atlas/adapter/capabilities.ergo",
+      "from": "\tif !caps.OfficiallySupported {\n\t\treturn DirectDriverDisabled{Driver: driver}\n\t}\n",
+      "to": "\tif false {\n\t\treturn DirectDriverDisabled{Driver: driver}\n\t}\n",
+      "rule": "Direct Antigravity must remain gated off unless Capabilities.OfficiallySupported is true.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/adapter:law:Adapter.DirectAntigravityOffUnlessSupported"
+        ]
+      },
+      "killers": [
+        "modules/atlas/adapter:law:Adapter.DirectAntigravityOffUnlessSupported"
+      ]
+    },
+    {
+      "name": "atlas-core-continuation-drops-claude-config-dir",
+      "origin": "ATLAS-CORE",
+      "file": "modules/atlas/adapter/continuation.ergo",
+      "from": "\tcase ClaudeMeta:\n\t\tContinuationKey(\"claude:home:\\(configDir)\")\n",
+      "to": "\tcase ClaudeMeta:\n\t\tContinuationKey(\"claude:home:shared\")\n",
+      "rule": "Distinct Claude config directories must produce distinct continuation keys so accounts do not alias.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/adapter:law:ClaudeConfigDirsStayIsolated"
+        ]
+      },
+      "killers": [
+        "modules/atlas/adapter:law:ClaudeConfigDirsStayIsolated"
+      ]
+    },
+    {
+      "name": "atlas-core-handle-delivers-routes-shell-to-registry",
+      "origin": "ATLAS-CORE",
+      "file": "modules/atlas/handle/delivers.ergo",
+      "from": "\tcase KindShell:\n\t\tDelivererShellHost\n",
+      "to": "\tcase KindShell:\n\t\tDelivererRegistry\n",
+      "rule": "DELIVERS maps KindShell solely to DelivererShellHost, never DelivererRegistry.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/handle:law:DeliversTotalAndExclusive"
+        ]
+      },
+      "killers": [
+        "modules/atlas/handle:law:DeliversTotalAndExclusive"
+      ]
+    },
+    {
+      "name": "atlas-core-handle-handed-emits-wake",
+      "origin": "ATLAS-CORE",
+      "file": "modules/atlas/handle/registry.ergo",
+      "from": "\tlet next = WakeHandle{\n\t\t..h,\n\t\tDisposition: DispHanded,\n\t\tStartedID:   option.Some[HandleID]{Value: spawnedID},\n\t\tWakeEmitted: false,\n\t}\n",
+      "to": "\tlet next = WakeHandle{\n\t\t..h,\n\t\tDisposition: DispHanded,\n\t\tStartedID:   option.Some[HandleID]{Value: spawnedID},\n\t\tWakeEmitted: true,\n\t}\n",
+      "rule": "DispHanded transitions a call cleanly into a child handle without emitting a wake letter.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/handle:law:HandleRegistryLifecycle.HandedNeverDoubleWakes"
+        ]
+      },
+      "killers": [
+        "modules/atlas/handle:law:HandleRegistryLifecycle.HandedNeverDoubleWakes"
+      ]
+    },
+    {
+      "name": "atlas-core-handle-retire-owner-retires-other-owners",
+      "origin": "ATLAS-CORE",
+      "file": "modules/atlas/handle/registry.ergo",
+      "from": "\t\t\tif hv.Owner == deadOwner && hv.Kind == KindCall && IsOpen(hv.Disposition) {\n",
+      "to": "\t\t\tif hv.Kind == KindCall && IsOpen(hv.Disposition) {\n",
+      "rule": "Retiring one dead owner settles only that owner's volatile KindCall handles and keeps other owners live.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/handle:law:HandleRegistryLifecycle.OtherOwnerReloadKeepsLiveCalls"
+        ]
+      },
+      "killers": [
+        "modules/atlas/handle:law:HandleRegistryLifecycle.OtherOwnerReloadKeepsLiveCalls"
+      ]
+    },
+    {
+      "name": "atlas-core-turn-allows-retry-after-first-delta",
+      "origin": "ATLAS-CORE",
+      "file": "modules/atlas/turn/turn.ergo",
+      "from": "\t\t\tif t.HasDelta {\n\t\t\t\treturn RetryAfterFirstDeltaDenied{ID: t.ID}\n\t\t\t}\n",
+      "to": "\t\t\tif false && t.HasDelta {\n\t\t\t\treturn RetryAfterFirstDeltaDenied{ID: t.ID}\n\t\t\t}\n",
+      "rule": "A turn must never retry after its first output delta has arrived.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/turn:law:TurnLifecycle.NoRetryAfterFirstDelta"
+        ]
+      },
+      "killers": [
+        "modules/atlas/turn:law:TurnLifecycle.NoRetryAfterFirstDelta"
+      ]
+    },
+    {
+      "name": "atlas-core-turn-allows-finish-with-stranded-stop",
+      "origin": "ATLAS-CORE",
+      "file": "modules/atlas/turn/turn.ergo",
+      "from": "\t\t\tif t.StopWanted && t.Cancels == 0 {\n\t\t\t\treturn InvalidTurnTransition{ID: t.ID, Phase: t.Phase, Action: \"finish_turn_without_cancel\"}\n\t\t\t}\n",
+      "to": "\t\t\tif false && t.StopWanted {\n\t\t\t\treturn InvalidTurnTransition{ID: t.ID, Phase: t.Phase, Action: \"finish_turn_without_cancel\"}\n\t\t\t}\n",
+      "rule": "Dispatched turns with StopWanted set must issue a driver cancel rather than ending stranded.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/turn:law:TurnLifecycle.NoStrandedStop"
+        ]
+      },
+      "killers": [
+        "modules/atlas/turn:law:TurnLifecycle.NoStrandedStop"
+      ]
+    },
+    {
+      "name": "atlas-core-turn-skips-write-approval-gate",
+      "origin": "ATLAS-CORE",
+      "file": "modules/atlas/turn/turn.ergo",
+      "from": "\t\t\tlet _ = adapter.RequireWriteApproval(t.PermissionMode, t.ApprovalGranted) catch {\n\t\t\tcase e:\n\t\t\t\treturn AdapterPolicyRefusal{Cause: e}\n\t\t\t}\n",
+      "to": "\t\t\tlet _ = true\n",
+      "rule": "ExecuteWrite must enforce PermissionMode and ApprovalGranted via adapter.RequireWriteApproval.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/turn:law:TurnLifecycle.NoWriteWithoutApproval"
+        ]
+      },
+      "killers": [
+        "modules/atlas/turn:law:TurnLifecycle.NoWriteWithoutApproval"
+      ]
+    },
+    {
+      "name": "atlas-core-request-delivers-to-dead-session",
+      "origin": "ATLAS-CORE",
+      "file": "modules/atlas/turn/request.ergo",
+      "from": "\t\tcase RequestAnswered as ans:\n\t\t\tif !s.SessionAlive {\n\t\t\t\treturn RequestRequiresLiveSession{ID: s.ID}\n\t\t\t}\n",
+      "to": "\t\tcase RequestAnswered as ans:\n\t\t\tif false {\n\t\t\t\treturn RequestRequiresLiveSession{ID: s.ID}\n\t\t\t}\n",
+      "rule": "Buffered interactive request answers must never be delivered to a dead or detached session.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/turn:RequestBlocksDeliveryToDeadSessionUntilReattached"
+        ]
+      },
+      "killers": [
+        "modules/atlas/turn:RequestBlocksDeliveryToDeadSessionUntilReattached"
+      ]
+    },
+    {
+      "name": "atlas-core-limit-allows-overdue-24h-arm",
+      "origin": "ATLAS-CORE",
+      "file": "modules/atlas/turn/limit.ergo",
+      "from": "\tif ctx.NowMs > key.ResetAtMs && ctx.NowMs-key.ResetAtMs > MaxLimitOverdueMs() {\n\t\treturn ResetOverdueBeyond24h{ResetAtMs: key.ResetAtMs, NowMs: ctx.NowMs}\n\t}\n",
+      "to": "\tif false && ctx.NowMs > key.ResetAtMs {\n\t\treturn ResetOverdueBeyond24h{ResetAtMs: key.ResetAtMs, NowMs: ctx.NowMs}\n\t}\n",
+      "rule": "Limit recovery must refuse to arm stale resets overdue beyond 24 hours.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/turn:law:GuardRejectsOverdueAndArchived"
+        ]
+      },
+      "killers": [
+        "modules/atlas/turn:law:GuardRejectsOverdueAndArchived"
+      ]
+    },
+    {
+      "name": "atlas-core-limit-resumes-on-expired-session",
+      "origin": "ATLAS-CORE",
+      "file": "modules/atlas/turn/limit.ergo",
+      "from": "\t\tif s.SessionExpired {\n\t\t\treturn SessionExpiredRefusal\n\t\t}\n",
+      "to": "\t\tif false {\n\t\t\treturn SessionExpiredRefusal\n\t\t}\n",
+      "rule": "Auto-resume must never fire when the session is already expired.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/turn:law:FireResumeRefusesExpiredArmed"
+        ]
+      },
+      "killers": [
+        "modules/atlas/turn:law:FireResumeRefusesExpiredArmed"
+      ]
+    },
+    {
+      "name": "atlas-core-session-mcp-accepts-expired-token",
+      "origin": "ATLAS-CORE",
+      "file": "modules/atlas/session/session.ergo",
+      "from": "\t\tif IsTokenExpiredAt(s.Token, call.NowMs) {\n\t\t\treturn McpAuthDenied{Reason: \"idle_expired\"}\n\t\t}\n",
+      "to": "\t\tif false {\n\t\t\treturn McpAuthDenied{Reason: \"idle_expired\"}\n\t\t}\n",
+      "rule": "Per-thread /mcp tokens expire after 24 hours idle without a real turn touch.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/session:SessionTokenNeverExtendedByMcpCallsAndExpiresAt24h"
+        ]
+      },
+      "killers": [
+        "modules/atlas/session:SessionTokenNeverExtendedByMcpCallsAndExpiresAt24h"
+      ]
+    },
+    {
+      "name": "atlas-core-rotation-switches-fixed-account",
+      "origin": "ATLAS-CORE",
+      "file": "modules/atlas/session/rotation.ergo",
+      "from": "\t\tif sw.Target != pinned {\n\t\t\treturn FixedAccountPolicyRefusal{Pinned: pinned}\n\t\t}\n",
+      "to": "\t\tif false && sw.Target != pinned {\n\t\t\treturn FixedAccountPolicyRefusal{Pinned: pinned}\n\t\t}\n",
+      "rule": "Threads configured with RotationFixed must never move off their pinned account.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/session:law:RotationLifecycle.FixedAccountNeverMoves"
+        ]
+      },
+      "killers": [
+        "modules/atlas/session:law:RotationLifecycle.FixedAccountNeverMoves"
+      ]
+    },
+    {
+      "name": "atlas-core-rotation-switches-mid-turn",
+      "origin": "ATLAS-CORE",
+      "file": "modules/atlas/session/rotation.ergo",
+      "from": "func stepSwitchAccount(s RotationState, sw ActPoolSwitchAccount) RotationState fails RotationRefusal {\n\tif s.InTurn {\n\t\treturn RotationBlockedMidTurn\n\t}\n",
+      "to": "func stepSwitchAccount(s RotationState, sw ActPoolSwitchAccount) RotationState fails RotationRefusal {\n\tif false && s.InTurn {\n\t\treturn RotationBlockedMidTurn\n\t}\n",
+      "rule": "Account rotation must never occur while a turn is active on the thread.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/session:RotationNeverPlacesOnLimitedAndNeverSwitchesMidTurn"
+        ]
+      },
+      "killers": [
+        "modules/atlas/session:RotationNeverPlacesOnLimitedAndNeverSwitchesMidTurn"
+      ]
+    },
+    {
+      "name": "atlas-core-thread-allows-concurrent-turns",
+      "origin": "ATLAS-CORE",
+      "file": "modules/atlas/thread/thread.ergo",
+      "from": "func StartTurnOnThread(t Thread, turnID turn.TurnID, nowMs int64) Thread fails ThreadRefusal {\n\tif t.Archived {\n\t\treturn ThreadArchivedRefusal{ID: t.ID}\n\t}\n\tif IsThreadInTurn(t) {\n\t\treturn TurnAlreadyActiveOnThread{ID: t.ID}\n\t}\n",
+      "to": "func StartTurnOnThread(t Thread, turnID turn.TurnID, nowMs int64) Thread fails ThreadRefusal {\n\tif t.Archived {\n\t\treturn ThreadArchivedRefusal{ID: t.ID}\n\t}\n\tif false && IsThreadInTurn(t) {\n\t\treturn TurnAlreadyActiveOnThread{ID: t.ID}\n\t}\n",
+      "rule": "A single thread must never run two concurrent active turns.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/thread:law:ThreadLifecycle.NoConcurrentTurnsOnThread"
+        ]
+      },
+      "killers": [
+        "modules/atlas/thread:law:ThreadLifecycle.NoConcurrentTurnsOnThread"
+      ]
+    },
+    {
+      "name": "atlas-core-thread-link-origin-bypasses-mcp-fence",
+      "origin": "ATLAS-CORE",
+      "file": "modules/atlas/thread/thread.ergo",
+      "from": "\t\tcase OriginMcpScoped as scoped:\n\t\t\tmcp.ThreadID == scoped.BoundThread && mcp.ThreadID == t.ID\n",
+      "to": "\t\tcase OriginMcpScoped:\n\t\t\ttrue\n",
+      "rule": "D63 LinkOrigin fencing must reject limited /mcp callers for any thread outside their bound scope.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/thread:law:ThreadLifecycle.LinkOriginFencesLimitedCallers"
+        ]
+      },
+      "killers": [
+        "modules/atlas/thread:law:ThreadLifecycle.LinkOriginFencesLimitedCallers"
+      ]
+    },
+    {
+      "name": "atlas-core-subagent-allows-handback-with-open-handles",
+      "origin": "ATLAS-CORE",
+      "file": "modules/atlas/subagent/tree.ergo",
+      "from": "\tif HasOpenHandles(node) {\n\t\treturn OpenHandlesBlockHandBack{ID: nodeID, Count: node.OpenHandles.Len()}\n\t}\n",
+      "to": "\tif false && HasOpenHandles(node) {\n\t\treturn OpenHandlesBlockHandBack{ID: nodeID, Count: node.OpenHandles.Len()}\n\t}\n",
+      "rule": "A subagent child must achieve zero final hand-back while still holding open handles.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/subagent:law:SubagentLifecycle.ZeroChildHandBackWithOpenHandles"
+        ]
+      },
+      "killers": [
+        "modules/atlas/subagent:law:SubagentLifecycle.ZeroChildHandBackWithOpenHandles"
+      ]
+    },
+    {
+      "name": "atlas-core-subagent-allows-sibling-subtree-control",
+      "origin": "ATLAS-CORE",
+      "file": "modules/atlas/subagent/tree.ergo",
+      "from": "\tif !IsDescendant(tree, caller, target) {\n\t\treturn OutsideSubtreeScope{Caller: caller, Target: target}\n\t}\n",
+      "to": "\tif false {\n\t\treturn OutsideSubtreeScope{Caller: caller, Target: target}\n\t}\n",
+      "rule": "Subagent control operations must stay strictly inside the caller's own descendant subtree.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/subagent:law:SubagentLifecycle.OnlyInOwnSubtree"
+        ]
+      },
+      "killers": [
+        "modules/atlas/subagent:law:SubagentLifecycle.OnlyInOwnSubtree"
+      ]
+    },
+    {
+      "name": "atlas-core-reconcile-drops-live-foreign-calls",
+      "origin": "ATLAS-CORE",
+      "file": "modules/atlas/reconcile/reconcile.ergo",
+      "from": "\t\tlet isForeignLive = h.Owner != snap.BootingOwner && containsOwner(snap.LiveForeignOwners, h.Owner)\n",
+      "to": "\t\tlet isForeignLive = false\n",
+      "rule": "BootReconcile must leave open KindCall handles owned by live peer owners untouched.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/reconcile:law:BootReconcileLifecycle.OtherOwnerReloadKeepsLiveCalls"
+        ]
+      },
+      "killers": [
+        "modules/atlas/reconcile:law:BootReconcileLifecycle.OtherOwnerReloadKeepsLiveCalls"
+      ]
+    },
+    {
+      "name": "atlas-core-reconcile-replays-delivered-wake",
+      "origin": "ATLAS-CORE",
+      "file": "modules/atlas/reconcile/reconcile.ergo",
+      "from": "\t\tif w.Delivered || containsString(deliveredIDs, w.DeliveryID) {\n",
+      "to": "\t\tif false {\n",
+      "rule": "BootReconcile must never re-deliver wakes whose immutable DeliveryID was already delivered.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/reconcile:law:ReconcileDeduplicatesWakesByDeliveryID"
+        ]
+      },
+      "killers": [
+        "modules/atlas/reconcile:law:ReconcileDeduplicatesWakesByDeliveryID"
+      ]
+    },
+    {
+      "name": "atlas-core-cutover-allows-abort-after-commit",
+      "origin": "ATLAS-CORE",
+      "file": "modules/atlas/cutover/cutover.ergo",
+      "from": "\tcase ActAbortBeforeCommit:\n\t\tif s.CommitPersisted {\n\t\t\treturn AbortBlockedAfterCommit\n\t\t}\n",
+      "to": "\tcase ActAbortBeforeCommit:\n\t\tif false {\n\t\t\treturn AbortBlockedAfterCommit\n\t\t}\n",
+      "rule": "Cutover must refuse rollback once CommitPersisted has recorded New ownership.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/cutover:law:AbortForbiddenOnceCommitPersisted"
+        ]
+      },
+      "killers": [
+        "modules/atlas/cutover:law:AbortForbiddenOnceCommitPersisted"
+      ]
+    },
+    {
+      "name": "atlas-core-cutover-allows-old-act-in-transfer",
+      "origin": "ATLAS-CORE",
+      "file": "modules/atlas/cutover/cutover.ergo",
+      "from": "\t\tcase CutoverTransfer, CutoverCommitted, CutoverDone:\n\t\t\tSplitBrainRejected{Reason: \"old_fenced_in_transfer\"}\n",
+      "to": "\t\tcase CutoverTransfer, CutoverCommitted, CutoverDone:\n\t\t\ts\n",
+      "rule": "Cutover must fence Old from mutating state in transfer and after commit.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/cutover:law:CutoverLifecycle.NoSplitBrainAfterCommit"
+        ]
+      },
+      "killers": [
+        "modules/atlas/cutover:law:CutoverLifecycle.NoSplitBrainAfterCommit"
+      ]
+    },
+    {
+      "name": "atlas-store-idempotent-cmd-ignores-payload",
+      "origin": "ATLAS-STORE",
+      "file": "modules/atlas/memory/decide.ergo",
+      "from": "\t\tif rec.Value.Command == env.Command {\n\t\t\treturn []Event{}\n\t\t}\n\t\treturn CommandReused{ID: env.ID}\n",
+      "to": "\t\tif rec.Value.Command == env.Command {\n\t\t\treturn []Event{}\n\t\t}\n\t\treturn []Event{}\n",
+      "rule": "Reusing a committed CommandID with a different payload must fail CommandReused rather than acting as an idempotent no-op.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/memory:law:Store.StoreIdempotentExecute"
+        ]
+      },
+      "killers": [
+        "modules/atlas/memory:law:Store.StoreIdempotentExecute"
+      ]
+    },
+    {
+      "name": "atlas-store-lease-fence-allows-stale-owner",
+      "origin": "ATLAS-STORE",
+      "file": "modules/atlas/memory/decide.ergo",
+      "from": "\tif lease.Owner != fence.ExpectedOwner || lease.Epoch != fence.ExpectedEpoch || lease.FencingToken < fence.MinFencingToken {\n\t\treturn LeaseFenced{LeaseID: fence.LeaseID, ActiveEpoch: lease.Epoch, ActiveToken: lease.FencingToken}\n\t}\n",
+      "to": "\tif false {\n\t\treturn LeaseFenced{LeaseID: fence.LeaseID, ActiveEpoch: lease.Epoch, ActiveToken: lease.FencingToken}\n\t}\n",
+      "rule": "Fenced writes must fail LeaseFenced when owner, epoch, or fencing token mismatches the durable lease.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/memory:law:Store.StoreLeaseFencesStaleOwner"
+        ]
+      },
+      "killers": [
+        "modules/atlas/memory:law:Store.StoreLeaseFencesStaleOwner"
+      ]
+    },
+    {
+      "name": "atlas-store-lease-fence-allows-transfer-window",
+      "origin": "ATLAS-STORE",
+      "file": "modules/atlas/memory/decide.ergo",
+      "from": "\tif lease.Phase == cutover.CutoverTransfer {\n\t\treturn LeaseFenced{LeaseID: fence.LeaseID, ActiveEpoch: lease.Epoch, ActiveToken: lease.FencingToken}\n\t}\n",
+      "to": "\tif false {\n\t\treturn LeaseFenced{LeaseID: fence.LeaseID, ActiveEpoch: lease.Epoch, ActiveToken: lease.FencingToken}\n\t}\n",
+      "rule": "Fenced writes must fail LeaseFenced while the lease is in CutoverTransfer handoff.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/memory:TestMemStoreBoundsAndNegativeGuards"
+        ]
+      },
+      "killers": [
+        "modules/atlas/memory:TestMemStoreBoundsAndNegativeGuards"
+      ]
+    },
+    {
+      "name": "atlas-store-hold-wake-before-retry-at",
+      "origin": "ATLAS-STORE",
+      "file": "modules/atlas/memory/decide.ergo",
+      "from": "\t\t\t\tif env.AtMs < cur.RetryAtMs {\n\t\t\t\t\treturn InvalidTransition{From: \"hold_waiting_before_retry\", Action: \"wake_hold\"}\n\t\t\t\t}\n",
+      "to": "\t\t\t\tif false {\n\t\t\t\t\treturn InvalidTransition{From: \"hold_waiting_before_retry\", Action: \"wake_hold\"}\n\t\t\t\t}\n",
+      "rule": "Waiting quota PoolHolds must reject HoldActionWake prior to RetryAtMs.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/memory:TestMemStoreBoundsAndNegativeGuards"
+        ]
+      },
+      "killers": [
+        "modules/atlas/memory:TestMemStoreBoundsAndNegativeGuards"
+      ]
+    },
+    {
+      "name": "atlas-store-pool-reset-double-claim",
+      "origin": "ATLAS-STORE",
+      "file": "modules/atlas/memory/decide.ergo",
+      "from": "\t\tmatch s.ResetClaims.Get(ck) {\n\t\tcase option.Some[ResetClaim]:\n\t\t\treturn AlreadyExists{Scope: \"reset_claim\", Key: ck}\n\t\tcase option.None:\n\t\t}\n",
+      "to": "\t\tmatch s.ResetClaims.Get(ck) {\n\t\tcase option.Some[ResetClaim]:\n\t\tcase option.None:\n\t\t}\n",
+      "rule": "Pool reset dispatch claims must accept at most one winner per (account, window_kind, period_key).",
+      "anchor": {
+        "tests": [
+          "modules/atlas/memory:MemStoreLinearizesConcurrentOps"
+        ]
+      },
+      "killers": [
+        "modules/atlas/memory:MemStoreLinearizesConcurrentOps"
+      ]
+    },
+    {
+      "name": "atlas-store-pool-inflight-allows-negative",
+      "origin": "ATLAS-STORE",
+      "file": "modules/atlas/memory/decide.ergo",
+      "from": "\t\tlet nextInflight = acc.InflightStarts + cmd.Delta\n\t\tif nextInflight < 0 {\n\t\t\treturn InvalidTransition{From: \"inflight_zero\", Action: \"decrement_inflight\"}\n\t\t}\n",
+      "to": "\t\tlet nextInflight = acc.InflightStarts + cmd.Delta\n",
+      "rule": "PoolAccount.InflightStarts must never decrement below zero.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/memory:TestMemStoreBoundsAndNegativeGuards"
+        ]
+      },
+      "killers": [
+        "modules/atlas/memory:TestMemStoreBoundsAndNegativeGuards"
+      ]
+    },
+    {
+      "name": "atlas-store-kernel-snapshot-exceeds-cap",
+      "origin": "ATLAS-STORE",
+      "file": "modules/atlas/memory/decide.ergo",
+      "from": "\t\tif cmd.SnapshotBytes < 0 || cmd.SnapshotBytes > MaxKernelSnapshotBytes() {\n\t\t\treturn InvalidInput{Field: \"snapshot_bytes\", Reason: \"snapshot bytes outside 0..131072\"}\n\t\t}\n",
+      "to": "\t\tif cmd.SnapshotBytes < 0 {\n\t\t\treturn InvalidInput{Field: \"snapshot_bytes\", Reason: \"snapshot bytes outside 0..131072\"}\n\t\t}\n",
+      "rule": "Kernel snapshots exceeding MaxKernelSnapshotBytes must be refused.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/memory:TestMemStoreBoundsAndNegativeGuards"
+        ]
+      },
+      "killers": [
+        "modules/atlas/memory:TestMemStoreBoundsAndNegativeGuards"
+      ]
+    },
+    {
+      "name": "atlas-store-kernel-root-share-flag-dropped",
+      "origin": "ATLAS-STORE",
+      "file": "modules/atlas/memory/decide.ergo",
+      "from": "\t\tlet flagged = nextActive*int64(100) >= KernelRootSharePct()*KernelRootWindowMs()\n",
+      "to": "\t\tlet flagged = false\n",
+      "rule": "Kernel cuts breaching the hourly root execution share threshold must flag KernelRootUsage and KernelCutJournal.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/memory:TestMemStoreSubagentsHandlesWakesHoldsQuestionsAndPool"
+        ]
+      },
+      "killers": [
+        "modules/atlas/memory:TestMemStoreSubagentsHandlesWakesHoldsQuestionsAndPool"
+      ]
+    },
+    {
+      "name": "atlas-store-query-active-push-ignores-end-bound",
+      "origin": "ATLAS-STORE",
+      "file": "modules/atlas/memory/queries.ergo",
+      "from": "\t\t\tif !pv.Cancelled && nowMs >= pv.StartsAtMs && nowMs < pv.EndsAtMs {\n\t\t\t\tactivePushes = activePushes.Append(pv)\n\t\t\t}\n",
+      "to": "\t\t\tif !pv.Cancelled && nowMs >= pv.StartsAtMs && nowMs <= pv.EndsAtMs {\n\t\t\t\tactivePushes = activePushes.Append(pv)\n\t\t\t}\n",
+      "rule": "Time-boxed OwnerPush windows are half-open [StartsAtMs, EndsAtMs) and expire at EndsAtMs.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/memory:TestMemStoreBoundsAndNegativeGuards"
+        ]
+      },
+      "killers": [
+        "modules/atlas/memory:TestMemStoreBoundsAndNegativeGuards"
+      ]
+    },
+    {
+      "name": "atlas-store-query-due-hold-skips-retry-equality",
+      "origin": "ATLAS-STORE",
+      "file": "modules/atlas/memory/queries.ergo",
+      "from": "\t\t\tif hv.Status == HoldWaiting && nowMs >= hv.RetryAtMs {\n\t\t\t\tdueHolds = dueHolds.Append(hv)\n\t\t\t}\n",
+      "to": "\t\t\tif hv.Status == HoldWaiting && nowMs > hv.RetryAtMs {\n\t\t\t\tdueHolds = dueHolds.Append(hv)\n\t\t\t}\n",
+      "rule": "PoolHolds become due cleanly at nowMs == RetryAtMs.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/memory:TestMemStoreBoundsAndNegativeGuards"
+        ]
+      },
+      "killers": [
+        "modules/atlas/memory:TestMemStoreBoundsAndNegativeGuards"
+      ]
+    },
+    {
+      "name": "atlas-store-sqlite-skip-command-reused",
+      "origin": "ATLAS-STORE",
+      "file": "modules/atlas/sqlite/store.ergo",
+      "from": "\t\tif storedDigest == digest && storedJSON == payloadJSON {\n\t\t\tlet curSeq = try lastSeqTx()\n\t\t\treturn memory.ExecuteResult{Seq: curSeq, Events: []memory.Event{}, Duplicate: true}\n\t\t}\n\t\treturn memory.CommandReused{ID: env.ID}\n",
+      "to": "\t\tif storedDigest == digest && storedJSON == payloadJSON {\n\t\t\tlet curSeq = try lastSeqTx()\n\t\t\treturn memory.ExecuteResult{Seq: curSeq, Events: []memory.Event{}, Duplicate: true}\n\t\t}\n\t\treturn memory.ExecuteResult{Seq: try lastSeqTx(), Events: []memory.Event{}, Duplicate: true}\n",
+      "rule": "SQLite store must return CommandReused when an existing CommandID is replayed with a differing payload.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/sqlite:law:memory.Store.StoreIdempotentExecute"
+        ]
+      },
+      "killers": [
+        "modules/atlas/sqlite:law:memory.Store.StoreIdempotentExecute"
+      ]
+    },
+    {
+      "name": "atlas-store-sqlite-scope-drops-lease-fence",
+      "origin": "ATLAS-STORE",
+      "file": "modules/atlas/sqlite/sqlite_scope.ergo",
+      "from": "\tlet s0 = match env.LeaseFence {\n\tcase option.Some[memory.LeaseFenceCheck] as f:\n\t\ttry loadOneLeaseScopeTx(base, f.Value.LeaseID)\n\tcase option.None:\n\t\tbase\n\t}\n",
+      "to": "\tlet s0 = match env.LeaseFence {\n\tcase option.Some[memory.LeaseFenceCheck]:\n\t\tbase\n\tcase option.None:\n\t\tbase\n\t}\n",
+      "rule": "SQLite write scope loader must load the fenced lease record before calling Decide.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/sqlite:law:memory.Store.StoreLeaseFencesStaleOwner"
+        ]
+      },
+      "killers": [
+        "modules/atlas/sqlite:law:memory.Store.StoreLeaseFencesStaleOwner"
+      ]
+    },
+    {
+      "name": "atlas-store-sqlite-schema-fence-bypass",
+      "origin": "ATLAS-STORE",
+      "file": "modules/atlas/sqlite/tables.ergo",
+      "from": "\t\tif metaVer != CurrentSchemaVersion() || userVer != metaVer {\n\t\t\treturn memory.StoreFailed{Reason: \"unsupported schema version: user_version=\\(userVer) meta=\\(metaVer)\"}\n\t\t}\n",
+      "to": "\t\tif false {\n\t\t\treturn memory.StoreFailed{Reason: \"unsupported schema version: user_version=\\(userVer) meta=\\(metaVer)\"}\n\t\t}\n",
+      "rule": "SQLite store must refuse opening databases whose schema_meta or user_version does not match CurrentSchemaVersion.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/sqlite:law:PersistenceChecks.SchemaVersionFenceRefusesFutureVersion"
+        ]
+      },
+      "killers": [
+        "modules/atlas/sqlite:law:PersistenceChecks.SchemaVersionFenceRefusesFutureVersion"
+      ]
+    },
+    {
+      "name": "atlas-store-sqlite-user-version-without-meta-allowed",
+      "origin": "ATLAS-STORE",
+      "file": "modules/atlas/sqlite/tables.ergo",
+      "from": "\tif userVer != 0 {\n\t\treturn memory.StoreFailed{Reason: \"unsupported schema user_version=\\(userVer) without schema_meta\"}\n\t}\n",
+      "to": "\tif false {\n\t\treturn memory.StoreFailed{Reason: \"unsupported schema user_version=\\(userVer) without schema_meta\"}\n\t}\n",
+      "rule": "SQLite store must refuse non-zero PRAGMA user_version databases lacking schema_meta.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/sqlite:law:PersistenceChecks.SchemaVersionFenceRefusesFutureVersion"
+        ]
+      },
+      "killers": [
+        "modules/atlas/sqlite:law:PersistenceChecks.SchemaVersionFenceRefusesFutureVersion"
+      ]
+    },
+    {
+      "name": "atlas-store-sqlite-prompt-queue-skips-delete",
+      "origin": "ATLAS-STORE",
+      "file": "modules/atlas/sqlite/sqlite_apply.ergo",
+      "from": "\tlet _ = try execTx(\"DELETE FROM prompt_queue WHERE thread_id = ?\", []sql.Value{sql.Text{S: string(t.ID)}})\n",
+      "to": "\tlet _ = try execTx(\"DELETE FROM prompt_queue WHERE thread_id = ? AND 1 = 0\", []sql.Value{sql.Text{S: string(t.ID)}})\n",
+      "rule": "Thread prompt_queue projection must clear stale queue entries on rewrite to avoid phantom queued prompts.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/sqlite:law:PersistenceChecks.CrashReopenPreservesLeasesWakesHoldsAndJournals",
+          "modules/atlas/sqlite:law:PersistenceChecks.SqliteAgreesWithMemory"
+        ]
+      },
+      "killers": [
+        "modules/atlas/sqlite:law:PersistenceChecks.CrashReopenPreservesLeasesWakesHoldsAndJournals"
+      ]
+    },
+    {
+      "name": "atlas-store-sqlite-boot-drops-lost-wake-flag",
+      "origin": "ATLAS-STORE",
+      "file": "modules/atlas/sqlite/sqlite_apply.ergo",
+      "from": "\t\t\tlostSessions = lostSessions.Put(sid, true)\n\t\t}\n\t\ttry settleHandleSQL(hid, handle.DispLost, true)\n",
+      "to": "\t\t\tlostSessions = lostSessions.Put(sid, true)\n\t\t}\n\t\ttry settleHandleSQL(hid, handle.DispLost, false)\n",
+      "rule": "BootReconcile SQLite projection must persist wake_emitted = 1 when settling lost KindCall handles.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/sqlite:law:PersistenceChecks.CrashReopenPreservesLeasesWakesHoldsAndJournals"
+        ]
+      },
+      "killers": [
+        "modules/atlas/sqlite:law:PersistenceChecks.CrashReopenPreservesLeasesWakesHoldsAndJournals"
+      ]
+    }
+  ]
+}
