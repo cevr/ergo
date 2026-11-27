@@ -1,0 +1,697 @@
+import compiler/format
+import compiler/syntax
+import dense
+import option
+import slices
+import strconv
+import strings
+import utf8
+
+// LastElem returns the final path element after the last slash.
+func LastElem(path string) string {
+	let i = strings.LastIndex(path, "/")
+	if i < 0 { path } else { path[i+1 : path.Len()] }
+}
+
+// Kebab converts an Ergo CamelCase or initialism identifier into kebab-case
+// matching rpcgen.Kebab and cligen.kebab.
+func Kebab(s string) string {
+	let mut b = strings.NewBuilder()
+	for i in 0..s.Len() {
+		let mut c = s[i]
+		let upper = c >= 'A' && c <= 'Z'
+		if upper && i > 0 {
+			let prev = s[i-1]
+			let prevLower = (prev >= 'a' && prev <= 'z') || (prev >= '0' && prev <= '9')
+			let nextLower = i+1 < s.Len() && s[i+1] >= 'a' && s[i+1] <= 'z'
+			let prevUpper = prev >= 'A' && prev <= 'Z'
+			if prevLower || (prevUpper && nextLower) {
+				b.WriteByte('-')
+			}
+		}
+		if upper {
+			c = c + ('a' - 'A')
+		}
+		b.WriteByte(c)
+	}
+	b.String()
+}
+
+// FieldName converts an operation parameter name to its generated Request field
+// name by raising a leading lowercase ASCII letter.
+func FieldName(param string) string {
+	if param == "" || param[0] < 'a' || param[0] > 'z' {
+		return param
+	}
+	let head = strings.FromBytes([]byte{param[0] - ('a' - 'A')})
+	head + param[1:param.Len()]
+}
+
+// ImplicitWireKey derives the implicit wire key for a struct field name by
+// lowering its leading uppercase run while keeping the final capital when
+// followed by a lowercase letter.
+func ImplicitWireKey(name string) string {
+	let mut n = 0
+	for n < name.Len() && name[n] >= 'A' && name[n] <= 'Z' {
+		n = n + 1
+	}
+	if n > 1 && n < name.Len() && name[n] >= 'a' && name[n] <= 'z' {
+		n = n - 1
+	}
+	if n == 0 {
+		return name
+	}
+	let mut bs = strings.Bytes(name)
+	for i in 0..n {
+		bs[i] = bs[i] + ('a' - 'A')
+	}
+	strings.FromBytes(bs)
+}
+
+// ParamKey returns the wire key of the Request field produced for parameter
+// name.
+func ParamKey(name string) string {
+	ImplicitWireKey(FieldName(name))
+}
+
+// UnquoteFieldKey decodes an explicit struct field key token and confirms that
+// it is non-empty valid UTF-8.
+func UnquoteFieldKey(raw string) option.Option[string] {
+	let u = strconv.Unquote(raw) catch {
+	case strconv.Malformed:
+		return option.None
+	}
+	if u == "" || !utf8.ValidString(u) {
+		return option.None
+	}
+	option.Some[string]{Value: u}
+}
+
+// Exported reports whether name begins with an uppercase ASCII letter.
+func Exported(name string) bool {
+	name != "" && name[0] >= 'A' && name[0] <= 'Z'
+}
+
+func exportedUnicode(name string) bool {
+	if name == "" {
+		return false
+	}
+	let c = name[0]
+	if c < byte(128) {
+		return c >= 'A' && c <= 'Z'
+	}
+	let dec = utf8.DecodeRuneInString(name)
+	if dec.Size <= 0 || (dec.Rune == rune(0xFFFD) && dec.Size == 1) {
+		return false
+	}
+	utf8.IsUpper(dec.Rune)
+}
+
+// Lit encodes s as a double-quoted Ergo string literal matching hubgen.lit.
+func Lit(s string) string {
+	let mut b = strings.NewBuilder()
+	b.WriteByte('"')
+	let mut i = 0
+	for i < s.Len() {
+		let c = s[i]
+		if c < byte(128) {
+			if c == '\\' {
+				b.WriteString("\\\\")
+			} else if c == '"' {
+				b.WriteString("\\\"")
+			} else if c == '\n' {
+				b.WriteString("\\n")
+			} else if c == '\t' {
+				b.WriteString("\\t")
+			} else if c == '\r' {
+				b.WriteString("\\r")
+			} else if c < byte(32) {
+				b.WriteByte(' ')
+			} else {
+				b.WriteByte(c)
+			}
+			i = i + 1
+			continue
+		}
+		let dec = utf8.DecodeRuneInString(s[i:s.Len()])
+		b.WriteString(utf8.RuneText(dec.Rune))
+		let step = if dec.Size > 0 { dec.Size } else { 1 }
+		i = i + step
+	}
+	b.WriteByte('"')
+	b.String()
+}
+
+let hexDigits = "0123456789abcdef"
+
+// JsonQuote encodes s as a JSON string matching Go encoding/json.Marshal.
+func JsonQuote(s string) string {
+	let mut b = strings.NewBuilder()
+	b.WriteByte('"')
+	let mut i = 0
+	for i < s.Len() {
+		let c = s[i]
+		if c < byte(128) {
+			if c == '"' {
+				b.WriteString("\\\"")
+			} else if c == '\\' {
+				b.WriteString("\\\\")
+			} else if c == '\b' {
+				b.WriteString("\\b")
+			} else if c == '\f' {
+				b.WriteString("\\f")
+			} else if c == '\n' {
+				b.WriteString("\\n")
+			} else if c == '\r' {
+				b.WriteString("\\r")
+			} else if c == '\t' {
+				b.WriteString("\\t")
+			} else if c == '<' {
+				b.WriteString("\\u003c")
+			} else if c == '>' {
+				b.WriteString("\\u003e")
+			} else if c == '&' {
+				b.WriteString("\\u0026")
+			} else if c < byte(32) {
+				b.WriteString("\\u00")
+				b.WriteByte(hexDigits[int(c)/16])
+				b.WriteByte(hexDigits[int(c)%16])
+			} else {
+				b.WriteByte(c)
+			}
+			i = i + 1
+			continue
+		}
+		let dec = utf8.DecodeRuneInString(s[i:s.Len()])
+		let step = if dec.Size > 0 { dec.Size } else { 1 }
+		if dec.Rune == rune(0xFFFD) && dec.Size <= 1 {
+			b.WriteString("\\ufffd")
+		} else if dec.Rune == rune(0x2028) {
+			b.WriteString("\\u2028")
+		} else if dec.Rune == rune(0x2029) {
+			b.WriteString("\\u2029")
+		} else {
+			b.WriteString(utf8.RuneText(dec.Rune))
+		}
+		i = i + step
+	}
+	b.WriteByte('"')
+	b.String()
+}
+
+// Quote converts s into a Go-style double-quoted literal.
+func Quote(s string) string {
+	strconv.Quote(s)
+}
+
+// Mangle turns a type's text into an uppercase camel identifier segment.
+func Mangle(s string) string {
+	let mut b = strings.NewBuilder()
+	let mut up = true
+	let mut i = 0
+	for i < s.Len() {
+		let c = s[i]
+		if strings.HasPrefix(s[i:s.Len()], "[]") {
+			b.WriteString("Slice")
+			i = i + 2
+			up = true
+			continue
+		}
+		if c == '(' {
+			b.WriteString("Tuple")
+			i = i + 1
+			up = true
+			continue
+		}
+		let isLower = c >= 'a' && c <= 'z'
+		let isUpper = c >= 'A' && c <= 'Z'
+		let isDigit = c >= '0' && c <= '9'
+		if isLower || isUpper || isDigit {
+			let mut out = c
+			if up && isLower {
+				out = c - ('a' - 'A')
+			}
+			b.WriteByte(out)
+			up = false
+		} else {
+			up = true
+		}
+		i = i + 1
+	}
+	b.String()
+}
+
+func isWordByte(c byte) bool {
+	(c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '.'
+}
+
+// StripStringLiterals replaces double-quoted strings with "" in code.
+func StripStringLiterals(src string) string {
+	let mut b = strings.NewBuilder()
+	let mut i = 0
+	for i < src.Len() {
+		if src[i] == '"' {
+			b.WriteString("\"\"")
+			i = i + 1
+			for i < src.Len() {
+				if src[i] == '\\' && i+1 < src.Len() {
+					i = i + 2
+					continue
+				}
+				if src[i] == '"' {
+					i = i + 1
+					break
+				}
+				i = i + 1
+			}
+		} else {
+			b.WriteByte(src[i])
+			i = i + 1
+		}
+	}
+	b.String()
+}
+
+// CodeUsesQualifier reports whether src references identifier qualifier followed
+// by a dot outside preceding non-word contexts.
+func CodeUsesQualifier(src string, qualifier string) bool {
+	if qualifier == "" {
+		return false
+	}
+	let needle = qualifier + "."
+	let mut start = 0
+	for start < src.Len() {
+		let idx = strings.Index(src[start:src.Len()], needle)
+		if idx < 0 {
+			return false
+		}
+		let at = start + idx
+		if at == 0 || !isWordByte(src[at-1]) {
+			return true
+		}
+		start = at + 1
+	}
+	false
+}
+
+// ImportBlock emits sorted import declarations for the paths whose qualifier
+// names appear in body.
+func ImportBlock(paths []string, names []string, body string, withAliases bool, stripStrings bool) string {
+	let mut codeBuf = strings.NewBuilder()
+	for line in strings.Split(body, "\n") {
+		if !strings.HasPrefix(strings.TrimSpace(line), "//") {
+			codeBuf.WriteString(line)
+			codeBuf.WriteByte('\n')
+		}
+	}
+	let src = if stripStrings { StripStringLiterals(codeBuf.String()) } else { codeBuf.String() }
+	let mut used = []int{}
+	for i in 0..paths.Len() {
+		if CodeUsesQualifier(src, names[i]) {
+			used = used.Append(i)
+		}
+	}
+	used = slices.SortFunc(used, func(a int, b int) int {
+		let pa = paths[a]
+		let pb = paths[b]
+		let sa = !strings.Contains(pa, "/")
+		let sb = !strings.Contains(pb, "/")
+		if sa != sb {
+			if sa { -1 } else { 1 }
+		} else if pa < pb {
+			-1
+		} else if pa > pb {
+			1
+		} else {
+			0
+		}
+	})
+	let mut out = strings.NewBuilder()
+	for i in used {
+		let p = paths[i]
+		let name = names[i]
+		if withAliases && name != LastElem(p) {
+			out.WriteString("import " + name + " " + p + "\n")
+		} else {
+			out.WriteString("import " + p + "\n")
+		}
+	}
+	out.String()
+}
+
+// StdAPIName picks api or ergoapi when another imported package already uses
+// the name api.
+func StdAPIName(paths []string, names []string) string {
+	for i in 0..paths.Len() {
+		if names[i] == "api" && paths[i] != "api" {
+			return "ergoapi"
+		}
+	}
+	"api"
+}
+
+func nodeText(p syntax.Parsed, id dense.ID[syntax.Node]) string {
+	syntax.SourceOf(p)[syntax.NodePos(p, id):syntax.NodeEnd(p, id)]
+}
+
+func keptDocGroups(p syntax.Parsed) []bool {
+	let n = syntax.NumGroups(p)
+	let mut kept = []bool{}
+	for _ in 0..n {
+		kept = kept.Append(false)
+	}
+	let keepGroup = func(g int, public bool) {
+		if public && g >= 0 && g < n {
+			kept[g] = true
+		}
+	}
+	let keepField = func(fn dense.ID[syntax.Node], keepAll bool) {
+		if !keepAll {
+			return
+		}
+		if syntax.KindOf(p.Tree, fn) != syntax.KField {
+			return
+		}
+		let fd = syntax.FieldOf(p.Tree, fn)
+		let l = syntax.Len(fd.Names)
+		let pub = if l == 0 {
+			true
+		} else {
+			let nm = syntax.Item(p.Tree, fd.Names, 0)
+			if syntax.KindOf(p.Tree, nm) == syntax.KIdent {
+				exportedUnicode(nodeText(p, nm))
+			} else {
+				false
+			}
+		}
+		keepGroup(fd.Doc, pub)
+	}
+	let root = syntax.Root(p.Tree)
+	if syntax.KindOf(p.Tree, root) != syntax.KFile {
+		return kept
+	}
+	let decls = syntax.FileOf(p.Tree, root).Decls
+	for i in 0..syntax.Len(decls) {
+		let d = syntax.Item(p.Tree, decls, i)
+		match syntax.ViewOf(p.Tree, d) {
+		case syntax.TypeDecl as td:
+			let nm = nodeText(p, td.Name)
+			let pub = exportedUnicode(nm)
+			keepGroup(td.Doc, pub)
+			if pub {
+				match dense.Unpack(td.Spec) {
+				case option.Some{Value: sp}:
+					match syntax.ViewOf(p.Tree, sp) {
+					case syntax.StructType as st:
+						if syntax.KindOf(p.Tree, st.Fields) == syntax.KFieldList {
+							let fs = syntax.FieldListOf(p.Tree, st.Fields).List
+							for j in 0..syntax.Len(fs) {
+								keepField(syntax.Item(p.Tree, fs, j), true)
+							}
+						}
+					case syntax.InterfaceType as it:
+						for j in 0..syntax.Len(it.Members) {
+							let m = syntax.Item(p.Tree, it.Members, j)
+							match syntax.ViewOf(p.Tree, m) {
+							case syntax.Field:
+								keepField(m, true)
+							case syntax.LawDecl as ld:
+								keepGroup(ld.Doc, exportedUnicode(nodeText(p, ld.Name)))
+							case _:
+							}
+						}
+					case syntax.MachineType as mt:
+						for j in 0..syntax.Len(mt.Members) {
+							let m = syntax.Item(p.Tree, mt.Members, j)
+							match syntax.ViewOf(p.Tree, m) {
+							case syntax.LawDecl as ld:
+								keepGroup(ld.Doc, exportedUnicode(nodeText(p, ld.Name)))
+							case _:
+							}
+						}
+					case _:
+					}
+				case option.None:
+				}
+			}
+		case syntax.FuncDecl as fd:
+			keepGroup(fd.Doc, exportedUnicode(nodeText(p, fd.Name)))
+		case syntax.ContextDecl as cd:
+			keepGroup(cd.Doc, exportedUnicode(nodeText(p, cd.Name)))
+		case syntax.LawDecl as ld:
+			keepGroup(ld.Doc, exportedUnicode(nodeText(p, ld.Name)))
+		case syntax.VarDecl as vd:
+			let mut pub = false
+			match syntax.ViewOf(p.Tree, vd.Spec) {
+			case syntax.VarSpec as vs:
+				for j in 0..syntax.Len(vs.Names) {
+					let nm = syntax.Item(p.Tree, vs.Names, j)
+					if exportedUnicode(nodeText(p, nm)) {
+						pub = true
+					}
+				}
+			case _:
+			}
+			keepGroup(vd.Doc, pub)
+		case _:
+		}
+	}
+	kept
+}
+
+type commentEdit { from int, to int, text string }
+
+func startOfLine(src string, pos int) int {
+	let mut at = pos
+	for at > 0 && src[at-1] != '\n' {
+		at = at - 1
+	}
+	at
+}
+
+func endOfLine(src string, pos int) int {
+	let mut at = pos
+	for at < src.Len() && src[at] != '\n' {
+		at = at + 1
+	}
+	at
+}
+
+func lineBreakLen(src string, end int) int {
+	if end < src.Len() { 1 } else { 0 }
+}
+
+func lineBlank(s string) bool {
+	strings.TrimSpace(s) == ""
+}
+
+func lineOpens(s string) bool {
+	let t = strings.TrimRight(s, " \t\r")
+	strings.HasSuffix(t, "{") || strings.HasSuffix(t, "(") || strings.HasSuffix(t, "[")
+}
+
+func lineCloses(s string) bool {
+	let t = strings.TrimLeft(s, " \t")
+	strings.HasPrefix(t, "}") || strings.HasPrefix(t, ")") || strings.HasPrefix(t, "]")
+}
+
+func commentRemoval(src string, from0 int, to0 int) commentEdit {
+	let mut from = from0
+	let mut to = to0
+	let mut start = startOfLine(src, from)
+	let mut end = endOfLine(src, to)
+	let codeBefore = strings.TrimLeft(src[start:from], " \t") != ""
+	let codeAfter = strings.TrimRight(src[to:end], " \t\r") != ""
+	if codeBefore && codeAfter {
+		if strings.Contains(src[from:to], "\n") {
+			return commentEdit{from: from, to: to, text: "\n"}
+		}
+		if to < src.Len() && src[to] == ' ' {
+			return commentEdit{from: from, to: to + 1, text: ""}
+		}
+		if from > 0 && src[from-1] == ' ' {
+			return commentEdit{from: from - 1, to: to, text: ""}
+		}
+		return commentEdit{from: from, to: to, text: ""}
+	}
+	if codeBefore {
+		for from > start && (src[from-1] == ' ' || src[from-1] == '\t') {
+			from = from - 1
+		}
+		return commentEdit{from: from, to: end, text: ""}
+	}
+	if codeAfter {
+		for to < end && (src[to] == ' ' || src[to] == '\t') {
+			to = to + 1
+		}
+		return commentEdit{from: from, to: to, text: ""}
+	}
+	if end < src.Len() {
+		end = end + 1
+	}
+	let hasPrev = start > 0
+	let prevLo = if hasPrev { startOfLine(src, start-1) } else { 0 }
+	let prevHi = if hasPrev { start - 1 } else { 0 }
+	let hasNext = end < src.Len()
+	let nextLo = end
+	let nextHi = if hasNext { endOfLine(src, end) } else { 0 }
+	let prevBlank = !hasPrev || lineBlank(src[prevLo:prevHi])
+	let nextBlank = !hasNext || lineBlank(src[nextLo:nextHi])
+	if !hasPrev && hasNext && nextBlank {
+		end = nextHi + lineBreakLen(src, nextHi)
+	} else if !hasNext && hasPrev && prevBlank {
+		start = prevLo
+	} else if hasPrev && hasNext && prevBlank && nextBlank {
+		end = nextHi + lineBreakLen(src, nextHi)
+	} else if hasPrev && hasNext && nextBlank && lineOpens(src[prevLo:prevHi]) {
+		end = nextHi + lineBreakLen(src, nextHi)
+	} else if hasPrev && hasNext && prevBlank && lineCloses(src[nextLo:nextHi]) {
+		start = prevLo
+	}
+	commentEdit{from: start, to: end, text: ""}
+}
+
+func applyCommentEdits(src string, edits []commentEdit) string {
+	let mut b = strings.NewBuilder()
+	let mut at = 0
+	let mut i = 0
+	for i < edits.Len() {
+		let from = edits[i].from
+		let mut to = edits[i].to
+		let text = edits[i].text
+		for i+1 < edits.Len() && edits[i+1].from < to && text == "" && edits[i+1].text == "" {
+			i = i + 1
+			if edits[i].to > to {
+				to = edits[i].to
+			}
+		}
+		if from < at {
+			i = i + 1
+			continue
+		}
+		b.WriteString(src[at:from])
+		b.WriteString(text)
+		at = to
+		i = i + 1
+	}
+	b.WriteString(src[at:src.Len()])
+	b.String()
+}
+
+func bannedCommentEdits(src string, p syntax.Parsed) []commentEdit {
+	let kept = keptDocGroups(p)
+	let mut out = []commentEdit{}
+	for g in 0..syntax.NumGroups(p) {
+		if kept[g] {
+			continue
+		}
+		out = out.Append(commentRemoval(src, syntax.GroupPos(p, g), syntax.GroupEnd(p, g)))
+	}
+	out
+}
+
+func tokenStreamText(src string) option.Option[string] {
+	let p = syntax.Parse(src)
+	if p.Failed {
+		return option.None
+	}
+	let mut b = strings.NewBuilder()
+	let mut j = syntax.TokAtOrAfter(p, 0)
+	let mut first = true
+	for syntax.TokKind(p, j) != syntax.EOF {
+		if syntax.TokKind(p, j) != syntax.Semicolon {
+			if !first {
+				b.WriteByte(' ')
+			}
+			b.WriteString(syntax.TokText(p, j))
+			first = false
+		}
+		j = j + 1
+	}
+	option.Some[string]{Value: b.String()}
+}
+
+// StripBannedComments removes non-public-doc comments while preserving
+// formatter fixpoint and token equivalence, matching internal/sketch/fix.Comments.
+func StripBannedComments(src string) string fails GenError {
+	let first = syntax.Parse(src)
+	if first.Failed {
+		return GenError{Reason: first.Message}
+	}
+	let initial = bannedCommentEdits(src, first)
+	if initial.Len() == 0 {
+		return src
+	}
+	let mut out = src
+	let mut edits = initial
+	let mut round = 0
+	for edits.Len() > 0 {
+		if round > initial.Len() {
+			return GenError{Reason: "generated source: comment removal reaches no fixed point"}
+		}
+		out = applyCommentEdits(out, edits)
+		let next = syntax.Parse(out)
+		if next.Failed {
+			return GenError{Reason: "generated source: comment removal does not parse: " + next.Message}
+		}
+		edits = bannedCommentEdits(out, next)
+		round = round + 1
+	}
+	let reFmt = format.Source(src, 0) catch {
+	case format.SyntaxFailure, format.OutputLimit:
+		""
+	}
+	if reFmt == src {
+		out = format.Source(out, 0) catch {
+		case format.SyntaxFailure as e:
+			return GenError{Reason: e.Message}
+		case format.OutputLimit:
+			return GenError{Reason: "generated source exceeds formatter limit"}
+		}
+	}
+	if tokenStreamText(out) != tokenStreamText(src) {
+		return GenError{Reason: "generated source: removing comments would change its tokens"}
+	}
+	out
+}
+
+// Source formats src with the compiler formatter and strips any non-public
+// comments, matching internal/rpcgen.Source.
+func Source(src string) string fails GenError {
+	let formatted = format.Source(src, 0) catch {
+	case format.SyntaxFailure as e:
+		return GenError{Reason: e.Message}
+	case format.OutputLimit:
+		return GenError{Reason: "generated source exceeds formatter limit"}
+	}
+	try StripBannedComments(formatted)
+}
+
+// KebabRulesHold: kebab conversion lowercases initials, inserts dashes before
+// internal word boundaries, and handles HTTPStatus/ID/RunOf consistently.
+law KebabRulesHold(x string) {
+		Kebab("RunOf") == "run-of" &&
+		Kebab("userID") == "user-id" &&
+		Kebab("ID") == "id" &&
+		Kebab("HTTPStatus") == "http-status" &&
+		Kebab("") == "" &&
+		ImplicitWireKey("ID") == "id" &&
+		ImplicitWireKey("HTTPStatus") == "httpStatus" &&
+		ImplicitWireKey("RunID") == "runID" &&
+		FieldName("id") == "Id" &&
+		FieldName("userID") == "UserID" &&
+		Mangle("[]string") == "SliceString" &&
+		Mangle(x).Len() >= 0
+}
+
+test SourceStripsPrivateCommentsAndKeepsPublicDocs {
+	let raw = "// header comment removed.\n\n// PublicDoc documents Public.\nfunc Public(a int) int {\n\t// body comment\n\tlet x = helper(a)\n\tx\n}\n\n// helper comment removed.\nfunc helper(n int) int {\n\tn + 1\n}\n"
+	let cleaned = Source(raw) catch {
+	case GenError:
+		""
+	}
+	assert strings.Contains(cleaned, "// PublicDoc documents Public.")
+	assert !strings.Contains(cleaned, "header comment removed")
+	assert !strings.Contains(cleaned, "body comment")
+	assert !strings.Contains(cleaned, "helper comment removed")
+}

@@ -1,0 +1,2060 @@
+import compiler/check/bind
+import compiler/check/expr
+import compiler/check/facts
+import compiler/check/load
+import compiler/check/store
+import compiler/check/types
+import compiler/driver
+import compiler/syntax
+import dense
+import filepath
+import fs
+import hex
+import option
+import sha256
+import slices
+import strconv
+import strings
+
+// LoadedProgram holds a checked program's loaded packages, paths, and cached
+// refinement facts ready for contract analysis and code generation.
+type LoadedProgram {
+	RootIndex  uint32,
+	StdDir     string,
+	PkgPath    string,
+	UnitPaths  []string,
+	UnitDirs   []string,
+	Deps       []expr.Dep,
+	RefReady   []bool,
+	RefEntries []RefinedEntry,
+	RefStart   []uint32,
+	RefLen     []uint32,
+}
+
+// RefinedEntry records one refined type declaration name in a unit.
+type RefinedEntry { Name string }
+
+// ResolveStdDir finds the internal/sketch/std directory starting from startDir
+// or returns explicit when provided.
+func ResolveStdDir(explicit string, startDir string) string needs fs.Files {
+	if explicit != "" {
+		return explicit
+	}
+	let mut cur = filepath.Clean(startDir)
+	for true {
+		let cand = filepath.Join([]string{cur, "internal", "sketch", "std"})
+		let st = fs.Files.Stat(cand) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			fs.Info{Name: "", Size: 0, Dir: false, Perm: 0}
+		}
+		if st.Dir {
+			return cand
+		}
+		let parent = filepath.Dir(cur)
+		if parent == cur {
+			break
+		}
+		cur = parent
+	}
+	""
+}
+
+// ImportPathOf determines the import path of package directory absDir using
+// the nearest enclosing ergo.mod, matching cmd/ergo/gen.go.
+func ImportPathOf(absDir string) string fails GenError needs fs.Files {
+	let clean = filepath.Clean(absDir)
+	let mut root = clean
+	for true {
+		let modFile = filepath.Join([]string{root, "ergo.mod"})
+		let text = fs.Files.ReadFile(modFile) catch {
+		case fs.NotFound:
+			""
+		case fs.Denied:
+			return GenError{Reason: "cannot read " + modFile + ": permission denied"}
+		case fs.Failed as e:
+			return GenError{Reason: "cannot read " + modFile + ": " + e.Reason}
+		}
+		let stOk = if text != "" {
+			true
+		} else {
+			let st = fs.Files.Stat(modFile) catch {
+			case fs.NotFound, fs.Denied, fs.Failed:
+				fs.Info{Name: "", Size: 0, Dir: false, Perm: 0}
+			}
+			st.Name != "" && !st.Dir
+		}
+		if stOk {
+			let mut module = ""
+			for line in strings.Split(text, "\n") {
+				let fs = strings.Fields(line)
+				if fs.Len() == 2 && fs[0] == "module" {
+					module = fs[1]
+				}
+			}
+			if module == "" {
+				return GenError{Reason: modFile + " has no module line"}
+			}
+			let rel = filepath.Rel(root, clean) catch {
+			case filepath.NotRelative:
+				return GenError{Reason: clean + " is outside " + root}
+			}
+			if rel == "." || rel == "" {
+				return GenError{Reason: clean + " is the module's root; ergo gen reads a package folder inside a module"}
+			}
+			return module + "/" + strings.ReplaceAll(rel, "\\", "/")
+		}
+		let up = filepath.Dir(root)
+		if up == root {
+			return GenError{Reason: clean + " is in no module (no ergo.mod above it)"}
+		}
+		root = up
+	}
+	""
+}
+
+func readPkgDirFiles(dir string) ([]bind.File, []string, bool) needs fs.Files {
+	let entries = fs.Files.ReadDir(dir) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return ([]bind.File{}, []string{}, false)
+	}
+	let mut names = []string{}
+	for name in entries {
+		if driver.AdmitSourceFile(name) {
+			names = names.Append(name)
+		}
+	}
+	names = slices.Sort(names)
+	if names.Len() == 0 {
+		return ([]bind.File{}, []string{}, false)
+	}
+	let mut bFiles = []bind.File{}
+	let mut paths = []string{}
+	for name in names {
+		let full = filepath.Join([]string{dir, name})
+		let src = fs.Files.ReadFile(full) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return ([]bind.File{}, []string{}, false)
+		}
+		bFiles = bFiles.Append(bind.File{Name: name, Parsed: syntax.Parse(src)})
+		paths = paths.Append(full)
+	}
+	(bFiles, paths, true)
+}
+
+func buildStdUnit(stdDir string, pkgPath string) option.Option[(load.Unit, string)] needs fs.Files {
+	let dir = if pkgPath == "prelude" { stdDir } else { filepath.Join([]string{stdDir, pkgPath}) }
+	let mut rawNames = []string{}
+	if pkgPath == "prelude" {
+		rawNames = []string{"builtin.ergo", "prelude.ergo"}
+	} else {
+		let entries = fs.Files.ReadDir(dir) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return option.None
+		}
+		for name in entries {
+			if driver.AdmitSourceFile(name) {
+				rawNames = rawNames.Append(name)
+			}
+		}
+		rawNames = slices.Sort(rawNames)
+	}
+	if rawNames.Len() == 0 {
+		return option.None
+	}
+	let mut bFiles = []bind.File{}
+	let mut paths = []string{}
+	for name in rawNames {
+		let full = filepath.Join([]string{dir, name})
+		let src = fs.Files.ReadFile(full) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return option.None
+		}
+		bFiles = bFiles.Append(bind.File{Name: name, Parsed: syntax.Parse(src)})
+		paths = paths.Append(full)
+	}
+	let tab = load.TablesOf("", "@pkg "+LastElem(pkgPath)+" "+pkgPath+" 1\n")
+	option.Some[(load.Unit, string)]{Value: (load.Unit{Tab: tab, Files: bFiles, Paths: paths, Path: pkgPath, Dir: dir}, dir)}
+}
+
+func resolveImportDir(imp string, fromDir string, rootMod option.Option[load.Module], stdDir string) string needs fs.Files {
+	let localMod = load.ModuleOf(fromDir)
+	let candLocal = load.FolderOf(imp, localMod, "")
+	if candLocal != "" && candLocal != "/"+imp {
+		let (_, _, ok) = readPkgDirFiles(candLocal)
+		if ok {
+			return candLocal
+		}
+	}
+	let candRoot = load.FolderOf(imp, rootMod, "")
+	if candRoot != "" && candRoot != "/"+imp {
+		let (_, _, ok) = readPkgDirFiles(candRoot)
+		if ok {
+			return candRoot
+		}
+	}
+	if stdDir != "" {
+		return filepath.Join([]string{stdDir, imp})
+	}
+	""
+}
+
+func extractPreludeTables(bootProg load.Program) ([]types.Ext, []types.Foreign) {
+	let mut exts = []types.Ext{}
+	let mut foreigns = []types.Foreign{}
+	let mut preIdx = -1
+	let mut codecIdx = -1
+	for i, d in bootProg.Loaded {
+		if d.Path == "prelude" {
+			preIdx = i
+		} else if d.Path == "codec" {
+			codecIdx = i
+		}
+	}
+	if preIdx < 0 {
+		return (exts, foreigns)
+	}
+	let pre = bootProg.Loaded[preIdx]
+	let ifc = types.Interface(pre.S, pre.K.Parsed, pre.K.Kinds, pre.K.Ext, pre.K.Foreign, []types.Iface{})
+	let mut declToForeign = []int{}
+	for _ in ifc.Decls {
+		declToForeign = declToForeign.Append(-1)
+	}
+	for i, dc in ifc.Decls {
+		if !dc.Type {
+			continue
+		}
+		let fi = foreigns.Len()
+		declToForeign[i] = fi
+		let printText = if dc.Alias { dc.Print } else { dc.Name }
+		let keyText = if dc.Alias { dc.Key } else { "prelude." + dc.Name }
+		foreigns = foreigns.Append(types.Foreign{
+			Qual:     "-",
+			Name:     dc.Name,
+			Arity:    dc.Kinds.Len(),
+			Path:     "prelude",
+			Print:    printText,
+			Key:      keyText,
+			Variants: []int{},
+		})
+		if dc.Kinds.Len() > 0 {
+			exts = exts.Append(types.Ext{Head: dc.Name, Kinds: dc.Kinds})
+		}
+	}
+	for i, dc in ifc.Decls {
+		let fi = declToForeign[i]
+		if fi < 0 || dc.Variants.Len() == 0 {
+			continue
+		}
+		let mut vs = []int{}
+		for v in dc.Variants {
+			if v >= 0 && v < declToForeign.Len() && declToForeign[v] >= 0 {
+				vs = vs.Append(declToForeign[v])
+			}
+		}
+		foreigns[fi].Variants = vs
+	}
+	if codecIdx >= 0 {
+		let codec = bootProg.Loaded[codecIdx]
+		for p in codec.K.Parsed {
+			if p.Failed {
+				continue
+			}
+			let root = syntax.Root(p.Tree)
+			if syntax.KindOf(p.Tree, root) != syntax.KFile {
+				continue
+			}
+			let decls = syntax.FileOf(p.Tree, root).Decls
+			for i in 0..syntax.Len(decls) {
+				let d = syntax.Item(p.Tree, decls, i)
+				if syntax.KindOf(p.Tree, d) != syntax.KTypeDecl {
+					continue
+				}
+				let td = syntax.TypeDeclOf(p.Tree, d)
+				if td.Doc < 0 {
+					continue
+				}
+				let docText = syntax.SourceOf(p)[syntax.GroupPos(p, td.Doc):syntax.GroupEnd(p, td.Doc)]
+				for l in strings.Split(docText, "\n") {
+					let tr = strings.TrimSpace(l)
+					if strings.HasPrefix(tr, "// ergo:alias ") {
+						let target = strings.TrimSpace(tr[14:tr.Len()])
+						let name = nodeText(p, td.Name)
+						foreigns = foreigns.Append(types.Foreign{
+							Qual:     "stdcodec",
+							Name:     name,
+							Arity:    0,
+							Path:     "prelude",
+							Print:    target,
+							Key:      "prelude." + target,
+							Variants: []int{},
+						})
+					}
+				}
+			}
+		}
+	}
+	(exts, foreigns)
+}
+
+func formatTabHeader(ext []types.Ext, foreign []types.Foreign, pkgName string, pkgPath string) (string, string) {
+	let mut eb = strings.NewBuilder()
+	for x in ext {
+		let mut ks = []string{}
+		for k in x.Kinds {
+			if k == 1 {
+				ks = ks.Append("type")
+			} else if k == 2 {
+				ks = ks.Append("errors")
+			} else if k == 4 {
+				ks = ks.Append("uses")
+			} else {
+				ks = ks.Append("any")
+			}
+		}
+		eb.WriteString(x.Head + " " + strings.Join(ks, ",") + "\n")
+	}
+	let mut fb = strings.NewBuilder()
+	fb.WriteString("@pkg " + pkgName + " " + pkgPath + " 1\n")
+	for f in foreign {
+		let pr = if f.Print == "" { f.Name } else { strings.ReplaceAll(f.Print, " ", "^") }
+		let ky = if f.Key == "" { f.Name } else { f.Key }
+		fb.WriteString(f.Qual + " " + f.Name + " " + strconv.Itoa(f.Arity) + " " + f.Path + " " + pr + " " + ky + "\n")
+	}
+	for f in foreign {
+		if f.Variants.Len() == 0 {
+			continue
+		}
+		let mut vs = []string{}
+		for vi in f.Variants {
+			if vi >= 0 && vi < foreign.Len() {
+				vs = vs.Append(foreign[vi].Name)
+			}
+		}
+		fb.WriteString("@union " + f.Qual + " " + f.Name + " " + strings.Join(vs, ",") + "\n")
+	}
+	(eb.String(), fb.String())
+}
+
+// LoadDirProgram loads and checks the package at dir and all transitive Ergo
+// imports from module, go.mod local replaces, and stdDir.
+func LoadDirProgram(dir string, stdDir string) LoadedProgram fails GenError needs fs.Files {
+	let absDir = filepath.Clean(dir)
+	let pkgPath = try ImportPathOf(absDir)
+	let effectiveStd = ResolveStdDir(stdDir, absDir)
+	let rootMod = load.ModuleOf(absDir)
+
+	let bootNames = []string{"collections", "option", "core", "prelude", "codec"}
+	let mut bootUnits = []load.Unit{}
+	let mut unitPaths = []string{}
+	let mut unitDirs = []string{}
+	let mut userSeen Map[string, bool] = Map[string, bool]{}
+
+	if effectiveStd != "" {
+		for bName in bootNames {
+			match buildStdUnit(effectiveStd, bName) {
+			case option.Some[(load.Unit, string)] as bu:
+				let (u, d) = bu.Value
+				bootUnits = bootUnits.Append(u)
+				unitPaths = unitPaths.Append(bName)
+				unitDirs = unitDirs.Append(d)
+				userSeen = userSeen.Put(bName, true)
+			case option.None:
+			}
+		}
+	}
+
+	let bootProg = load.LoadAll(bootUnits, []types.Iface{}, 1)
+	let (preExt, preForeign) = extractPreludeTables(bootProg)
+	let (preExtText, preForeignBase) = formatTabHeader(preExt, preForeign, "main", "main")
+	let _ = preForeignBase
+
+	let mut qPaths = []string{pkgPath}
+	let mut qDirs = []string{absDir}
+	let mut qi = 0
+	let mut units = bootUnits
+	let mut rootIdx = NoIndex()
+
+	for qi < qPaths.Len() {
+		let curPath = qPaths[qi]
+		let curDir = qDirs[qi]
+		qi = qi + 1
+		if userSeen.Get(curPath) != option.None {
+			continue
+		}
+		userSeen = userSeen.Put(curPath, true)
+		let (files, filePaths, ok) = readPkgDirFiles(curDir)
+		if !ok {
+			if curPath == pkgPath {
+				return GenError{Reason: absDir + ": no .ergo files found"}
+			}
+			continue
+		}
+		for f in files {
+			if f.Parsed.Failed {
+				return GenError{Reason: dir + " does not check; run ergo check " + dir}
+			}
+		}
+		for imp in bind.Imports(files) {
+			if userSeen.Get(imp) != option.None {
+				continue
+			}
+			let impDir = resolveImportDir(imp, curDir, rootMod, effectiveStd)
+			if impDir != "" {
+				qPaths = qPaths.Append(imp)
+				qDirs = qDirs.Append(impDir)
+			}
+		}
+		let (_, ft) = formatTabHeader(preExt, preForeign, LastElem(curPath), curPath)
+		let tab = load.TablesOf(preExtText, ft)
+		if curPath == pkgPath {
+			rootIdx = uint32(units.Len())
+		}
+		units = units.Append(load.Unit{
+			Tab:   tab,
+			Files: files,
+			Paths: filePaths,
+			Path:  curPath,
+			Dir:   curDir,
+		})
+		unitPaths = unitPaths.Append(curPath)
+		unitDirs = unitDirs.Append(curDir)
+	}
+
+	if rootIdx == NoIndex() {
+		return GenError{Reason: dir + " does not check; run ergo check " + dir}
+	}
+	let prog = load.LoadAll(units, []types.Iface{}, 1)
+	let mut finalRoot = NoIndex()
+	let mut finalPaths = []string{}
+	let mut finalDirs = []string{}
+	let mut refReady = []bool{}
+	let mut refStart = []uint32{}
+	let mut refLen = []uint32{}
+	for i, d in prog.Loaded {
+		let ui = prog.Units[i]
+		finalPaths = finalPaths.Append(d.Path)
+		finalDirs = finalDirs.Append(unitDirs[ui])
+		refReady = refReady.Append(false)
+		refStart = refStart.Append(uint32(0))
+		refLen = refLen.Append(uint32(0))
+		if uint32(ui) == rootIdx {
+			finalRoot = uint32(i)
+		}
+	}
+	if finalRoot == NoIndex() {
+		return GenError{Reason: dir + " does not check; run ergo check " + dir}
+	}
+	LoadedProgram{
+		RootIndex:  finalRoot,
+		StdDir:     effectiveStd,
+		PkgPath:    pkgPath,
+		UnitPaths:  finalPaths,
+		UnitDirs:   finalDirs,
+		Deps:       prog.Loaded,
+		RefReady:   refReady,
+		RefEntries: []RefinedEntry{},
+		RefStart:   refStart,
+		RefLen:     refLen,
+	}
+}
+
+func unitByPath(lp LoadedProgram, path string) int {
+	for i, p in lp.UnitPaths {
+		if p == path {
+			return i
+		}
+	}
+	-1
+}
+
+func isRefinedType(lp mut LoadedProgram, ui int, name string) bool {
+	if ui < 0 || ui >= lp.Deps.Len() {
+		return false
+	}
+	if !lp.RefReady[ui] {
+		let mut dep = lp.Deps[ui]
+		let refs = facts.Refinements(&dep.S, dep.K)
+		let start = uint32(lp.RefEntries.Len())
+		let mut cnt = uint32(0)
+		for rf in refs {
+			match rf.R {
+			case option.Some:
+				let p = dep.K.Parsed[rf.File]
+				lp.RefEntries = lp.RefEntries.Append(RefinedEntry{Name: types.NameText(p, rf.Name)})
+				cnt = cnt + uint32(1)
+			case option.None:
+			}
+		}
+		lp.RefStart[ui] = start
+		lp.RefLen[ui] = cnt
+		lp.RefReady[ui] = true
+	}
+	let st = int(lp.RefStart[ui])
+	let ln = int(lp.RefLen[ui])
+	for i in st..(st + ln) {
+		if lp.RefEntries[i].Name == name {
+			return true
+		}
+	}
+	false
+}
+
+type declLookup {
+	file int,
+	node dense.ID[syntax.Node],
+	td   syntax.TypeDecl,
+}
+
+type variantLookup {
+	file int,
+	td   syntax.TypeDecl,
+	vs   syntax.VariantSpec,
+}
+
+func findDeclInUnit(u expr.Dep, typeName string) option.Option[declLookup] {
+	for f in 0..u.K.Parsed.Len() {
+		let p = u.K.Parsed[f]
+		if p.Failed {
+			continue
+		}
+		let root = syntax.Root(p.Tree)
+		if syntax.KindOf(p.Tree, root) != syntax.KFile {
+			continue
+		}
+		let decls = syntax.FileOf(p.Tree, root).Decls
+		for i in 0..syntax.Len(decls) {
+			let d = syntax.Item(p.Tree, decls, i)
+			if syntax.KindOf(p.Tree, d) != syntax.KTypeDecl {
+				continue
+			}
+			let td = syntax.TypeDeclOf(p.Tree, d)
+			if types.NameText(p, td.Name) == typeName {
+				return option.Some[declLookup]{Value: declLookup{file: f, node: d, td: td}}
+			}
+		}
+	}
+	option.None
+}
+
+func findVariantDeclInUnit(u expr.Dep, typeName string) option.Option[variantLookup] {
+	for f in 0..u.K.Parsed.Len() {
+		let p = u.K.Parsed[f]
+		if p.Failed {
+			continue
+		}
+		let root = syntax.Root(p.Tree)
+		if syntax.KindOf(p.Tree, root) != syntax.KFile {
+			continue
+		}
+		let decls = syntax.FileOf(p.Tree, root).Decls
+		for i in 0..syntax.Len(decls) {
+			let d = syntax.Item(p.Tree, decls, i)
+			if syntax.KindOf(p.Tree, d) != syntax.KTypeDecl {
+				continue
+			}
+			let td = syntax.TypeDeclOf(p.Tree, d)
+			match dense.Unpack(td.Spec) {
+			case option.Some{Value: sp}:
+				match syntax.ViewOf(p.Tree, sp) {
+				case syntax.InterfaceType as it:
+					for j in 0..syntax.Len(it.Members) {
+						let m = syntax.Item(p.Tree, it.Members, j)
+						match syntax.ViewOf(p.Tree, m) {
+						case syntax.VariantSpec as vs:
+							if types.NameText(p, vs.Name) == typeName {
+								return option.Some[variantLookup]{Value: variantLookup{file: f, td: td, vs: vs}}
+							}
+						case _:
+						}
+					}
+				case _:
+				}
+			case option.None:
+			}
+		}
+	}
+	option.None
+}
+
+func nodeListItems(p syntax.Parsed, l syntax.List) []dense.ID[syntax.Node] {
+	let mut out = []dense.ID[syntax.Node]{}
+	for i in 0..syntax.Len(l) {
+		out = out.Append(syntax.Item(p.Tree, l, i))
+	}
+	out
+}
+
+func wireFormResultName(p syntax.Parsed, ft syntax.FuncType) uint8 {
+	match dense.Unpack(ft.Results) {
+	case option.Some{Value: rs}:
+		if syntax.KindOf(p.Tree, rs) != syntax.KFieldList {
+			return WireDefault
+		}
+		let fs = syntax.FieldListOf(p.Tree, rs).List
+		if syntax.Len(fs) != 1 {
+			return WireDefault
+		}
+		let f0 = syntax.Item(p.Tree, fs, 0)
+		if syntax.KindOf(p.Tree, f0) != syntax.KField {
+			return WireDefault
+		}
+		match dense.Unpack(syntax.FieldOf(p.Tree, f0).Type) {
+		case option.Some{Value: res}:
+			let mut nm = ""
+			match syntax.ViewOf(p.Tree, res) {
+			case syntax.SelectorExpr as se:
+				nm = nodeText(p, se.Sel)
+			case syntax.Name:
+				nm = nodeText(p, res)
+			case _:
+			}
+			if nm == "WireOmittable" {
+				return WireOmittable
+			} else if nm == "WireNullable" {
+				return WireNullable
+			} else if nm == "WireBare" {
+				return WireBare
+			} else if nm == "WireNumberText" {
+				return WireNumberText
+			} else if nm == "WireMembers" {
+				return WireMembers
+			}
+			WireDefault
+		case option.None:
+			WireDefault
+		}
+	case option.None:
+		WireDefault
+	}
+}
+
+func detectWireForm(u expr.Dep, typeName string) uint8 {
+	for fn in u.K.Fns {
+		let p = u.K.Parsed[fn.File]
+		if types.NameText(p, fn.Name) != "WireForm" {
+			continue
+		}
+		if fn.Pnames.Len() != 1 {
+			continue
+		}
+		match syntax.ViewOf(p.Tree, fn.Decl) {
+		case syntax.FuncDecl as fd:
+			if syntax.KindOf(p.Tree, fd.Type) != syntax.KFuncType {
+				continue
+			}
+			let ft = syntax.FuncTypeOf(p.Tree, fd.Type)
+			if syntax.KindOf(p.Tree, ft.Params) != syntax.KFieldList {
+				continue
+			}
+			let pl = syntax.FieldListOf(p.Tree, ft.Params).List
+			if syntax.Len(pl) != 1 {
+				continue
+			}
+			let pf = syntax.FieldOf(p.Tree, syntax.Item(p.Tree, pl, 0))
+			match dense.Unpack(pf.Type) {
+			case option.Some{Value: pt}:
+				let mut pName = ""
+				match syntax.ViewOf(p.Tree, pt) {
+				case syntax.Name:
+					pName = nodeText(p, pt)
+				case syntax.IndexExpr as ix:
+					if syntax.KindOf(p.Tree, ix.X) == syntax.KIdent {
+						pName = nodeText(p, ix.X)
+					}
+				case _:
+				}
+				if pName == typeName {
+					return wireFormResultName(p, ft)
+				}
+			case option.None:
+			}
+		case _:
+		}
+	}
+	WireDefault
+}
+
+func detectByNamePair(lp LoadedProgram, ui int, typeName string, tKey dense.ID[store.TKey]) (string, dense.ID[store.TKey], bool) {
+	let u = lp.Deps[ui]
+	for fn in u.K.Fns {
+		let p = u.K.Parsed[fn.File]
+		let fnName = types.NameText(p, fn.Name)
+		if fnName != "Wire" && fnName != "wire" {
+			continue
+		}
+		if fn.Params.Len() > 0 {
+			continue
+		}
+		let ops = store.OperandsOf(u.S, fn.Sig)
+		if ops.Len() != 4 {
+			continue
+		}
+		if ops[0] == tKey {
+			return (fnName, ops[1], true)
+		}
+	}
+	("", tKey, false)
+}
+
+type structFieldSpec {
+	name      string,
+	tKey      dense.ID[store.TKey],
+	ownerUnit int,
+	paramIDs  []uint32,
+	wireKey   string,
+	hasKeyTag bool,
+	exported  bool,
+}
+
+func collectStructFields(lp mut LoadedProgram, tp mut TypePool, ft mut FieldTable, ui int, st syntax.StructType, p syntax.Parsed, paramNames []string, paramIDs []uint32, seen []string) []structFieldSpec {
+	let u = lp.Deps[ui]
+	if syntax.KindOf(p.Tree, st.Fields) != syntax.KFieldList {
+		return []structFieldSpec{}
+	}
+	let fl = syntax.FieldListOf(p.Tree, st.Fields).List
+	let mut out = []structFieldSpec{}
+	let mut s = u.S
+	let env = types.NewEnv(s, u.K.Parsed, p, paramNames, u.K.Kinds, u.K.Ext, u.K.Foreign, u.K.Ifaces)
+	for i in 0..syntax.Len(fl) {
+		let fn = syntax.Item(p.Tree, fl, i)
+		if syntax.KindOf(p.Tree, fn) != syntax.KField {
+			continue
+		}
+		let fd = syntax.FieldOf(p.Tree, fn)
+		let ftNode = match dense.Unpack(fd.Type) {
+		case option.Some{Value: n}:
+			n
+		case option.None:
+			continue
+		}
+		let rawT = types.Resolve(&s, env, ftNode)
+		lp.Deps[ui].S = s
+		if fd.Dots >= 0 {
+			let (incUi, incName, incArgKeys, foundInc) = resolveOwnerDecl(*lp, ui, rawT)
+			let incSeenKey = if incUi >= 0 { lp.UnitPaths[incUi] + "::" + incName } else { "" }
+			if foundInc && incName != "" && !slices.Contains(seen, incSeenKey) && !slices.Contains(seen, incName) {
+				let mut incArgIDs = []uint32{}
+				for ak in incArgKeys {
+					incArgIDs = incArgIDs.Append(LowerTypeSubst(lp, tp, ft, ui, ak, paramIDs))
+				}
+				let incUnit = lp.Deps[incUi]
+				match findDeclInUnit(incUnit, incName) {
+				case option.Some{Value: incLook}:
+					match dense.Unpack(incLook.td.Spec) {
+					case option.Some{Value: incSp}:
+						match syntax.ViewOf(incUnit.K.Parsed[incLook.file].Tree, incSp) {
+						case syntax.StructType as incST:
+							let incPNames = match dense.Unpack(incLook.td.TypeParams) {
+							case option.Some{Value: tpNode}:
+								types.BracketNames(incUnit.K.Parsed[incLook.file], tpNode)
+							case option.None:
+								[]string{}
+							}
+							let nextSeen = slices.Clone(seen).Append(incSeenKey)
+							for incField in collectStructFields(lp, tp, ft, incUi, incST, incUnit.K.Parsed[incLook.file], incPNames, incArgIDs, nextSeen) {
+								out = out.Append(incField)
+							}
+						case _:
+						}
+					case option.None:
+					}
+				case option.None:
+				}
+			}
+			s = lp.Deps[ui].S
+			continue
+		}
+		let mut explicitKey = ""
+		let mut hasTag = false
+		match dense.Unpack(fd.Key) {
+		case option.Some{Value: kn}:
+			match UnquoteFieldKey(nodeText(p, kn)) {
+			case option.Some{Value: k}:
+				explicitKey = k
+				hasTag = true
+			case option.None:
+			}
+		case option.None:
+		}
+		for j in 0..syntax.Len(fd.Names) {
+			let fName = types.NameText(p, syntax.Item(p.Tree, fd.Names, j))
+			let wKey = if hasTag { explicitKey } else { ImplicitWireKey(fName) }
+			out = out.Append(structFieldSpec{
+				name:      fName,
+				tKey:      rawT,
+				ownerUnit: ui,
+				paramIDs:  paramIDs,
+				wireKey:   wKey,
+				hasKeyTag: hasTag,
+				exported:  Exported(fName),
+			})
+		}
+	}
+	lp.Deps[ui].S = s
+	out
+}
+
+func resolveOwnerDecl(lp LoadedProgram, ui int, t dense.ID[store.TKey]) (int, string, []dense.ID[store.TKey], bool) {
+	let u = lp.Deps[ui]
+	let k = store.KindOfType(u.S, t)
+	if k == store.KNamed {
+		let nm = store.TypeNameText(u.S, store.ArgOf(u.S, t))
+		return (ui, nm, []dense.ID[store.TKey]{}, true)
+	}
+	if k == store.KForeign {
+		let fi = store.ArgOf(u.S, t)
+		if fi >= 0 && fi < u.K.Foreign.Len() {
+			let f = u.K.Foreign[fi]
+			let targetUi = unitByPath(lp, f.Path)
+			if targetUi >= 0 {
+				return (targetUi, f.Name, []dense.ID[store.TKey]{}, true)
+			}
+		}
+		return (-1, "", []dense.ID[store.TKey]{}, false)
+	}
+	if k == store.KInstance {
+		let o = store.OriginOfType(u.S, t)
+		let ops = store.OperandsOf(u.S, t)
+		if int(o.Import) == store.ForeignBit {
+			let fi = int(o.Decl)
+			if fi >= 0 && fi < u.K.Foreign.Len() {
+				let f = u.K.Foreign[fi]
+				let targetUi = unitByPath(lp, f.Path)
+				if targetUi >= 0 {
+					return (targetUi, f.Name, ops, true)
+				}
+			}
+			return (-1, "", []dense.ID[store.TKey]{}, false)
+		}
+		if o.Import == uint32(0) {
+			return (ui, store.DeclText(u.S, int(o.Decl)), ops, true)
+		}
+		let impIdx = int(o.Import) - 1
+		if impIdx >= 0 && impIdx < u.K.Ifaces.Len() {
+			let impPath = u.K.Ifaces[impIdx].Path
+			let targetUi = unitByPath(lp, impPath)
+			if targetUi >= 0 && int(o.Decl) < u.K.Ifaces[impIdx].Decls.Len() {
+				return (targetUi, u.K.Ifaces[impIdx].Decls[int(o.Decl)].Name, ops, true)
+			}
+		}
+	}
+	(-1, "", []dense.ID[store.TKey]{}, false)
+}
+
+// LowerType canonicalizes type t from unit ui into TypePool and FieldTable and
+// returns its canonical uint32 TypeID.
+func LowerType(lp mut LoadedProgram, tp mut TypePool, ft mut FieldTable, ui int, t dense.ID[store.TKey]) uint32 {
+	LowerTypeSubst(lp, tp, ft, ui, t, []uint32{})
+}
+
+func LowerTypeSubst(lp mut LoadedProgram, tp mut TypePool, ft mut FieldTable, ui int, t dense.ID[store.TKey], paramIDs []uint32) uint32 {
+	let u = lp.Deps[ui]
+	let k = store.KindOfType(u.S, t)
+	if k == store.KParam {
+		let idx = store.ArgOf(u.S, t)
+		if idx >= 0 && idx < paramIDs.Len() {
+			return paramIDs[idx]
+		}
+	}
+	if k == store.KBasic {
+		let ord = store.ArgOf(u.S, t)
+		let nm = types.BasicName(ord)
+		match tp.ByPrint.Get(nm) {
+		case option.Some{Value: existing}:
+			return existing
+		case option.None:
+		}
+		let id = AllocType(tp, TypeBasic)
+		tp.BasicOrd[id] = uint8(ord)
+		tp.ExprText[id] = nm
+		tp.PrintText[id] = nm
+		tp.UnderlyingText[id] = nm
+		tp.ByPrint = tp.ByPrint.Put(nm, id)
+		return id
+	}
+	if k == store.KSlice {
+		let ops = store.OperandsOf(u.S, t)
+		let elem = LowerTypeSubst(lp, tp, ft, ui, ops[0], paramIDs)
+		let pText = "[]" + tp.PrintText[elem]
+		match tp.ByPrint.Get(pText) {
+		case option.Some{Value: existing}:
+			return existing
+		case option.None:
+		}
+		let id = AllocType(tp, TypeSlice)
+		tp.ElemType[id] = elem
+		tp.ExprText[id] = "[]" + tp.ExprText[elem]
+		tp.PrintText[id] = pText
+		tp.UnderlyingText[id] = pText
+		tp.ByPrint = tp.ByPrint.Put(pText, id)
+		return id
+	}
+	if k == store.KArray {
+		let ops = store.OperandsOf(u.S, t)
+		let ln = store.ArrayLen(u.S, t)
+		let elem = LowerTypeSubst(lp, tp, ft, ui, ops[1], paramIDs)
+		let pText = "[" + strconv.Itoa(ln) + "]" + tp.PrintText[elem]
+		match tp.ByPrint.Get(pText) {
+		case option.Some{Value: existing}:
+			return existing
+		case option.None:
+		}
+		let id = AllocType(tp, TypeArray)
+		tp.ArrayLen[id] = uint32(ln)
+		tp.ElemType[id] = elem
+		tp.ExprText[id] = "[" + strconv.Itoa(ln) + "]" + tp.ExprText[elem]
+		tp.PrintText[id] = pText
+		tp.UnderlyingText[id] = pText
+		tp.ByPrint = tp.ByPrint.Put(pText, id)
+		return id
+	}
+	if k == store.KMap {
+		let ops = store.OperandsOf(u.S, t)
+		let kt = LowerTypeSubst(lp, tp, ft, ui, ops[0], paramIDs)
+		let vt = LowerTypeSubst(lp, tp, ft, ui, ops[1], paramIDs)
+		let pText = "Map[" + tp.PrintText[kt] + ", " + tp.PrintText[vt] + "]"
+		match tp.ByPrint.Get(pText) {
+		case option.Some{Value: existing}:
+			return existing
+		case option.None:
+		}
+		let id = AllocType(tp, TypeMap)
+		tp.KeyType[id] = kt
+		tp.ElemType[id] = vt
+		tp.ExprText[id] = "Map[" + tp.ExprText[kt] + ", " + tp.ExprText[vt] + "]"
+		tp.PrintText[id] = pText
+		tp.UnderlyingText[id] = pText
+		tp.ByPrint = tp.ByPrint.Put(pText, id)
+		return id
+	}
+	if k == store.KTuple {
+		let ops = store.OperandsOf(u.S, t)
+		let mut elemIDs = []uint32{}
+		let mut exprParts = []string{}
+		let mut printParts = []string{}
+		for op in ops {
+			let eid = LowerTypeSubst(lp, tp, ft, ui, op, paramIDs)
+			elemIDs = elemIDs.Append(eid)
+			exprParts = exprParts.Append(tp.ExprText[eid])
+			printParts = printParts.Append(tp.PrintText[eid])
+		}
+		let pText = "(" + strings.Join(printParts, ", ") + ")"
+		match tp.ByPrint.Get(pText) {
+		case option.Some{Value: existing}:
+			return existing
+		case option.None:
+		}
+		let id = AllocType(tp, TypeTuple)
+		let fStart = ft.Count
+		for eid in elemIDs {
+			let _ = AddField(ft, FieldTupleElem, id, "", "", "", false, eid, true, false, false, "")
+		}
+		tp.FieldStart[id] = fStart
+		tp.FieldLen[id] = uint32(elemIDs.Len())
+		tp.ExprText[id] = "(" + strings.Join(exprParts, ", ") + ")"
+		tp.PrintText[id] = pText
+		tp.UnderlyingText[id] = pText
+		tp.ByPrint = tp.ByPrint.Put(pText, id)
+		return id
+	}
+	let (ownerUi, typeName, args, foundOwner) = resolveOwnerDecl(*lp, ui, t)
+	if !foundOwner {
+		let invalidText = types.Text(u.S, types.Names{Params: []string{}, Foreign: u.K.Foreign, Pkg: LastElem(u.Path), Deps: u.K.Ifaces}, t)
+		match tp.ByPrint.Get(invalidText) {
+		case option.Some{Value: existing}:
+			return existing
+		case option.None:
+		}
+		let id = AllocType(tp, TypeInvalid)
+		tp.ExprText[id] = invalidText
+		tp.PrintText[id] = invalidText
+		tp.UnderlyingText[id] = invalidText
+		tp.ByPrint = tp.ByPrint.Put(invalidText, id)
+		return id
+	}
+	let mut argIDs = []uint32{}
+	for a in args {
+		argIDs = argIDs.Append(LowerTypeSubst(lp, tp, ft, ui, a, paramIDs))
+	}
+	lowerNamedInstance(lp, tp, ft, ownerUi, typeName, argIDs)
+}
+
+func isTransitionalPrelude(ownerPath string, typeName string) bool {
+	(ownerPath == "option" && (typeName == "Option" || typeName == "Some" || typeName == "None")) || (ownerPath == "collections" && typeName == "Seq")
+}
+
+func lowerNamedInstance(lp mut LoadedProgram, tp mut TypePool, ft mut FieldTable, ownerUi int, typeName string, argIDs []uint32) uint32 {
+	let mut argExprs = []string{}
+	let mut argPrints = []string{}
+	for aid in argIDs {
+		argExprs = argExprs.Append(tp.ExprText[aid])
+		argPrints = argPrints.Append(tp.PrintText[aid])
+	}
+	let ownerPath = lp.UnitPaths[ownerUi]
+	let ownerPkgName = LastElem(ownerPath)
+	let exprPrefix = if ownerPath == "prelude" { "" } else { ownerPkgName + "." }
+	let printPrefix = if ownerPath == "prelude" || isTransitionalPrelude(ownerPath, typeName) {
+		""
+	} else if ownerUi == int(lp.RootIndex) {
+		"main."
+	} else {
+		ownerPkgName + "."
+	}
+	let suffixExpr = if argExprs.Len() > 0 { "[" + strings.Join(argExprs, ", ") + "]" } else { "" }
+	let suffixPrint = if argPrints.Len() > 0 { "[" + strings.Join(argPrints, ", ") + "]" } else { "" }
+	let pText = printPrefix + typeName + suffixPrint
+	let fullKey = ownerPath + "::" + typeName + suffixPrint
+	match tp.ByPrint.Get(fullKey) {
+	case option.Some{Value: existing}:
+		return existing
+	case option.None:
+	}
+
+	let id = AllocType(tp, TypeDefined)
+	tp.PkgPath[id] = ownerPath
+	tp.PkgName[id] = ownerPkgName
+	tp.TypeName[id] = typeName
+	tp.ExprPkgPath[id] = ownerPath
+	tp.ExprPkgName[id] = ownerPkgName
+	tp.ExprText[id] = exprPrefix + typeName + suffixExpr
+	tp.PrintText[id] = pText
+	let aStart = uint32(tp.ArgItems.Len())
+	for aid in argIDs {
+		tp.ArgItems = tp.ArgItems.Append(aid)
+	}
+	tp.ArgStart[id] = aStart
+	tp.ArgLen[id] = uint32(argIDs.Len())
+	tp.ByPrint = tp.ByPrint.Put(fullKey, id)
+
+	let ownerDep = lp.Deps[ownerUi]
+	tp.WireForm[id] = detectWireForm(ownerDep, typeName)
+	tp.IsRefined[id] = argIDs.Len() == 0 && isRefinedType(lp, ownerUi, typeName)
+
+	if argIDs.Len() == 0 {
+		match store.Lookup(ownerDep.S, typeName) {
+		case option.Some{Value: declID}:
+			let localKey = store.TNamed(&lp.Deps[ownerUi].S, declID)
+			let (bnFn, bnBaseKey, hasBN) = detectByNamePair(*lp, ownerUi, typeName, localKey)
+			if hasBN {
+				tp.IsByName[id] = true
+				tp.ByNamePkgPath[id] = ownerPath
+				tp.ByNamePkgName[id] = ownerPkgName
+				tp.ByNameFunc[id] = bnFn
+				let baseID = LowerTypeSubst(lp, tp, ft, ownerUi, bnBaseKey, []uint32{})
+				tp.ByNameBase[id] = baseID
+			}
+		case option.None:
+		}
+	}
+
+	let (df, td) = match findDeclInUnit(ownerDep, typeName) {
+	case option.Some{Value: dl}:
+		(dl.file, dl.td)
+	case option.None:
+		let vLook = match findVariantDeclInUnit(ownerDep, typeName) {
+		case option.Some{Value: vl}:
+			vl
+		case option.None:
+			tp.Kind[id] = TypeInvalid
+			tp.UnderlyingText[id] = pText
+			return id
+		}
+		let vf = vLook.file
+		let vtd = vLook.td
+		let vs = vLook.vs
+		let mut vParams = []string{}
+		let mut filteredArgIDs = []uint32{}
+		match dense.Unpack(vtd.TypeParams) {
+		case option.Some{Value: vtp}:
+			let allParams = types.BracketNames(ownerDep.K.Parsed[vf], vtp)
+			for pi, pn in allParams {
+				if variantMentions(ownerDep.K.Parsed[vf], vs.Fields, pn) {
+					vParams = vParams.Append(pn)
+					if pi < argIDs.Len() {
+						filteredArgIDs = filteredArgIDs.Append(argIDs[pi])
+					}
+				}
+			}
+		case option.None:
+		}
+		let vp = ownerDep.K.Parsed[vf]
+		let st = syntax.StructType{Fields: vs.Fields}
+		let fields = collectStructFields(lp, tp, ft, ownerUi, st, vp, vParams, filteredArgIDs, []string{})
+		let mut fieldTypeIDs = []uint32{}
+		for f in fields {
+			fieldTypeIDs = fieldTypeIDs.Append(LowerTypeSubst(lp, tp, ft, f.ownerUnit, f.tKey, f.paramIDs))
+		}
+		let mut uParts = []string{}
+		let fStart = ft.Count
+		let mut unexp = false
+		for fi, f in fields {
+			let fid = fieldTypeIDs[fi]
+			let om = tp.WireForm[fid] == WireOmittable
+			let isu = tp.Kind[fid] == TypeUnion
+			let tg = if isu { tp.TypeName[fid] } else { "" }
+			let _ = AddField(ft, FieldRecord, id, f.name, f.name, f.wireKey, f.hasKeyTag, fid, f.exported, om, isu, tg)
+			if !f.exported {
+				unexp = true
+			}
+			uParts = uParts.Append(f.name + " " + tp.PrintText[fid])
+		}
+		tp.Kind[id] = TypeStruct
+		tp.UnexportedField[id] = unexp
+		tp.FieldStart[id] = fStart
+		tp.FieldLen[id] = uint32(fields.Len())
+		tp.UnderlyingText[id] = "{ " + strings.Join(uParts, ", ") + " }"
+		return id
+	}
+
+	let dp = ownerDep.K.Parsed[df]
+	let pNames = match dense.Unpack(td.TypeParams) {
+	case option.Some{Value: tpNode}:
+		types.BracketNames(dp, tpNode)
+	case option.None:
+		[]string{}
+	}
+	match dense.Unpack(td.Spec) {
+	case option.Some{Value: sp}:
+		match syntax.ViewOf(dp.Tree, sp) {
+		case syntax.StructType as st:
+			let fields = collectStructFields(lp, tp, ft, ownerUi, st, dp, pNames, argIDs, []string{lp.UnitPaths[ownerUi] + "::" + typeName})
+			let mut fieldTypeIDs = []uint32{}
+			for f in fields {
+				fieldTypeIDs = fieldTypeIDs.Append(LowerTypeSubst(lp, tp, ft, f.ownerUnit, f.tKey, f.paramIDs))
+			}
+			let mut uParts = []string{}
+			let fStart = ft.Count
+			let mut unexp = false
+			for fi, f in fields {
+				let fid = fieldTypeIDs[fi]
+				let om = tp.WireForm[fid] == WireOmittable
+				let isu = tp.Kind[fid] == TypeUnion
+				let tg = if isu { tp.TypeName[fid] } else { "" }
+				let _ = AddField(ft, FieldRecord, id, f.name, f.name, f.wireKey, f.hasKeyTag, fid, f.exported, om, isu, tg)
+				if !f.exported {
+					unexp = true
+				}
+				uParts = uParts.Append(f.name + " " + tp.PrintText[fid])
+			}
+			tp.Kind[id] = TypeStruct
+			tp.UnexportedField[id] = unexp
+			tp.FieldStart[id] = fStart
+			tp.FieldLen[id] = uint32(fields.Len())
+			tp.UnderlyingText[id] = "{ " + strings.Join(uParts, ", ") + " }"
+		case syntax.InterfaceType as it:
+			let members = nodeListItems(dp, it.Members)
+			let mut isUnion = members.Len() > 0
+			for m in members {
+				match syntax.ViewOf(dp.Tree, m) {
+				case syntax.Field, syntax.LawDecl, syntax.TestDecl:
+					isUnion = false
+				case _:
+				}
+			}
+			if !isUnion || it.Lbrace >= 0 {
+				tp.Kind[id] = TypeInvalid
+				tp.UnderlyingText[id] = pText
+				return id
+			}
+			let env = types.NewEnv(ownerDep.S, ownerDep.K.Parsed, dp, pNames, ownerDep.K.Kinds, ownerDep.K.Ext, ownerDep.K.Foreign, ownerDep.K.Ifaces)
+			let mut vIDs = []uint32{}
+			let mut uParts = []string{}
+			for m in members {
+				match syntax.ViewOf(dp.Tree, m) {
+				case syntax.VariantSpec as vs:
+					let vName = types.NameText(dp, vs.Name)
+					let mut vArgIDs = []uint32{}
+					for i, pn in pNames {
+						if i < argIDs.Len() && variantMentions(dp, vs.Fields, pn) {
+							vArgIDs = vArgIDs.Append(argIDs[i])
+						}
+					}
+					let vid = lowerNamedInstance(lp, tp, ft, ownerUi, vName, vArgIDs)
+					if !slices.Contains(vIDs, vid) {
+						vIDs = vIDs.Append(vid)
+						uParts = uParts.Append(tp.PrintText[vid])
+					}
+				case _:
+					let mut s = lp.Deps[ownerUi].S
+					let mt = types.Resolve(&s, env, m)
+					lp.Deps[ownerUi].S = s
+					let vid = LowerTypeSubst(lp, tp, ft, ownerUi, mt, argIDs)
+					if tp.Kind[vid] == TypeUnion && tp.PkgPath[vid] == ownerPath {
+						let vst = int(tp.VariantStart[vid])
+						let vln = int(tp.VariantLen[vid])
+						for vi in vst..(vst + vln) {
+							let subVid = tp.VariantItems[vi]
+							if !slices.Contains(vIDs, subVid) {
+								vIDs = vIDs.Append(subVid)
+								uParts = uParts.Append(tp.PrintText[subVid])
+							}
+						}
+					} else if !slices.Contains(vIDs, vid) {
+						vIDs = vIDs.Append(vid)
+						uParts = uParts.Append(tp.PrintText[vid])
+					}
+				}
+			}
+			tp.Kind[id] = TypeUnion
+			let vStart = uint32(tp.VariantItems.Len())
+			for vid in vIDs {
+				tp.VariantItems = tp.VariantItems.Append(vid)
+			}
+			tp.VariantStart[id] = vStart
+			tp.VariantLen[id] = uint32(vIDs.Len())
+			tp.UnderlyingText[id] = strings.Join(uParts, " | ")
+		case _:
+			let env = types.NewEnv(ownerDep.S, ownerDep.K.Parsed, dp, pNames, ownerDep.K.Kinds, ownerDep.K.Ext, ownerDep.K.Foreign, ownerDep.K.Ifaces)
+			let mut s = lp.Deps[ownerUi].S
+			let baseRaw = types.Resolve(&s, env, sp)
+			lp.Deps[ownerUi].S = s
+			let baseID = LowerTypeSubst(lp, tp, ft, ownerUi, baseRaw, argIDs)
+			tp.BaseType[id] = baseID
+			let bk = tp.Kind[baseID]
+			if bk == TypeBasic {
+				tp.Kind[id] = TypeBasic
+				tp.BasicOrd[id] = tp.BasicOrd[baseID]
+			} else if bk == TypeStruct {
+				tp.Kind[id] = TypeStruct
+				tp.FieldStart[id] = tp.FieldStart[baseID]
+				tp.FieldLen[id] = tp.FieldLen[baseID]
+				tp.UnexportedField[id] = tp.UnexportedField[baseID]
+			} else if bk == TypeUnion {
+				tp.Kind[id] = TypeUnion
+				tp.VariantStart[id] = tp.VariantStart[baseID]
+				tp.VariantLen[id] = tp.VariantLen[baseID]
+			} else if bk == TypeTuple {
+				tp.Kind[id] = TypeTuple
+				tp.FieldStart[id] = tp.FieldStart[baseID]
+				tp.FieldLen[id] = tp.FieldLen[baseID]
+			} else {
+				tp.Kind[id] = bk
+				tp.ElemType[id] = tp.ElemType[baseID]
+				tp.KeyType[id] = tp.KeyType[baseID]
+				tp.ArrayLen[id] = tp.ArrayLen[baseID]
+			}
+			tp.UnderlyingText[id] = tp.UnderlyingText[baseID]
+		}
+	case option.None:
+		tp.Kind[id] = TypeInvalid
+		tp.UnderlyingText[id] = pText
+	}
+	id
+}
+
+func variantMentions(p syntax.Parsed, node dense.ID[syntax.Node], name string) bool {
+	if syntax.KindOf(p.Tree, node) == syntax.KIdent {
+		return types.NameText(p, node) == name
+	}
+	for c in syntax.Children(p.Tree, node, []uint32{}) {
+		if variantMentions(p, syntax.NodeAt(p.Tree, int(c)), name) {
+			return true
+		}
+	}
+	false
+}
+
+// TypeExpr returns t's representation inside a generated package beside
+// contractPath and records any imported package in imps.
+func TypeExpr(tp TypePool, contractPath string, tid uint32, impPaths mut []string, impNames mut []string) string {
+	let k = tp.Kind[tid]
+	if tp.PkgPath[tid] == "" && tp.TypeName[tid] == "" {
+		if k == TypeBasic {
+			return tp.ExprText[tid]
+		}
+		if k == TypeSlice {
+			return "[]" + TypeExpr(tp, contractPath, tp.ElemType[tid], impPaths, impNames)
+		}
+		if k == TypeArray {
+			return "[" + strconv.Itoa(int(tp.ArrayLen[tid])) + "]" + TypeExpr(tp, contractPath, tp.ElemType[tid], impPaths, impNames)
+		}
+		if k == TypeMap {
+			return "Map[" + TypeExpr(tp, contractPath, tp.KeyType[tid], impPaths, impNames) + ", " + TypeExpr(tp, contractPath, tp.ElemType[tid], impPaths, impNames) + "]"
+		}
+		if k == TypeTuple {
+			return tp.ExprText[tid]
+		}
+	}
+	if k == TypeInvalid {
+		return tp.ExprText[tid]
+	}
+	let pPath = tp.PkgPath[tid]
+	let pName = if pPath == "prelude" {
+		""
+	} else if pPath == contractPath {
+		let nm = LastElem(contractPath)
+		recordImport(impPaths, impNames, contractPath, nm)
+		nm
+	} else {
+		let nm = LastElem(pPath)
+		recordImport(impPaths, impNames, pPath, nm)
+		nm
+	}
+	let mut out = if pName == "" { tp.TypeName[tid] } else { pName + "." + tp.TypeName[tid] }
+	let aLen = int(tp.ArgLen[tid])
+	if aLen > 0 {
+		let aStart = int(tp.ArgStart[tid])
+		let mut args = []string{}
+		for i in aStart..(aStart + aLen) {
+			args = args.Append(TypeExpr(tp, contractPath, tp.ArgItems[i], impPaths, impNames))
+		}
+		out = out + "[" + strings.Join(args, ", ") + "]"
+	}
+	out
+}
+
+// TupleExpr writes tuple type t using FieldTable elements so imported names
+// are recorded accurately.
+func TupleExpr(tp TypePool, ft FieldTable, contractPath string, tid uint32, impPaths mut []string, impNames mut []string) string {
+	let k = tp.Kind[tid]
+	if tp.PkgPath[tid] == "" && tp.TypeName[tid] == "" {
+		if k == TypeBasic {
+			return tp.ExprText[tid]
+		}
+		if k == TypeSlice {
+			return "[]" + TupleExpr(tp, ft, contractPath, tp.ElemType[tid], impPaths, impNames)
+		}
+		if k == TypeArray {
+			return "[" + strconv.Itoa(int(tp.ArrayLen[tid])) + "]" + TupleExpr(tp, ft, contractPath, tp.ElemType[tid], impPaths, impNames)
+		}
+		if k == TypeMap {
+			return "Map[" + TupleExpr(tp, ft, contractPath, tp.KeyType[tid], impPaths, impNames) + ", " + TupleExpr(tp, ft, contractPath, tp.ElemType[tid], impPaths, impNames) + "]"
+		}
+		if k == TypeTuple {
+			let st = int(tp.FieldStart[tid])
+			let ln = int(tp.FieldLen[tid])
+			let mut ps = []string{}
+			for i in st..(st + ln) {
+				ps = ps.Append(TupleExpr(tp, ft, contractPath, ft.TypeID[i], impPaths, impNames))
+			}
+			return "(" + strings.Join(ps, ", ") + ")"
+		}
+	}
+	if k == TypeInvalid {
+		return tp.ExprText[tid]
+	}
+	let pPath = tp.PkgPath[tid]
+	let pName = if pPath == "prelude" {
+		""
+	} else if pPath == contractPath {
+		let nm = LastElem(contractPath)
+		recordImport(impPaths, impNames, contractPath, nm)
+		nm
+	} else {
+		let nm = LastElem(pPath)
+		recordImport(impPaths, impNames, pPath, nm)
+		nm
+	}
+	let mut out = if pName == "" { tp.TypeName[tid] } else { pName + "." + tp.TypeName[tid] }
+	let aLen = int(tp.ArgLen[tid])
+	if aLen > 0 {
+		let aStart = int(tp.ArgStart[tid])
+		let mut args = []string{}
+		for i in aStart..(aStart + aLen) {
+			args = args.Append(TupleExpr(tp, ft, contractPath, tp.ArgItems[i], impPaths, impNames))
+		}
+		out = out + "[" + strings.Join(args, ", ") + "]"
+	}
+	out
+}
+
+func recordImport(impPaths mut []string, impNames mut []string, path string, name string) {
+	if path == "" || path == "prelude" {
+		return
+	}
+	for i, p in *impPaths {
+		if p == path {
+			(*impNames)[i] = name
+			return
+		}
+	}
+	*impPaths = (*impPaths).Append(path)
+	*impNames = (*impNames).Append(name)
+}
+
+func wireKeyCheck(tp TypePool, ft FieldTable, tid uint32, tagged bool, visited mut []bool) string fails GenError {
+	let idx = int(tid)
+	if (*visited)[idx] {
+		return ""
+	}
+	let k = tp.Kind[idx]
+	if k == TypeStruct && !tp.IsByName[idx] && tp.TypeName[idx] != "" || (k == TypeStruct && tp.TypeName[idx] == "") {
+		let st = int(tp.FieldStart[idx])
+		let ln = int(tp.FieldLen[idx])
+		let mut seenKeys = []string{}
+		let mut seenFields = []string{}
+		for i in st..(st + ln) {
+			let fk = ft.WireKey[i]
+			let fn = ft.Name[i]
+			if tagged && fk == "_tag" {
+				return GenError{Reason: tp.PrintText[idx] + " has the field " + fn + " with the wire key \"_tag\", reserved for a union tag"}
+			}
+			for j in 0..seenKeys.Len() {
+				if seenKeys[j] == fk {
+					return GenError{Reason: tp.PrintText[idx] + " has the fields " + seenFields[j] + " and " + fn + ", which share the wire key " + strconv.Quote(fk) + "; rename one"}
+				}
+			}
+			seenKeys = seenKeys.Append(fk)
+			seenFields = seenFields.Append(fn)
+		}
+	}
+	(*visited)[idx] = true
+	if tp.IsByName[idx] && tp.ByNameBase[idx] != NoIndex() {
+		let _ = try wireKeyCheck(tp, ft, tp.ByNameBase[idx], false, visited)
+		return ""
+	}
+	if k == TypeStruct {
+		let st = int(tp.FieldStart[idx])
+		let ln = int(tp.FieldLen[idx])
+		for i in st..(st + ln) {
+			let _ = try wireKeyCheck(tp, ft, ft.TypeID[i], false, visited)
+		}
+	} else if k == TypeUnion {
+		let vs = int(tp.VariantStart[idx])
+		let vl = int(tp.VariantLen[idx])
+		for i in vs..(vs + vl) {
+			let _ = try wireKeyCheck(tp, ft, tp.VariantItems[i], true, visited)
+		}
+	} else if k == TypeSlice || k == TypeArray {
+		let _ = try wireKeyCheck(tp, ft, tp.ElemType[idx], false, visited)
+	} else if k == TypeMap {
+		let _ = try wireKeyCheck(tp, ft, tp.KeyType[idx], false, visited)
+		let _ = try wireKeyCheck(tp, ft, tp.ElemType[idx], false, visited)
+	} else if k == TypeTuple {
+		let st = int(tp.FieldStart[idx])
+		let ln = int(tp.FieldLen[idx])
+		for i in st..(st + ln) {
+			let _ = try wireKeyCheck(tp, ft, ft.TypeID[i], false, visited)
+		}
+	}
+	""
+}
+
+func wideBasicKind(ord uint8) string {
+	let n = types.BasicName(int(ord))
+	if n == "int" || n == "int64" {
+		return "Exact"
+	}
+	if n == "uint" || n == "uint64" || n == "uintptr" {
+		return "ExactUint"
+	}
+	""
+}
+
+// FailTags returns the "_tag" names of failure type tid.
+func FailTags(tp TypePool, tid uint32) []string {
+	if tp.TypeName[tid] == "" {
+		return []string{}
+	}
+	let k = tp.Kind[tid]
+	if k == TypeUnion {
+		let mut out = []string{}
+		let st = int(tp.VariantStart[tid])
+		let ln = int(tp.VariantLen[tid])
+		for i in st..(st + ln) {
+			let vid = tp.VariantItems[i]
+			if tp.TypeName[vid] != "" {
+				out = out.Append(tp.TypeName[vid])
+			}
+		}
+		return out
+	}
+	if k == TypeStruct {
+		return []string{tp.TypeName[tid]}
+	}
+	[]string{}
+}
+
+func isWireAllowed(tp TypePool, tid uint32) bool {
+	if tp.IsByName[tid] {
+		return true
+	}
+	let k = tp.Kind[tid]
+	if k == TypeBasic {
+		return true
+	}
+	k == TypeStruct || k == TypeUnion || k == TypeSlice || k == TypeMap || k == TypeTuple
+}
+
+func visitReachType(tp mut TypePool, ft FieldTable, tid uint32, contractPath string, impPaths mut []string, impNames mut []string, descKeys mut []string, descTexts mut []string) fails GenError {
+	let _ = TupleExpr(*tp, ft, contractPath, tid, impPaths, impNames)
+	if tp.TypeName[tid] != "" {
+		let k = tp.PrintText[tid]
+		let mut already = false
+		for dk in *descKeys {
+			if dk == k {
+				already = true
+				break
+			}
+		}
+		if !already {
+			let mut d = tp.UnderlyingText[tid]
+			if tp.Kind[tid] == TypeStruct {
+				let st = int(tp.FieldStart[tid])
+				let ln = int(tp.FieldLen[tid])
+				for i in st..(st + ln) {
+					if ft.WireKey[i] != ImplicitWireKey(ft.Name[i]) {
+						d = d + " key " + ft.Name[i] + "=" + strconv.Quote(ft.WireKey[i])
+					}
+				}
+			}
+			if tp.IsByName[tid] && tp.ByNameBase[tid] != NoIndex() {
+				d = "wire " + tp.PrintText[tp.ByNameBase[tid]]
+			}
+			if tp.IsRefined[tid] {
+				d = "refined " + d
+			}
+			*descKeys = (*descKeys).Append(k)
+			*descTexts = (*descTexts).Append(d)
+		}
+	}
+	if tp.WideComputed[tid] {
+		return
+	}
+	tp.WideComputed[tid] = true
+	if !isWireAllowed(*tp, tid) {
+		return GenError{Reason: "the type " + tp.PrintText[tid] + " has no wire form an RPC contract can carry"}
+	}
+	if tp.IsByName[tid] && tp.ByNameBase[tid] != NoIndex() {
+		try visitReachType(tp, ft, tp.ByNameBase[tid], contractPath, impPaths, impNames, descKeys, descTexts)
+		return
+	}
+	let k = tp.Kind[tid]
+	if k == TypeBasic {
+		if wideBasicKind(tp.BasicOrd[tid]) != "" {
+			tp.IsWide[tid] = true
+		}
+		return
+	}
+	if k == TypeStruct {
+		let st = int(tp.FieldStart[tid])
+		let ln = int(tp.FieldLen[tid])
+		for i in st..(st + ln) {
+			try visitReachType(tp, ft, ft.TypeID[i], contractPath, impPaths, impNames, descKeys, descTexts)
+		}
+	} else if k == TypeUnion {
+		let st = int(tp.VariantStart[tid])
+		let ln = int(tp.VariantLen[tid])
+		for i in st..(st + ln) {
+			try visitReachType(tp, ft, tp.VariantItems[i], contractPath, impPaths, impNames, descKeys, descTexts)
+		}
+	} else if k == TypeSlice {
+		try visitReachType(tp, ft, tp.ElemType[tid], contractPath, impPaths, impNames, descKeys, descTexts)
+	} else if k == TypeMap {
+		try visitReachType(tp, ft, tp.KeyType[tid], contractPath, impPaths, impNames, descKeys, descTexts)
+		try visitReachType(tp, ft, tp.ElemType[tid], contractPath, impPaths, impNames, descKeys, descTexts)
+	} else if k == TypeTuple {
+		let st = int(tp.FieldStart[tid])
+		let ln = int(tp.FieldLen[tid])
+		for i in st..(st + ln) {
+			try visitReachType(tp, ft, ft.TypeID[i], contractPath, impPaths, impNames, descKeys, descTexts)
+		}
+	}
+}
+
+// ReachesWide reports whether tid reaches a wide integer type anywhere in its
+// wire representation.
+func ReachesWide(tp TypePool, ft FieldTable, tid uint32, seen mut []bool) bool {
+	if tp.IsWide[tid] {
+		return true
+	}
+	if (*seen)[tid] {
+		return false
+	}
+	(*seen)[tid] = true
+	if tp.IsByName[tid] && tp.ByNameBase[tid] != NoIndex() {
+		return ReachesWide(tp, ft, tp.ByNameBase[tid], seen)
+	}
+	let k = tp.Kind[tid]
+	if k == TypeStruct {
+		let st = int(tp.FieldStart[tid])
+		let ln = int(tp.FieldLen[tid])
+		for i in st..(st + ln) {
+			if ReachesWide(tp, ft, ft.TypeID[i], seen) {
+				return true
+			}
+		}
+	} else if k == TypeUnion {
+		let st = int(tp.VariantStart[tid])
+		let ln = int(tp.VariantLen[tid])
+		for i in st..(st + ln) {
+			if ReachesWide(tp, ft, tp.VariantItems[i], seen) {
+				return true
+			}
+		}
+	} else if k == TypeSlice {
+		return ReachesWide(tp, ft, tp.ElemType[tid], seen)
+	} else if k == TypeMap {
+		if ReachesWide(tp, ft, tp.KeyType[tid], seen) {
+			return true
+		}
+		return ReachesWide(tp, ft, tp.ElemType[tid], seen)
+	} else if k == TypeTuple {
+		let st = int(tp.FieldStart[tid])
+		let ln = int(tp.FieldLen[tid])
+		for i in st..(st + ln) {
+			if ReachesWide(tp, ft, ft.TypeID[i], seen) {
+				return true
+			}
+		}
+	}
+	false
+}
+
+func opDocFromSyntax(lp LoadedProgram, rootUi int, opTypeName string, methodName string, seen []string) (string, []string, bool) {
+	let u = lp.Deps[rootUi]
+	let look = match findDeclInUnit(u, opTypeName) {
+	case option.Some{Value: dl}:
+		dl
+	case option.None:
+		return ("", []string{}, false)
+	}
+	let df = look.file
+	let td = look.td
+	let dp = u.K.Parsed[df]
+	let mut includes = []dense.ID[syntax.Node]{}
+	match dense.Unpack(td.Spec) {
+	case option.Some{Value: sp}:
+		match syntax.ViewOf(dp.Tree, sp) {
+		case syntax.InterfaceType as it:
+			for m in nodeListItems(dp, it.Members) {
+				match syntax.ViewOf(dp.Tree, m) {
+				case syntax.Field as fd:
+					if fd.Dots >= 0 {
+						match dense.Unpack(fd.Type) {
+						case option.Some{Value: ftNode}:
+							includes = includes.Append(ftNode)
+						case option.None:
+						}
+						continue
+					}
+					if syntax.Len(fd.Names) > 0 && types.NameText(dp, syntax.Item(dp.Tree, fd.Names, 0)) == methodName {
+						let mut doc = ""
+						if fd.Doc >= 0 {
+							let raw = syntax.SourceOf(dp)[syntax.GroupPos(dp, fd.Doc):syntax.GroupEnd(dp, fd.Doc)]
+							let mut lines = []string{}
+							for l in strings.Split(raw, "\n") {
+								let trimmed = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(l), "//"))
+								lines = lines.Append(trimmed)
+							}
+							doc = strings.Join(lines, " ")
+						}
+						let mut pNames = []string{}
+						match dense.Unpack(fd.Type) {
+						case option.Some{Value: ftNode}:
+							if syntax.KindOf(dp.Tree, ftNode) == syntax.KFuncType {
+								let ft = syntax.FuncTypeOf(dp.Tree, ftNode)
+								if syntax.KindOf(dp.Tree, ft.Params) == syntax.KFieldList {
+									let pl = syntax.FieldListOf(dp.Tree, ft.Params).List
+									for pi in 0..syntax.Len(pl) {
+										let pf = syntax.FieldOf(dp.Tree, syntax.Item(dp.Tree, pl, pi))
+										let nCount = syntax.Len(pf.Names)
+										if nCount == 0 {
+											pNames = pNames.Append("")
+										} else {
+											for pj in 0..nCount {
+												pNames = pNames.Append(types.NameText(dp, syntax.Item(dp.Tree, pf.Names, pj)))
+											}
+										}
+									}
+								}
+							}
+						case option.None:
+						}
+						return (doc, pNames, true)
+					}
+				case _:
+				}
+			}
+		case _:
+		}
+	case option.None:
+	}
+	let env = types.NewEnv(u.S, u.K.Parsed, dp, []string{}, u.K.Kinds, u.K.Ext, u.K.Foreign, u.K.Ifaces)
+	let mut s = u.S
+	for incNode in includes {
+		let t = types.Resolve(&s, env, incNode)
+		let (oUi, oName, _, ok) = resolveOwnerDecl(lp, rootUi, t)
+		if ok && !slices.Contains(seen, lp.UnitPaths[oUi]+"."+oName) {
+			let (d, pn, fOk) = opDocFromSyntax(lp, oUi, oName, methodName, slices.Clone(seen).Append(lp.UnitPaths[oUi]+"."+oName))
+			if fOk {
+				return (d, pn, true)
+			}
+		}
+	}
+	("", []string{}, false)
+}
+
+func isRPCReservedParam(name string) bool {
+	name == "client" || name == "req" || name == "r" || name == "text" || name == "v" || name == "f" || name == "e" || name == "u" || name == "p" || name == "x"
+}
+
+func hubTakenNames(specs SpecTable, ops OpTable, sid uint32, name string) bool {
+	let fixed = []string{"Request", "Op", "Reply", "Failure", "Outcome", "Done", "Rejected", "Values", "Given", "OutcomeOf", "Client", "NewClient", "ClientInForce", "CheckedClient", "NewCheckedClient", "OpOf", "Name", "Doc", "Schema", "Call", "CallIsTheOperation", "ClientIsCall", "inRow", "scripted", "callChecked", "valueOf", "NoFailure"}
+	for n in fixed {
+		if n == name {
+			return true
+		}
+	}
+	let st = int(specs.OpStart[sid])
+	let ln = int(specs.OpLen[sid])
+	for i in st..(st + ln) {
+		let on = ops.Name[i]
+		if name == on || name == on+"Request" || name == on+"Reply" || name == on+"Op" {
+			return true
+		}
+	}
+	false
+}
+
+// BuildContractSpec analyzes operation type opName in lp's root package,
+// validates all RPC/wire constraints, and populates SpecTable, OpTable,
+// FieldTable, and TypePool, returning the SpecID.
+func BuildContractSpec(lp mut LoadedProgram, st mut SpecTable, ot mut OpTable, ft mut FieldTable, tp mut TypePool, opName string) uint32 fails GenError {
+	let rootIdx = int(lp.RootIndex)
+	let root = lp.Deps[rootIdx]
+	let td = match findDeclInUnit(root, opName) {
+	case option.Some{Value: dl}:
+		dl.td
+	case option.None:
+		return GenError{Reason: "package " + lp.PkgPath + " declares no type " + opName}
+	}
+	if dense.Unpack(td.TypeParams) != option.None {
+		return GenError{Reason: opName + " is generic; an RPC contract names its types"}
+	}
+	let mut roleIdx = -1
+	for i, r in root.K.Roles {
+		if r.Name == opName {
+			roleIdx = i
+			break
+		}
+	}
+	if roleIdx < 0 {
+		return GenError{Reason: opName + " is not an operation type with operations"}
+	}
+	let role = root.K.Roles[roleIdx]
+	if role.Members.Len() == 0 {
+		return GenError{Reason: opName + " is not an operation type with operations"}
+	}
+
+	let sid = AddSpec(st, lp.PkgPath, LastElem(lp.PkgPath), opName)
+	let opStart = ot.Count
+	let mut impPaths = []string{"rpc"}
+	let mut impNames = []string{"rpc"}
+	recordImport(&impPaths, &impNames, lp.PkgPath, LastElem(lp.PkgPath))
+
+	for m in role.Members {
+		if !Exported(m.Name) {
+			return GenError{Reason: opName + "." + m.Name + " is unexported; an RPC operation is exported"}
+		}
+		if m.Own.Len() > 0 {
+			return GenError{Reason: opName + "." + m.Name + " is generic; an RPC operation has no type parameters"}
+		}
+		let (doc, pNames, _) = opDocFromSyntax(*lp, rootIdx, opName, m.Name, []string{lp.PkgPath + "." + opName})
+		let sigOps = store.OperandsOf(root.S, m.Sig)
+		let np = sigOps.Len() - 3
+		let resKey = sigOps[np]
+		let errsRow = store.OperandsOf(root.S, sigOps[np+1])
+		let usesRow = store.OperandsOf(root.S, sigOps[np+2])
+		if usesRow.Len() > 0 {
+			let usesText = types.RowText(root.S, types.Names{Params: []string{}, Foreign: root.K.Foreign, Pkg: LastElem(root.Path), Deps: root.K.Ifaces}, usesRow)
+			return GenError{Reason: opName + "." + m.Name + " needs " + usesText + "; an RPC operation needs nothing"}
+		}
+		let oid = AddOp(ot, sid, m.Name, Kebab(m.Name), doc)
+		let mut paramTypeIDs = []uint32{}
+		let mut paramRawNames = []string{}
+		for pi in 0..np {
+			let pName = if pi < pNames.Len() { pNames[pi] } else { "" }
+			if pName == "" || pName == "_" || pName[0] < 'a' || pName[0] > 'z' {
+				return GenError{Reason: opName + "." + m.Name + ": parameter " + strconv.Itoa(pi+1) + " needs a name that starts with a lower-case letter; it is the payload's key"}
+			}
+			let ptid = LowerType(lp, tp, ft, rootIdx, sigOps[pi])
+			let mut vis = []bool{}
+			for _ in uint32(0)..tp.Count {
+				vis = vis.Append(false)
+			}
+			let _ = try wireKeyCheck(*tp, *ft, ptid, false, &vis)
+			paramTypeIDs = paramTypeIDs.Append(ptid)
+			paramRawNames = paramRawNames.Append(pName)
+		}
+		let pStart = ft.Count
+		for pi in 0..np {
+			let pName = paramRawNames[pi]
+			let _ = AddField(ft, FieldParam, oid, pName, FieldName(pName), ParamKey(pName), false, paramTypeIDs[pi], true, false, false, "")
+		}
+		ot.ParamStart[oid] = pStart
+		ot.ParamLen[oid] = uint32(np)
+
+		if store.KindOfType(root.S, resKey) == store.KTuple {
+			let rs = store.OperandsOf(root.S, resKey)
+			if rs.Len() == 1 {
+				let rtid = LowerType(lp, tp, ft, rootIdx, rs[0])
+				let mut vis = []bool{}
+				for _ in uint32(0)..tp.Count {
+					vis = vis.Append(false)
+				}
+				let _ = try wireKeyCheck(*tp, *ft, rtid, false, &vis)
+				ot.ResultType[oid] = rtid
+			} else if rs.Len() > 1 {
+				return GenError{Reason: opName + "." + m.Name + " has " + strconv.Itoa(rs.Len()) + " results; an RPC operation has one"}
+			}
+		} else {
+			let rtid = LowerType(lp, tp, ft, rootIdx, resKey)
+			let mut vis = []bool{}
+			for _ in uint32(0)..tp.Count {
+				vis = vis.Append(false)
+			}
+			let _ = try wireKeyCheck(*tp, *ft, rtid, false, &vis)
+			ot.ResultType[oid] = rtid
+		}
+
+		let mut failTypeIDs = []uint32{}
+		for fKey in errsRow {
+			let ftid = LowerType(lp, tp, ft, rootIdx, fKey)
+			let mut vis = []bool{}
+			for _ in uint32(0)..tp.Count {
+				vis = vis.Append(false)
+			}
+			let _ = try wireKeyCheck(*tp, *ft, ftid, true, &vis)
+			failTypeIDs = failTypeIDs.Append(ftid)
+		}
+		let fStart = uint32(ot.FailTypeIDs.Len())
+		for ftid in failTypeIDs {
+			ot.FailTypeIDs = ot.FailTypeIDs.Append(ftid)
+		}
+		ot.FailStart[oid] = fStart
+		ot.FailLen[oid] = uint32(failTypeIDs.Len())
+	}
+	st.OpStart[sid] = opStart
+	st.OpLen[sid] = ot.Count - opStart
+
+	let mut descKeys = []string{}
+	let mut descTexts = []string{}
+	let mut specFailIDs = []uint32{}
+	let mut specFailPrints = []string{}
+
+	let opEnd = int(st.OpStart[sid] + st.OpLen[sid])
+	for oi in int(st.OpStart[sid])..opEnd {
+		let pSt = int(ot.ParamStart[oi])
+		let pEn = pSt + int(ot.ParamLen[oi])
+		for pi in pSt..pEn {
+			try visitReachType(tp, *ft, ft.TypeID[pi], lp.PkgPath, &impPaths, &impNames, &descKeys, &descTexts)
+		}
+		if ot.ResultType[oi] != NoIndex() {
+			try visitReachType(tp, *ft, ot.ResultType[oi], lp.PkgPath, &impPaths, &impNames, &descKeys, &descTexts)
+		}
+		let fSt = int(ot.FailStart[oi])
+		let fEn = fSt + int(ot.FailLen[oi])
+		for fi in fSt..fEn {
+			let ftid = ot.FailTypeIDs[fi]
+			try visitReachType(tp, *ft, ftid, lp.PkgPath, &impPaths, &impNames, &descKeys, &descTexts)
+			let tags = FailTags(*tp, ftid)
+			if tags.Len() == 0 {
+				return GenError{Reason: "the failure " + tp.PrintText[ftid] + " of " + opName + "." + ot.Name[oi] + " is not a record or a union of records"}
+			}
+			let fPrint = tp.PrintText[ftid]
+			if !slices.Contains(specFailPrints, fPrint) {
+				specFailPrints = specFailPrints.Append(fPrint)
+				specFailIDs = specFailIDs.Append(ftid)
+			}
+		}
+	}
+
+	let sfStart = uint32(st.FailTypeIDs.Len())
+	for ftid in specFailIDs {
+		let tags = FailTags(*tp, ftid)
+		let tName = tp.TypeName[ftid]
+		let variant = if hubTakenNames(*st, *ot, sid, tName) { tName + "Failure" } else { tName }
+		st.FailTypeIDs = st.FailTypeIDs.Append(ftid)
+		st.FailVariants = st.FailVariants.Append(variant)
+		st.FailTags = st.FailTags.Append(if tp.Kind[ftid] == TypeUnion { "" } else { tags[0] })
+		st.FailIsUnion = st.FailIsUnion.Append(tp.Kind[ftid] == TypeUnion)
+	}
+	st.FailStart[sid] = sfStart
+	st.FailLen[sid] = uint32(specFailIDs.Len())
+
+	for oi in int(st.OpStart[sid])..opEnd {
+		let pSt = int(ot.ParamStart[oi])
+		let pEn = pSt + int(ot.ParamLen[oi])
+		for pi in pSt..pEn {
+			let pName = ft.Name[pi]
+			if isRPCReservedParam(pName) {
+				return GenError{Reason: opName + "." + ot.Name[oi] + ": the parameter name " + pName + " is one the generated code uses; rename it"}
+			}
+			for impName in impNames {
+				if pName == impName {
+					return GenError{Reason: opName + "." + ot.Name[oi] + ": the parameter name " + pName + " is the package " + impName + " the generated code imports; rename it"}
+				}
+			}
+		}
+		let fSt = int(ot.FailStart[oi])
+		let fEn = fSt + int(ot.FailLen[oi])
+		let mut opTags = []string{}
+		for fi in fSt..fEn {
+			for tg in FailTags(*tp, ot.FailTypeIDs[fi]) {
+				if slices.Contains(opTags, tg) {
+					return GenError{Reason: opName + "." + ot.Name[oi] + ": two failures have the tag " + tg + " on the wire"}
+				}
+				opTags = opTags.Append(tg)
+			}
+		}
+	}
+
+	let impStart = uint32(st.ImportPaths.Len())
+	for i in 0..impPaths.Len() {
+		st.ImportPaths = st.ImportPaths.Append(impPaths[i])
+		st.ImportNames = st.ImportNames.Append(impNames[i])
+	}
+	st.ImportStart[sid] = impStart
+	st.ImportLen[sid] = uint32(impPaths.Len())
+
+	let dStart = uint32(st.DescribeKeys.Len())
+	for i in 0..descKeys.Len() {
+		st.DescribeKeys = st.DescribeKeys.Append(descKeys[i])
+		st.DescribeTexts = st.DescribeTexts.Append(descTexts[i])
+	}
+	st.DescribeStart[sid] = dStart
+	st.DescribeLen[sid] = uint32(descKeys.Len())
+
+	st.ContractDigest[sid] = computeContractDigest(*st, *ot, *ft, *tp, sid)
+	sid
+}
+
+func computeContractDigest(st SpecTable, ot OpTable, ft FieldTable, tp TypePool, sid uint32) string {
+	let mut b = strings.NewBuilder()
+	b.WriteString(st.Subject[sid] + "\n")
+	let opSt = int(st.OpStart[sid])
+	let opEn = opSt + int(st.OpLen[sid])
+	for oi in opSt..opEn {
+		b.WriteString(ot.Name[oi] + "(")
+		let pSt = int(ot.ParamStart[oi])
+		let pEn = pSt + int(ot.ParamLen[oi])
+		for pi in pSt..pEn {
+			if pi > pSt {
+				b.WriteString(", ")
+			}
+			b.WriteString(ft.Name[pi] + " " + tp.PrintText[ft.TypeID[pi]])
+		}
+		b.WriteString(")")
+		if ot.ResultType[oi] != NoIndex() {
+			b.WriteString(" " + tp.PrintText[ot.ResultType[oi]])
+		}
+		let fSt = int(ot.FailStart[oi])
+		let fEn = fSt + int(ot.FailLen[oi])
+		for fi in fSt..fEn {
+			if fi == fSt {
+				b.WriteString(" fails ")
+			} else {
+				b.WriteString(" | ")
+			}
+			b.WriteString(tp.PrintText[ot.FailTypeIDs[fi]])
+		}
+		b.WriteString("\n")
+	}
+	let dSt = int(st.DescribeStart[sid])
+	let dEn = dSt + int(st.DescribeLen[sid])
+	let mut idxs = []int{}
+	for di in dSt..dEn {
+		idxs = idxs.Append(di)
+	}
+	idxs = slices.SortFunc(idxs, func(ia int, ib int) int {
+		if st.DescribeKeys[ia] < st.DescribeKeys[ib] { -1 } else if st.DescribeKeys[ia] > st.DescribeKeys[ib] { 1 } else { 0 }
+	})
+	for di in idxs {
+		b.WriteString(st.DescribeKeys[di] + " = " + st.DescribeTexts[di] + "\n")
+	}
+	"sha256:" + hex.Encode(sha256.Sum(b.String()))
+}
+
+// BuildNamedType lowers and validates a standalone exported non-generic
+// non-interface type typeName from lp's root package for schema generation.
+func BuildNamedType(lp mut LoadedProgram, tp mut TypePool, ft mut FieldTable, typeName string) uint32 fails GenError {
+	let rootIdx = int(lp.RootIndex)
+	let root = lp.Deps[rootIdx]
+	let look = match findDeclInUnit(root, typeName) {
+	case option.Some{Value: dl}:
+		dl
+	case option.None:
+		return GenError{Reason: "package " + lp.PkgPath + " declares no type " + typeName}
+	}
+	let df = look.file
+	let td = look.td
+	if dense.Unpack(td.TypeParams) != option.None {
+		return GenError{Reason: typeName + " is generic; ergo gen schema writes the schema of a type with no parameters"}
+	}
+	if !Exported(typeName) {
+		return GenError{Reason: typeName + " is unexported; the schema package names it from outside its package"}
+	}
+	let dp = root.K.Parsed[df]
+	match dense.Unpack(td.Spec) {
+	case option.Some{Value: sp}:
+		match syntax.ViewOf(dp.Tree, sp) {
+		case syntax.InterfaceType as it:
+			if it.Lbrace >= 0 {
+				return GenError{Reason: typeName + " is an operation type, which has no wire form; ergo gen api writes its arguments' schemas"}
+			}
+		case _:
+		}
+	case option.None:
+	}
+	let declID = match store.Lookup(root.S, typeName) {
+	case option.Some{Value: d}:
+		d
+	case option.None:
+		return GenError{Reason: typeName + " is not a declared type"}
+	}
+	let tKey = store.TNamed(&lp.Deps[rootIdx].S, declID)
+	LowerType(lp, tp, ft, rootIdx, tKey)
+}
+
+test ContractHelpersSmokeCheck {
+	let mut st = NewSpecTable()
+	let mut ot = NewOpTable()
+	let mut ft = NewFieldTable()
+	let mut tp = NewTypePool()
+	let sid = AddSpec(&st, "example/svc", "svc", "Svc")
+	let tidStr = AllocType(&tp, TypeBasic)
+	tp.BasicOrd[tidStr] = uint8(2)
+	tp.ExprText[tidStr] = "string"
+	tp.PrintText[tidStr] = "string"
+	tp.UnderlyingText[tidStr] = "string"
+	let tidInt = AllocType(&tp, TypeBasic)
+	tp.BasicOrd[tidInt] = uint8(3)
+	tp.ExprText[tidInt] = "int"
+	tp.PrintText[tidInt] = "int"
+	tp.UnderlyingText[tidInt] = "int"
+	tp.IsWide[tidInt] = true
+	let tidRec = AllocType(&tp, TypeStruct)
+	tp.PkgPath[tidRec] = "example/svc"
+	tp.PkgName[tidRec] = "svc"
+	tp.TypeName[tidRec] = "Pair"
+	tp.ExprText[tidRec] = "svc.Pair"
+	tp.PrintText[tidRec] = "main.Pair"
+	let rfStart = ft.Count
+	let _ = AddField(&ft, FieldRecord, tidRec, "A", "A", "a", false, tidInt, true, false, false, "")
+	let _ = AddField(&ft, FieldRecord, tidRec, "B", "B", "a", false, tidStr, true, false, false, "")
+	tp.FieldStart[tidRec] = rfStart
+	tp.FieldLen[tidRec] = uint32(2)
+	let oid = AddOp(&ot, sid, "Ping", "ping", "Ping replies.")
+	let pSt = ft.Count
+	let _ = AddField(&ft, FieldParam, oid, "msg", "Msg", "msg", false, tidStr, true, false, false, "")
+	ot.ParamStart[oid] = pSt
+	ot.ParamLen[oid] = uint32(1)
+	ot.ResultType[oid] = tidStr
+	st.OpStart[sid] = uint32(0)
+	st.OpLen[sid] = uint32(1)
+	let d1 = computeContractDigest(st, ot, ft, tp, sid)
+	assert strings.HasPrefix(d1, "sha256:") && d1.Len() == 71
+	ft.TypeID[pSt] = tidInt
+	let d2 = computeContractDigest(st, ot, ft, tp, sid)
+	assert d1 != d2
+	assert FailTags(tp, tidRec) == []string{"Pair"}
+	let mut seen = []bool{false, false, false}
+	assert ReachesWide(tp, ft, tidRec, &seen)
+	let mut vis = []bool{false, false, false}
+	let dupMsg = wireKeyCheck(tp, ft, tidRec, false, &vis) catch {
+	case GenError as e:
+		e.Reason
+	}
+	assert strings.Contains(dupMsg, "share the wire key")
+}

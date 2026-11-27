@@ -1,0 +1,381 @@
+import fs
+import fstest
+import hex
+import sha256
+import slices
+import strconv
+import strings
+
+// MarkerFileName is the file each generated folder carries.
+let MarkerFileName = "ergo.gen"
+
+// MarkerIOError reports a filesystem error while reading or writing generated
+// folders and markers.
+type MarkerIOError { Reason string }
+
+// BadMarker reports a malformed ergo.gen marker.
+type BadMarker { Reason string }
+
+// GenMarker describes an ergo.gen marker file.
+type GenMarker {
+	Kind      string,
+	Generator string,
+	Subjects  []string,
+	Contract  string,
+	Digest    string,
+}
+
+// SplitSubject splits "pkgPath.TypeName" into its package path and type name.
+func SplitSubject(subject string) (string, string, bool) {
+	let i = strings.LastIndex(subject, ".")
+	if i <= 0 || i == subject.Len()-1 {
+		return ("", "", false)
+	}
+	(subject[0:i], subject[i+1 : subject.Len()], true)
+}
+
+// ParseMarker reads an ergo.gen marker text.
+func ParseMarker(text string) GenMarker fails BadMarker {
+	let mut out = GenMarker{Kind: "", Generator: "", Subjects: []string{}, Contract: "", Digest: ""}
+	for raw in strings.Split(text, "\n") {
+		let line = strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		let space = strings.Index(line, " ")
+		if space <= 0 {
+			return BadMarker{Reason: "malformed line " + strconv.Quote(line)}
+		}
+		let key = line[0:space]
+		let val = strings.TrimSpace(line[space+1 : line.Len()])
+		if val == "" {
+			return BadMarker{Reason: "empty value for " + key}
+		}
+		if key == "kind" {
+			if out.Kind != "" {
+				return BadMarker{Reason: "duplicate key kind"}
+			}
+			out.Kind = val
+		} else if key == "generator" {
+			if out.Generator != "" {
+				return BadMarker{Reason: "duplicate key generator"}
+			}
+			out.Generator = val
+		} else if key == "subject" {
+			out.Subjects = out.Subjects.Append(val)
+		} else if key == "contract" {
+			if out.Contract != "" {
+				return BadMarker{Reason: "duplicate key contract"}
+			}
+			out.Contract = val
+		} else if key == "digest" {
+			if out.Digest != "" {
+				return BadMarker{Reason: "duplicate key digest"}
+			}
+			out.Digest = val
+		} else {
+			return BadMarker{Reason: "unknown key " + strconv.Quote(key)}
+		}
+	}
+	if out.Kind == "" {
+		return BadMarker{Reason: "missing kind"}
+	}
+	if out.Generator == "" {
+		return BadMarker{Reason: "missing generator"}
+	}
+	if out.Subjects.Len() == 0 {
+		return BadMarker{Reason: "missing subject"}
+	}
+	if out.Digest == "" {
+		return BadMarker{Reason: "missing digest"}
+	}
+	out
+}
+
+// FormatMarker formats m in canonical line order.
+func FormatMarker(m GenMarker) string {
+	let mut b = strings.NewBuilder()
+	b.WriteString("kind " + m.Kind + "\n")
+	b.WriteString("generator " + m.Generator + "\n")
+	let subjects = slices.Sort(slices.Clone(m.Subjects))
+	for s in subjects {
+		b.WriteString("subject " + s + "\n")
+	}
+	if m.Contract != "" {
+		b.WriteString("contract " + m.Contract + "\n")
+	}
+	b.WriteString("digest " + m.Digest + "\n")
+	b.String()
+}
+
+// MarkerDigest computes the sha256 content digest over sorted non-marker file
+// entries, matching internal/genmark.Digest.
+func MarkerDigest(fileNames []string, fileTexts []string) string {
+	let mut idxs = []int{}
+	for i in 0..fileNames.Len() {
+		let norm = strings.ReplaceAll(fileNames[i], "\\", "/")
+		if norm == MarkerFileName || norm == "" {
+			continue
+		}
+		idxs = idxs.Append(i)
+	}
+	idxs = slices.SortFunc(idxs, func(a int, b int) int {
+		let na = strings.ReplaceAll(fileNames[a], "\\", "/")
+		let nb = strings.ReplaceAll(fileNames[b], "\\", "/")
+		if na < nb {
+			-1
+		} else if na > nb {
+			1
+		} else {
+			0
+		}
+	})
+	let h = sha256.New()
+	for i in idxs {
+		let name = strings.ReplaceAll(fileNames[i], "\\", "/")
+		let body = fileTexts[i]
+		h.Write(strconv.Itoa(name.Len()) + " " + name + " " + strconv.Itoa(body.Len()) + "\n")
+		h.Write(body)
+	}
+	let sum = h.Digest()
+	h.Close()
+	"sha256:" + hex.Encode(sum)
+}
+
+// Stamp sets m.Digest to the MarkerDigest of the supplied files.
+func Stamp(m GenMarker, fileNames []string, fileTexts []string) GenMarker {
+	GenMarker{..m, Digest: MarkerDigest(fileNames, fileTexts)}
+}
+
+// WithMarker stamps m and returns the sorted list of file names and texts
+// including ergo.gen.
+func WithMarker(fileNames []string, fileTexts []string, m GenMarker) ([]string, []string) {
+	let stamped = Stamp(m, fileNames, fileTexts)
+	let mut outNames = slices.Clone(fileNames)
+	let mut outTexts = slices.Clone(fileTexts)
+	outNames = outNames.Append(MarkerFileName)
+	outTexts = outTexts.Append(FormatMarker(stamped))
+	let mut order = []int{}
+	for i in 0..outNames.Len() {
+		order = order.Append(i)
+	}
+	order = slices.SortFunc(order, func(a int, b int) int {
+		if outNames[a] < outNames[b] {
+			-1
+		} else if outNames[a] > outNames[b] {
+			1
+		} else {
+			0
+		}
+	})
+	let mut sNames = []string{}
+	let mut sTexts = []string{}
+	for idx in order {
+		sNames = sNames.Append(outNames[idx])
+		sTexts = sTexts.Append(outTexts[idx])
+	}
+	(sNames, sTexts)
+}
+
+// ReadMarker reads and parses dir/ergo.gen, returning (zero, false) if absent.
+func ReadMarker(dir string) (GenMarker, bool) fails MarkerIOError | BadMarker needs fs.Files {
+	let path = dir + "/" + MarkerFileName
+	let text = fs.Files.ReadFile(path) catch {
+	case fs.NotFound:
+		return (GenMarker{Kind: "", Generator: "", Subjects: []string{}, Contract: "", Digest: ""}, false)
+	case fs.Denied:
+		return MarkerIOError{Reason: "cannot read " + path + ": permission denied"}
+	case fs.Failed as e:
+		return MarkerIOError{Reason: "cannot read " + path + ": " + e.Reason}
+	}
+	let parsed = try ParseMarker(text)
+	(parsed, true)
+}
+
+// MarkerHolds checks whether dir holds the exact generated files and valid
+// marker metadata.
+func MarkerHolds(dir string, m GenMarker, fileNames []string, fileTexts []string) bool needs fs.Files {
+	let want = Stamp(m, fileNames, fileTexts)
+	let (have, ok) = ReadMarker(dir) catch {
+	case MarkerIOError, BadMarker:
+		return false
+	}
+	if !ok {
+		return false
+	}
+	if FormatMarker(have) != FormatMarker(want) {
+		return false
+	}
+	let names = fs.Files.ReadDir(dir) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	let mut diskNames = []string{}
+	let mut diskTexts = []string{}
+	for name in names {
+		if name == MarkerFileName {
+			continue
+		}
+		let child = dir + "/" + name
+		let st = fs.Files.Stat(child) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return false
+		}
+		if st.Dir {
+			return false
+		}
+		let content = fs.Files.ReadFile(child) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return false
+		}
+		diskNames = diskNames.Append(name)
+		diskTexts = diskTexts.Append(content)
+	}
+	MarkerDigest(diskNames, diskTexts) == want.Digest
+}
+
+// CheckMarkerDir checks whether dir's ergo.gen marker is well-formed and its
+// digest matches the current non-directory files in dir.
+func CheckMarkerDir(dir string) bool needs fs.Files {
+	let (have, ok) = ReadMarker(dir) catch {
+	case MarkerIOError, BadMarker:
+		return false
+	}
+	if !ok {
+		return false
+	}
+	let names = fs.Files.ReadDir(dir) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	let mut diskNames = []string{}
+	let mut diskTexts = []string{}
+	for name in names {
+		if name == MarkerFileName {
+			continue
+		}
+		let child = dir + "/" + name
+		let st = fs.Files.Stat(child) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return false
+		}
+		if st.Dir {
+			return false
+		}
+		let content = fs.Files.ReadFile(child) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return false
+		}
+		diskNames = diskNames.Append(name)
+		diskTexts = diskTexts.Append(content)
+	}
+	MarkerDigest(diskNames, diskTexts) == have.Digest
+}
+
+// StaleFiles returns full paths under dir of files (including ergo.gen) whose
+// contents on disk are missing or differ from the generated package.
+func StaleFiles(dir string, fileNames []string, fileTexts []string, m GenMarker) []string needs fs.Files {
+	let (wNames, wTexts) = WithMarker(fileNames, fileTexts, m)
+	let mut stale = []string{}
+	for i in 0..wNames.Len() {
+		let p = dir + "/" + wNames[i]
+		let have = fs.Files.ReadFile(p) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			stale = stale.Append(p)
+			continue
+		}
+		if have != wTexts[i] {
+			stale = stale.Append(p)
+		}
+	}
+	stale
+}
+
+// WriteGeneratedDir writes all generated files and then ergo.gen into dir.
+func WriteGeneratedDir(dir string, fileNames []string, fileTexts []string, m GenMarker) fails MarkerIOError needs fs.Writes {
+	fs.Writes.MkdirAll(dir) catch {
+	case fs.Denied:
+		return MarkerIOError{Reason: "mkdir " + dir + ": permission denied"}
+	case fs.Failed as e:
+		return MarkerIOError{Reason: "mkdir " + dir + ": " + e.Reason}
+	}
+	let stamped = Stamp(m, fileNames, fileTexts)
+	let mut order = []int{}
+	for i in 0..fileNames.Len() {
+		order = order.Append(i)
+	}
+	order = slices.SortFunc(order, func(a int, b int) int {
+		if fileNames[a] < fileNames[b] { -1 } else if fileNames[a] > fileNames[b] { 1 } else { 0 }
+	})
+	for idx in order {
+		let p = dir + "/" + fileNames[idx]
+		fs.Writes.WriteFile(p, fileTexts[idx]) catch {
+		case fs.NotFound:
+			return MarkerIOError{Reason: "write " + p + ": not found"}
+		case fs.Denied:
+			return MarkerIOError{Reason: "write " + p + ": permission denied"}
+		case fs.Failed as e:
+			return MarkerIOError{Reason: "write " + p + ": " + e.Reason}
+		}
+	}
+	let mp = dir + "/" + MarkerFileName
+	fs.Writes.WriteFile(mp, FormatMarker(stamped)) catch {
+	case fs.NotFound:
+		return MarkerIOError{Reason: "write " + mp + ": not found"}
+	case fs.Denied:
+		return MarkerIOError{Reason: "write " + mp + ": permission denied"}
+	case fs.Failed as e:
+		return MarkerIOError{Reason: "write " + mp + ": " + e.Reason}
+	}
+}
+
+// MarkerRoundTrips: ParseMarker(FormatMarker(Stamp(...))) preserves every
+// field and MarkerDigest ignores file order and ergo.gen entries.
+law MarkerRoundTrips(body string) {
+	let m0 = GenMarker{
+		Kind:      "api",
+		Generator: "ergo gen api",
+		Subjects:  []string{"example/app.Api"},
+		Contract:  "sha256:abc",
+		Digest:    "",
+	}
+	let d1 = MarkerDigest([]string{"a.ergo", "b.ergo", MarkerFileName}, []string{body, "x", "ignored"})
+	let d2 = MarkerDigest([]string{"b.ergo", "a.ergo"}, []string{"x", body})
+	let m1 = Stamp(m0, []string{"a.ergo"}, []string{body})
+	let text = FormatMarker(m1)
+	let m2 = ParseMarker(text) catch {
+	case BadMarker:
+		return false
+	}
+	d1 == d2 && FormatMarker(m2) == text
+}
+
+test MarkerHoldsOnlyOwnFolderAndRejectsEdits {
+	let mem = fstest.NewMemory()
+	let m = GenMarker{
+		Kind:      "api",
+		Generator: "ergo gen api",
+		Subjects:  []string{"example/svc.Api"},
+		Contract:  "sha256:0000",
+		Digest:    "",
+	}
+	let files = []string{"api.ergo"}
+	let texts = []string{"func Hello() int { 1 }\n"}
+	with context { fs.Writes: mem, fs.Files: mem } {
+		WriteGeneratedDir("/ws/svcapi", files, texts, m) catch {
+		case MarkerIOError:
+			assert false
+		}
+		assert MarkerHolds("/ws/svcapi", m, files, texts)
+		assert !MarkerHolds("/ws/svcapi", GenMarker{..m, Kind: "rpc"}, files, texts)
+		assert CheckMarkerDir("/ws/svcapi")
+		assert StaleFiles("/ws/svcapi", files, texts, m).Len() == 0
+		mem.WriteFile("/ws/svcapi/api.ergo", "func Hello() int { 2 }\n") catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			assert false
+		}
+		assert !MarkerHolds("/ws/svcapi", m, files, texts)
+		assert !CheckMarkerDir("/ws/svcapi")
+		assert StaleFiles("/ws/svcapi", files, texts, m) == []string{"/ws/svcapi/api.ergo"}
+	}
+}

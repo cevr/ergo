@@ -1,0 +1,262 @@
+import slices
+import strings
+
+let mcpModulePath = "mcp"
+
+func isMCPReservedName(name string) bool {
+	let list = []string{
+		"name", "arguments", "r", "x", "v", "e", "t", "p", "text", "back", "a",
+		"done", "rejected", "reply", "failure", "o", "c", "w", "g", "answer",
+		"result", "tools", "server", "message", "carry", "toolOver",
+	}
+	slices.Contains(list, name)
+}
+
+func mcpCheckImports(opName string, impNames []string) fails GenError {
+	for nm in impNames {
+		if isMCPReservedName(nm) {
+			return GenError{Reason: opName + ": the package " + nm + " is one the generated code names as a local; rename it"}
+		}
+	}
+}
+
+// GenerateMCP emits <pkg>mcp/mcp.ergo over the hub at apiPath.
+func GenerateMCP(st SpecTable, ot OpTable, ft FieldTable, tp TypePool, sid uint32, apiPath string, sc mut GenScratch) GeneratedPkg fails GenError {
+	if apiPath == "" {
+		return GenError{Reason: "the mcp package is written over the hub; run ergo gen api first"}
+	}
+	let _ = try GenerateAPI(st, ot, ft, tp, sid, sc)
+	ResetScratch(sc)
+
+	let opName = st.OpName[sid]
+	let pkgPath = st.PkgPath[sid]
+	let pkgName = st.PkgName[sid]
+	let api = LastElem(apiPath)
+	let rq = api + "."
+
+	let mut impPaths = []string{"json", "rpc", "scope", mcpModulePath, apiPath}
+	let mut impNames = []string{"json", "rpc", "scope", "mcp", api}
+	recordImport(&impPaths, &impNames, pkgPath, pkgName)
+	let stdAPI = StdAPIName(impPaths, impNames)
+	recordImport(&impPaths, &impNames, "api", stdAPI)
+
+	let opSt = int(st.OpStart[sid])
+	let opEn = opSt + int(st.OpLen[sid])
+	let mut tOps = []int{}
+	let mut tNames = []string{}
+	let mut tFlats = []string{}
+	for oi in opSt..opEn {
+		let kn = ot.Kebab[oi]
+		for j in 0..tNames.Len() {
+			if tNames[j] == kn {
+				return GenError{Reason: opName + "." + ot.Name[tOps[j]] + " and " + opName + "." + ot.Name[oi] + " have one tool name, " + kn}
+			}
+		}
+		tOps = tOps.Append(oi)
+		tNames = tNames.Append(kn)
+		tFlats = tFlats.Append(FlatParamKey(tp, ot, ft, uint32(oi)))
+	}
+
+	let capName = pkgName + "." + opName
+	let b = &sc.Buf
+	(*b).WriteString("// Request is one call of " + capName + ": the hub's Request.\ntype Request = " + rq + "Request\n\n")
+	(*b).WriteString("// valueOf is the JSON value text spells: the wire's text, so JSON.\nfunc valueOf(text string) json.Value {\njson.Decode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, text) catch {\ncase _:\njson.Null\n}\n}\n\n")
+	(*b).WriteString("// textOf is v's JSON text.\nfunc textOf(v json.Value) string { json.Encode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, v) }\n\n")
+	(*b).WriteString("// untagged is v without its \"_tag\" member: a variant's record as a\n// tool's arguments.\nfunc untagged(v json.Value) json.Value {\nmatch v {\ncase json.Object as o:\nlet mut members = []json.Member{}\nfor m in o.Members {\nif m.Key != \"_tag\" {\nmembers = members.Append(m)\n}\n}\njson.Object{Members: members}\ncase json.Null, json.Boolean, json.Num, json.Str, json.Array:\nv\n}\n}\n\n")
+
+	let mut nameLits = []string{}
+	for tn in tNames {
+		nameLits = nameLits.Append(Lit(tn))
+	}
+	(*b).WriteString("// Names are the tools' names, one per operation of " + capName + ", in its order.\nlet Names = []string{" + strings.Join(nameLits, ", ") + "}\n\n")
+
+	(*b).WriteString("// Description is what the tool name does: its operation's doc comment,\n// or its signature (the hub's Doc).\nfunc Description(name string) string {\nmatch name {\n")
+	for ti in 0..tOps.Len() {
+		(*b).WriteString("case " + Lit(tNames[ti]) + ":\n" + rq + "Doc(" + rq + ot.Name[tOps[ti]] + "Op)\n")
+	}
+	(*b).WriteString("case _:\n\"\"\n}\n}\n\n")
+
+	(*b).WriteString("// Input is the JSON schema of the tool name's arguments (the hub's\n// Schema; an object schema with no properties for a name that is no\n// tool's).\nfunc Input(name string) json.Value {\nmatch name {\n")
+	for ti in 0..tOps.Len() {
+		(*b).WriteString("case " + Lit(tNames[ti]) + ":\n" + rq + "Schema(" + rq + ot.Name[tOps[ti]] + "Op)\n")
+	}
+	(*b).WriteString("case _:\nvalueOf(\"{\\\"type\\\":\\\"object\\\",\\\"properties\\\":{}}\")\n}\n}\n\n")
+
+	(*b).WriteString("// Call is the Request that a call of the tool name with arguments asks\n// for: arguments that are not the tool's fail ToolError, a name that is\n// no tool's UnknownTool.\nfunc Call(name string, arguments json.Value) Request fails mcp.ToolError | mcp.UnknownTool {\nlet text = match name {\n")
+	for ti in 0..tOps.Len() {
+		let oi = tOps[ti]
+		let flat = tFlats[ti]
+		let payload = if flat != "" {
+			Lit("{"+JsonQuote(flat)+":") + " + textOf(arguments) + \"}\""
+		} else {
+			"textOf(arguments)"
+		}
+		(*b).WriteString("case " + Lit(tNames[ti]) + ":\nrpc.Tagged(" + Quote(ot.Name[oi]+"Request") + ", " + payload + ")\n")
+	}
+	(*b).WriteString("case _:\nreturn mcp.UnknownTool{Name: name}\n}\n")
+	(*b).WriteString("rpc.Decode[Request](\"arguments of \" + name, text) catch {\ncase rpc.Transport as e:\nreturn mcp.ToolError{Message: e.Reason}\n}\n}\n\n")
+
+	(*b).WriteString("// Arguments is the tool and the arguments that ask for r: Call reads\n// them as r again.\nfunc Arguments(r Request) (string, json.Value) {\nmatch r {\n")
+	for ti in 0..tOps.Len() {
+		let oi = tOps[ti]
+		let v = rq + ot.Name[oi] + "Request"
+		if ot.ParamLen[oi] == uint32(0) {
+			(*b).WriteString("case " + v + ":\n(" + Lit(tNames[ti]) + ", json.Object{Members: []json.Member{}})\n")
+		} else if tFlats[ti] != "" {
+			let p0 = int(ot.ParamStart[oi])
+			(*b).WriteString("case " + v + " as x:\n(" + Lit(tNames[ti]) + ", untagged(valueOf(rpc.Encode(x." + ft.FieldName[p0] + "))))\n")
+		} else {
+			(*b).WriteString("case " + v + " as x:\n(" + Lit(tNames[ti]) + ", untagged(valueOf(rpc.Encode(x))))\n")
+		}
+	}
+	(*b).WriteString("}\n}\n\n")
+
+	(*b).WriteString("// Show is the outcome o as a tool's answer: its value as JSON (null for\n// none), or its typed failure as a ToolError whose message is the\n// failure's tagged JSON.\nfunc Show(o " + rq + "Outcome) json.Value fails mcp.ToolError {\n")
+	(*b).WriteString("match o {\ncase " + rq + "Done as done:\nmatch done.Reply {\n")
+	for ti in 0..tOps.Len() {
+		let oi = tOps[ti]
+		let reply = rq + ot.Name[oi] + "Reply"
+		if ot.ResultType[oi] == NoIndex() {
+			(*b).WriteString("case " + reply + ":\njson.Null\n")
+		} else {
+			(*b).WriteString("case " + reply + " as reply:\nvalueOf(rpc.Encode(reply.Value))\n")
+		}
+	}
+	(*b).WriteString("}\ncase " + rq + "Rejected as rejected:\nmatch rejected.Failure {\n")
+	let sfSt = int(st.FailStart[sid])
+	let sfEn = sfSt + int(st.FailLen[sid])
+	for si in sfSt..sfEn {
+		(*b).WriteString("case " + rq + st.FailVariants[si] + " as failure:\n")
+		if st.FailTags[si] != "" {
+			(*b).WriteString("return mcp.ToolError{Message: rpc.Tagged(" + Quote(st.FailTags[si]) + ", rpc.Encode(failure.E))}\n")
+		} else {
+			(*b).WriteString("return mcp.ToolError{Message: rpc.Encode(failure.E)}\n")
+		}
+	}
+	if sfEn == sfSt {
+		(*b).WriteString("case " + rq + noFailure + ":\nreturn mcp.ToolError{Message: \"the hub answered NoFailure, which no operation fails\"}\n")
+	}
+	(*b).WriteString("}\n}\n}\n\n")
+
+	(*b).WriteString("// Answer answers r through the hub's Call on the bound " + capName + " (Show).\nfunc Answer(r Request) json.Value fails mcp.ToolError needs " + capName + " {\ntry Show(" + rq + "Call(r))\n}\n\n")
+
+	(*b).WriteString("// ReadAnswer is the outcome of r that a tool's result says: its value's\n// JSON, or, when it is an error, an admitted failure's tagged JSON.\n// Invalid or missing replies fail Transport, outside the operation's own row.\nfunc ReadAnswer(r Request, result mcp.Called) " + rq + "Outcome fails rpc.Transport {\n")
+	(*b).WriteString("if result.Content.Len() != 1 {\nreturn rpc.Transport{Reason: \"a tool answered \\(result.Content.Len()) blocks, not one\"}\n}\nlet text = result.Content[0].Text\nif !result.IsError {\nmatch r {\n")
+	for ti in 0..tOps.Len() {
+		let oi = tOps[ti]
+		let req = rq + ot.Name[oi] + "Request"
+		let reply = rq + ot.Name[oi] + "Reply"
+		if ot.ResultType[oi] == NoIndex() {
+			(*b).WriteString("case " + req + ":\nif text != \"null\" {\nreturn rpc.Transport{Reason: \"the tool " + tNames[ti] + " answered \" + text + \", not null\"}\n}\n" + rq + "Done{Reply: " + reply + "}\n")
+			continue
+		}
+		let rEx = TupleExpr(tp, ft, pkgPath, ot.ResultType[oi], &impPaths, &impNames)
+		(*b).WriteString("case " + req + ":\nlet v = try rpc.Decode[" + rEx + "](\"value\", text)\n" + rq + "Done{Reply: " + reply + "{Value: v}}\n")
+	}
+	(*b).WriteString("}\n} else {\nmatch r {\n")
+	for ti in 0..tOps.Len() {
+		let oi = tOps[ti]
+		(*b).WriteString("case " + rq + ot.Name[oi] + "Request:\n")
+		let fSt = int(ot.FailStart[oi])
+		let fEn = fSt + int(ot.FailLen[oi])
+		if fEn > fSt {
+			(*b).WriteString("match rpc.TagOf(text) {\n")
+			for fi in fSt..fEn {
+				let ftid = ot.FailTypeIDs[fi]
+				let mut quoted = []string{}
+				for tg in FailTags(tp, ftid) {
+					quoted = quoted.Append(Quote(tg))
+				}
+				let fEx = TupleExpr(tp, ft, pkgPath, ftid, &impPaths, &impNames)
+				(*b).WriteString("case " + strings.Join(quoted, ", ") + ":\nlet e = try rpc.Decode[" + fEx + "](\"failure\", text)\n" + rq + "Rejected{Failure: " + rq + specFailureVariant(st, tp, sid, ftid) + "{E: e}}\n")
+			}
+			(*b).WriteString("case _:\n")
+		}
+		(*b).WriteString("return rpc.Transport{Reason: \"the tool " + tNames[ti] + " answered an undeclared failure: \" + text}\n")
+		if fEn > fSt {
+			(*b).WriteString("}\n")
+		}
+	}
+	(*b).WriteString("}\n}\n}\n\n")
+
+	(*b).WriteString("// toolOver is the tool name answered by answer: it reads its arguments\n// (Call) and shows answer's outcome (Show).\nfunc toolOver(name string, answer own func(r Request) " + rq + "Outcome) mcp.Tool {\nmcp.Tool{Name: name, Description: Description(name), Input: Input(name), Call: func(arguments json.Value) json.Value fails mcp.ToolError {\nlet r = Call(name, arguments) catch {\ncase mcp.ToolError as e:\nreturn e\ncase mcp.UnknownTool as e:\nreturn mcp.ToolError{Message: \"no tool is named \" + e.Name}\n}\ntry Show(answer(r))\n}}\n}\n\n")
+	(*b).WriteString("// toolsOver makes one tool per operation, in declaration order.\nfunc toolsOver(answer own func(r Request) " + rq + "Outcome) []mcp.Tool {\nlet mut out = []mcp.Tool{}\nfor name in Names {\nout = out.Append(toolOver(name, answer))\n}\nout\n}\n\n")
+	(*b).WriteString("// Tools are the tools of the " + capName + " in force, one per operation, in its order.\nfunc Tools() []mcp.Tool needs " + capName + " {\nlet held = scope.InForce[" + capName + "]()\ntoolsOver(func(r Request) " + rq + "Outcome {\nwith held { " + rq + "Call(r) }\n})\n}\n\n")
+
+	(*b).WriteString("// carry is c through the protocol: the tools/call message of its tool,\n// answered by module mcp's Handle over tools whose answer is answer, and\n// the result read back (ReadAnswer). Delivery can fail separately from\n// answer's outcome.\nfunc carry(c Request, answer own func(c Request) " + rq + "Outcome) " + rq + "Outcome fails rpc.Transport {\n")
+	(*b).WriteString("let server = mcp.Server{Name: \"carry\", Version: \"1\", Tools: toolsOver(answer)}\nlet (name, arguments) = Arguments(c)\nlet message = \"{\\\"jsonrpc\\\":\\\"2.0\\\",\\\"id\\\":1,\\\"method\\\":\\\"tools/call\\\",\\\"params\\\":{\\\"name\\\":\" + rpc.Encode(name) + \",\\\"arguments\\\":\" + textOf(arguments) + \"}}\"\n")
+	(*b).WriteString("match mcp.Handle(server, message) {\ncase mcp.Answered as a:\nlet result = json.Decode(json.Codec[mcp.Called]{MaxBytes: 0, MaxDepth: 0}, a.Result) catch {\ncase _:\nreturn rpc.Transport{Reason: \"a tool's result is not one: \" + a.Result}\n}\ntry ReadAnswer(c, result)\ncase mcp.Refused as e:\nreturn rpc.Transport{Reason: \"the server refused the call: \" + e.Message}\ncase mcp.Silent:\nreturn rpc.Transport{Reason: \"the server did not answer the call\"}\n}\n}\n\n")
+	(*b).WriteString("// Wire is the protocol as a transport of the hub's calls.\ntype Wire {} implements " + stdAPI + ".Transport[Request, " + rq + "Outcome, rpc.Transport]\n\n")
+	(*b).WriteString("// Carry is carry.\nfunc Carry(w Wire, c Request, answer own func(c Request) " + rq + "Outcome) " + rq + "Outcome fails rpc.Transport { try carry(c, answer) }\n\n")
+	(*b).WriteString("// Agrees: the protocol carries every call and every outcome the call\n// can have unchanged.\nlaw Agrees(r Request, g " + rq + "Given) { " + stdAPI + ".Agrees[Request, " + rq + "Outcome, rpc.Transport](Wire, r, " + rq + "OutcomeOf(r, g)) }\n\n")
+
+	(*b).WriteString("// RoundTrips reports whether Call reads what Arguments writes of r as r.\nfunc RoundTrips(r Request) bool {\nlet (name, arguments) = Arguments(r)\nlet back = Call(name, arguments) catch {\ncase mcp.ToolError, mcp.UnknownTool:\nreturn false\n}\nback == r\n}\n\n")
+	(*b).WriteString("// FitsSchema reports whether the arguments that ask for r fit the\n// schema their tool lists.\nfunc FitsSchema(r Request) bool {\nlet (name, arguments) = Arguments(r)\nmcp.Conforms(Input(name), arguments)\n}\n\n")
+	(*b).WriteString("// ArgumentsRoundTrip: Call reads what Arguments writes as the same Request.\nlaw ArgumentsRoundTrip(r Request) { RoundTrips(r) }\n\n")
+	(*b).WriteString("// ArgumentsFitTheSchema: the arguments of every Request fit the schema\n// of their tool.\nlaw ArgumentsFitTheSchema(r Request) { FitsSchema(r) }\n")
+
+	let body = (*b).String()
+	try mcpCheckImports(opName, impNames)
+	let src = ImportBlock(impPaths, impNames, body, true, true) + "\n" + body
+	let out = try Source(src)
+	GeneratedPkg{
+		Dir:       pkgName + "mcp",
+		FileNames: []string{"mcp.ergo"},
+		FileTexts: []string{out},
+		Marker:    GenMarker{
+			Kind:      "mcp",
+			Generator: "ergo gen mcp",
+			Subjects:  []string{st.Subject[sid]},
+			Contract:  st.ContractDigest[sid],
+			Digest:    "",
+		},
+	}
+}
+
+test McpGeneratesToolsAndLaws {
+	let mut st = NewSpecTable()
+	let mut ot = NewOpTable()
+	let mut ft = NewFieldTable()
+	let mut tp = NewTypePool()
+	let sid = AddSpec(&st, "example/svc", "svc", "Svc")
+	let tidStr = AllocType(&tp, TypeBasic)
+	tp.BasicOrd[tidStr] = uint8(2)
+	tp.ExprText[tidStr] = "string"
+	tp.PrintText[tidStr] = "string"
+	tp.UnderlyingText[tidStr] = "string"
+	let tidBox = AllocType(&tp, TypeStruct)
+	tp.PkgPath[tidBox] = "example/svc"
+	tp.PkgName[tidBox] = "svc"
+	tp.TypeName[tidBox] = "Box"
+	tp.ExprPkgPath[tidBox] = "example/svc"
+	tp.ExprPkgName[tidBox] = "svc"
+	tp.ExprText[tidBox] = "svc.Box"
+	tp.PrintText[tidBox] = "main.Box"
+	let bfStart = ft.Count
+	let _ = AddField(&ft, FieldRecord, tidBox, "Msg", "Msg", "msg", false, tidStr, true, false, false, "")
+	tp.FieldStart[tidBox] = bfStart
+	tp.FieldLen[tidBox] = uint32(1)
+	let oid = AddOp(&ot, sid, "Echo", "echo", "Echo echoes text.")
+	let pSt = ft.Count
+	let _ = AddField(&ft, FieldParam, oid, "msg", "Msg", "msg", false, tidStr, true, false, false, "")
+	ot.ParamStart[oid] = pSt
+	ot.ParamLen[oid] = uint32(1)
+	ot.ResultType[oid] = tidStr
+	let oid2 = AddOp(&ot, sid, "Run", "run", "Run executes box.")
+	let pSt2 = ft.Count
+	let _ = AddField(&ft, FieldParam, oid2, "box", "Box", "box", false, tidBox, true, false, false, "")
+	ot.ParamStart[oid2] = pSt2
+	ot.ParamLen[oid2] = uint32(1)
+	ot.ResultType[oid2] = tidStr
+	st.OpStart[sid] = uint32(0)
+	st.OpLen[sid] = uint32(2)
+	st.ContractDigest[sid] = "sha256:0000"
+	let mut sc = NewScratch()
+	let g = GenerateMCP(st, ot, ft, tp, sid, "example/svc/svcapi", &sc) catch {
+	case GenError:
+		assert false
+		GeneratedPkg{Dir: "", FileNames: []string{}, FileTexts: []string{}, Marker: GenMarker{Kind: "", Generator: "", Subjects: []string{}, Contract: "", Digest: ""}}
+	}
+	assert g.Dir == "svcmcp" && strings.Contains(g.FileTexts[0], "law ArgumentsRoundTrip")
+	assert strings.Contains(g.FileTexts[0], "untagged(valueOf(rpc.Encode(x.Box)))")
+}

@@ -1,0 +1,152 @@
+import compiler/gen
+import fs
+import fstest
+import io
+import os
+import strings
+
+type dumpArgs {
+	std         string,
+	checkOnly   bool,
+	writeFiles  bool,
+	markerCheck bool,
+	kind        string,
+	target      string,
+}
+
+func parseArgs(argv []string) dumpArgs fails os.Exit {
+	let mut std = ""
+	let mut checkOnly = false
+	let mut writeFiles = false
+	let mut i = 0
+	for i < argv.Len() {
+		let a = argv[i]
+		if a == "-std" || a == "--std" {
+			if i+1 >= argv.Len() {
+				return os.Exit{Code: 2, Message: "gendump: -std requires a directory"}
+			}
+			std = argv[i+1]
+			i = i + 2
+			continue
+		}
+		if a == "-check" || a == "--check" {
+			checkOnly = true
+			i = i + 1
+			continue
+		}
+		if a == "-write" || a == "--write" {
+			writeFiles = true
+			i = i + 1
+			continue
+		}
+		break
+	}
+	if i >= argv.Len() {
+		return os.Exit{Code: 2, Message: "usage: gendump [-std DIR] [-check] [-write] KIND DIR.TYPE"}
+	}
+	let kind = argv[i]
+	if kind == "marker-check" {
+		if i+2 != argv.Len() {
+			return os.Exit{Code: 2, Message: "usage: gendump marker-check DIR"}
+		}
+		return dumpArgs{std: std, checkOnly: checkOnly, writeFiles: writeFiles, markerCheck: true, kind: kind, target: argv[i+1]}
+	}
+	if i+2 != argv.Len() {
+		return os.Exit{Code: 2, Message: "usage: gendump [-std DIR] [-check] [-write] KIND DIR.TYPE"}
+	}
+	dumpArgs{std: std, checkOnly: checkOnly, writeFiles: writeFiles, markerCheck: false, kind: kind, target: argv[i+1]}
+}
+
+func formatMarkerJSON(m gen.GenMarker) string {
+	let mut subParts = []string{}
+	for s in m.Subjects {
+		subParts = subParts.Append(gen.JsonQuote(s))
+	}
+	"{\"kind\":" + gen.JsonQuote(m.Kind) + ",\"generator\":" + gen.JsonQuote(m.Generator) + ",\"subjects\":[" + strings.Join(subParts, ",") + "],\"contract\":" + gen.JsonQuote(m.Contract) + ",\"digest\":" + gen.JsonQuote(m.Digest) + "}"
+}
+
+func formatReportJSON(ok bool, errMsg string, pkgs []gen.GeneratedPkg, stale []string) string {
+	let mut pkgParts = []string{}
+	for pkg in pkgs {
+		let (wNames, wTexts) = gen.WithMarker(pkg.FileNames, pkg.FileTexts, pkg.Marker)
+		let stamped = gen.Stamp(pkg.Marker, pkg.FileNames, pkg.FileTexts)
+		let mut fileParts = []string{}
+		for i in 0..wNames.Len() {
+			fileParts = fileParts.Append("{\"name\":" + gen.JsonQuote(wNames[i]) + ",\"content\":" + gen.JsonQuote(wTexts[i]) + "}")
+		}
+		pkgParts = pkgParts.Append("{\"dir\":" + gen.JsonQuote(pkg.Dir) + ",\"marker\":" + formatMarkerJSON(stamped) + ",\"files\":[" + strings.Join(fileParts, ",") + "]}")
+	}
+	let mut staleParts = []string{}
+	for s in stale {
+		staleParts = staleParts.Append(gen.JsonQuote(s))
+	}
+	let okStr = if ok { "true" } else { "false" }
+	"{\"ok\":" + okStr + ",\"error\":" + gen.JsonQuote(errMsg) + ",\"packages\":[" + strings.Join(pkgParts, ",") + "],\"stale\":[" + strings.Join(staleParts, ",") + "]}\n"
+}
+
+func run(argv []string) fails os.Exit needs fs.Files | fs.Writes | io.Stdout {
+	let cfg = try parseArgs(argv)
+	if cfg.markerCheck {
+		if gen.CheckMarkerDir(cfg.target) {
+			io.Stdout.Print("ok\n")
+			return
+		}
+		io.Stdout.Print("stale\n")
+		return os.Exit{Code: 1, Message: ""}
+	}
+	let dot = strings.LastIndex(cfg.target, ".")
+	if dot <= 0 || dot == cfg.target.Len()-1 {
+		io.Stdout.Print(formatReportJSON(false, "target must be DIR.TYPE", []gen.GeneratedPkg{}, []string{}))
+		return os.Exit{Code: 2, Message: ""}
+	}
+	let dir = cfg.target[0:dot]
+	let opOrType = cfg.target[dot+1 : cfg.target.Len()]
+	let (pkgs, _) = gen.GenDir(cfg.kind, dir, opOrType, cfg.std) catch {
+	case gen.GenError as e:
+		io.Stdout.Print(formatReportJSON(false, e.Reason, []gen.GeneratedPkg{}, []string{}))
+		return os.Exit{Code: 1, Message: ""}
+	}
+	if cfg.writeFiles {
+		gen.WriteGeneratedPackages(dir, pkgs) catch {
+		case gen.MarkerIOError as e:
+			io.Stdout.Print(formatReportJSON(false, e.Reason, []gen.GeneratedPkg{}, []string{}))
+			return os.Exit{Code: 1, Message: ""}
+		}
+	}
+	let stale = if cfg.checkOnly { gen.StalePackageFiles(dir, pkgs) } else { []string{} }
+	let ok = stale.Len() == 0
+	io.Stdout.Print(formatReportJSON(ok, "", pkgs, stale))
+	if !ok {
+		return os.Exit{Code: 1, Message: ""}
+	}
+}
+
+func main() fails os.Exit needs os.Ambient {
+	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), fs.Writes: fs.NewHost(), io.Stdout: io.NewHost() } {
+		try run(os.Process.Args())
+	}
+}
+
+test GendumpParsesAndChecksMarkers {
+	let cfg = parseArgs([]string{"-std", "/s", "-check", "api", "/d.Api"}) catch {
+	case os.Exit:
+		assert false
+		dumpArgs{std: "", checkOnly: false, writeFiles: false, markerCheck: false, kind: "", target: ""}
+	}
+	assert cfg.std == "/s" && cfg.checkOnly && cfg.kind == "api" && cfg.target == "/d.Api"
+
+	let mem = fstest.NewMemory()
+	let m = gen.GenMarker{Kind: "api", Generator: "ergo gen api", Subjects: []string{"ex/a.Api"}, Contract: "sha256:00", Digest: ""}
+	let rec = io.NewRecorder()
+	with context { fs.Files: mem, fs.Writes: mem, io.Stdout: rec } {
+		gen.WriteGeneratedDir("/out", []string{"api.ergo"}, []string{"func X() int { 1 }\n"}, m) catch {
+		case gen.MarkerIOError:
+			assert false
+		}
+		run([]string{"marker-check", "/out"}) catch {
+		case os.Exit:
+			assert false
+		}
+	}
+	assert rec.Text() == "ok\n"
+}

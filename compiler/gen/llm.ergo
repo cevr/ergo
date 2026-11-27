@@ -1,0 +1,235 @@
+import slices
+import strconv
+import strings
+
+func isLLMReservedName(name string) bool {
+	let list = []string{
+		"json", "jsonschema", "llm", "option", "rpc",
+		"c", "r", "o", "x", "e", "s", "m", "t", "v",
+		"id", "op", "name", "text", "back", "failed", "arguments",
+		"done", "rejected", "reply", "failure", "members", "specs", "bare", "argumentsOf",
+	}
+	slices.Contains(list, name)
+}
+
+// GenerateLLM emits <pkg>llm/llm.ergo over the hub at apiPath.
+func GenerateLLM(st SpecTable, ot OpTable, ft FieldTable, tp TypePool, sid uint32, apiPath string, sc mut GenScratch) GeneratedPkg fails GenError {
+	if apiPath == "" {
+		return GenError{Reason: "the llm package is written over the hub; run ergo gen api first"}
+	}
+	let _ = try GenerateAPI(st, ot, ft, tp, sid, sc)
+	ResetScratch(sc)
+
+	let opName = st.OpName[sid]
+	let pkgPath = st.PkgPath[sid]
+	let pkgName = st.PkgName[sid]
+	let api = LastElem(apiPath)
+	let rq = api + "."
+	if isLLMReservedName(pkgName) {
+		return GenError{Reason: opName + ": the package " + pkgName + " is one the generated code names as a local or an import; rename it"}
+	}
+	if isLLMReservedName(api) {
+		return GenError{Reason: opName + ": the package " + api + " is one the generated code names as a local or an import; rename it"}
+	}
+
+	let opSt = int(st.OpStart[sid])
+	let opEn = opSt + int(st.OpLen[sid])
+	let mut tOps = []int{}
+	let mut tNames = []string{}
+	let mut tFlats = []string{}
+	let mut tSchemas = []string{}
+	let mut tSchemaExprs = []string{}
+	let mut tFlatTypes = []string{}
+	let mut extraPaths = []string{}
+
+	for oi in opSt..opEn {
+		let argSchema = try ArgumentSchema(tp, ot, ft, st, sid, uint32(oi))
+		let schExpr = try SchemaExpr(argSchema)
+		let kn = ot.Kebab[oi]
+		let flat = FlatParamKey(tp, ot, ft, uint32(oi))
+		let mut flatType = ""
+		if flat != "" {
+			let p0 = int(ot.ParamStart[oi])
+			let mut fImpPaths = []string{}
+			let mut fImpNames = []string{}
+			flatType = TupleExpr(tp, ft, pkgPath, ft.TypeID[p0], &fImpPaths, &fImpNames)
+			for i in 0..fImpPaths.Len() {
+				let fp = fImpPaths[i]
+				let fn = fImpNames[i]
+				if fp != pkgPath && isLLMReservedName(fn) {
+					return GenError{Reason: opName + "." + ot.Name[oi] + ": the package " + fn + " of its parameter's type is one the generated code names as a local or an import; rename it"}
+				}
+				if fp != pkgPath && !slices.Contains(extraPaths, fp) {
+					extraPaths = extraPaths.Append(fp)
+				}
+			}
+		}
+		for j in 0..tNames.Len() {
+			if tNames[j] == kn {
+				return GenError{Reason: opName + "." + ot.Name[tOps[j]] + " and " + opName + "." + ot.Name[oi] + " have one tool name, " + kn}
+			}
+		}
+		tOps = tOps.Append(oi)
+		tNames = tNames.Append(kn)
+		tFlats = tFlats.Append(flat)
+		tSchemas = tSchemas.Append(argSchema)
+		tSchemaExprs = tSchemaExprs.Append(schExpr)
+		tFlatTypes = tFlatTypes.Append(flatType)
+	}
+
+	let capName = pkgName + "." + opName
+	let b = &sc.Buf
+	(*b).WriteString("// Request is one call of " + capName + ": the hub's Request.\ntype Request = " + rq + "Request\n\n")
+	(*b).WriteString("let specs = toolSpecs()\n\n")
+	(*b).WriteString("func toolSpecs() []llm.ToolSpec {\n[]llm.ToolSpec{\n")
+	for ti in 0..tOps.Len() {
+		let oi = tOps[ti]
+		(*b).WriteString("llm.ToolSpec{Name: " + Lit(tNames[ti]) + ", Description: " + rq + "Doc(" + rq + ot.Name[oi] + "Op), Input: jsonschema.Encode(" + tSchemaExprs[ti] + ")},\n")
+	}
+	(*b).WriteString("}\n}\n\n")
+	(*b).WriteString("func Specs() []llm.ToolSpec { specs }\n\n")
+	(*b).WriteString("// argumentsOf is the argument text of c: the empty object when the\n// model wrote none.\nfunc argumentsOf(c llm.Call) string {\nif c.Arguments == \"\" {\nreturn \"{}\"\n}\nc.Arguments\n}\n\n")
+
+	(*b).WriteString("// Parse is the Request the call c asks for: its arguments read straight\n// into the record of the tool it names (the fields of a tool whose only\n// parameter is a record are that record's), with no other value between.\n// A name that is no tool's fails UnknownTool; arguments that are not the\n// tool's parameters fail BadArguments.\nfunc Parse(c llm.Call) Request fails llm.UnknownTool | llm.BadArguments {\nmatch c.Name {\n")
+	for ti in 0..tOps.Len() {
+		let oi = tOps[ti]
+		let what = Lit("arguments of " + tNames[ti])
+		let refused = "case rpc.Transport as e:\nreturn llm.BadArguments{Name: c.Name, Reason: e.Reason}\n}\n"
+		if tFlats[ti] != "" {
+			let p0 = int(ot.ParamStart[oi])
+			(*b).WriteString("case " + Lit(tNames[ti]) + ":\nlet v = rpc.Decode[" + tFlatTypes[ti] + "](" + what + ", argumentsOf(c)) catch {\n" + refused + rq + RequestName(ot.Name[oi]) + "{" + ft.FieldName[p0] + ": v}\n")
+			continue
+		}
+		(*b).WriteString("case " + Lit(tNames[ti]) + ":\nlet v = rpc.Decode[" + rq + RequestName(ot.Name[oi]) + "](" + what + ", argumentsOf(c)) catch {\n" + refused + "v\n")
+	}
+	(*b).WriteString("case _:\nreturn llm.UnknownTool{Name: c.Name}\n}\n}\n\n")
+
+	(*b).WriteString("// valueOf is the JSON value text spells: the wire's text, so JSON.\nfunc valueOf(text string) json.Value {\njson.Decode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, text) catch {\ncase _:\njson.Null\n}\n}\n\n")
+	(*b).WriteString("// untagged is the JSON text of v without its \"_tag\" member: a\n// Request's record as a tool's arguments.\nfunc untagged(v json.Value) string {\nlet bare = match v {\ncase json.Object as o:\nlet mut members = []json.Member{}\nfor m in o.Members {\nif m.Key != \"_tag\" {\nmembers = members.Append(m)\n}\n}\njson.Object{Members: members}\ncase json.Null, json.Boolean, json.Num, json.Str, json.Array:\nv\n}\njson.Encode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, bare)\n}\n\n")
+
+	(*b).WriteString("// CallOf is the call id that asks for r, as a model writes it by the\n// specs: Parse reads it as r again.\nfunc CallOf(id string, r Request) llm.Call {\nmatch r {\n")
+	for ti in 0..tOps.Len() {
+		let oi = tOps[ti]
+		let v = rq + RequestName(ot.Name[oi])
+		if ot.ParamLen[oi] == uint32(0) {
+			(*b).WriteString("case " + v + ":\nllm.Call{Id: id, Name: " + Lit(tNames[ti]) + ", Arguments: \"{}\"}\n")
+		} else if tFlats[ti] != "" {
+			let p0 = int(ot.ParamStart[oi])
+			(*b).WriteString("case " + v + " as x:\nllm.Call{Id: id, Name: " + Lit(tNames[ti]) + ", Arguments: untagged(valueOf(rpc.Encode(x." + ft.FieldName[p0] + ")))}\n")
+		} else {
+			(*b).WriteString("case " + v + " as x:\nllm.Call{Id: id, Name: " + Lit(tNames[ti]) + ", Arguments: untagged(valueOf(rpc.Encode(x)))}\n")
+		}
+	}
+	(*b).WriteString("}\n}\n\n")
+
+	(*b).WriteString("// Result is the message that answers the call c with o: the value's\n// JSON (null for none), or the failure's tagged JSON, Failed.\nfunc Result(c llm.Call, o " + rq + "Outcome) llm.Message {\nmatch o {\ncase " + rq + "Done as done:\nlet text = match done.Reply {\n")
+	for ti in 0..tOps.Len() {
+		let oi = tOps[ti]
+		let reply = rq + ReplyName(ot.Name[oi])
+		if ot.ResultType[oi] == NoIndex() {
+			(*b).WriteString("case " + reply + ":\n\"null\"\n")
+		} else {
+			(*b).WriteString("case " + reply + " as reply:\nrpc.Encode(reply.Value)\n")
+		}
+	}
+	(*b).WriteString("}\nllm.Result{CallId: c.Id, Text: text, Failed: false}\ncase " + rq + "Rejected as rejected:\nlet text = match rejected.Failure {\n")
+	let sfSt = int(st.FailStart[sid])
+	let sfEn = sfSt + int(st.FailLen[sid])
+	for si in sfSt..sfEn {
+		(*b).WriteString("case " + rq + st.FailVariants[si] + " as failure:\n")
+		if st.FailTags[si] != "" {
+			(*b).WriteString("rpc.Tagged(" + Quote(st.FailTags[si]) + ", rpc.Encode(failure.E))\n")
+		} else {
+			(*b).WriteString("rpc.Encode(failure.E)\n")
+		}
+	}
+	if sfEn == sfSt {
+		(*b).WriteString("case " + rq + noFailure + ":\n\"the hub answered NoFailure, which no operation fails\"\n")
+	}
+	(*b).WriteString("}\nllm.Result{CallId: c.Id, Text: text, Failed: true}\n}\n}\n\n")
+
+	(*b).WriteString("// Answer answers the call c on the bound " + capName + ": Parse, the hub's Call,\n// then Result. A call Parse refuses is a failed Result that says why, so\n// the model can call again.\nfunc Answer(c llm.Call) llm.Message needs " + capName + " {\nlet r = Parse(c) catch {\ncase llm.UnknownTool as e:\nreturn llm.Result{CallId: c.Id, Text: \"no tool is named \" + e.Name, Failed: true}\ncase llm.BadArguments as e:\nreturn llm.Result{CallId: c.Id, Text: \"the arguments of \" + e.Name + \" are not its parameters: \" + e.Reason, Failed: true}\n}\nResult(c, " + rq + "Call(r))\n}\n\n")
+
+	(*b).WriteString("// specOf is the spec of the tool name, None when no tool has it.\nfunc specOf(name string) option.Option[llm.ToolSpec] {\nfor s in specs {\nif s.Name == name {\nreturn option.Some[llm.ToolSpec]{Value: s}\n}\n}\noption.None\n}\n\n")
+	(*b).WriteString("// RoundTrips reports whether Parse reads the call CallOf writes of r\n// as r.\nfunc RoundTrips(r Request) bool {\nlet back = Parse(CallOf(\"call-1\", r)) catch {\ncase llm.UnknownTool, llm.BadArguments:\nreturn false\n}\nback == r\n}\n\n")
+	(*b).WriteString("// FitsSpec reports whether the arguments of the call that asks for r\n// fit the input schema of the spec its name names.\nfunc FitsSpec(r Request) bool {\nlet c = CallOf(\"call-1\", r)\nmatch specOf(c.Name) {\ncase option.Some[llm.ToolSpec] as s:\njsonschema.Conforms(jsonschema.SchemaOf(s.Value.Input), valueOf(c.Arguments))\ncase option.None:\nfalse\n}\n}\n\n")
+	(*b).WriteString("// NamesOperation reports whether a spec names r's operation by the\n// hub's Name, with the hub's Doc and Schema.\nfunc NamesOperation(r Request) bool {\nlet op = " + rq + "OpOf(r)\nmatch specOf(" + rq + "Name(op)) {\ncase option.Some[llm.ToolSpec] as s:\ns.Value.Description == " + rq + "Doc(op) && jsonschema.Value(jsonschema.SchemaOf(s.Value.Input)) == " + rq + "Schema(op) && specs.Len() == " + strconv.Itoa(tOps.Len()) + "\ncase option.None:\nfalse\n}\n}\n\n")
+	(*b).WriteString("// UnknownIsTyped reports whether a call of name, when no tool has it,\n// fails UnknownTool with that name.\nfunc UnknownIsTyped(name string) bool {\nif specOf(name) != option.None {\nreturn true\n}\nlet _ = Parse(llm.Call{Id: \"call-1\", Name: name, Arguments: \"{}\"}) catch {\ncase llm.UnknownTool as e:\nreturn e.Name == name\ncase llm.BadArguments:\nreturn false\n}\nfalse\n}\n\n")
+	(*b).WriteString("// ResultNames reports whether the message that answers c with o is a\n// Result of c's id that failed exactly when o is Rejected.\nfunc ResultNames(c llm.Call, o " + rq + "Outcome) bool {\nlet failed = match o {\ncase " + rq + "Done:\nfalse\ncase " + rq + "Rejected:\ntrue\n}\nmatch Result(c, o) {\ncase llm.Result as m:\nm.CallId == c.Id && m.Failed == failed\ncase llm.User, llm.Assistant:\nfalse\n}\n}\n\n")
+
+	(*b).WriteString("// CallRoundTrips: Parse reads the call a model writes of r by the specs\n// as r.\nlaw CallRoundTrips(r Request) { RoundTrips(r) }\n\n")
+	(*b).WriteString("// CallsFitTheirSpec: the arguments of every Request fit the schema of\n// their tool's spec.\nlaw CallsFitTheirSpec(r Request) { FitsSpec(r) }\n\n")
+	(*b).WriteString("// SpecsNameEveryOperation: each operation has one spec, with the hub's\n// Name, Doc and Schema.\nlaw SpecsNameEveryOperation(r Request) { NamesOperation(r) }\n\n")
+	(*b).WriteString("// UnknownNameIsTyped: a call of a name that is no tool's fails\n// UnknownTool, never another tool's Request.\nlaw UnknownNameIsTyped(name string) { UnknownIsTyped(name) }\n\n")
+	(*b).WriteString("// ResultNamesItsCall: the message that answers a call is a Result of its\n// id, failed exactly when the call was rejected.\nlaw ResultNamesItsCall(c llm.Call, o " + rq + "Outcome) { ResultNames(c, o) }\n")
+
+	let mut impB = strings.NewBuilder()
+	impB.WriteString("import json\nimport jsonschema\nimport llm\nimport option\nimport rpc\n")
+	impB.WriteString("import " + pkgPath + "\n")
+	impB.WriteString("import " + apiPath + "\n")
+	for ep in slices.Sort(extraPaths) {
+		impB.WriteString("import " + ep + "\n")
+	}
+	let src = impB.String() + "\n" + (*b).String()
+	let out = try Source(src)
+	GeneratedPkg{
+		Dir:       pkgName + "llm",
+		FileNames: []string{"llm.ergo"},
+		FileTexts: []string{out},
+		Marker:    GenMarker{
+			Kind:      "llm",
+			Generator: "ergo gen llm",
+			Subjects:  []string{st.Subject[sid]},
+			Contract:  st.ContractDigest[sid],
+			Digest:    "",
+		},
+	}
+}
+
+test LlmGeneratesSpecsAndLaws {
+	let mut st = NewSpecTable()
+	let mut ot = NewOpTable()
+	let mut ft = NewFieldTable()
+	let mut tp = NewTypePool()
+	let sid = AddSpec(&st, "example/svc", "svc", "Svc")
+	let tidStr = AllocType(&tp, TypeBasic)
+	tp.BasicOrd[tidStr] = uint8(2)
+	tp.ExprText[tidStr] = "string"
+	tp.PrintText[tidStr] = "string"
+	tp.UnderlyingText[tidStr] = "string"
+	let tidBox = AllocType(&tp, TypeStruct)
+	tp.PkgPath[tidBox] = "example/svc"
+	tp.PkgName[tidBox] = "svc"
+	tp.TypeName[tidBox] = "Box"
+	tp.ExprPkgPath[tidBox] = "example/svc"
+	tp.ExprPkgName[tidBox] = "svc"
+	tp.ExprText[tidBox] = "svc.Box"
+	tp.PrintText[tidBox] = "main.Box"
+	let bfStart = ft.Count
+	let _ = AddField(&ft, FieldRecord, tidBox, "Msg", "Msg", "msg", false, tidStr, true, false, false, "")
+	tp.FieldStart[tidBox] = bfStart
+	tp.FieldLen[tidBox] = uint32(1)
+	let oid = AddOp(&ot, sid, "Ask", "ask", "Ask asks.")
+	let pSt = ft.Count
+	let _ = AddField(&ft, FieldParam, oid, "q", "Q", "q", false, tidStr, true, false, false, "")
+	ot.ParamStart[oid] = pSt
+	ot.ParamLen[oid] = uint32(1)
+	ot.ResultType[oid] = tidStr
+	let oid2 = AddOp(&ot, sid, "Run", "run", "Run runs.")
+	let pSt2 = ft.Count
+	let _ = AddField(&ft, FieldParam, oid2, "box", "Box", "box", false, tidBox, true, false, false, "")
+	ot.ParamStart[oid2] = pSt2
+	ot.ParamLen[oid2] = uint32(1)
+	ot.ResultType[oid2] = tidStr
+	st.OpStart[sid] = uint32(0)
+	st.OpLen[sid] = uint32(2)
+	st.ContractDigest[sid] = "sha256:0000"
+	let mut sc = NewScratch()
+	let g = GenerateLLM(st, ot, ft, tp, sid, "example/svc/svcapi", &sc) catch {
+	case GenError:
+		assert false
+		GeneratedPkg{Dir: "", FileNames: []string{}, FileTexts: []string{}, Marker: GenMarker{Kind: "", Generator: "", Subjects: []string{}, Contract: "", Digest: ""}}
+	}
+	assert g.Dir == "svcllm" && strings.Contains(g.FileTexts[0], "law CallRoundTrips")
+	assert strings.Contains(g.FileTexts[0], "RunRequest{Box: v}")
+}
