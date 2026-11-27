@@ -82,7 +82,7 @@ func (c *CheckCache) key(l *loader, p *loadedPackage, checkPath string) (string,
 		return 0
 	})
 	for _, imp := range imports {
-		fp, ok := l.fps[imp.path]
+		fp, ok := l.fps[l.resolvedImportPath(p, imp.path)]
 		if !ok || fp.Interface == "" {
 			return "", false
 		}
@@ -111,12 +111,12 @@ func (c *CheckCache) reuse(l *loader, p *loadedPackage, key string) (*check.Pack
 	}
 	c.u.SetImporter(l)
 	pkg, err := c.u.DecodeSegment(e.seg, func(path string) *check.Package {
-		if q := l.pkgs[path]; q != nil {
+		if q := l.pkgs[l.resolvedImportPath(p, path)]; q != nil {
 			return q.pkg
 		}
 		return nil
 	}, l)
-	if err != nil || pkg == nil || len(pkg.Files()) != len(p.files) {
+	if err != nil || pkg == nil || len(pkg.SourceFiles()) != len(p.files) {
 		return nil, false
 	}
 	return pkg, true
@@ -126,9 +126,6 @@ func (c *CheckCache) reuse(l *loader, p *loadedPackage, key string) (*check.Pack
 // later packages of this check name its objects by path. A package the
 // export cannot carry drops the export: the cache starts again empty.
 func (c *CheckCache) store(l *loader, p *loadedPackage, key string, pkg *check.Package) {
-	if !pkg.Derive.Empty() {
-		return // the export does not carry a derive record
-	}
 	if c.u == nil {
 		u, err := snapshot.NewUserExport(l)
 		if err != nil {
@@ -178,7 +175,7 @@ func (l *loader) environment(p *loadedPackage) string {
 func (l *loader) fingerprintAfter(p *loadedPackage, checkPath string, files []*syntax.File) {
 	var imports []fingerprint.Package
 	for _, imp := range p.imports {
-		imports = append(imports, l.fps[imp.path])
+		imports = append(imports, l.fps[l.resolvedImportPath(p, imp.path)])
 	}
 	l.fps[p.path] = check.FingerprintOf(p.path, checkPath, files, p.pkg, p.pkg != nil && !p.broken, l.environment(p), imports)
 }

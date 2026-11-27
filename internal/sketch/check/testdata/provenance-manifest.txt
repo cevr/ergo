@@ -71,16 +71,10 @@ import ergo.local/prototype/runtime/v1
 # -deps), so it cannot name, receive or build a syntax node.
 import ergo.local/prototype/internal/sketch/std/gostd
 
-# derive (patterns.md Derivation; check/derive.go, check.go, info.go):
-# expandDerives calls derive.Expand on a package's files before the checker
-# meets them, and Package.Derive / checker.derive hold its record. derive
-# does make syntax nodes (it parses each derived bundle), but only before
-# the check, and only into the file it expands: each bundle is spliced into
-# that file's declarations (or its type's spec) and every position in it is
-# set to the derive's (derive.reposition). So each node it makes lies in a
-# file's tree at a position of that file, as a parsed node does; the
-# checker gets nodes from it through the files only, never from a call.
-import ergo.local/prototype/internal/sketch/derive
+# derive (patterns.md / content-mappers.md; check/derive.go, check.go, info.go):
+# expandDerives invokes the registered content-mapper expander
+# (internal/sketch/contentmap) before type collection runs. check itself
+# never imports derive/contentmap or calls syntax.Parse.
 
 # The syntax callees that yield a node, each with the only sites that may
 # call it (E2b round 4 review M2). Each site parses a whole file and checks

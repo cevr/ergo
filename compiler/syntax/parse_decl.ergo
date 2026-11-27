@@ -53,8 +53,10 @@ func parseImportDecl(p mut parser) uint32 {
 	if p.tk == LParen {
 		habit(p, pos(p), 1, habitImportGroup)
 	}
+	let mut isGo = false
 	let mut namePos = none
 	if p.tk == Go {
+		isGo = true
 		namePos = someTok(p.i)
 		next(p)
 	}
@@ -77,6 +79,12 @@ func parseImportDecl(p mut parser) uint32 {
 		}
 		first = p.i
 		next(p)
+	}
+	if isGo {
+		let pText = lit(p, first)
+		if (pText.Len() >= 2 && pText[0] == '.' && pText[1] == '/') || (pText.Len() >= 3 && pText[0] == '.' && pText[1] == '.' && pText[2] == '/') {
+			errorAt(p, tpos(p, first), tend(p, first)-tpos(p, first), "expected a Go import path, found "+quote(pText))
+		}
 	}
 	let path = row(&p.t, KBasicLit, uint32(first), none, none)
 	let spec = row(&p.t, KImportSpec, namePos, name, path)
@@ -188,7 +196,7 @@ func parseDerive(p mut parser, m int, doc uint32, typ int, name uint32, tparams 
 		errorAt(p, tpos(p, at), 6, "a derived type has no type parameters: the plan fixes its shape (a Provider plan excepted)")
 	}
 	if atWhere(p) {
-		errorAt(p, tpos(p, at), 6, "derive does not combine with where: write the span in the plan, Refine(Of[B](), lo, hi)")
+		errorAt(p, tpos(p, at), 6, "derive does not combine with where: declare where on the type itself or generate it from the mapper")
 	}
 	if p.tk == LBrace {
 		errorAt(p, tpos(p, at), 6, "derive does not combine with a body: the plan gives the type its fields")

@@ -1,8 +1,10 @@
 package lower
 
 import (
+	"path/filepath"
 	"slices"
 	"sort"
+	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -116,8 +118,54 @@ type declLists struct {
 	laws  []*check.Law
 }
 
+func withDerivedUnitFiles(u Unit, root string) Unit {
+	if u.Package == nil {
+		return u
+	}
+	pkgFiles := u.Package.Files()
+	if len(pkgFiles) <= len(u.Files) {
+		return u
+	}
+	have := make(map[*syntax.File]bool, len(u.Files))
+	for _, f := range u.Files {
+		have[f] = true
+	}
+	baseDir := root
+	if baseDir == "" && len(u.Sources) > 0 {
+		baseDir = filepath.Dir(u.Sources[0].Path)
+	}
+	if baseDir == "" || baseDir == "." {
+		baseDir = "/ergo-derive"
+	}
+	files := slices.Clone(u.Files)
+	sources := slices.Clone(u.Sources)
+	for _, gf := range pkgFiles {
+		if have[gf] || !strings.HasPrefix(gf.Name, "__ergo_derive_") {
+			continue
+		}
+		files = append(files, gf)
+		sources = append(sources, Source{Path: filepath.Join(baseDir, gf.Name), Text: gf.Src})
+	}
+	u.Files = files
+	u.Sources = sources
+	return u
+}
+
+func withDerivedFiles(u Unit) Unit {
+	u = withDerivedUnitFiles(u, u.Root)
+	if len(u.Imports) > 0 {
+		imps := make([]Unit, len(u.Imports))
+		for i, imp := range u.Imports {
+			imps[i] = withDerivedUnitFiles(imp, u.Root)
+		}
+		u.Imports = imps
+	}
+	return u
+}
+
 // canonicalize converts u, which Validate admits, to its canonical form.
 func canonicalize(u Unit) *canonical {
+	u = withDerivedFiles(u)
 	c := &canonical{sourced: map[*check.Package]bool{}, lists: map[*check.Package]*declLists{}, noViews: u.NoViews}
 	c.srcs = sources(u)
 	for _, s := range c.srcs {

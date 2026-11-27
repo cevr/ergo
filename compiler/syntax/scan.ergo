@@ -303,7 +303,7 @@ func run(s mut scanner) {
 			i = start + 1
 			continue
 		}
-		if s.open == 0 && op1[int(c)] != byte(0) {
+		if s.open == 0 && op1[int(c)] != byte(0) && !(s.paths > 0 && pathStart(src, start)) {
 			// An operator its first two bytes decide, kept in this arm:
 			// opFast written out (a call per operator cost more than its
 			// body, capstone S2f).
@@ -594,10 +594,17 @@ func comment(s mut scanner, start int) {
 	s.offset = end
 }
 
-// pathStart reports whether a path word starts at i: a letter, a digit or
-// `_`.
+// pathStart reports whether a path word starts at i: a letter, a digit,
+// `_`, or a relative prefix `./` or `../`.
 func pathStart(src string, i int) bool {
+	let n = src.Len()
 	let c = src[i]
+	if c == '.' {
+		if i+1 < n && src[i+1] == '/' {
+			return true
+		}
+		return i+2 < n && src[i+1] == '.' && src[i+2] == '/'
+	}
 	if c < 0x80 {
 		return isLetter(c) || isDigit(c)
 	}
@@ -644,6 +651,20 @@ func pathWord(s mut scanner, start int) {
 	let src = s.src
 	let n = src.Len()
 	let mut end = start
+	let mut rel = false
+	if !s.goPath {
+		for end < n && src[end] == '.' {
+			if end+1 < n && src[end+1] == '/' {
+				end = end + 2
+				rel = true
+			} else if end+2 < n && src[end+1] == '.' && src[end+2] == '/' {
+				end = end + 3
+				rel = true
+			} else {
+				break
+			}
+		}
+	}
 	let mut elementStart = true
 	for end < n {
 		if src[end] == '/' && end+1 < n && (src[end+1] == '/' || src[end+1] == '*') {
@@ -669,7 +690,12 @@ func pathWord(s mut scanner, start int) {
 				}
 				elementStart = true
 			} else {
-				if elementStart && k&clsLetter == 0 || !elementStart && k&(clsLetter|clsDigit) == 0 && c != '-' {
+				if !rel {
+					if elementStart && k&clsLetter == 0 || !elementStart && k&(clsLetter|clsDigit) == 0 && c != '-' {
+						fail(s, end, 1, "invalid character "+strconv.QuoteRune(rune(c))+" in import path element")
+						return
+					}
+				} else if elementStart && k&(clsLetter|clsDigit) == 0 || !elementStart && k&(clsLetter|clsDigit) == 0 && c != '-' {
 					fail(s, end, 1, "invalid character "+strconv.QuoteRune(rune(c))+" in import path element")
 					return
 				}

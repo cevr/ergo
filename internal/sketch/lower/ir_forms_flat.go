@@ -99,7 +99,7 @@ func (st *irState) keepFlatWrapper(fd *funcDecl, directive string, parts, names 
 // flatFailure filters checked declarations, before
 // either a wrapper or a call site needs the worker's Go types.
 func flatFailure(f *check.Func) *check.Named {
-	if f.Decl == nil || f.Decl.Body == nil || f.Decl.Extern != nil || f.Decl.Recv != nil || f.Sig == nil || nativeOf(f) != nil {
+	if f.Decl == nil || f.Decl.Body == nil || f.Decl.Extern != nil || f.Decl.Recv != nil || f.Sig == nil {
 		return nil
 	}
 	if len(f.Sig.TParams) > 0 || len(f.Sig.Results) > 1 || len(f.Sig.Takes) > 0 || f.Sig.TakesSelf {

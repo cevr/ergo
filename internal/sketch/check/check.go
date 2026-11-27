@@ -10,7 +10,6 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"ergo.local/prototype/internal/sketch/derive"
 	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -96,17 +95,26 @@ func check(path string, files []*syntax.File, imp Importer, under *Package, opts
 	if imp == nil {
 		imp = Std
 	}
-	derived, derivedDiags := expandDerives(path, files, imp) // derive.go
-	order := canonicalFiles(files)
+	res := opts.expanded
+	if res == nil {
+		r := expandDerives(path, files, imp, opts) // derive.go
+		res = &r
+	}
+	allFiles := files
+	if len(res.GeneratedFiles) > 0 {
+		allFiles = cloneFileList(files, res.GeneratedFiles)
+	}
+	order := canonicalFiles(allFiles)
 	met := make([]*syntax.File, len(order))
 	rank := make([]int, len(order))
 	for i, k := range order {
-		met[i] = files[k]
+		met[i] = allFiles[k]
 		rank[k] = i
 	}
 	c := newChecker(path, imp, prelude().scope)
 	c.opts = opts
-	c.derive = derived
+	c.derive = res.Record
+	c.deriveRes = *res
 	c.pkg.module, c.pkg.trusted = module, trusted
 	c.pkg.testOf = under
 	c.placeLaws = lawPlacementReported || opts.placeLaws
@@ -123,14 +131,32 @@ func check(path string, files []*syntax.File, imp Importer, under *Package, opts
 		// form has its derived function (mapshape.go): check the
 		// rewritten package.
 		opts.shapesWritten = true
+		opts.expanded = res
 		return check(path, files, imp, under, opts)
 	}
-	for _, d := range derivedDiags {
-		d.File = rank[d.File]
+	for i, d := range c.diags {
+		if d.File >= 0 && d.File < len(met) && isGeneratedFile(met[d.File], *res) && res.RemapDiag != nil {
+			if origIdx, mapped, ok := res.RemapDiag(met[d.File], d); ok && origIdx >= 0 && origIdx < len(files) {
+				mapped.File = rank[origIdx]
+				c.diags[i] = mapped
+			}
+		}
+	}
+	for _, d := range res.Diags {
+		if d.File >= 0 && d.File < len(files) {
+			d.File = rank[d.File]
+		}
 		c.diags = append(c.diags, d)
 	}
 	if pkg != nil {
-		pkg.Derive = derived
+		pkg.Derive = res.Record
+		if len(res.FileOrigins) > 0 {
+			gen := make(map[*syntax.File]bool, len(res.FileOrigins))
+			for gf := range res.FileOrigins {
+				gen[gf] = true
+			}
+			pkg.generatedFiles = gen
+		}
 		if opts.Infer {
 			pkg.Clauses = c.inferredClauses()
 			for i := range pkg.Clauses {
@@ -181,7 +207,8 @@ type checker struct {
 	// constraint, whose bound may name a parameter whose constraint is not
 	// set yet (`[T Ranked[T]]`; checked once all are set, boundsUnmet).
 	deferBounds int
-	derive      *derive.Package // the package's derive record (derive.go)
+	derive      *DeriveRecord      // the package's content-mapper derive record (derive.go)
+	deriveRes   DeriveExpandResult // active inline derive expansion state
 	// neverOrigins caches, per union origin, whether a variant holds a
 	// Never (switchUnion.mayHoldNever; types.md, Never).
 	neverOrigins map[*Union]bool

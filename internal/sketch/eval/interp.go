@@ -96,6 +96,13 @@ type interp struct {
 	// pairs are the by-name codec pairs every package's check recorded
 	// (codecwalk.go), built at the first codec call.
 	pairs map[*check.TypeName]*check.WirePair
+	// strictMapper enforces pure check-time content mapper execution
+	// without host/capability access and records active call frames.
+	strictMapper    bool
+	mapperFrames    []string
+	mapperLastFrame string
+	track           *byteTracker
+	skipInitExpr    syntax.Expr
 }
 
 // frame is one running body: a test, a law, a function call or a call of
@@ -192,6 +199,9 @@ func (in *interp) framePlanned(p *funcPlan) *frame {
 // released or handed to the caller when it ended. The frame is cleared,
 // so a use after it is freed reads no stale slot.
 func (in *interp) freeFrame(fr *frame) {
+	if in.track != nil {
+		return
+	}
 	if fr.escaped || len(in.framePool) >= maxPooledFrames {
 		return
 	}
@@ -427,6 +437,10 @@ func (in *interp) callWitnessed(fr *frame, at *syntax.CallExpr, fn *check.Func, 
 // callPlanned is callResolved with the callee's plan (plan.go).
 func (in *interp) callPlanned(fr *frame, at *syntax.CallExpr, p *funcPlan, targs []rtype, wits map[*check.TypeParam]*witnessV, args []Value) (Value, *abrupt) {
 	fn := p.fn
+	var argOrigs [][]SourceByteOrigin
+	if in.track != nil {
+		argOrigs = in.track.popArgs(len(args))
+	}
 	if p.appendsString {
 		if ab := in.charge(fr, at, 1); ab != nil {
 			return nil, ab
@@ -449,6 +463,9 @@ func (in *interp) callPlanned(fr *frame, at *syntax.CallExpr, p *funcPlan, targs
 			if v, ab = in.appendTo(fr, site, v.(sliceV), s[i], nil); ab != nil {
 				return nil, ab
 			}
+		}
+		if in.track != nil && len(argOrigs) == 2 {
+			in.track.onAppendString(xs, v.(sliceV), s, argOrigs[1])
 		}
 		return v, nil
 	}
@@ -505,12 +522,19 @@ func (in *interp) callPlanned(fr *frame, at *syntax.CallExpr, p *funcPlan, targs
 			}
 			return v, nil
 		}
+		if in.strictMapper && fn != nil && ((fn.Pkg != nil && fn.Pkg.Host()) || goNativeOf(fn) != nil) && stdPureGoNativeOf(fn) == nil {
+			return nil, fr.unsupported(at, "foreign Go function (%s) during check-time mapper execution", fn.Name)
+		}
 		if p.nat != nil {
 			var site syntax.Node = fr.decl
 			if at != nil {
 				site = at
 			}
-			return p.nat(in, fr, site, fn, args)
+			v, ab := p.nat(in, fr, site, fn, args)
+			if ab == nil && in.track != nil {
+				in.track.afterNative(fn, args, v, argOrigs)
+			}
+			return v, ab
 		}
 		return nil, fr.unsupported(at, "a Go function (%s), even a pure one", fn.Name)
 	}
@@ -547,6 +571,9 @@ func (in *interp) callPlanned(fr *frame, at *syntax.CallExpr, p *funcPlan, targs
 	}
 	for i, v := range params {
 		callee.bind(v, args[i])
+		if in.track != nil && i < len(argOrigs) {
+			in.track.bindParam(callee, v, argOrigs[i])
+		}
 	}
 	for _, i := range p.owned {
 		in.ownVar(callee, params[i], fn.Decl) // a taken parameter (R8)
@@ -582,10 +609,21 @@ func (in *interp) runFrame(fr *frame, at *syntax.CallExpr, callee *frame, name s
 // runFrameBody is runFrame with the body's compiled form, when it has one.
 func (in *interp) runFrameBody(fr *frame, at *syntax.CallExpr, callee *frame, name string, body []syntax.Stmt, fast fastBody) (Value, *abrupt) {
 	if in.depth >= in.budget.Depth {
+		if in.strictMapper && name != "" {
+			in.mapperLastFrame = name
+		}
 		return nil, fr.abrupt(ctlExhausted, at, nil, fmt.Sprintf("the call depth reached its bound of %d", in.budget.Depth))
 	}
 	in.depth++
-	defer func() { in.depth-- }()
+	if in.strictMapper {
+		in.mapperFrames = append(in.mapperFrames, name)
+	}
+	defer func() {
+		if in.strictMapper && len(in.mapperFrames) > 0 {
+			in.mapperFrames = in.mapperFrames[:len(in.mapperFrames)-1]
+		}
+		in.depth--
+	}()
 	var val Value
 	ab := in.entryPoll(callee)
 	if ab == nil {
@@ -617,6 +655,9 @@ func (in *interp) runFrameBody(fr *frame, at *syntax.CallExpr, callee *frame, na
 		return nil, &out
 	case ctlBreak, ctlContinue:
 		ice("a %d left the function %s", ab.kind, name)
+	}
+	if in.strictMapper && len(in.mapperFrames) > 0 && in.mapperLastFrame == "" {
+		in.mapperLastFrame = in.mapperFrames[len(in.mapperFrames)-1]
 	}
 	return nil, ab
 }

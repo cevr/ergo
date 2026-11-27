@@ -99,6 +99,9 @@ func inspectCommand(args []string) error {
 	if len(args) > 0 && args[0] == "copies" {
 		return inspectCopiesCommand(args[1:])
 	}
+	if len(args) > 0 && (args[0] == "mappers" || args[0] == "mapped") {
+		return inspectMappersCommand(args[1:])
+	}
 	if len(args) > 0 && args[0] == "forms" {
 		if len(args) == 2 && (args[1] == "--help" || args[1] == "-h") {
 			_, err := os.Stdout.WriteString(inspectFormsHelp)

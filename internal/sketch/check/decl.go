@@ -28,7 +28,7 @@ func (c *checker) run(files []*syntax.File) *Package {
 	n := newChecker(c.pkg.Path, c.imp, c.universe)
 	n.testAuthorities = c.testAuthorities
 	n.pkg.std = c.pkg.std
-	n.opts, n.derive = c.opts, c.derive
+	n.opts, n.derive, n.deriveRes = c.opts, c.derive, c.deriveRes
 	n.pkg.module, n.pkg.trusted = c.pkg.module, c.pkg.trusted
 	n.relSeeds, n.relHit = seeds, map[syntax.Node]bool{}
 	n.wireEdges = edges
@@ -402,6 +402,14 @@ func (c *checker) collect() {
 				}
 				c.importSpec(fi, d.Specs[0])
 			case *syntax.TypeDecl:
+				if c.deriveRes.ReplacedDecls != nil && c.deriveRes.ReplacedDecls[d] {
+					continue
+				}
+				if d.Derive != nil && c.derive != nil && c.derive.RefusedRoots[d.Name.Name] {
+					tn := &TypeName{Name: d.Name.Name, Pkg: c.pkg, Pos: d.Name.Pos(), Type: invalid, Decl: d, file: fi, id: newID()}
+					c.declare(d.Name, tn)
+					continue
+				}
 				if target := aliasDirective(d.Doc); target != "" {
 					if c.pkg.Scope.parent != nil {
 						if obj, _ := c.pkg.Scope.parent.lookup(target); obj != nil {
@@ -703,11 +711,20 @@ func (c *checker) importSpec(fi *fileInfo, spec *syntax.ImportSpec) {
 		return
 	}
 	// The same rule holds for a last element that is not a name, such as
-	// the folder okra-repo (196b Q3): the import needs an alias.
+	// the folder okra-repo (196b Q3): the import needs an alias. An unaliased
+	// module-path asset import (mapped via ergo.mod) resolves its stem below.
 	if def := importDefault(spec, path); spec.Name == nil && !syntax.IsKeyword(def) && !importName(def) {
-		c.errorf(spec.Path, CodeType, "%s is not a name; import the package under a name: import %s %s", def, strings.ReplaceAll(def, "-", ""), path)
-		c.bindBrokenImport(fi, spec, path)
-		return
+		isAssetPkg := false
+		if spec.Kind == syntax.ImportPlain && c.imp != nil && strings.Contains(def, ".") {
+			if assetPkg, impErr := c.imp.Import(path); impErr == nil && assetPkg != nil && assetPkg.Derive != nil && len(assetPkg.Derive.Records) > 0 && assetPkg.Derive.Records[0].Kind == "file" && importName(assetPkg.Name) {
+				isAssetPkg = true
+			}
+		}
+		if !isAssetPkg {
+			c.errorf(spec.Path, CodeType, "%s is not a name; import the package under a name: import %s %s", def, strings.ReplaceAll(def, "-", ""), path)
+			c.bindBrokenImport(fi, spec, path)
+			return
+		}
 	}
 	switch spec.Kind {
 	case syntax.ImportPlain, syntax.ImportNamed:
@@ -863,6 +880,9 @@ func importDefault(spec *syntax.ImportSpec, path string) string {
 	if spec.Kind == syntax.ImportGo {
 		return GoPackageName(path)
 	}
+	if syntax.IsRelativeAssetPath(path) {
+		return syntax.AssetStem(path)
+	}
 	return lastElement(path)
 }
 
@@ -985,7 +1005,7 @@ func (c *checker) checkUnusedImports() {
 	for _, fi := range c.files {
 		c.cur = fi
 		for _, pn := range fi.imports {
-			if pn.used || c.derive.UsesImport(fi.syntax, pn.Name) { // derive.go
+			if pn.used || usesImportInDerive(fi.syntax, pn.Name) { // derive.go
 				continue
 			}
 			if carried(pn) {

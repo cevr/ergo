@@ -102,6 +102,8 @@ type Codec_contextValueSite = contextValueSite
 
 type Codec_declKinds = declKinds
 
+type Codec_deriveExpanderState = deriveExpanderState
+
 type Codec_domain = domain
 
 type Codec_dropWalk = dropWalk
@@ -1306,6 +1308,14 @@ type CodecFields_declKinds struct {
 
 func CodecFieldsOf_declKinds(v *declKinds) CodecFields_declKinds {
 	return CodecFields_declKinds{F_kinds: &v.kinds, F_conflicts: &v.conflicts}
+}
+
+type CodecFields_deriveExpanderState struct {
+	F_expander *func(DeriveExpandRequest) DeriveExpandResult
+}
+
+func CodecFieldsOf_deriveExpanderState(v *deriveExpanderState) CodecFields_deriveExpanderState {
+	return CodecFields_deriveExpanderState{F_expander: &v.expander}
 }
 
 type CodecFields_dropWalk struct {

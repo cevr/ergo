@@ -1,0 +1,186 @@
+import content
+
+let quantOne = 0
+let quantOpt = 1
+let quantMany = 2
+
+type captureNode {
+	name     string,
+	tag      int,
+	span     content.SourceSpan,
+	quant    int,
+	children []captureNode,
+}
+
+type patternShape {
+	isUnion  bool,
+	variants []captureNode,
+	fields   []captureNode,
+	nextTag  int,
+	diags    []content.MapperDiag,
+}
+
+func diagSpan(s uint32, e uint32, code string, msg string, hint string) content.MapperDiag {
+	content.ErrorDiag(s, e, code, msg, hint)
+}
+
+func mergeQuant(outer int, inner int) int {
+	if outer == quantMany || inner == quantMany {
+		return quantMany
+	}
+	if outer == quantOpt || inner == quantOpt {
+		return quantOpt
+	}
+	quantOne
+}
+
+func quantForRepeat(minVal int, maxVal int) int {
+	if maxVal == -1 || maxVal > 1 {
+		return quantMany
+	}
+	if minVal == 0 && maxVal == 1 {
+		return quantOpt
+	}
+	quantOne
+}
+
+func unwrapTrivialUnion(ast regexAST, id int) (bool, []int) {
+	let n = ast.nodes[id]
+	if n.kind != kindAlt {
+		return (false, []int{})
+	}
+	let mut out = []int{}
+	for k in n.kids {
+		let br = ast.nodes[k]
+		if br.kind != kindCapture {
+			return (false, []int{})
+		}
+		out = out.Append(k)
+	}
+	(true, out)
+}
+
+func analyzeShape(ast regexAST) (patternShape, []int) {
+	let mut tags = []int{}
+	for _ in 0..ast.nodes.Len() {
+		tags = tags.Append(0)
+	}
+	let (isUn, varIds) = unwrapTrivialUnion(ast, ast.root)
+	if isUn {
+		let mut variants = []captureNode{}
+		let mut seenVar = Map[string, bool]{}
+		let mut nextTag = 1
+		let mut diags = []content.MapperDiag{}
+		for vid in varIds {
+			let vn = ast.nodes[vid]
+			if seenVar.Get(vn.name) != None {
+				diags = diags.Append(diagSpan(vn.start, vn.end, "R002", "duplicate union capture name '"+vn.name+"'", "give each top-level branch capture a distinct name"))
+				continue
+			}
+			seenVar[vn.name] = true
+			let tag = nextTag
+			nextTag = nextTag + 1
+			tags[vid] = tag
+			let (subFields, nt, t2, subDiags) = collectCaptures(ast, vn.kids[0], quantOne, false, false, nextTag, tags)
+			nextTag = nt
+			tags = t2
+			for d in subDiags {
+				diags = diags.Append(d)
+			}
+			variants = variants.Append(captureNode{
+				name:     vn.name,
+				tag:      tag,
+				span:     content.SourceSpan{Start: vn.start, End: vn.end},
+				quant:    quantOne,
+				children: subFields,
+			})
+		}
+		return (patternShape{isUnion: true, variants: variants, fields: []captureNode{}, nextTag: nextTag, diags: diags}, tags)
+	}
+	let (fields, nt, t2, diags) = collectCaptures(ast, ast.root, quantOne, false, false, 1, tags)
+	(patternShape{isUnion: false, variants: []captureNode{}, fields: fields, nextTag: nt, diags: diags}, t2)
+}
+
+func collectCaptures(ast regexAST, id int, quant int, inAlt bool, inRepeat bool, nextTag int, tags []int) ([]captureNode, int, []int, []content.MapperDiag) {
+	let n = ast.nodes[id]
+	let mut t = tags
+	if n.kind == kindEmpty || n.kind == kindBytes {
+		return ([]captureNode{}, nextTag, t, []content.MapperDiag{})
+	}
+	if n.kind == kindConcat {
+		let mut out = []captureNode{}
+		let mut seen = Map[string, bool]{}
+		let mut nt = nextTag
+		let mut diags = []content.MapperDiag{}
+		for kid in n.kids {
+			let (sub, nt2, t2, ds) = collectCaptures(ast, kid, quant, inAlt, inRepeat, nt, t)
+			nt = nt2
+			t = t2
+			for d in ds {
+				diags = diags.Append(d)
+			}
+			for f in sub {
+				if seen.Get(f.name) != None {
+					diags = diags.Append(diagSpan(f.span.Start, f.span.End, "R002", "duplicate capture name '"+f.name+"' in the same scope", "rename one of the captures"))
+				} else {
+					seen[f.name] = true
+					out = out.Append(f)
+				}
+			}
+		}
+		if inRepeat && out.Len() > 1 {
+			let first = out[0].span
+			let last = out[out.Len()-1].span
+			diags = diags.Append(diagSpan(first.Start, last.End, "R002", "repeat contains multiple captures in the same scope", "wrap the repeated captures inside a named capture (?<Item>...)"))
+		}
+		return (out, nt, t, diags)
+	}
+	if n.kind == kindAlt {
+		let mut out = []captureNode{}
+		let mut nt = nextTag
+		let mut diags = []content.MapperDiag{}
+		for kid in n.kids {
+			let (sub, nt2, t2, ds) = collectCaptures(ast, kid, quant, true, inRepeat, nt, t)
+			nt = nt2
+			t = t2
+			for d in ds {
+				diags = diags.Append(d)
+			}
+			for f in sub {
+				diags = diags.Append(diagSpan(f.span.Start, f.span.End, "R002", "capture '"+f.name+"' cannot appear inside an inner alternation", "use top-level union (?<A>...)|(?<B>...) or place the alternation inside (?<Name>(...|...))"))
+				out = out.Append(f)
+			}
+		}
+		return (out, nt, t, diags)
+	}
+	if n.kind == kindRepeat {
+		let rq = quantForRepeat(n.min, n.max)
+		let innerQuant = mergeQuant(rq, quant)
+		let (sub, nt, t2, ds) = collectCaptures(ast, n.kids[0], innerQuant, inAlt, true, nextTag, t)
+		let mut diags = ds
+		if sub.Len() > 1 && rq != quantOne {
+			diags = diags.Append(diagSpan(n.start, n.end, "R002", "repeat contains multiple captures in the same scope", "wrap the repeated captures inside a named capture (?<Item>...)"))
+		}
+		return (sub, nt, t2, diags)
+	}
+	if n.kind == kindCapture {
+		if inAlt {
+			return ([]captureNode{}, nextTag, t, []content.MapperDiag{
+				diagSpan(n.start, n.end, "R002", "capture '"+n.name+"' cannot appear inside an inner alternation", "use top-level union (?<A>...)|(?<B>...) or place the alternation inside (?<Name>(...|...))"),
+			})
+		}
+		let tag = nextTag
+		let nt = nextTag + 1
+		t[id] = tag
+		let (kids, nt2, t2, ds) = collectCaptures(ast, n.kids[0], quantOne, false, false, nt, t)
+		let cap = captureNode{
+			name:     n.name,
+			tag:      tag,
+			span:     content.SourceSpan{Start: n.start, End: n.end},
+			quant:    quant,
+			children: kids,
+		}
+		return ([]captureNode{cap}, nt2, t2, ds)
+	}
+	([]captureNode{}, nextTag, t, []content.MapperDiag{})
+}

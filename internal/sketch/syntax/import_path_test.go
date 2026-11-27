@@ -46,6 +46,24 @@ func TestImportPathGrammar(t *testing.T) {
 			}
 		}
 	}
+	for _, rel := range []string{"./queries/users.sql", "../schema.sql", "./001_users.sql", "import users ./queries/users.sql"} {
+		src := rel + "\n"
+		if !strings.HasPrefix(rel, "import ") {
+			src = "import " + rel + "\n"
+		}
+		if _, err := Parse(src); err != nil {
+			t.Errorf("%q: %v", src, err)
+		}
+	}
+	for _, bad := range []string{"./", ".//a.sql", "./.hidden", "import go ./queries/users.sql"} {
+		src := bad + "\n"
+		if !strings.HasPrefix(bad, "import ") {
+			src = "import " + bad + "\n"
+		}
+		if _, err := Parse(src); err == nil {
+			t.Errorf("%q: expected parse failure", src)
+		}
+	}
 }
 
 // Comments have the same boundary after a path as after any other token.

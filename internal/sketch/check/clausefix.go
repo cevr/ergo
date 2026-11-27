@@ -30,6 +30,11 @@ type Options struct {
 	// shapesWritten is set on the check of a package after its providers'
 	// normal forms were derived (mapshape.go), which derives no more.
 	shapesWritten bool
+	// MapperCache caches validated check-time content mapper outputs.
+	MapperCache MapperCache
+	// MapperBuildID identifies the compiler version/build for sound mapper cache keys.
+	MapperBuildID string
+	expanded      *DeriveExpandResult
 }
 
 // checkWith is Check, with S115 reported when placeLaws is set

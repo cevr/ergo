@@ -42,7 +42,9 @@ func (in *interp) initialize(pkg *check.Package) *initFailure {
 	// is the world every obligation reads (LITERAL-LET). The first
 	// obligation's begin starts its own budget after them.
 	steps := in.budget.Steps
-	in.budget.Steps = max(steps, initSteps)
+	if !in.strictMapper {
+		in.budget.Steps = max(steps, initSteps)
+	}
 	in.begin()
 	defer func() { in.budget.Steps = steps }()
 	var order []*check.Package
@@ -113,6 +115,9 @@ func (in *interp) initPackage(p *check.Package) *initFailure {
 	}
 	done := map[*syntax.VarSpec]bool{}
 	for _, ini := range p.Info.InitOrder {
+		if in.skipInitExpr != nil && ini.Value == in.skipInitExpr {
+			continue
+		}
 		spec := specs[ini.Value]
 		if spec == nil {
 			ice("the initializer at %d of %s has no let", ini.Value.Pos(), p.Path)

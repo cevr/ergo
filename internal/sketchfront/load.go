@@ -144,7 +144,12 @@ type loadedPackage struct {
 	goUses []string
 	// broken is a package with diagnostics, or one that imports such a
 	// package: it is not checked, and nothing it reaches is built.
-	broken bool
+	broken          bool
+	isAsset         bool
+	importOwner     *loadedPackage
+	resolvedImports map[string]string
+	assetMeta       *assetMeta
+	assetRecord     *check.MapperRecord
 }
 
 // program is the loaded program of a directory: the root package and the
@@ -190,6 +195,7 @@ type loader struct {
 	module      string // the module name; empty with no ergo.mod
 	// trust are the required modules whose Go the root's ergo.mod trusts.
 	trust []string
+	maps  []mapRule
 	pkgs  map[string]*loadedPackage
 	// missing holds the reason of each local import path with no package.
 	missing map[string]string
@@ -238,6 +244,7 @@ type loader struct {
 	// file under internal/sketch/std/.
 	stdImp       *check.StdOverlay
 	stdOverrides map[string]map[string]string
+	checking     *loadedPackage
 }
 
 // StdOverride exposes the loader's stdlib overlay importer to the checker.
@@ -365,6 +372,9 @@ func checkDirFull(fsys FS, dir string, platform gobind.Platform, modCache string
 	}
 	dir = filepath.Clean(dir)
 	l := newLoader(fsys, platform, dir, modCache)
+	if opts.MapperCache == nil {
+		opts.MapperCache, opts.MapperBuildID = defaultMapperCache()
+	}
 	l.opts = opts
 	l.cache = cache
 	l.fps = map[string]fingerprint.Package{}
@@ -448,7 +458,7 @@ func (l *loader) findModule(dir string) (bool, error) {
 				l.diags = append(l.diags, *diagnostic)
 				return true, nil
 			}
-			l.module, l.trust = mf.module, mf.trust
+			l.module, l.trust, l.maps = mf.module, mf.trust, mf.maps
 			l.readGoModule()
 			return true, nil
 		case err == nil:
@@ -470,6 +480,7 @@ type modFile struct {
 	// order.
 	module string
 	trust  []string
+	maps   []mapRule
 	// ergo is the version of the `ergo VERSION` line, "" with none, and
 	// ergoAt its line and ergoCol the column of VERSION.
 	ergo            string
@@ -522,6 +533,18 @@ func parseModule(text string) (modFile, *report.Diagnostic) {
 				return modFile{}, modDiagnostic(text, lines, i+1, col, fmt.Sprintf("the ergo line's %s is not a version of ergo: %s; write a tag (v1.2.3) or a pseudo-version (v0.0.0-20261117152120-c501620891c0), as ergo version prints it", fields[1], reason))
 			}
 			mf.ergo, mf.ergoAt, mf.ergoCol = fields[1], i+1, col
+			continue
+		case len(fields) >= 1 && fields[0] == "map":
+			rule, diag := parseMapRule(line, text, lines, i+1, fields)
+			if diag != nil {
+				return modFile{}, diag
+			}
+			for _, existing := range mf.maps {
+				if existing.pattern == rule.pattern {
+					return modFile{}, modDiagnostic(text, lines, i+1, rule.col, fmt.Sprintf("ergo.mod maps pattern %s twice", rule.pattern))
+				}
+			}
+			mf.maps = append(mf.maps, rule)
 			continue
 		default:
 			return modFile{}, modDiagnostic(text, lines, i+1, 1, shape)
@@ -719,7 +742,7 @@ func (l *loader) read(path, dir string, mod *depModule) (*loadedPackage, error) 
 				// Every import of a module's package but std's is the
 				// loader's: its own module's, or a required module's.
 				target := importPath(spec)
-				if target != "" && l.module != "" && !isStdPath(target) && !seen[target] {
+				if target != "" && (l.module != "" || syntax.IsRelativeAssetPath(target)) && !isStdPath(target) && !seen[target] {
 					seen[target] = true
 					p.imports = append(p.imports, localImport{path: target, file: i, spec: spec})
 				}
@@ -786,6 +809,11 @@ func (l *loader) visit(p *loadedPackage, stack []*loadedPackage) error {
 	l.state[p] = visiting
 	stack = append(stack, p)
 	for _, imp := range p.imports {
+		if handled, err := l.visitAssetImport(p, imp, stack); err != nil {
+			return err
+		} else if handled {
+			continue
+		}
 		if _, done := l.pkgs[imp.path]; !done {
 			if _, failed := l.missing[imp.path]; failed {
 				continue
@@ -828,7 +856,11 @@ func (l *loader) cycle(p *loadedPackage, imp localImport, q *loadedPackage, stac
 		names = append(names, s.path)
 	}
 	names = append(names, q.path)
-	f := p.files[imp.file]
+	owner := p
+	if owner.importOwner != nil && len(owner.files) == 0 {
+		owner = owner.importOwner
+	}
+	f := owner.files[imp.file]
 	line, col := f.syntax.Position(imp.spec.Path.Pos())
 	l.diags = append(l.diags, report.Diagnostic{
 		Code:    check.CodeType,
@@ -864,6 +896,16 @@ func (l *loader) checkAll() {
 	}
 	l.writeSegments(written, ds)
 	for i, p := range l.order {
+		if p.isAsset {
+			l.checkAssetPackage(p)
+			if !p.broken && p.pkg != nil && l.cache != nil {
+				l.fingerprintAfter(p, p.path, p.pkg.Files())
+				if ckey, cacheable := l.cache.key(l, p, p.path); cacheable {
+					l.cache.store(l, p, ckey, p.pkg)
+				}
+			}
+			continue
+		}
 		if _, ok := l.segments[p]; !ok {
 			l.checkPackage(p, i == len(l.order)-1 && !l.noMain, ds)
 		}
@@ -884,8 +926,11 @@ func (l *loader) checkAll() {
 // It reports whether p was checked from source with the module importer,
 // which a snapshot may then hold.
 func (l *loader) checkPackage(p *loadedPackage, main bool, ds map[*loadedPackage][]check.Diagnostic) bool {
+	prevChecking := l.checking
+	l.checking = p
+	defer func() { l.checking = prevChecking }()
 	for _, imp := range p.imports {
-		if q := l.pkgs[imp.path]; q != nil && q.broken {
+		if q := l.pkgs[l.resolvedImportPath(p, imp.path)]; q != nil && q.broken {
 			p.broken = true
 		}
 	}
@@ -921,7 +966,7 @@ func (l *loader) checkPackage(p *loadedPackage, main bool, ds map[*loadedPackage
 			p.pkg = pkg
 			// The decoded package holds its own syntax trees: the
 			// lowering and the evaluator read those.
-			for k, f := range pkg.Files() {
+			for k, f := range pkg.SourceFiles() {
 				p.files[k].syntax = f
 			}
 			stage.Add(stage.PackagesReused, 1)
@@ -961,7 +1006,7 @@ func (l *loader) checkPackage(p *loadedPackage, main bool, ds map[*loadedPackage
 // source.
 func adopt(p *loadedPackage, pkg *check.Package) bool {
 	decoded := map[string]*syntax.File{}
-	for _, f := range pkg.Files() {
+	for _, f := range pkg.SourceFiles() {
 		decoded[f.Name] = f
 	}
 	if len(decoded) != len(p.files) {
@@ -1085,6 +1130,9 @@ func (l *loader) TrustsGo() (string, bool) {
 // Import is the loader's check.Importer: std, then the checked local
 // packages; any other path is refused with its reason.
 func (l *loader) Import(path string) (*check.Package, error) {
+	if l.checking != nil {
+		path = l.resolvedImportPath(l.checking, path)
+	}
 	if l.stdImp != nil && isStdPath(path) {
 		return l.stdImp.Import(path)
 	}
@@ -1173,6 +1221,26 @@ func (p *program) unit() lower.Unit {
 
 func packageUnit(p *loadedPackage) lower.Unit {
 	u := lower.Unit{Package: p.pkg}
+	if p.pkg != nil && len(p.pkg.Files()) > len(p.files) {
+		bySyntax := make(map[*syntax.File]loadedFile, len(p.files))
+		for _, f := range p.files {
+			bySyntax[f.syntax] = f
+		}
+		dir := p.dir
+		if dir == "" {
+			dir = "/ergo-derive"
+		}
+		pkgFiles := p.pkg.Files()
+		u.Files = append(u.Files, pkgFiles...)
+		for _, gf := range pkgFiles {
+			if lf, ok := bySyntax[gf]; ok {
+				u.Sources = append(u.Sources, lower.Source{Path: lf.abs, Text: lf.text})
+			} else {
+				u.Sources = append(u.Sources, lower.Source{Path: filepath.Join(dir, gf.Name), Text: gf.Src})
+			}
+		}
+		return u
+	}
 	for _, f := range p.files {
 		u.Files = append(u.Files, f.syntax)
 		u.Sources = append(u.Sources, lower.Source{Path: f.abs, Text: f.text})
@@ -1196,6 +1264,12 @@ func (p *program) dependencies() []build.Dependency {
 		files := map[string]string{}
 		for _, f := range q.files {
 			files[f.abs] = f.text
+		}
+		if q.isAsset && q.assetMeta != nil {
+			files[q.assetMeta.absPath] = string(q.assetMeta.bytes)
+			for _, comp := range q.assetMeta.companions {
+				files["companion:"+comp.Path] = string(comp.Bytes)
+			}
 		}
 		for name, data := range q.assets {
 			files[filepath.Join(q.dir, filepath.FromSlash(name))] = string(data)
