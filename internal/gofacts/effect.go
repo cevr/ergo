@@ -168,6 +168,7 @@ var Hosts = []Effect{
 	{Target: "runtime.NumCPU", Reason: "it returns the number of logical CPUs reported by the operating system at process startup", Source: "9ef49458017b"},
 	{Target: "os.Getpagesize", Reason: "it returns the operating system's memory page size", Source: "e147c7c13ec8"},
 	{Target: "ergo.local/prototype/runtime/v1/hostfs.Statfs", Reason: "it calls syscall.Statfs on one path and copies the volume total, free and available byte counts into a new struct", Source: "73314a4cd754"},
+	{Target: "ergo.local/prototype/runtime/v1/hostfs.Getfsstat", Reason: "it calls Darwin syscall.Getfsstat(MNT_NOWAIT) to enumerate mounted filesystems and their byte capacities (returning ENOSYS elsewhere)", Source: "072e63cf1ed8"},
 }
 
 // HostOf is the host row of target, if it has one.
