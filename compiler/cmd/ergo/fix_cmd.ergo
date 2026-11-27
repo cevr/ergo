@@ -1,0 +1,884 @@
+import compiler/check/bind
+import compiler/driver
+import compiler/fix
+import compiler/format
+import compiler/lint
+import compiler/syntax
+import fs
+import fstest
+import io
+import json
+import option
+import strconv
+import strings
+
+// FixOptions captures parsed flags and targets for ergo fix.
+type FixOptions {
+	Paths       []string,
+	Check       bool,
+	DryRun      bool,
+	Json        bool,
+	Comments    bool,
+	Len         bool,
+	GlobalFuncs bool,
+	StdTypes    bool,
+	Machines    bool,
+	Option      bool,
+	Go          bool,
+	Lint        bool,
+	StdDir      string,
+	Help        bool,
+	HelpAll     bool,
+}
+
+type fixChangeItem {
+	File string,
+	Note string,
+}
+
+type fixSummaryData {
+	Written   bool,
+	Rounds    int,
+	Changed   []fixChangeItem,
+	Linted    []fixChangeItem,
+	Remaining []CheckFinding,
+}
+
+type fixExecError {
+	Code    int,
+	Message string,
+}
+
+// ParseFixOptions parses flags and targets for ergo fix.
+func ParseFixOptions(args []string) FixOptions fails FlagError {
+	let mut opts = FixOptions{
+		Paths:       []string{},
+		Check:       false,
+		DryRun:      false,
+		Json:        false,
+		Comments:    false,
+		Len:         false,
+		GlobalFuncs: false,
+		StdTypes:    false,
+		Machines:    false,
+		Option:      false,
+		Go:          false,
+		Lint:        false,
+		StdDir:      "",
+		Help:        false,
+		HelpAll:     false,
+	}
+	let mut endFlags = false
+	let mut i = 0
+	for i < args.Len() {
+		let arg = args[i]
+		if !endFlags && arg == "--" {
+			endFlags = true
+			i = i + 1
+			continue
+		}
+		if !endFlags && strings.HasPrefix(arg, "-") && arg != "-" {
+			if arg == "--help" || arg == "-h" {
+				opts.Help = true
+				i = i + 1
+				continue
+			}
+			if arg == "--help-all" {
+				opts.HelpAll = true
+				i = i + 1
+				continue
+			}
+			if arg == "--check" {
+				opts.Check = true
+				i = i + 1
+				continue
+			}
+			if arg == "--dry-run" {
+				opts.DryRun = true
+				i = i + 1
+				continue
+			}
+			if arg == "--json" {
+				opts.Json = true
+				i = i + 1
+				continue
+			}
+			if arg == "--comments" {
+				opts.Comments = true
+				i = i + 1
+				continue
+			}
+			if arg == "--len" {
+				opts.Len = true
+				i = i + 1
+				continue
+			}
+			if arg == "--global-funcs" {
+				opts.GlobalFuncs = true
+				i = i + 1
+				continue
+			}
+			if arg == "--std-types" {
+				opts.StdTypes = true
+				i = i + 1
+				continue
+			}
+			if arg == "--machines" {
+				opts.Machines = true
+				i = i + 1
+				continue
+			}
+			if arg == "--option" {
+				opts.Option = true
+				i = i + 1
+				continue
+			}
+			if arg == "--go" {
+				opts.Go = true
+				i = i + 1
+				continue
+			}
+			if arg == "--lint" {
+				opts.Lint = true
+				i = i + 1
+				continue
+			}
+			let stdOpt = try consumeFlagValue(args, &i, arg, []string{"--std"})
+			match stdOpt {
+			case option.Some[FlagVal] as fv:
+				opts.StdDir = fv.Value.Value
+				continue
+			case option.None:
+			}
+			return FlagError{Code: 2, Message: "ergo fix: unknown option " + arg}
+		}
+		opts.Paths = opts.Paths.Append(arg)
+		i = i + 1
+	}
+	let mut specials = 0
+	if opts.Comments {
+		specials = specials + 1
+	}
+	if opts.Len {
+		specials = specials + 1
+	}
+	if opts.GlobalFuncs {
+		specials = specials + 1
+	}
+	if opts.StdTypes {
+		specials = specials + 1
+	}
+	if opts.Machines {
+		specials = specials + 1
+	}
+	if opts.Option {
+		specials = specials + 1
+	}
+	if opts.Check && opts.DryRun || specials > 1 {
+		return FlagError{Code: 2, Message: FixHelp()}
+	}
+	opts
+}
+
+// RunFix applies formatting, safe mechanical rewrites, and lint fixes using compiler/fix.
+func RunFix(args []string, workDir string, environ []string) int needs fs.Files | fs.Writes | io.Stdout | io.Stderr {
+	let opts = ParseFixOptions(args) catch {
+	case FlagError as fe:
+		io.Stderr.Eprintln(fe.Message)
+		return fe.Code
+	}
+	if opts.Help {
+		io.Stdout.Print(FixHelp())
+		return 0
+	}
+	if opts.HelpAll {
+		io.Stdout.Print(FixAllHelp())
+		return 0
+	}
+	let summary = executeFix(opts, workDir, environ) catch {
+	case fixExecError as fe:
+		emitFixError(opts.Json, fe.Message)
+		return fe.Code
+	}
+	emitFixSummary(summary, opts.Json)
+	if summary.Remaining.Len() > 0 {
+		return 1
+	}
+	if opts.Check && (summary.Changed.Len() > 0 || summary.Linted.Len() > 0) {
+		return 1
+	}
+	0
+}
+
+func executeFix(opts FixOptions, workDir string, environ []string) fixSummaryData fails fixExecError needs fs.Files | fs.Writes {
+	let targets = if opts.Paths.Len() == 0 && opts.StdDir != "" {
+		[]string{opts.StdDir}
+	} else {
+		opts.Paths
+	}
+	let store = driver.Discover(workDir, targets) catch {
+	case driver.DiscoverError as de:
+		return fixExecError{Code: 2, Message: de.Path + ": " + de.Reason}
+	case driver.ParseError as pe:
+		return fixExecError{Code: 1, Message: driver.FormatParseError(pe)}
+	case fs.NotFound as nf:
+		return fixExecError{Code: 2, Message: nf.Path + ": not found"}
+	case fs.Denied as dn:
+		return fixExecError{Code: 2, Message: dn.Path + ": permission denied"}
+	case fs.Failed as ff:
+		return fixExecError{Code: 2, Message: ff.Path + ": " + ff.Reason}
+	}
+	let write = !opts.Check && !opts.DryRun
+	if opts.Comments {
+		return try executeCommentFix(store, workDir, write)
+	}
+	if opts.Len {
+		return try executeLenFix(store, workDir, write)
+	}
+	if opts.GlobalFuncs || opts.StdTypes || opts.Machines || opts.Option {
+		return try executeQualifiedFix(store, workDir, opts, write)
+	}
+
+	let mut changed = []fixChangeItem{}
+	let mut linted = []fixChangeItem{}
+	let mut remaining = []CheckFinding{}
+
+	for pidx in 0..int(store.PkgCount) {
+		let uid = uint32(pidx)
+		let pkgPath = driver.PackagePath(store, uid)
+		let filePaths = driver.PackageFiles(store, uid)
+		let mut lawFiles = []fix.LawFile{}
+		let mut fileContents = Map[string, string]{}
+		for fp in filePaths {
+			let orig = try readFixFile(fp)
+			let disp = displayCheckPath(workDir, fp)
+			let afterMut = applySyntacticAndFormatFixes(disp, orig) catch {
+			case fixExecError as fe:
+				return fe
+			}
+			let finalSrc = afterMut
+			if afterMut != orig {
+				changed = changed.Append(fixChangeItem{File: disp, Note: "rewrite"})
+				if write {
+					try writeFixFile(fp, afterMut)
+				}
+			}
+			lawFiles = lawFiles.Append(fix.LawFile{Path: fp, Src: finalSrc})
+			fileContents = fileContents.Put(fp, finalSrc)
+		}
+
+		if !opts.Check && lawFiles.Len() > 0 {
+			let lawRep = fix.PlanLawFix(pkgPath, lawFiles) catch {
+			case fix.OverlapError as oe:
+				return fixExecError{Code: 1, Message: oe.File + ": overlapping law edit"}
+			case fix.OutOfBoundsError as ob:
+				return fixExecError{Code: 1, Message: ob.File + ": out-of-bounds law edit"}
+			}
+			for lf in lawRep.Updated {
+				let prev = match fileContents.Get(lf.Path) {
+				case option.Some{Value: v}:
+					v
+				case option.None:
+					""
+				}
+				if lf.Src != prev {
+					let disp = displayCheckPath(workDir, lf.Path)
+					changed = changed.Append(fixChangeItem{File: disp, Note: "law-colocate"})
+					if write {
+						try writeFixFile(lf.Path, lf.Src)
+					}
+				}
+			}
+			for delPath in lawRep.Deleted {
+				let disp = displayCheckPath(workDir, delPath)
+				changed = changed.Append(fixChangeItem{File: disp, Note: "delete-empty-law-file"})
+				if write {
+					try removeFixFile(delPath)
+				}
+			}
+		}
+	}
+
+	let (conf, glossaries) = resolveLintConfiguration(workDir, targets, "", false, []string{}) catch {
+	case lintConfigFail as cf:
+		return fixExecError{Code: cf.Code, Message: cf.Message}
+	}
+	let loaded = loadLintWorkspace(
+		LintOptions{
+			Paths:         targets,
+			Presets:       []string{},
+			LintConfig:    "",
+			LintConfigSet: false,
+			Rules:         []string{},
+			Gate:          0.0,
+			GateSet:       false,
+			Strict:        false,
+			Json:          opts.Json,
+			Fresh:         false,
+			Jobs:          1,
+			Help:          false,
+			HelpAll:       false,
+		},
+		workDir,
+		environ,
+		glossaries,
+	) catch {
+	case driver.DiscoverError as de:
+		return fixExecError{Code: 2, Message: de.Path + ": " + de.Reason}
+	case driver.ParseError as pe:
+		return fixExecError{Code: 1, Message: driver.FormatParseError(pe)}
+	case driver.CycleError as ce:
+		return fixExecError{Code: 1, Message: driver.FormatCycle(ce)}
+	case fs.NotFound as nf:
+		return fixExecError{Code: 2, Message: nf.Path + ": not found"}
+	case fs.Denied as dn:
+		return fixExecError{Code: 2, Message: dn.Path + ": permission denied"}
+	case fs.Failed as ff:
+		return fixExecError{Code: 2, Message: ff.Path + ": " + ff.Reason}
+	}
+	for d in loaded.CheckDiags {
+		remaining = remaining.Append(d)
+	}
+	let lintRes = lint.Run(conf, loaded.Input)
+	if lintRes.Checked {
+		let mut fixesByRel = Map[string, []lint.Fix]{}
+		for f in lintRes.Findings {
+			if f.HasFix && f.File != "" {
+				let prevList = match fixesByRel.Get(f.File) {
+				case option.Some{Value: xs}:
+					xs
+				case option.None:
+					[]lint.Fix{}
+				}
+				fixesByRel = fixesByRel.Put(f.File, prevList.Append(f.Fix))
+			}
+		}
+		for uidx in 0..int(store.PkgCount) {
+			let uid = uint32(uidx)
+			let modID = store.PkgModID[uidx]
+			let modDir = if modID != driver.NoIndex() { store.ModDirs[int(modID)] } else { "" }
+			for fp in driver.PackageFiles(store, uid) {
+				let rel = lintFileRelPath(workDir, modDir, fp)
+				match fixesByRel.Get(rel) {
+				case option.Some{Value: fixes}:
+					if fixes.Len() > 0 {
+						let cur = try readFixFile(fp)
+						let patched = lint.ApplyFixes(cur, fixes)
+						let formatted = fix.FormatIfOrigValid(displayCheckPath(workDir, fp), cur, patched)
+						if formatted != cur {
+							let disp = displayCheckPath(workDir, fp)
+							linted = linted.Append(fixChangeItem{File: disp, Note: fixes[0].Rule})
+							if write {
+								try writeFixFile(fp, formatted)
+							}
+						}
+					}
+				case option.None:
+				}
+			}
+		}
+	}
+
+	if remaining.Len() == 0 && conf.FileNameCaseActive {
+		let fcRoot = if store.ModCount > 0 { store.ModDirs[0] } else { store.Root }
+		let fcOpts = fix.FileCaseOptions{
+			Active: true,
+			Style:  conf.FileNameCaseOpts.Case,
+			Dirs:   conf.FileNameCaseOpts.Dirs,
+		}
+		let fcPlan = fix.PlanFileCase(fcRoot, targets, fcOpts) catch {
+		case fix.ConfigError as ce:
+			return fixExecError{Code: 2, Message: ce.Message}
+		case fs.NotFound as nf:
+			return fixExecError{Code: 2, Message: nf.Path + ": not found"}
+		case fs.Denied as dn:
+			return fixExecError{Code: 2, Message: dn.Path + ": permission denied"}
+		case fs.Failed as ff:
+			return fixExecError{Code: 2, Message: ff.Path + ": " + ff.Reason}
+		}
+		if write && fcPlan.Renames.Len() > 0 {
+			let fcRep = fix.ApplyFileCase(fcPlan) catch {
+			case fs.NotFound as nf:
+				return fixExecError{Code: 2, Message: nf.Path + ": not found"}
+			case fs.Denied as dn:
+				return fixExecError{Code: 2, Message: dn.Path + ": permission denied"}
+			case fs.Failed as ff:
+				return fixExecError{Code: 2, Message: ff.Path + ": " + ff.Reason}
+			case fs.CrossDevice as cd:
+				return fixExecError{Code: 2, Message: cd.From + ": cross-device rename"}
+			case fix.OverlapError as oe:
+				return fixExecError{Code: 1, Message: oe.File + ": overlapping import edit"}
+			case fix.OutOfBoundsError as ob:
+				return fixExecError{Code: 1, Message: ob.File + ": out-of-bounds import edit"}
+			}
+			for r in fcRep.Renames {
+				linted = linted.Append(fixChangeItem{File: r.From, Note: "file-name-case -> " + r.To})
+			}
+			for sk in fcRep.Skipped {
+				remaining = remaining.Append(CheckFinding{
+					Code:    "L172",
+					File:    sk.From,
+					Line:    1,
+					Column:  1,
+					Message: sk.Reason,
+				})
+			}
+		} else {
+			for r in fcPlan.Renames {
+				linted = linted.Append(fixChangeItem{File: r.From, Note: "file-name-case -> " + r.To})
+			}
+			for sk in fcPlan.Skipped {
+				remaining = remaining.Append(CheckFinding{
+					Code:    "L172",
+					File:    sk.From,
+					Line:    1,
+					Column:  1,
+					Message: sk.Reason,
+				})
+			}
+		}
+	}
+
+	let didWrite = write && (changed.Len() > 0 || linted.Len() > 0)
+	fixSummaryData{
+		Written:   didWrite,
+		Rounds:    1,
+		Changed:   changed,
+		Linted:    linted,
+		Remaining: remaining,
+	}
+}
+
+func applySyntacticAndFormatFixes(disp string, orig string) string fails fixExecError {
+	let mRes = fix.MutSource(orig) catch {
+	case fix.OverlapError as oe:
+		return fixExecError{Code: 1, Message: disp + ": overlapping rewrite (" + oe.File + ")"}
+	case fix.OutOfBoundsError as ob:
+		return fixExecError{Code: 1, Message: disp + ": out-of-bounds rewrite (" + ob.File + ")"}
+	}
+	let p = syntax.Parse(mRes.Out)
+	if p.Failed {
+		return mRes.Out
+	}
+	format.Source(mRes.Out, 0) catch {
+	case format.SyntaxFailure:
+		mRes.Out
+	case format.OutputLimit:
+		mRes.Out
+	}
+}
+
+func executeCommentFix(store driver.PkgStore, workDir string, write bool) fixSummaryData fails fixExecError needs fs.Files | fs.Writes {
+	let mut cfg = lint.DefaultConfig()
+	cfg.Rules = cfg.Rules.Put("no-comments", lint.Setting{
+		Severity:    lint.SeverityError,
+		HasSeverity: true,
+		HasOptions:  false,
+		Options:     lint.JNull,
+	})
+	let conf = lint.Configure(cfg, []string{}, Map[string, string]{}) catch {
+	case lint.BadConfig as bc:
+		return fixExecError{Code: 2, Message: bc.Message}
+	}
+	let mut linted = []fixChangeItem{}
+	let mut remaining = []CheckFinding{}
+	for pidx in 0..int(store.PkgCount) {
+		let uid = uint32(pidx)
+		let pkgPath = driver.PackagePath(store, uid)
+		let pkgDir = driver.PackageDir(store, uid)
+		let filePaths = driver.PackageFiles(store, uid)
+		let mut lFiles = []lint.FileInput{}
+		let mut bFiles = []bindFilePair{}
+		for fp in filePaths {
+			let src = try readFixFile(fp)
+			let parsed = syntax.Parse(src)
+			if parsed.Failed {
+				remaining = remaining.Append(CheckFinding{
+					Code:    parsed.Code,
+					File:    displayCheckPath(workDir, fp),
+					Line:    parsed.Line,
+					Column:  parsed.Column,
+					Message: parsed.Message,
+				})
+				continue
+			}
+			let disp = displayCheckPath(workDir, fp)
+			lFiles = lFiles.Append(lint.FileInput{Rel: disp, Src: src, Parsed: parsed})
+			bFiles = bFiles.Append(bindFilePair{FullPath: fp, DispPath: disp, Src: src})
+		}
+		if lFiles.Len() == 0 {
+			continue
+		}
+		let inp = lint.Input{
+			Checked:    true,
+			Closed:     false,
+			ModuleDirs: Map[string, string]{},
+			Glossaries: Map[string, string]{},
+			Units:      []lint.UnitInput{
+				lint.UnitInput{
+					Module:     "",
+					Path:       pkgPath,
+					Dir:        pkgDir,
+					Name:       pkgBaseName(pkgPath),
+					Dependency: false,
+					HasEntry:   false,
+					Files:      lFiles,
+					BindFiles:  []bind.File{},
+					Typed:      option.None,
+				},
+			},
+		}
+		let res = lint.Run(conf, inp)
+		for bf in bFiles {
+			let mut fixes = []lint.Fix{}
+			for f in res.Findings {
+				if f.HasFix && f.File == bf.DispPath {
+					fixes = fixes.Append(f.Fix)
+				}
+			}
+			if fixes.Len() > 0 {
+				let patched = lint.ApplyFixes(bf.Src, fixes)
+				let formatted = fix.FormatIfOrigValid(bf.DispPath, bf.Src, patched)
+				if formatted != bf.Src {
+					linted = linted.Append(fixChangeItem{File: bf.DispPath, Note: "no-comments"})
+					if write {
+						try writeFixFile(bf.FullPath, formatted)
+					}
+				}
+			}
+		}
+	}
+	fixSummaryData{
+		Written:   write && linted.Len() > 0,
+		Rounds:    1,
+		Changed:   []fixChangeItem{},
+		Linted:    linted,
+		Remaining: remaining,
+	}
+}
+
+type bindFilePair {
+	FullPath string,
+	DispPath string,
+	Src      string,
+}
+
+func executeLenFix(store driver.PkgStore, workDir string, write bool) fixSummaryData fails fixExecError needs fs.Files | fs.Writes {
+	let mut changed = []fixChangeItem{}
+	for pidx in 0..int(store.PkgCount) {
+		let uid = uint32(pidx)
+		let pkgPath = driver.PackagePath(store, uid)
+		let filePaths = driver.PackageFiles(store, uid)
+		let mut inputs = []fix.LenPackageFile{}
+		let mut origMap = Map[string, string]{}
+		for fp in filePaths {
+			let src = try readFixFile(fp)
+			inputs = inputs.Append(fix.LenPackageFile{Path: fp, Src: src})
+			origMap = origMap.Put(fp, src)
+		}
+		let res = fix.LenPackage(pkgPath, inputs) catch {
+		case fix.OverlapError as oe:
+			return fixExecError{Code: 1, Message: oe.File + ": overlapping len edit"}
+		case fix.OutOfBoundsError as ob:
+			return fixExecError{Code: 1, Message: ob.File + ": out-of-bounds len edit"}
+		}
+		for f in res.Files {
+			let prev = match origMap.Get(f.Path) {
+			case option.Some{Value: v}:
+				v
+			case option.None:
+				""
+			}
+			if f.Src != prev {
+				changed = changed.Append(fixChangeItem{File: displayCheckPath(workDir, f.Path), Note: "len"})
+				if write {
+					try writeFixFile(f.Path, f.Src)
+				}
+			}
+		}
+	}
+	fixSummaryData{
+		Written:   write && changed.Len() > 0,
+		Rounds:    1,
+		Changed:   changed,
+		Linted:    []fixChangeItem{},
+		Remaining: []CheckFinding{},
+	}
+}
+
+func executeQualifiedFix(store driver.PkgStore, workDir string, opts FixOptions, write bool) fixSummaryData fails fixExecError needs fs.Files | fs.Writes {
+	let mut changed = []fixChangeItem{}
+	for pidx in 0..int(store.PkgCount) {
+		let uid = uint32(pidx)
+		let pkgPath = driver.PackagePath(store, uid)
+		let filePaths = driver.PackageFiles(store, uid)
+		let mut inputs = []fix.PackageSource{}
+		let mut origMap = Map[string, string]{}
+		for fp in filePaths {
+			let src = try readFixFile(fp)
+			inputs = inputs.Append(fix.PackageSource{Path: fp, Src: src})
+			origMap = origMap.Put(fp, src)
+		}
+		let res = runQualifiedModePass(opts, pkgPath, inputs) catch {
+		case fix.OverlapError as oe:
+			return fixExecError{Code: 1, Message: oe.File + ": overlapping qualified edit"}
+		case fix.OutOfBoundsError as ob:
+			return fixExecError{Code: 1, Message: ob.File + ": out-of-bounds qualified edit"}
+		}
+		for f in res.Files {
+			let prev = match origMap.Get(f.Path) {
+			case option.Some{Value: v}:
+				v
+			case option.None:
+				""
+			}
+			if f.Src != prev {
+				changed = changed.Append(fixChangeItem{File: displayCheckPath(workDir, f.Path), Note: "qualified-std"})
+				if write {
+					try writeFixFile(f.Path, f.Src)
+				}
+			}
+		}
+	}
+	fixSummaryData{
+		Written:   write && changed.Len() > 0,
+		Rounds:    1,
+		Changed:   changed,
+		Linted:    []fixChangeItem{},
+		Remaining: []CheckFinding{},
+	}
+}
+
+func runQualifiedModePass(opts FixOptions, pkgPath string, inputs []fix.PackageSource) fix.QualifiedPackageResult fails fix.OverlapError | fix.OutOfBoundsError {
+	if opts.GlobalFuncs {
+		return try fix.GlobalFuncsPackage(pkgPath, inputs, "")
+	}
+	if opts.StdTypes {
+		return try fix.StdTypesPackage(pkgPath, inputs, "")
+	}
+	if opts.Machines {
+		return try fix.MachineTypesPackage(pkgPath, inputs, "")
+	}
+	try fix.OptionTypesPackage(pkgPath, inputs, "")
+}
+
+func readFixFile(path string) string fails fixExecError needs fs.Files {
+	fs.Files.ReadFile(path) catch {
+	case fs.NotFound:
+		return fixExecError{Code: 2, Message: path + ": not found"}
+	case fs.Denied:
+		return fixExecError{Code: 2, Message: path + ": permission denied"}
+	case fs.Failed as ff:
+		return fixExecError{Code: 2, Message: path + ": " + ff.Reason}
+	}
+}
+
+func writeFixFile(path string, content string) fails fixExecError needs fs.Writes {
+	fs.Writes.WriteFile(path, content) catch {
+	case fs.NotFound:
+		return fixExecError{Code: 2, Message: path + ": not found"}
+	case fs.Denied:
+		return fixExecError{Code: 2, Message: path + ": permission denied"}
+	case fs.Failed as ff:
+		return fixExecError{Code: 2, Message: path + ": " + ff.Reason}
+	}
+}
+
+func removeFixFile(path string) fails fixExecError needs fs.Writes {
+	fs.Writes.Remove(path) catch {
+	case fs.NotFound:
+		return fixExecError{Code: 2, Message: path + ": not found"}
+	case fs.Denied:
+		return fixExecError{Code: 2, Message: path + ": permission denied"}
+	case fs.Failed as ff:
+		return fixExecError{Code: 2, Message: path + ": " + ff.Reason}
+	}
+}
+
+func emitFixError(asJSON bool, msg string) needs io.Stdout | io.Stderr {
+	if asJSON {
+		let t = json.NewText()
+		t.BeginObject(2)
+		t.Key("written")
+		t.Bool(false)
+		t.Key("error")
+		t.String(msg)
+		t.EndObject()
+		io.Stdout.Println(t.Written())
+	} else {
+		io.Stderr.Eprintln("ergo fix: " + msg)
+	}
+}
+
+func emitFixSummary(s fixSummaryData, asJSON bool) needs io.Stdout {
+	if asJSON {
+		let t = json.NewText()
+		t.BeginObject(5)
+		t.Key("written")
+		t.Bool(s.Written)
+		t.Key("rounds")
+		t.Int(int64(s.Rounds))
+		t.Key("changed")
+		t.BeginList(s.Changed.Len())
+		for c in s.Changed {
+			t.BeginObject(2)
+			t.Key("file")
+			t.String(c.File)
+			t.Key("note")
+			t.String(c.Note)
+			t.EndObject()
+		}
+		t.EndList()
+		t.Key("linted")
+		t.BeginList(s.Linted.Len())
+		for l in s.Linted {
+			t.BeginObject(2)
+			t.Key("file")
+			t.String(l.File)
+			t.Key("note")
+			t.String(l.Note)
+			t.EndObject()
+		}
+		t.EndList()
+		t.Key("remaining")
+		t.BeginList(s.Remaining.Len())
+		for r in s.Remaining {
+			t.BeginObject(5)
+			t.Key("code")
+			t.String(r.Code)
+			t.Key("file")
+			t.String(r.File)
+			t.Key("line")
+			t.Int(int64(r.Line))
+			t.Key("column")
+			t.Int(int64(r.Column))
+			t.Key("message")
+			t.String(r.Message)
+			t.EndObject()
+		}
+		t.EndList()
+		t.EndObject()
+		io.Stdout.Println(t.Written())
+		return
+	}
+	for c in s.Changed {
+		io.Stdout.Println(c.File + ": " + c.Note)
+	}
+	for l in s.Linted {
+		io.Stdout.Println(l.File + ": " + l.Note)
+	}
+	for r in s.Remaining {
+		io.Stdout.Println(r.File + ":" + strconv.Itoa(r.Line) + ":" + strconv.Itoa(r.Column) + ": " + r.Code + ": " + r.Message)
+	}
+	if s.Changed.Len() == 0 && s.Linted.Len() == 0 && s.Remaining.Len() == 0 {
+		io.Stdout.Println("fix: no changes needed")
+	}
+}
+
+// FixOptionsRejectConflictingPreview: combining --check and --dry-run is always rejected with exit code 2.
+law FixOptionsRejectConflictingPreview(asJSON bool) {
+	let args = if asJSON {
+		[]string{"--check", "--dry-run", "--json"}
+	} else {
+		[]string{"--check", "--dry-run"}
+	}
+	let failed = ParseFixOptions(args) catch {
+	case FlagError as fe:
+		return fe.Code == 2
+	}
+	let _ = failed
+	false
+}
+
+test FixCmdCheckAndWriteAndComments {
+	let mem = fstest.NewMemory()
+	mem.MkdirAll("/ws/pkg") catch {
+	case fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.WriteFile("/ws/ergo.mod", "module sample\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+	let unformatted = "func  Double(n int) int {\nn*2\n}\n"
+	mem.WriteFile("/ws/pkg/a.ergo", unformatted) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+
+	let recCheck = io.NewRecorder()
+	let codeCheck = with context {
+		fs.Files:  mem,
+		fs.Writes: mem,
+		io.Stdout: recCheck,
+		io.Stderr: recCheck,
+	} {
+		RunFix([]string{"--check", "--json"}, "/ws", []string{})
+	}
+	assert codeCheck == 1
+	assert strings.Contains(recCheck.Text(), `"written":false`)
+	let stillOrig = with context { fs.Files: mem } {
+		fs.Files.ReadFile("/ws/pkg/a.ergo") catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			""
+		}
+	}
+	assert stillOrig == unformatted
+
+	let recWrite = io.NewRecorder()
+	let codeWrite = with context {
+		fs.Files:  mem,
+		fs.Writes: mem,
+		io.Stdout: recWrite,
+		io.Stderr: recWrite,
+	} {
+		RunFix([]string{"--json"}, "/ws", []string{})
+	}
+	assert codeWrite == 0
+	assert strings.Contains(recWrite.Text(), `"written":true`)
+
+	let recClean = io.NewRecorder()
+	let codeClean = with context {
+		fs.Files:  mem,
+		fs.Writes: mem,
+		io.Stdout: recClean,
+		io.Stderr: recClean,
+	} {
+		RunFix([]string{"--check", "--json"}, "/ws", []string{})
+	}
+	assert codeClean == 0
+
+	mem.WriteFile("/ws/pkg/a.ergo", "func Double(n int) int {\n\t// stray note\n\tn * 2\n}\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+	let recCmtCheck = io.NewRecorder()
+	let codeCmtCheck = with context {
+		fs.Files:  mem,
+		fs.Writes: mem,
+		io.Stdout: recCmtCheck,
+		io.Stderr: recCmtCheck,
+	} {
+		RunFix([]string{"--comments", "--check", "--json"}, "/ws", []string{})
+	}
+	assert codeCmtCheck == 1
+	assert strings.Contains(recCmtCheck.Text(), `"note":"no-comments"`)
+
+	let recCmtWrite = io.NewRecorder()
+	let codeCmtWrite = with context {
+		fs.Files:  mem,
+		fs.Writes: mem,
+		io.Stdout: recCmtWrite,
+		io.Stderr: recCmtWrite,
+	} {
+		RunFix([]string{"--comments", "--json"}, "/ws", []string{})
+	}
+	assert codeCmtWrite == 0
+	let strippedSrc = with context { fs.Files: mem } {
+		fs.Files.ReadFile("/ws/pkg/a.ergo") catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			""
+		}
+	}
+	assert !strings.Contains(strippedSrc, "stray note")
+}

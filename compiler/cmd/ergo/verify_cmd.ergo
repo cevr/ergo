@@ -1,0 +1,421 @@
+import exec
+import fs
+import fstest
+import io
+import json
+import strconv
+import strings
+
+// VerifyOptions captures parsed flags and targets for the ergo verify pipeline.
+type VerifyOptions {
+	Paths      []string,
+	Filter     string,
+	Skip       string,
+	Fresh      bool,
+	Strict     bool,
+	Json       bool,
+	Jobs       int,
+	Seed       int,
+	States     int,
+	Presets    []string,
+	LintConfig string,
+	LintSet    bool,
+	Gate       string,
+	GateSet    bool,
+	Help       bool,
+	HelpAll    bool,
+}
+
+type verifyStageResult {
+	Name     string,
+	OK       bool,
+	ExitCode int,
+	Output   string,
+}
+
+// ParseVerifyOptions parses flags and positional targets for `ergo verify`.
+func ParseVerifyOptions(args []string) VerifyOptions fails FlagError {
+	let u = try ParseUnifiedOptions("verify", args)
+	VerifyOptions{
+		Paths:      u.Paths,
+		Filter:     u.Filter,
+		Skip:       u.Skip,
+		Fresh:      u.Fresh,
+		Strict:     u.Strict,
+		Json:       u.Json,
+		Jobs:       u.Jobs,
+		Seed:       u.Seed,
+		States:     u.States,
+		Presets:    u.Presets,
+		LintConfig: u.LintConfig,
+		LintSet:    u.LintConfigSet,
+		Gate:       u.Gate,
+		GateSet:    u.GateSet,
+		Help:       u.Help,
+		HelpAll:    u.HelpAll,
+	}
+}
+
+// RunVerify executes `ergo verify` with an empty scripted runner context.
+func RunVerify(args []string, workDir string, environ []string) int needs fs.Files | fs.Writes | io.Stdout | io.Stderr {
+	with context { exec.Runner: exec.Script{Results: Map[string, exec.Result]{}} } {
+		RunVerifyExec(args, workDir, environ)
+	}
+}
+
+// RunVerifyExec executes `ergo verify` subcommands or the 4-stage verification pipeline using the active exec.Runner.
+func RunVerifyExec(args []string, workDir string, environ []string) int needs exec.Runner | fs.Files | fs.Writes | io.Stdout | io.Stderr {
+	if args.Len() > 0 {
+		let first = args[0]
+		if first == "mutants" {
+			return runVerifyMutants(args[1:args.Len()], workDir, environ)
+		}
+		if first == "explore" {
+			return runVerifyExplore(args[1:args.Len()], workDir, environ)
+		}
+		if first == "conform" || first == "cases" {
+			let rest = args[1:args.Len()]
+			if isSingleHelpArg(rest) {
+				io.Stdout.Print(VerifyHelp())
+				return 0
+			}
+			io.Stderr.Eprintln("ergo verify " + first + ": subcommand requires the host verification harness")
+			return 2
+		}
+	}
+	let opts = ParseVerifyOptions(args) catch {
+	case FlagError as fe:
+		io.Stderr.Eprintln(fe.Message)
+		return fe.Code
+	}
+	if opts.Help || opts.HelpAll {
+		io.Stdout.Print(VerifyHelp())
+		return 0
+	}
+	runVerifyPipeline(opts, workDir, environ)
+}
+
+func isSingleHelpArg(args []string) bool {
+	args.Len() == 1 && (args[0] == "--help" || args[0] == "-h")
+}
+
+func runVerifyMutants(args []string, workDir string, environ []string) int needs exec.Runner | fs.Files | fs.Writes | io.Stdout | io.Stderr {
+	if isSingleHelpArg(args) {
+		io.Stdout.Print(WorkspaceSubHelp("verify mutants", "verify mutants [PATH...] [--derived] [--strict] [--list] [--json] [-k PATTERN]", "Verify hand and derived mutants against tests and laws."))
+		return 0
+	}
+	for a in args {
+		if a == "--mutants" || a == "--affected" || a == "--trace" {
+			io.Stderr.Eprintln("ergo verify mutants: unsupported option " + a)
+			return 2
+		}
+	}
+	RunMutantsExec(args, workDir, environ)
+}
+
+func runVerifyExplore(args []string, workDir string, environ []string) int needs exec.Runner | fs.Files | fs.Writes | io.Stdout | io.Stderr {
+	if isSingleHelpArg(args) {
+		io.Stdout.Print(WorkspaceSubHelp("verify explore", "verify explore [dfs|bfs|random] [PATH...] [-k PATTERN] [--seed N] [--states N] [--json]", "Explore concurrent task schedules via ergo test."))
+		return 0
+	}
+	let mut rest = []string{}
+	let mut skippedMode = false
+	for a in args {
+		if a == "--explore" || a == "--mutants" || a == "--affected" {
+			io.Stderr.Eprintln("ergo verify explore: unsupported option " + a)
+			return 2
+		}
+		if !skippedMode && (a == "dfs" || a == "bfs" || a == "random" || a == "replay") {
+			skippedMode = true
+			continue
+		}
+		rest = rest.Append(a)
+	}
+	RunTestExec(rest, workDir, environ)
+}
+
+func runVerifyPipeline(opts VerifyOptions, workDir string, environ []string) int needs exec.Runner | fs.Files | fs.Writes | io.Stdout | io.Stderr {
+	let mut stages = []verifyStageResult{}
+	let stageNames = []string{"fmt", "check", "lint", "test"}
+	let mut finalCode = 0
+
+	for stageName in stageNames {
+		let code = runVerifyStage(stageName, opts, workDir, environ, &stages)
+		if code != 0 {
+			finalCode = code
+			break
+		}
+	}
+
+	if opts.Json {
+		emitVerifyJSON(finalCode == 0, finalCode, stages)
+		return finalCode
+	}
+	if finalCode == 0 {
+		io.Stdout.Println("verify: ok (fmt, check, lint, test)")
+		return 0
+	}
+	for st in stages {
+		if !st.OK {
+			io.Stderr.Eprintln("ergo verify: " + st.Name + " failed (exit " + strconv.Itoa(st.ExitCode) + ")")
+		}
+	}
+	finalCode
+}
+
+func runVerifyStage(
+	stageName string,
+	opts VerifyOptions,
+	workDir string,
+	environ []string,
+	stages mut []verifyStageResult,
+) int needs exec.Runner | fs.Files | fs.Writes | io.Stdout | io.Stderr {
+	if opts.Json {
+		let rec = io.NewRecorder()
+		let code = with context {
+			io.Stdout: rec,
+			io.Stderr: rec,
+		} {
+			dispatchVerifyStage(stageName, opts, workDir, environ)
+		}
+		*stages = (*stages).Append(verifyStageResult{
+			Name:     stageName,
+			OK:       code == 0,
+			ExitCode: code,
+			Output:   strings.TrimSpace(rec.Text()),
+		})
+		return code
+	}
+	let code = dispatchVerifyStage(stageName, opts, workDir, environ)
+	*stages = (*stages).Append(verifyStageResult{
+		Name:     stageName,
+		OK:       code == 0,
+		ExitCode: code,
+		Output:   "",
+	})
+	code
+}
+
+func dispatchVerifyStage(stageName string, opts VerifyOptions, workDir string, environ []string) int needs exec.Runner | fs.Files | fs.Writes | io.Stdout | io.Stderr {
+	if stageName == "fmt" {
+		return with context { io.Stdin: io.NewInput("") } {
+			RunFmt(buildVerifyFmtArgs(opts), workDir)
+		}
+	}
+	if stageName == "check" {
+		return RunCheck(buildVerifyCheckArgs(opts), workDir, environ)
+	}
+	if stageName == "lint" {
+		return RunLint(buildVerifyLintArgs(opts), workDir, environ)
+	}
+	RunTestExec(buildVerifyTestArgs(opts), workDir, environ)
+}
+
+// BuildVerifyFmtArgs builds canonical arguments for the fmt --check stage of ergo verify.
+func BuildVerifyFmtArgs(paths []string) []string {
+	let mut args = []string{"--check"}
+	for p in paths {
+		args = args.Append(p)
+	}
+	args
+}
+
+func buildVerifyFmtArgs(opts VerifyOptions) []string {
+	BuildVerifyFmtArgs(opts.Paths)
+}
+
+func buildVerifyCheckArgs(opts VerifyOptions) []string {
+	let mut args = []string{}
+	if opts.Fresh {
+		args = args.Append("--fresh")
+	}
+	if opts.Strict {
+		args = args.Append("--strict")
+	}
+	if opts.Jobs > 1 {
+		args = args.Append("-j")
+		args = args.Append(strconv.Itoa(opts.Jobs))
+	}
+	for p in opts.Paths {
+		args = args.Append(p)
+	}
+	args
+}
+
+func buildVerifyLintArgs(opts VerifyOptions) []string {
+	let mut args = []string{"--strict"}
+	if opts.Fresh {
+		args = args.Append("--fresh")
+	}
+	if opts.Jobs > 1 {
+		args = args.Append("-j")
+		args = args.Append(strconv.Itoa(opts.Jobs))
+	}
+	if opts.LintSet {
+		args = args.Append("--lint-config")
+		args = args.Append(opts.LintConfig)
+	}
+	for pr in opts.Presets {
+		args = args.Append("--preset")
+		args = args.Append(pr)
+	}
+	if opts.GateSet {
+		args = args.Append("--gate")
+		args = args.Append(opts.Gate)
+	}
+	for p in opts.Paths {
+		args = args.Append(p)
+	}
+	args
+}
+
+func buildVerifyTestArgs(opts VerifyOptions) []string {
+	let mut args = []string{}
+	if opts.Fresh {
+		args = args.Append("--fresh")
+	}
+	if opts.Jobs > 1 {
+		args = args.Append("-j")
+		args = args.Append(strconv.Itoa(opts.Jobs))
+	}
+	if opts.Filter != "" {
+		args = args.Append("-k")
+		args = args.Append(opts.Filter)
+	}
+	if opts.Skip != "" {
+		args = args.Append("--skip")
+		args = args.Append(opts.Skip)
+	}
+	if opts.Seed != 1 {
+		args = args.Append("--seed")
+		args = args.Append(strconv.Itoa(opts.Seed))
+	}
+	if opts.States > 0 {
+		args = args.Append("--states")
+		args = args.Append(strconv.Itoa(opts.States))
+	}
+	for p in opts.Paths {
+		args = args.Append(p)
+	}
+	args
+}
+
+func emitVerifyJSON(ok bool, exitCode int, stages []verifyStageResult) needs io.Stdout {
+	let t = json.NewText()
+	t.BeginObject(3)
+	t.Key("ok")
+	t.Bool(ok)
+	t.Key("exitCode")
+	t.Int(int64(exitCode))
+	t.Key("stages")
+	t.BeginList(stages.Len())
+	for st in stages {
+		t.BeginObject(4)
+		t.Key("name")
+		t.String(st.Name)
+		t.Key("ok")
+		t.Bool(st.OK)
+		t.Key("exitCode")
+		t.Int(int64(st.ExitCode))
+		t.Key("output")
+		t.String(st.Output)
+		t.EndObject()
+	}
+	t.EndList()
+	t.EndObject()
+	io.Stdout.Println(t.Written())
+}
+
+// VerifyFmtArgsAlwaysChecks: the formatting stage of verify always enforces --check before any path arguments.
+law VerifyFmtArgsAlwaysChecks(pathCount uint32) {
+	let n = int(pathCount % uint32(4))
+	let mut paths = []string{}
+	for i in 0..n {
+		paths = paths.Append("./pkg" + strconv.Itoa(i))
+	}
+	let args = BuildVerifyFmtArgs(paths)
+	args.Len() == n+1 && args[0] == "--check"
+}
+
+test VerifyCmdPipelineJsonAndShortCircuitAndMutantsSubcommand {
+	let mem = fstest.NewMemory()
+	mem.MkdirAll("/ws/pkg/testdata") catch {
+	case fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.WriteFile("/ws/ergo.mod", "module sample\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.WriteFile("/ws/pkg/lib.ergo", "func Triple(n int) int {\n\tn * 3\n}\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+
+	let recOK = io.NewRecorder()
+	let codeOK = with context {
+		fs.Files:  mem,
+		fs.Writes: mem,
+		io.Stdout: recOK,
+		io.Stderr: recOK,
+	} {
+		RunVerify([]string{"--json", "./pkg"}, "/ws", []string{})
+	}
+	assert codeOK == 0
+	assert strings.Contains(recOK.Text(), `"ok":true`)
+	assert strings.Contains(recOK.Text(), `"name":"fmt"`)
+	assert strings.Contains(recOK.Text(), `"name":"check"`)
+	assert strings.Contains(recOK.Text(), `"name":"lint"`)
+	assert strings.Contains(recOK.Text(), `"name":"test"`)
+
+	let recMutHelp = io.NewRecorder()
+	let codeMutHelp = with context {
+		fs.Files:  mem,
+		fs.Writes: mem,
+		io.Stdout: recMutHelp,
+		io.Stderr: recMutHelp,
+	} {
+		RunVerify([]string{"mutants", "--list", "--json", "./pkg"}, "/ws", []string{})
+	}
+	assert codeMutHelp == 0
+	assert strings.Contains(recMutHelp.Text(), `"totalMutants":0`)
+
+	mem.WriteFile("/ws/pkg/lib.ergo", "func  Triple(n int) int {\nn*3\n}\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+	let recBadFmt = io.NewRecorder()
+	let codeBadFmt = with context {
+		fs.Files:  mem,
+		fs.Writes: mem,
+		io.Stdout: recBadFmt,
+		io.Stderr: recBadFmt,
+	} {
+		RunVerify([]string{"--json", "./pkg"}, "/ws", []string{})
+	}
+	assert codeBadFmt == 1
+	assert strings.Contains(recBadFmt.Text(), `"ok":false`)
+	assert strings.Contains(recBadFmt.Text(), `"name":"fmt"`)
+	assert !strings.Contains(recBadFmt.Text(), `"name":"test"`)
+
+	mem.WriteFile("/ws/ergo.lint.json", `{"version":1,"extends":["strict"]}`) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.WriteFile("/ws/pkg/lib.ergo", "func ShapeValue() int {\n\t1\n}\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+	let recLintFail = io.NewRecorder()
+	let codeLintFail = with context {
+		fs.Files:  mem,
+		fs.Writes: mem,
+		io.Stdout: recLintFail,
+		io.Stderr: recLintFail,
+	} {
+		RunVerify([]string{"--json", "./pkg"}, "/ws", []string{})
+	}
+	assert codeLintFail == 1
+	assert strings.Contains(recLintFail.Text(), `"name":"lint","ok":false`)
+	assert !strings.Contains(recLintFail.Text(), `"name":"test"`)
+}
