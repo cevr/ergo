@@ -1,0 +1,615 @@
+import compiler/check/bind
+import compiler/check/expr
+import compiler/check/store
+import compiler/check/types
+import compiler/syntax
+import dense
+import option
+import slices
+
+// DeclKind classifies top-level non-import declarations tracked in a LawGraph.
+type DeclKind = DeclFunc | DeclType | DeclVar | DeclContext | DeclLaw | DeclTest
+
+// DeclFunc represents a top-level func or method declaration.
+type DeclFunc {}
+
+// DeclType represents a top-level type declaration.
+type DeclType {}
+
+// DeclVar represents a top-level let declaration.
+type DeclVar {}
+
+// DeclContext represents a top-level context declaration.
+type DeclContext {}
+
+// DeclLaw represents a top-level law declaration.
+type DeclLaw {}
+
+// DeclTest represents a top-level test declaration.
+type DeclTest {}
+
+// NoDecl is the uint32 sentinel for absent dense declaration references.
+func NoDecl() uint32 { uint32(4294967295) }
+
+// LawFile holds a relative file path and its source text for law/test co-location.
+type LawFile {
+	Path string,
+	Src  string,
+}
+
+// LawGraph holds package declarations, spans, ownership, and CSR ref/user edges in flat uint32 tables.
+type LawGraph {
+	Files          dense.Strings,
+	FileNames      []string,
+	FileSrcs       []string,
+	FileParsed     []syntax.Parsed,
+	BindFiles      []bind.File,
+	Store          store.Store,
+	Uses           bind.Uses,
+	Parents        bind.Parents,
+	PkgNames       []string,
+	Names          dense.Strings,
+	DeclCount      uint32,
+	DeclFile       []uint32,
+	DeclNode       []uint32,
+	DeclKind       []uint8,
+	DeclName       []dense.ID[dense.Str],
+	DeclExported   []bool,
+	DeclExtern     []bool,
+	DeclDerived    []bool,
+	DeclHasRecv    []bool,
+	DeclIsMachine  []bool,
+	DeclHasImpls   []bool,
+	DeclIsMember   []bool,
+	DeclOwner      []uint32,
+	DeclAnchor     []uint32,
+	DeclImplTarget []uint32,
+	DeclSpanFrom   []uint32,
+	DeclSpanTo     []uint32,
+	PNodeOwner     []uint32,
+	RefStart       []uint32,
+	RefCount       []uint32,
+	RefTo          []uint32,
+	UserStart      []uint32,
+	UserCount      []uint32,
+	UserBy         []uint32,
+	MethodStart    []uint32,
+	MethodCount    []uint32,
+	MethodDecls    []uint32,
+}
+
+let dkFunc = uint8(1)
+let dkType = uint8(2)
+let dkVar = uint8(3)
+let dkContext = uint8(4)
+let dkLaw = uint8(5)
+let dkTest = uint8(6)
+
+// DeclKindOf returns the typed DeclKind for dense declaration d.
+func DeclKindOf(g LawGraph, d uint32) DeclKind {
+	let k = g.DeclKind[int(d)]
+	if k == dkFunc {
+		return DeclFunc
+	}
+	if k == dkType {
+		return DeclType
+	}
+	if k == dkVar {
+		return DeclVar
+	}
+	if k == dkContext {
+		return DeclContext
+	}
+	if k == dkLaw {
+		return DeclLaw
+	}
+	DeclTest
+}
+
+// DeclNameText returns the declared identifier of d.
+func DeclNameText(g LawGraph, d uint32) string {
+	dense.Text(g.Names, g.DeclName[int(d)])
+}
+
+// BuildLawGraph parses, binds, and indexes top-level declarations and CSR ref/user edges.
+func BuildLawGraph(pkgPath string, inputFiles []LawFile) LawGraph {
+	let mut fileStrs = dense.NewStrings()
+	let mut fNames = slices.WithCapacity[string](inputFiles.Len())
+	let mut fSrcs = slices.WithCapacity[string](inputFiles.Len())
+	let mut fParsed = slices.WithCapacity[syntax.Parsed](inputFiles.Len())
+	let mut bindFiles = slices.WithCapacity[bind.File](inputFiles.Len())
+	let mut totalNodes = 0
+	for lf in inputFiles {
+		let _ = dense.InternText(&fileStrs, lf.Path)
+		let p = syntax.Parse(lf.Src)
+		fNames = fNames.Append(lf.Path)
+		fSrcs = fSrcs.Append(lf.Src)
+		fParsed = fParsed.Append(p)
+		bindFiles = bindFiles.Append(bind.File{Name: lf.Path, Parsed: p})
+		if !p.Failed {
+			totalNodes = totalNodes + syntax.NumNodes(p.Tree)
+		}
+	}
+	let s0 = bind.Collect(pkgPath, bindFiles)
+	let ps = bind.BuildParents(bindFiles)
+	let (s, u) = bind.Bind(s0, []store.Frozen{}, ps, bindFiles, 1)
+	let mut st = s
+	let exprK = expr.Load(&st, bindFiles, u, ps, []types.Ext{}, []types.Foreign{}, []types.Iface{}, false)
+	let typer = expr.Check(&st, exprK)
+
+	let names = dense.NewStrings()
+	let mut g = LawGraph{
+		Files:          fileStrs,
+		FileNames:      fNames,
+		FileSrcs:       fSrcs,
+		FileParsed:     fParsed,
+		BindFiles:      bindFiles,
+		Store:          s,
+		Uses:           u,
+		Parents:        ps,
+		PkgNames:       packageNonImportNames(s),
+		Names:          names,
+		DeclCount:      uint32(0),
+		DeclFile:       []uint32{},
+		DeclNode:       []uint32{},
+		DeclKind:       []uint8{},
+		DeclName:       []dense.ID[dense.Str]{},
+		DeclExported:   []bool{},
+		DeclExtern:     []bool{},
+		DeclDerived:    []bool{},
+		DeclHasRecv:    []bool{},
+		DeclIsMachine:  []bool{},
+		DeclHasImpls:   []bool{},
+		DeclIsMember:   []bool{},
+		DeclOwner:      []uint32{},
+		DeclAnchor:     []uint32{},
+		DeclImplTarget: []uint32{},
+		DeclSpanFrom:   []uint32{},
+		DeclSpanTo:     []uint32{},
+		PNodeOwner:     slices.Repeat([]uint32{NoDecl()}, totalNodes),
+		RefStart:       []uint32{},
+		RefCount:       []uint32{},
+		RefTo:          []uint32{},
+		UserStart:      []uint32{},
+		UserCount:      []uint32{},
+		UserBy:         []uint32{},
+		MethodStart:    []uint32{},
+		MethodCount:    []uint32{},
+		MethodDecls:    []uint32{},
+	}
+	collectTopDecls(&g)
+	linkMethodOwners(&g)
+	buildRefAndUserCSR(&g, typer)
+	g
+}
+
+func collectTopDecls(g mut LawGraph) {
+	let mut scratch = []uint32{}
+	for fi in 0..(*g).FileParsed.Len() {
+		let p = (*g).FileParsed[fi]
+		if p.Failed {
+			continue
+		}
+		let tr = p.Tree
+		let root = syntax.Root(tr)
+		if syntax.KindOf(tr, root) != syntax.KFile {
+			continue
+		}
+		let src = (*g).FileSrcs[fi]
+		let decls = syntax.FileOf(tr, root).Decls
+		for di in 0..syntax.Len(decls) {
+			let dNode = syntax.Item(tr, decls, di)
+			let k = syntax.KindOf(tr, dNode)
+			if k == syntax.KImportDecl {
+				continue
+			}
+			let info = classifyTopDecl(p, dNode)
+			let dID = (*g).DeclCount
+			(*g).DeclCount = (*g).DeclCount + uint32(1)
+			let nameID = dense.InternText(&(*g).Names, info.name)
+			(*g).DeclFile = (*g).DeclFile.Append(uint32(fi))
+			(*g).DeclNode = (*g).DeclNode.Append(uint32(dense.Index(dNode)))
+			(*g).DeclKind = (*g).DeclKind.Append(info.kind)
+			(*g).DeclName = (*g).DeclName.Append(nameID)
+			(*g).DeclExported = (*g).DeclExported.Append(isUpperName(info.name))
+			(*g).DeclExtern = (*g).DeclExtern.Append(info.isExtern)
+			(*g).DeclDerived = (*g).DeclDerived.Append(info.isDerived)
+			(*g).DeclHasRecv = (*g).DeclHasRecv.Append(info.hasRecv)
+			(*g).DeclIsMachine = (*g).DeclIsMachine.Append(info.isMachine)
+			(*g).DeclHasImpls = (*g).DeclHasImpls.Append(info.hasImpls)
+			(*g).DeclIsMember = (*g).DeclIsMember.Append(false)
+			(*g).DeclOwner = (*g).DeclOwner.Append(NoDecl())
+			(*g).DeclAnchor = (*g).DeclAnchor.Append(dID)
+			(*g).DeclImplTarget = (*g).DeclImplTarget.Append(NoDecl())
+			let from = lineStartAt(src, DeclStartWithDoc(p, dNode))
+			let to = lineEndAfter(src, syntax.NodeEnd(p, dNode))
+			(*g).DeclSpanFrom = (*g).DeclSpanFrom.Append(uint32(from))
+			(*g).DeclSpanTo = (*g).DeclSpanTo.Append(uint32(to))
+			markSubtreeOwner(g, fi, dNode, dID, &scratch)
+			if k == syntax.KTypeDecl {
+				collectMemberLaws(g, fi, dNode, dID, &scratch)
+			}
+		}
+	}
+}
+
+type topDeclMeta {
+	kind      uint8,
+	name      string,
+	isExtern  bool,
+	isDerived bool,
+	hasRecv   bool,
+	isMachine bool,
+	hasImpls  bool,
+}
+
+func firstIdentText(p syntax.Parsed, id dense.ID[syntax.Node]) string {
+	if syntax.KindOf(p.Tree, id) != syntax.KIdent {
+		return ""
+	}
+	let tok = syntax.NameOf(p.Tree, id).Tok
+	if tok >= 0 { syntax.TokText(p, tok) } else { "" }
+}
+
+func classifyTopDecl(p syntax.Parsed, d dense.ID[syntax.Node]) topDeclMeta {
+	let tr = p.Tree
+	let k = syntax.KindOf(tr, d)
+	if k == syntax.KFuncDecl {
+		let fd = syntax.FuncDeclOf(tr, d)
+		let nm = firstIdentText(p, fd.Name)
+		return topDeclMeta{
+			kind:      dkFunc,
+			name:      nm,
+			isExtern:  fd.Extern != dense.NoID[syntax.Node](),
+			isDerived: false,
+			hasRecv:   fd.Recv != dense.NoID[syntax.Node](),
+			isMachine: false,
+			hasImpls:  fd.Implements != dense.NoID[syntax.Node](),
+		}
+	}
+	if k == syntax.KTypeDecl {
+		let td = syntax.TypeDeclOf(tr, d)
+		let nm = firstIdentText(p, td.Name)
+		let mut isMachine = false
+		match dense.Unpack(td.Spec) {
+		case option.Some{Value: sp}:
+			isMachine = syntax.KindOf(tr, sp) == syntax.KMachineType
+		case option.None:
+		}
+		return topDeclMeta{
+			kind:      dkType,
+			name:      nm,
+			isExtern:  td.Extern != dense.NoID[syntax.Node](),
+			isDerived: td.Derive != dense.NoID[syntax.Node](),
+			hasRecv:   false,
+			isMachine: isMachine,
+			hasImpls:  syntax.Len(td.Implements) > 0,
+		}
+	}
+	if k == syntax.KVarDecl {
+		let vd = syntax.VarDeclOf(tr, d)
+		let mut nm = ""
+		if syntax.KindOf(tr, vd.Spec) == syntax.KVarSpec {
+			let vs = syntax.VarSpecOf(tr, vd.Spec)
+			if syntax.Len(vs.Names) > 0 {
+				nm = firstIdentText(p, syntax.Item(tr, vs.Names, 0))
+			}
+		}
+		return topDeclMeta{
+			kind:      dkVar,
+			name:      nm,
+			isExtern:  vd.Extern != dense.NoID[syntax.Node](),
+			isDerived: false,
+			hasRecv:   false,
+			isMachine: false,
+			hasImpls:  false,
+		}
+	}
+	if k == syntax.KContextDecl {
+		let cd = syntax.ContextDeclOf(tr, d)
+		return topDeclMeta{
+			kind:      dkContext,
+			name:      firstIdentText(p, cd.Name),
+			isExtern:  false,
+			isDerived: false,
+			hasRecv:   false,
+			isMachine: false,
+			hasImpls:  false,
+		}
+	}
+	if k == syntax.KLawDecl {
+		let ld = syntax.LawDeclOf(tr, d)
+		return topDeclMeta{
+			kind:      dkLaw,
+			name:      firstIdentText(p, ld.Name),
+			isExtern:  false,
+			isDerived: false,
+			hasRecv:   false,
+			isMachine: false,
+			hasImpls:  false,
+		}
+	}
+	let td = syntax.TestDeclOf(tr, d)
+	topDeclMeta{
+		kind:      dkTest,
+		name:      firstIdentText(p, td.Name),
+		isExtern:  false,
+		isDerived: false,
+		hasRecv:   false,
+		isMachine: false,
+		hasImpls:  false,
+	}
+}
+
+func markSubtreeOwner(g mut LawGraph, fi int, n dense.ID[syntax.Node], dID uint32, scratch mut []uint32) {
+	let pn = bind.PNodeOf((*g).Parents, fi, n)
+	let pIdx = dense.Index(pn)
+	if pIdx >= 0 && pIdx < (*g).PNodeOwner.Len() {
+		(*g).PNodeOwner[pIdx] = dID
+	}
+	let tr = (*g).FileParsed[fi].Tree
+	*scratch = syntax.Children(tr, n, (*scratch)[:0])
+	let kids = slices.Clone(*scratch)
+	for c in kids {
+		markSubtreeOwner(g, fi, syntax.NodeAt(tr, int(c)), dID, scratch)
+	}
+}
+
+func collectMemberLaws(g mut LawGraph, fi int, tdNode dense.ID[syntax.Node], ownerDecl uint32, scratch mut []uint32) {
+	let tr = (*g).FileParsed[fi].Tree
+	let td = syntax.TypeDeclOf(tr, tdNode)
+	let p = (*g).FileParsed[fi]
+	match dense.Unpack(td.Spec) {
+	case option.Some{Value: sp}:
+		if syntax.KindOf(tr, sp) == syntax.KInterfaceType {
+			let ms = syntax.InterfaceTypeOf(tr, sp).Members
+			for j in 0..syntax.Len(ms) {
+				let m = syntax.Item(tr, ms, j)
+				if syntax.KindOf(tr, m) == syntax.KLawDecl {
+					let ld = syntax.LawDeclOf(tr, m)
+					let nm = firstIdentText(p, ld.Name)
+					let mID = (*g).DeclCount
+					(*g).DeclCount = (*g).DeclCount + uint32(1)
+					(*g).DeclFile = (*g).DeclFile.Append(uint32(fi))
+					(*g).DeclNode = (*g).DeclNode.Append(uint32(dense.Index(m)))
+					(*g).DeclKind = (*g).DeclKind.Append(dkLaw)
+					(*g).DeclName = (*g).DeclName.Append(dense.InternText(&(*g).Names, nm))
+					(*g).DeclExported = (*g).DeclExported.Append(isUpperName(nm))
+					(*g).DeclExtern = (*g).DeclExtern.Append(false)
+					(*g).DeclDerived = (*g).DeclDerived.Append(false)
+					(*g).DeclHasRecv = (*g).DeclHasRecv.Append(false)
+					(*g).DeclIsMachine = (*g).DeclIsMachine.Append(false)
+					(*g).DeclHasImpls = (*g).DeclHasImpls.Append(false)
+					(*g).DeclIsMember = (*g).DeclIsMember.Append(true)
+					(*g).DeclOwner = (*g).DeclOwner.Append(ownerDecl)
+					(*g).DeclAnchor = (*g).DeclAnchor.Append(ownerDecl)
+					(*g).DeclImplTarget = (*g).DeclImplTarget.Append(NoDecl())
+					(*g).DeclSpanFrom = (*g).DeclSpanFrom.Append(uint32(syntax.NodePos(p, m)))
+					(*g).DeclSpanTo = (*g).DeclSpanTo.Append(uint32(syntax.NodeEnd(p, m)))
+					markSubtreeOwner(g, fi, m, mID, scratch)
+				}
+			}
+		}
+	case option.None:
+	}
+}
+
+func baseTypeIdentOfField(p syntax.Parsed, node dense.ID[syntax.Node]) string {
+	let tr = p.Tree
+	let mut cur = node
+	for {
+		let k = syntax.KindOf(tr, cur)
+		if k == syntax.KStarExpr {
+			cur = syntax.StarExprOf(tr, cur).X
+		} else if k == syntax.KParenExpr {
+			cur = syntax.ParenExprOf(tr, cur).X
+		} else if k == syntax.KIndexExpr {
+			cur = syntax.IndexExprOf(tr, cur).X
+		} else {
+			break
+		}
+	}
+	firstIdentText(p, cur)
+}
+
+func linkMethodOwners(g mut LawGraph) {
+	let nDecls = int((*g).DeclCount)
+	let mut mLists = slices.WithCapacity[[]uint32](nDecls)
+	for _ in 0..nDecls {
+		mLists = mLists.Append([]uint32{})
+	}
+	for d in 0..nDecls {
+		if (*g).DeclKind[d] != dkFunc || !(*g).DeclHasRecv[d] {
+			continue
+		}
+		let fi = int((*g).DeclFile[d])
+		let p = (*g).FileParsed[fi]
+		let fd = syntax.FuncDeclOf(p.Tree, syntax.NodeAt(p.Tree, int((*g).DeclNode[d])))
+		match dense.Unpack(fd.Recv) {
+		case option.Some{Value: fl}:
+			if syntax.KindOf(p.Tree, fl) == syntax.KFieldList {
+				let list = syntax.FieldListOf(p.Tree, fl).List
+				if syntax.Len(list) > 0 {
+					let fld = syntax.FieldOf(p.Tree, syntax.Item(p.Tree, list, 0))
+					match dense.Unpack(fld.Type) {
+					case option.Some{Value: ty}:
+						let recvName = baseTypeIdentOfField(p, ty)
+						if recvName != "" {
+							for td in 0..nDecls {
+								if (*g).DeclKind[td] == dkType && DeclNameText(*g, uint32(td)) == recvName {
+									(*g).DeclOwner[d] = uint32(td)
+									mLists[td] = mLists[td].Append(uint32(d))
+									break
+								}
+							}
+						}
+					case option.None:
+					}
+				}
+			}
+		case option.None:
+		}
+	}
+	for td in 0..nDecls {
+		if (*g).DeclKind[td] == dkType && !(*g).DeclIsMember[td] && (*g).DeclHasImpls[td] {
+			let fi = int((*g).DeclFile[td])
+			let p = (*g).FileParsed[fi]
+			let impls = syntax.TypeDeclOf(p.Tree, syntax.NodeAt(p.Tree, int((*g).DeclNode[td]))).Implements
+			for j in 0..syntax.Len(impls) {
+				let ifaceName = baseTypeIdentOfField(p, syntax.Item(p.Tree, impls, j))
+				if ifaceName != "" {
+					let target = findDeclByTypeOrValueName(*g, ifaceName)
+					if target != NoDecl() && (*g).DeclKind[int(target)] == dkType {
+						(*g).DeclImplTarget[td] = target
+						break
+					}
+				}
+			}
+		}
+	}
+	for td in 0..nDecls {
+		(*g).MethodStart = (*g).MethodStart.Append(uint32((*g).MethodDecls.Len()))
+		(*g).MethodCount = (*g).MethodCount.Append(uint32(mLists[td].Len()))
+		for m in mLists[td] {
+			(*g).MethodDecls = (*g).MethodDecls.Append(m)
+		}
+	}
+}
+
+func addUniqueEdge(adj mut [][]uint32, from uint32, to uint32) {
+	if from == NoDecl() || to == NoDecl() || from == to {
+		return
+	}
+	let list = (*adj)[int(from)]
+	if !slices.Contains(list, to) {
+		(*adj)[int(from)] = list.Append(to)
+	}
+}
+
+func findDeclByTypeOrValueName(g LawGraph, name string) uint32 {
+	for d in 0..int(g.DeclCount) {
+		let k = g.DeclKind[d]
+		if (k == dkType || k == dkFunc || k == dkVar || k == dkContext) && !g.DeclHasRecv[d] && DeclNameText(g, uint32(d)) == name {
+			return uint32(d)
+		}
+	}
+	for d in 0..int(g.DeclCount) {
+		if g.DeclKind[d] == dkFunc && DeclNameText(g, uint32(d)) == name {
+			return uint32(d)
+		}
+	}
+	NoDecl()
+}
+
+func buildRefAndUserCSR(g mut LawGraph, typer expr.Typer) {
+	let nDecls = int((*g).DeclCount)
+	let mut adj = slices.WithCapacity[[]uint32](nDecls)
+	for _ in 0..nDecls {
+		adj = adj.Append([]uint32{})
+	}
+	for fi in 0..(*g).FileParsed.Len() {
+		let p = (*g).FileParsed[fi]
+		if p.Failed {
+			continue
+		}
+		let tr = p.Tree
+		let nNodes = syntax.NumNodes(tr)
+		let mut isSel = slices.Repeat([]bool{false}, nNodes)
+		let mut isKey = slices.Repeat([]bool{false}, nNodes)
+		for i in 0..nNodes {
+			let id = syntax.NodeAt(tr, i)
+			let kd = syntax.KindOf(tr, id)
+			if kd == syntax.KSelectorExpr {
+				isSel[dense.Index(syntax.SelectorExprOf(tr, id).Sel)] = true
+			} else if kd == syntax.KKeyValueExpr {
+				let kv = syntax.KeyValueExprOf(tr, id)
+				if syntax.KindOf(tr, kv.Key) == syntax.KIdent {
+					isKey[dense.Index(kv.Key)] = true
+				}
+			}
+		}
+		for i in 0..nNodes {
+			let id = syntax.NodeAt(tr, i)
+			if syntax.KindOf(tr, id) != syntax.KIdent {
+				continue
+			}
+			let pn = bind.PNodeOf((*g).Parents, fi, id)
+			let owner = (*g).PNodeOwner[dense.Index(pn)]
+			if owner == NoDecl() {
+				continue
+			}
+			match bind.ResolutionOf((*g).Uses, (*g).Parents, pn) {
+			case bind.Declared as dec:
+				let target = (*g).PNodeOwner[dense.Index(dec.At)]
+				if target != NoDecl() {
+					addUniqueEdge(&adj, owner, target)
+				}
+			case _:
+			}
+			let idIdx = dense.Index(id)
+			if !isSel[idIdx] && !isKey[idIdx] && (*g).DeclKind[int(owner)] == dkLaw {
+				let nm = firstIdentText(p, id)
+				if nm != "" {
+					let localLaw = collectLocalNamesInRange(p, (*g).Uses, (*g).Parents, fi, int((*g).DeclSpanFrom[int(owner)]), int((*g).DeclSpanTo[int(owner)]))
+					if slices.Contains(localLaw, nm) {
+						continue
+					}
+					match bind.DefOf((*g).Uses, pn) {
+					case bind.NoDef:
+						match bind.ResolutionOf((*g).Uses, (*g).Parents, pn) {
+						case bind.NotUse:
+							let cand = findDeclByTypeOrValueName(*g, nm)
+							if cand != NoDecl() {
+								addUniqueEdge(&adj, owner, cand)
+							}
+						case _:
+						}
+					case _:
+					}
+				}
+			}
+		}
+	}
+	for c in typer.Calls {
+		let cIdx = dense.Index(c.Call)
+		if cIdx < 0 || cIdx >= (*g).PNodeOwner.Len() {
+			continue
+		}
+		let callerDecl = (*g).PNodeOwner[cIdx]
+		let calleePN = bind.PNodeOf((*g).Parents, c.Callee.File, c.Callee.Decl)
+		let cpIdx = dense.Index(calleePN)
+		if cpIdx < 0 || cpIdx >= (*g).PNodeOwner.Len() {
+			continue
+		}
+		let calleeDecl = (*g).PNodeOwner[cpIdx]
+		addUniqueEdge(&adj, callerDecl, calleeDecl)
+	}
+
+	let mut rev = slices.WithCapacity[[]uint32](nDecls)
+	for _ in 0..nDecls {
+		rev = rev.Append([]uint32{})
+	}
+	for u in 0..nDecls {
+		(*g).RefStart = (*g).RefStart.Append(uint32((*g).RefTo.Len()))
+		(*g).RefCount = (*g).RefCount.Append(uint32(adj[u].Len()))
+		for v in adj[u] {
+			(*g).RefTo = (*g).RefTo.Append(v)
+			addUniqueEdge(&rev, v, uint32(u))
+		}
+	}
+	for d in 0..nDecls {
+		(*g).UserStart = (*g).UserStart.Append(uint32((*g).UserBy.Len()))
+		(*g).UserCount = (*g).UserCount.Append(uint32(rev[d].Len()))
+		for u in rev[d] {
+			(*g).UserBy = (*g).UserBy.Append(u)
+		}
+	}
+}
+
+func isUpperName(name string) bool {
+	if name == "" {
+		return false
+	}
+	let b = name[0]
+	b >= 'A' && b <= 'Z'
+}

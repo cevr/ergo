@@ -1,0 +1,1484 @@
+import cmp
+import codec
+import compiler/check/bind
+import compiler/check/store
+import compiler/syntax
+import dense
+import filepath
+import fs
+import fstest
+import json
+import option
+import slices
+import strconv
+import strings
+import utf8
+
+// CaseSnake formats file and directory names in snake_case.
+let CaseSnake = "snake_case"
+
+// CaseKebab formats file and directory names in kebab-case.
+let CaseKebab = "kebab-case"
+
+// CaseCamel formats file and directory names in camelCase.
+let CaseCamel = "camelCase"
+
+// CasePascal formats file and directory names in PascalCase.
+let CasePascal = "PascalCase"
+
+// CaseFlat formats file and directory names in flatcase.
+let CaseFlat = "flatcase"
+
+// FileCaseOptions configures file-name-case style and directory renaming.
+type FileCaseOptions {
+	Active bool,
+	Style  string,
+	Dirs   bool,
+}
+
+// ConfigError reports an invalid ergo.lint.json file-name-case configuration.
+type ConfigError {
+	Message string,
+}
+
+// RenameStep records one phase of a two-phase collision-safe directory or file rename.
+type RenameStep {
+	Phase int,
+	Kind  string,
+	From  string,
+	To    string,
+}
+
+// FileCaseRename records one logical directory or file rename.
+type FileCaseRename {
+	Kind string,
+	From string,
+	To   string,
+}
+
+// FileCaseSkip records a file or directory left unrenamed and why.
+type FileCaseSkip {
+	Kind   string,
+	From   string,
+	To     string,
+	Reason string,
+}
+
+// FileCaseImportEdit records an updated import path and optional qualifier change.
+type FileCaseImportEdit {
+	File    string,
+	OldPath string,
+	NewPath string,
+	OldQual string,
+	NewQual string,
+}
+
+type plannedFileTextEdit {
+	finalRel string,
+	edits    []Edit,
+}
+
+// FileCasePlan holds all planned two-phase renames, skips, and intra-repo import edits.
+type FileCasePlan {
+	Root        string,
+	ModPath     string,
+	Steps       []RenameStep,
+	Renames     []FileCaseRename,
+	Skipped     []FileCaseSkip,
+	ImportEdits []FileCaseImportEdit,
+	textEdits   []plannedFileTextEdit,
+}
+
+// FileCaseReport summarizes executed or planned renames, skips, and import edits.
+type FileCaseReport {
+	Steps       []RenameStep,
+	Renames     []FileCaseRename,
+	Skipped     []FileCaseSkip,
+	ImportEdits []FileCaseImportEdit,
+}
+
+// ValidCaseStyle reports whether style is one of the five supported case styles.
+func ValidCaseStyle(style string) bool {
+	style == CaseSnake || style == CaseKebab || style == CaseCamel || style == CasePascal || style == CaseFlat
+}
+
+// ValidateFileCaseOptions validates file-name-case options, failing ConfigError if invalid.
+func ValidateFileCaseOptions(opts FileCaseOptions) fails ConfigError {
+	if opts.Style == "" {
+		if opts.Dirs {
+			return ConfigError{Message: "dirs option requires case to be configured"}
+		}
+		return
+	}
+	if !ValidCaseStyle(opts.Style) {
+		return ConfigError{Message: "unknown case style: " + opts.Style}
+	}
+}
+
+func jsonFieldValue(obj json.Object, key string) option.Option[json.Value] {
+	let mut found option.Option[json.Value] = option.None
+	for m in obj.Members {
+		if m.Key == key {
+			found = option.Some[json.Value]{Value: m.Value}
+		}
+	}
+	found
+}
+
+func isValidLintSeverity(sev string) bool {
+	sev == "off" || sev == "error" || sev == "warning" || sev == "information" || sev == "hint"
+}
+
+// ParseFileCaseConfig reads file-name-case options from ergo.lint.json source text.
+func ParseFileCaseConfig(jsonText string) FileCaseOptions fails ConfigError {
+	if strings.TrimSpace(jsonText) == "" {
+		return FileCaseOptions{Active: false, Style: "", Dirs: false}
+	}
+	let cv = json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}
+	let rootVal = json.Decode(cv, jsonText) catch {
+	case json.Malformed as m:
+		return ConfigError{Message: "malformed ergo.lint.json at offset " + strconv.Itoa(m.Offset) + ": " + m.Reason}
+	case codec.WireWrongKind, codec.WireMissingField, codec.WireUnknownTag:
+		return ConfigError{Message: "malformed ergo.lint.json: wrong JSON value kind"}
+	}
+	let rootObj = match rootVal {
+	case json.Object as o:
+		o
+	case _:
+		return ConfigError{Message: "ergo.lint.json root must be an object"}
+	}
+	let rulesVal = match jsonFieldValue(rootObj, "rules") {
+	case option.Some{Value: v}:
+		v
+	case option.None:
+		return FileCaseOptions{Active: false, Style: "", Dirs: false}
+	}
+	let rulesObj = match rulesVal {
+	case json.Object as o:
+		o
+	case _:
+		return ConfigError{Message: "ergo.lint.json rules must be an object"}
+	}
+	let ruleVal = match jsonFieldValue(rulesObj, "file-name-case") {
+	case option.Some{Value: v}:
+		v
+	case option.None:
+		return FileCaseOptions{Active: false, Style: "", Dirs: false}
+	}
+	match ruleVal {
+	case json.Str as s:
+		if !isValidLintSeverity(s.Value) {
+			return ConfigError{Message: "invalid severity for file-name-case: " + s.Value}
+		}
+		FileCaseOptions{Active: false, Style: "", Dirs: false}
+	case json.Object as ruleObj:
+		let mut sev = "error"
+		match jsonFieldValue(ruleObj, "severity") {
+		case option.Some{Value: sv}:
+			match sv {
+			case json.Str as ss:
+				if !isValidLintSeverity(ss.Value) {
+					return ConfigError{Message: "invalid severity for file-name-case: " + ss.Value}
+				}
+				sev = ss.Value
+			case _:
+				return ConfigError{Message: "file-name-case severity must be a string"}
+			}
+		case option.None:
+		}
+		let mut style = ""
+		let mut dirs = false
+		match jsonFieldValue(ruleObj, "options") {
+		case option.Some{Value: ov}:
+			match ov {
+			case json.Object as optObj:
+				for mem in optObj.Members {
+					if mem.Key == "case" {
+						match mem.Value {
+						case json.Str as cs:
+							style = cs.Value
+						case _:
+							return ConfigError{Message: "file-name-case case option must be a string"}
+						}
+					} else if mem.Key == "dirs" {
+						match mem.Value {
+						case json.Boolean as b:
+							dirs = b.Value
+						case _:
+							return ConfigError{Message: "file-name-case dirs option must be a boolean"}
+						}
+					} else {
+						return ConfigError{Message: "unknown file-name-case option: " + mem.Key}
+					}
+				}
+			case _:
+				return ConfigError{Message: "file-name-case options must be an object"}
+			}
+		case option.None:
+		}
+		let opts = FileCaseOptions{Active: sev != "off" && style != "", Style: style, Dirs: dirs}
+		try ValidateFileCaseOptions(opts)
+		opts
+	case _:
+		ConfigError{Message: "invalid file-name-case rule entry"}
+	}
+}
+
+func isLowerRune(r rune) bool {
+	if !utf8.IsLetter(r) || utf8.IsUpper(r) {
+		return false
+	}
+	let s = utf8.RuneText(r)
+	strings.ToLower(s) == s && strings.ToUpper(s) != s
+}
+
+// SplitCaseWords splits an identifier into lowercase words along separators, camelCase, digit-to-upper, and acronym boundaries.
+func SplitCaseWords(s string) []string {
+	let mut runes = []rune{}
+	let mut off = 0
+	for off < s.Len() {
+		let d = utf8.DecodeRuneInString(s[off:s.Len()])
+		if d.Size == 0 {
+			break
+		}
+		runes = runes.Append(d.Rune)
+		off = off + d.Size
+	}
+	let mut words = []string{}
+	let mut cur = strings.NewBuilder()
+	let mut curLen = 0
+	for i, r in runes {
+		if !utf8.IsLetter(r) && !utf8.IsDigit(r) {
+			if curLen > 0 {
+				words = words.Append(strings.ToLower(cur.String()))
+				cur = strings.NewBuilder()
+				curLen = 0
+			}
+			continue
+		}
+		if curLen > 0 && utf8.IsUpper(r) {
+			let prev = runes[i-1]
+			let nextLower = i+1 < runes.Len() && isLowerRune(runes[i+1])
+			if isLowerRune(prev) || utf8.IsDigit(prev) || (utf8.IsUpper(prev) && nextLower) {
+				words = words.Append(strings.ToLower(cur.String()))
+				cur = strings.NewBuilder()
+				curLen = 0
+			}
+		}
+		cur.WriteString(utf8.RuneText(r))
+		curLen = curLen + 1
+	}
+	if curLen > 0 {
+		words = words.Append(strings.ToLower(cur.String()))
+	}
+	words
+}
+
+func titleCaseWord(w string) string {
+	let lw = strings.ToLower(w)
+	if lw == "" {
+		return ""
+	}
+	let d = utf8.DecodeRuneInString(lw)
+	strings.ToUpper(utf8.RuneText(d.Rune)) + lw[d.Size:]
+}
+
+// FormatCaseWords joins lowercase words in style.
+func FormatCaseWords(words []string, style string) string {
+	if words.Len() == 0 {
+		return ""
+	}
+	if style == CaseSnake {
+		return strings.Join(words, "_")
+	}
+	if style == CaseKebab {
+		return strings.Join(words, "-")
+	}
+	if style == CaseFlat {
+		return strings.Join(words, "")
+	}
+	if style == CaseCamel {
+		let mut b = strings.NewBuilder()
+		b.WriteString(strings.ToLower(words[0]))
+		for i in 1..words.Len() {
+			b.WriteString(titleCaseWord(words[i]))
+		}
+		return b.String()
+	}
+	if style == CasePascal {
+		let mut b = strings.NewBuilder()
+		for w in words {
+			b.WriteString(titleCaseWord(w))
+		}
+		return b.String()
+	}
+	""
+}
+
+func recognizedSuffixes() []string {
+	[]string{
+		"_tests", "_test", "_laws", "_law", "_gen",
+		"_linux", "_darwin", "_windows", "_freebsd", "_openbsd",
+		"_netbsd", "_dragonfly", "_solaris", "_plan9", "_aix",
+		"_android", "_ios", "_js", "_wasip1", "_unix", "_other",
+		"_amd64", "_arm64", "_386", "_arm", "_wasm",
+		"_ppc64le", "_ppc64", "_mips64le", "_mips64", "_mipsle", "_mips",
+		"_riscv64", "_s390x", "_loong64",
+	}
+}
+
+// SplitErgoFileName splits a basename into stem, preserved canonical suffix, and ok flag.
+func SplitErgoFileName(base string) (string, string, bool) {
+	if base == "" || strings.HasPrefix(base, ".") || strings.HasPrefix(base, "_") || !strings.HasSuffix(base, ".ergo") {
+		return ("", "", false)
+	}
+	let raw = strings.TrimSuffix(base, ".ergo")
+	if raw == "" {
+		return ("", "", false)
+	}
+	let mut rem = raw
+	let mut suffixes = []string{}
+	let list = recognizedSuffixes()
+	for {
+		let lowerRem = strings.ToLower(rem)
+		let mut matched = ""
+		for suf in list {
+			if strings.HasSuffix(lowerRem, suf) && rem.Len() > suf.Len() {
+				let cand = rem[0 : rem.Len()-suf.Len()]
+				if SplitCaseWords(cand).Len() > 0 {
+					matched = suf
+					rem = cand
+					break
+				}
+			}
+		}
+		if matched == "" {
+			break
+		}
+		suffixes = suffixes.Append(matched)
+	}
+	if SplitCaseWords(rem).Len() == 0 {
+		return ("", "", false)
+	}
+	let mut b = strings.NewBuilder()
+	let mut i = suffixes.Len() - 1
+	for i >= 0 {
+		b.WriteString(suffixes[i])
+		i = i - 1
+	}
+	(rem, b.String(), true)
+}
+
+// NormalizeErgoFileName returns the expected filename in style while preserving compound suffixes.
+func NormalizeErgoFileName(base string, style string) (string, bool) {
+	let (stem, preserved, ok) = SplitErgoFileName(base)
+	if !ok {
+		return ("", false)
+	}
+	let words = SplitCaseWords(stem)
+	if words.Len() == 0 {
+		return ("", false)
+	}
+	let formatted = FormatCaseWords(words, style)
+	if formatted == "" {
+		return ("", false)
+	}
+	(formatted + preserved + ".ergo", true)
+}
+
+func isExemptDirSegment(seg string) bool {
+	seg == "" || seg == "." || seg == ".." || strings.HasPrefix(seg, ".") || strings.HasPrefix(seg, "_") || seg == "testdata" || seg == "node_modules" || seg == "vendor" || seg == "ergo.bind" || seg == "gostd"
+}
+
+// NormalizeDirSegment returns the formatted directory segment or (seg, false) when exempt.
+func NormalizeDirSegment(seg string, style string) (string, bool) {
+	if isExemptDirSegment(seg) {
+		return (seg, false)
+	}
+	let words = SplitCaseWords(seg)
+	if words.Len() == 0 {
+		return (seg, false)
+	}
+	let formatted = FormatCaseWords(words, style)
+	if formatted == "" {
+		return (seg, false)
+	}
+	(formatted, true)
+}
+
+// NormalizeRelPath returns expected rel, dir, and basename under opts.
+func NormalizeRelPath(rel string, opts FileCaseOptions) (string, string, string, bool) {
+	if rel == "" || opts.Style == "" {
+		return ("", "", "", false)
+	}
+	let clean = filepath.Clean(rel)
+	if clean == "." || strings.HasPrefix(clean, ".") {
+		return ("", "", "", false)
+	}
+	let base = filepath.Base(clean)
+	let (wantBase, ok) = NormalizeErgoFileName(base, opts.Style)
+	if !ok {
+		return ("", "", "", false)
+	}
+	let dir = filepath.Dir(clean)
+	let mut wantDir = dir
+	if opts.Dirs && dir != "." {
+		let mut segs = strings.Split(dir, "/")
+		for i, seg in segs {
+			let (next, norm) = NormalizeDirSegment(seg, opts.Style)
+			if norm {
+				segs[i] = next
+			}
+		}
+		wantDir = strings.Join(segs, "/")
+	}
+	let wantRel = if wantDir == "." { wantBase } else { wantDir + "/" + wantBase }
+	(wantRel, wantDir, wantBase, true)
+}
+
+func isSuppressedLine1FileCase(src string) bool {
+	let p = syntax.Parse(src)
+	if p.Failed {
+		return false
+	}
+	let cmts = syntax.CommentsOf(p)
+	let lines = syntax.LinesOf(src)
+	let word = "ergo-lint-disable-next-line"
+	for i in 0..syntax.NumComments(cmts) {
+		let cid = syntax.CommentAt(cmts, i)
+		let start = syntax.CommentStart(cmts, cid)
+		let end = syntax.CommentEnd(cmts, cid)
+		let pos = syntax.PositionOf(lines, start)
+		if pos.Line != 1 {
+			continue
+		}
+		let txt = src[start:end]
+		if !strings.HasPrefix(txt, "//") {
+			continue
+		}
+		let body = strings.TrimLeft(strings.TrimPrefix(txt, "//"), " \t")
+		if !strings.HasPrefix(body, word) {
+			continue
+		}
+		let rest = strings.TrimPrefix(body, word)
+		let dash = strings.Index(rest, " --")
+		if dash < 0 {
+			continue
+		}
+		let rulePart = strings.TrimSpace(rest[0:dash])
+		let reason = strings.TrimSpace(rest[dash+3 : rest.Len()])
+		if rulePart == "file-name-case" && reason != "" {
+			return true
+		}
+	}
+	false
+}
+
+func readModuleName(root string) string needs fs.Files {
+	let modText = fs.Files.ReadFile(filepath.Join([]string{root, "ergo.mod"})) catch {
+	case fs.NotFound as nf:
+		let _ = nf.Path
+		return ""
+	case fs.Denied as dn:
+		let _ = dn.Path
+		return ""
+	case fs.Failed as ff:
+		let _ = ff.Path
+		return ""
+	}
+	for line in strings.Split(modText, "\n") {
+		let trimmed = strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "module ") {
+			return strings.TrimSpace(trimmed[7:trimmed.Len()])
+		}
+	}
+	""
+}
+
+func dirExists(path string) bool needs fs.Files {
+	let entry = fs.Files.Stat(path) catch {
+	case fs.NotFound as nf:
+		let _ = nf.Path
+		return false
+	case fs.Denied as dn:
+		let _ = dn.Path
+		return false
+	case fs.Failed as ff:
+		let _ = ff.Path
+		return false
+	}
+	entry.Dir
+}
+
+func fileOrDirExists(path string) bool needs fs.Files {
+	let entry = fs.Files.Stat(path) catch {
+	case fs.NotFound as nf:
+		let _ = nf.Path
+		return false
+	case fs.Denied as dn:
+		let _ = dn.Path
+		return false
+	case fs.Failed as ff:
+		let _ = ff.Path
+		return false
+	}
+	let _ = entry.Size
+	true
+}
+
+type fsScopeTable {
+	root       string,
+	modPath    string,
+	fileNames  dense.Strings,
+	fileRels   []string,
+	fileDirs   []uint32,
+	fileSrcs   []string,
+	fileSup    []bool,
+	fileTarget []bool,
+	dirNames   dense.Strings,
+	dirRels    []string,
+	dirPkgPath []string,
+	dirTarget  []bool,
+	dirEntries []string,
+}
+
+func isTargetCovered(root string, targets []string, rel string, isDir bool) bool {
+	if targets.Len() == 0 {
+		return true
+	}
+	let cleanRel = filepath.Clean(rel)
+	let absTarget = if cleanRel == "." { filepath.Clean(root) } else { filepath.Clean(filepath.Join([]string{root, cleanRel})) }
+	for raw in targets {
+		let tc = filepath.Clean(if filepath.IsAbs(raw) { raw } else { filepath.Join([]string{root, raw}) })
+		if tc == filepath.Clean(root) || tc == absTarget {
+			return true
+		}
+		if strings.HasPrefix(absTarget, tc+"/") {
+			return true
+		}
+		if isDir && strings.HasPrefix(tc, absTarget+"/") {
+			return true
+		}
+	}
+	false
+}
+
+func collectScopeTable(root string, targets []string, modPath string) fsScopeTable fails fs.NotFound | fs.Denied | fs.Failed needs fs.Files {
+	let mut tbl = fsScopeTable{
+		root:       filepath.Clean(root),
+		modPath:    modPath,
+		fileNames:  dense.NewStrings(),
+		fileRels:   []string{},
+		fileDirs:   []uint32{},
+		fileSrcs:   []string{},
+		fileSup:    []bool{},
+		fileTarget: []bool{},
+		dirNames:   dense.NewStrings(),
+		dirRels:    []string{},
+		dirPkgPath: []string{},
+		dirTarget:  []bool{},
+		dirEntries: []string{},
+	}
+	let mut dirStack = []string{"."}
+	let mut hasErgoBelow = []string{}
+	for dirStack.Len() > 0 {
+		let curRel = dirStack[0]
+		dirStack = dirStack[1:dirStack.Len()]
+		let curAbs = if curRel == "." { tbl.root } else { filepath.Join([]string{tbl.root, curRel}) }
+		let names = try fs.Files.ReadDir(curAbs)
+		let mut ergoFiles = []string{}
+		for nm in names {
+			let childRel = if curRel == "." { nm } else { curRel + "/" + nm }
+			let childAbs = filepath.Join([]string{tbl.root, childRel})
+			let st = try fs.Files.Stat(childAbs)
+			if st.Dir {
+				if !isExemptDirSegment(nm) {
+					dirStack = dirStack.Append(childRel)
+				}
+			} else if strings.HasSuffix(nm, ".ergo") {
+				ergoFiles = ergoFiles.Append(childRel)
+			}
+		}
+		if ergoFiles.Len() > 0 && curRel != "." {
+			hasErgoBelow = hasErgoBelow.Append(curRel)
+			let mut anc = filepath.Dir(curRel)
+			for anc != "." && anc != "" && !slices.Contains(hasErgoBelow, anc) {
+				hasErgoBelow = hasErgoBelow.Append(anc)
+				anc = filepath.Dir(anc)
+			}
+		}
+		let dirID = if curRel == "." { uint32(4294967295) } else { uint32(dense.Index(dense.InternText(&tbl.dirNames, curRel))) }
+		if dirID != uint32(4294967295) {
+			let di = int(dirID)
+			for tbl.dirRels.Len() <= di {
+				tbl.dirRels = tbl.dirRels.Append("")
+				tbl.dirPkgPath = tbl.dirPkgPath.Append("")
+				tbl.dirTarget = tbl.dirTarget.Append(false)
+			}
+			tbl.dirRels[di] = curRel
+			tbl.dirPkgPath[di] = if ergoFiles.Len() == 0 { "" } else if modPath == "" { curRel } else { modPath + "/" + curRel }
+			tbl.dirTarget[di] = isTargetCovered(tbl.root, targets, curRel, true)
+		}
+		for fRel in ergoFiles {
+			let fAbs = filepath.Join([]string{tbl.root, fRel})
+			let src = try fs.Files.ReadFile(fAbs)
+			let fID = dense.InternText(&tbl.fileNames, fRel)
+			let fi = dense.Index(fID)
+			for tbl.fileRels.Len() <= fi {
+				tbl.fileRels = tbl.fileRels.Append("")
+				tbl.fileDirs = tbl.fileDirs.Append(uint32(4294967295))
+				tbl.fileSrcs = tbl.fileSrcs.Append("")
+				tbl.fileSup = tbl.fileSup.Append(false)
+				tbl.fileTarget = tbl.fileTarget.Append(false)
+			}
+			tbl.fileRels[fi] = fRel
+			tbl.fileDirs[fi] = dirID
+			tbl.fileSrcs[fi] = src
+			tbl.fileSup[fi] = isSuppressedLine1FileCase(src)
+			tbl.fileTarget[fi] = isTargetCovered(tbl.root, targets, fRel, false)
+		}
+	}
+	for di in 0..tbl.dirRels.Len() {
+		if !slices.Contains(hasErgoBelow, tbl.dirRels[di]) {
+			tbl.dirTarget[di] = false
+		}
+	}
+	tbl
+}
+
+type dirRenamePlan {
+	effDir   []string,
+	moveIdx  []int,
+	moveFrom []string,
+	moveTo   []string,
+	skips    []FileCaseSkip,
+}
+
+func computeDirPlan(tbl fsScopeTable, opts FileCaseOptions, allowedDir []bool) dirRenamePlan needs fs.Files {
+	let nDirs = tbl.dirRels.Len()
+	let mut leafFrom = slices.WithCapacity[string](nDirs)
+	let mut leafWant = slices.WithCapacity[string](nDirs)
+	let mut active = slices.Repeat([]bool{false}, nDirs)
+	let mut skips = []FileCaseSkip{}
+	for di in 0..nDirs {
+		let orig = tbl.dirRels[di]
+		let origLeaf = filepath.Base(orig)
+		let (wantLeaf, ok) = NormalizeDirSegment(origLeaf, opts.Style)
+		leafFrom = leafFrom.Append(origLeaf)
+		leafWant = leafWant.Append(if ok { wantLeaf } else { origLeaf })
+		if !allowedDir[di] || !ok || wantLeaf == origLeaf {
+			continue
+		}
+		let mut hasSuppressed = false
+		for fi in 0..tbl.fileRels.Len() {
+			if tbl.fileDirs[fi] == uint32(di) && tbl.fileSup[fi] {
+				hasSuppressed = true
+				break
+			}
+		}
+		if hasSuppressed {
+			skips = skips.Append(FileCaseSkip{
+				Kind:   "dir",
+				From:   filepath.Join([]string{tbl.root, orig}),
+				To:     filepath.Join([]string{tbl.root, wantLeaf}),
+				Reason: "suppressed by lint directive",
+			})
+			continue
+		}
+		active[di] = true
+	}
+
+	let mut changed = true
+	for changed {
+		changed = false
+		let mut drop = slices.Repeat([]bool{false}, nDirs)
+		for di in 0..nDirs {
+			if !active[di] {
+				continue
+			}
+			let parent = filepath.Dir(tbl.dirRels[di])
+			let toSib = if parent == "." { leafWant[di] } else { parent + "/" + leafWant[di] }
+			let mut collision = false
+			for dj in 0..nDirs {
+				if dj == di || filepath.Dir(tbl.dirRels[dj]) != parent {
+					continue
+				}
+				let otherLeaf = if active[dj] { leafWant[dj] } else { leafFrom[dj] }
+				if otherLeaf == leafWant[di] {
+					collision = true
+					break
+				}
+			}
+			if !collision {
+				let absTo = filepath.Join([]string{tbl.root, toSib})
+				if strings.ToLower(leafFrom[di]) != strings.ToLower(leafWant[di]) && dirExists(absTo) {
+					collision = true
+				}
+			}
+			if collision {
+				drop[di] = true
+			}
+		}
+		for di in 0..nDirs {
+			if drop[di] {
+				let parent = filepath.Dir(tbl.dirRels[di])
+				let toSib = if parent == "." { leafWant[di] } else { parent + "/" + leafWant[di] }
+				active[di] = false
+				skips = skips.Append(FileCaseSkip{
+					Kind:   "dir",
+					From:   filepath.Join([]string{tbl.root, tbl.dirRels[di]}),
+					To:     filepath.Join([]string{tbl.root, toSib}),
+					Reason: "target directory already exists or collides",
+				})
+				changed = true
+			}
+		}
+	}
+
+	let mut depthOrder = slices.WithCapacity[int](nDirs)
+	for di in 0..nDirs {
+		depthOrder = depthOrder.Append(di)
+	}
+	depthOrder = slices.SortFunc(depthOrder, func(a int, b int) int {
+		let da = pathDepth(tbl.dirRels[a])
+		let db = pathDepth(tbl.dirRels[b])
+		if da != db {
+			return cmp.Compare(da, db)
+		}
+		cmp.Compare(tbl.dirRels[a], tbl.dirRels[b])
+	})
+
+	let mut effDir = slices.Clone(tbl.dirRels)
+	for di in depthOrder {
+		let parent = filepath.Dir(tbl.dirRels[di])
+		let chosenLeaf = if active[di] { leafWant[di] } else { leafFrom[di] }
+		if parent == "." {
+			effDir[di] = chosenLeaf
+		} else {
+			let mut parentEff = parent
+			for dj in 0..nDirs {
+				if tbl.dirRels[dj] == parent {
+					parentEff = effDir[dj]
+					break
+				}
+			}
+			effDir[di] = parentEff + "/" + chosenLeaf
+		}
+	}
+
+	let mut moveIdx = []int{}
+	let mut moveFrom = []string{}
+	let mut moveTo = []string{}
+	for di in 0..nDirs {
+		if active[di] {
+			moveIdx = moveIdx.Append(di)
+			moveFrom = moveFrom.Append(tbl.dirRels[di])
+			moveTo = moveTo.Append(effDir[di])
+		}
+	}
+	dirRenamePlan{effDir: effDir, moveIdx: moveIdx, moveFrom: moveFrom, moveTo: moveTo, skips: skips}
+}
+
+func checkAndPlanImportEdits(tbl fsScopeTable, dPlan dirRenamePlan) ([]plannedFileTextEdit, []FileCaseImportEdit, string) {
+	let nDirs = tbl.dirRels.Len()
+	let mut changedPkgOld = []string{}
+	let mut changedPkgNew = []string{}
+	let mut changedDirRel = []string{}
+	for k in 0..dPlan.moveFrom.Len() {
+		let di = dPlan.moveIdx[k]
+		let oldPkg = tbl.dirPkgPath[di]
+		if oldPkg == "" {
+			continue
+		}
+		let newPkg = if tbl.modPath == "" { dPlan.moveTo[k] } else { tbl.modPath + "/" + dPlan.moveTo[k] }
+		changedPkgOld = changedPkgOld.Append(oldPkg)
+		changedPkgNew = changedPkgNew.Append(newPkg)
+		changedDirRel = changedDirRel.Append(dPlan.moveFrom[k])
+	}
+	if changedPkgOld.Len() == 0 {
+		return ([]plannedFileTextEdit{}, []FileCaseImportEdit{}, "")
+	}
+
+	let nFiles = tbl.fileRels.Len()
+	let mut parsed = slices.WithCapacity[bind.File](nFiles)
+	for fi in 0..nFiles {
+		parsed = parsed.Append(bind.File{Name: tbl.fileRels[fi], Parsed: syntax.Parse(tbl.fileSrcs[fi])})
+	}
+	let mut editsOut = []plannedFileTextEdit{}
+	let mut impSummaries = []FileCaseImportEdit{}
+
+	let mut byDir = slices.WithCapacity[[]int](nDirs + 1)
+	for _ in 0..nDirs+1 {
+		byDir = byDir.Append([]int{})
+	}
+	for fi in 0..nFiles {
+		let di = tbl.fileDirs[fi]
+		let bucket = if di == uint32(4294967295) { nDirs } else { int(di) }
+		byDir[bucket] = byDir[bucket].Append(fi)
+	}
+
+	for bucket in 0..nDirs+1 {
+		let fIndices = byDir[bucket]
+		if fIndices.Len() == 0 {
+			continue
+		}
+		let mut pkgFiles = slices.WithCapacity[bind.File](fIndices.Len())
+		for fi in fIndices {
+			pkgFiles = pkgFiles.Append(parsed[fi])
+		}
+		let pkgPath = if bucket == nDirs { tbl.modPath } else { tbl.dirPkgPath[bucket] }
+		let s0 = bind.Collect(pkgPath, pkgFiles)
+		let ps = bind.BuildParents(pkgFiles)
+		let (s, u) = bind.Bind(s0, []store.Frozen{}, ps, pkgFiles, 1)
+		let pkgNames = packageNonImportNames(s)
+
+		for localIdx, fi in fIndices {
+			let src = tbl.fileSrcs[fi]
+			let p = pkgFiles[localIdx].Parsed
+			let imps = ParseFileImports(src, p)
+			if imps.Len() == 0 {
+				continue
+			}
+			let mut nextEntries = slices.WithCapacity[ImportEntry](imps.Len())
+			let mut qRewrites = []QualRewrite{}
+			let mut anyImpChanged = false
+			let locals = collectLocalNamesInRange(p, u, ps, localIdx, 0, src.Len())
+			let mut existingQuals = slices.Clone(pkgNames)
+			for sp in imps {
+				let q = ImportQualifier(sp.Entry)
+				if !slices.Contains(existingQuals, q) {
+					existingQuals = existingQuals.Append(q)
+				}
+			}
+			for sp in imps {
+				if sp.Entry.IsGo {
+					nextEntries = nextEntries.Append(sp.Entry)
+					continue
+				}
+				let mut matchedPkg = -1
+				for ci, oldPkg in changedPkgOld {
+					if sp.Entry.Path == oldPkg {
+						matchedPkg = ci
+						break
+					}
+				}
+				if matchedPkg < 0 {
+					nextEntries = nextEntries.Append(sp.Entry)
+					continue
+				}
+				let oldPkg = changedPkgOld[matchedPkg]
+				let newPkg = changedPkgNew[matchedPkg]
+				let oldQual = ImportQualifier(sp.Entry)
+				let newBase = ImportBase(newPkg)
+				if sp.Entry.Alias != "" {
+					let updatedEntry = NormalizeImport(ImportEntry{Alias: sp.Entry.Alias, Path: newPkg, IsGo: false})
+					let newQual = ImportQualifier(updatedEntry)
+					nextEntries = nextEntries.Append(updatedEntry)
+					anyImpChanged = true
+					if oldQual != newQual {
+						qRewrites = qRewrites.Append(QualRewrite{From: oldQual, To: newQual})
+					}
+					impSummaries = impSummaries.Append(FileCaseImportEdit{
+						File:    tbl.fileRels[fi],
+						OldPath: oldPkg,
+						NewPath: newPkg,
+						OldQual: oldQual,
+						NewQual: newQual,
+					})
+					continue
+				}
+				if newBase != oldQual && (slices.Contains(locals, newBase) || slices.Contains(existingQuals, newBase)) {
+					return ([]plannedFileTextEdit{}, []FileCaseImportEdit{}, changedDirRel[matchedPkg])
+				}
+				nextEntries = nextEntries.Append(ImportEntry{Alias: "", Path: newPkg, IsGo: false})
+				anyImpChanged = true
+				if oldQual != newBase {
+					qRewrites = qRewrites.Append(QualRewrite{From: oldQual, To: newBase})
+				}
+				impSummaries = impSummaries.Append(FileCaseImportEdit{
+					File:    tbl.fileRels[fi],
+					OldPath: oldPkg,
+					NewPath: newPkg,
+					OldQual: oldQual,
+					NewQual: newBase,
+				})
+			}
+			if !anyImpChanged {
+				continue
+			}
+			let mut eds = QualifierEdits(pkgFiles, u, ps, localIdx, 0, src.Len(), qRewrites)
+			match PlanImportBlockEdit(src, p, nextEntries) {
+			case option.Some{Value: impEd}:
+				eds = eds.Append(impEd)
+			case option.None:
+			}
+			if eds.Len() > 0 {
+				let dirIdx = tbl.fileDirs[fi]
+				let fDir = if dirIdx == uint32(4294967295) { "." } else { dPlan.effDir[int(dirIdx)] }
+				let base = filepath.Base(tbl.fileRels[fi])
+				let relInEff = if fDir == "." { base } else { fDir + "/" + base }
+				editsOut = editsOut.Append(plannedFileTextEdit{finalRel: relInEff, edits: eds})
+			}
+		}
+	}
+	(editsOut, impSummaries, "")
+}
+
+type fileRenamePlan {
+	moveFileIdx []int,
+	fromRel     []string,
+	toRel       []string,
+	skips       []FileCaseSkip,
+}
+
+func computeFilePlan(tbl fsScopeTable, opts FileCaseOptions, dPlan dirRenamePlan) fileRenamePlan needs fs.Files {
+	let nFiles = tbl.fileRels.Len()
+	let mut effOrig = slices.WithCapacity[string](nFiles)
+	let mut candFinal = slices.WithCapacity[string](nFiles)
+	let mut active = slices.Repeat([]bool{false}, nFiles)
+	let mut skips = []FileCaseSkip{}
+
+	for fi in 0..nFiles {
+		let origRel = tbl.fileRels[fi]
+		let base = filepath.Base(origRel)
+		let di = tbl.fileDirs[fi]
+		let fDir = if di == uint32(4294967295) { "." } else { dPlan.effDir[int(di)] }
+		let startRel = if fDir == "." { base } else { fDir + "/" + base }
+		effOrig = effOrig.Append(startRel)
+		let (wantBase, ok) = NormalizeErgoFileName(base, opts.Style)
+		let endRel = if !ok { startRel } else if fDir == "." { wantBase } else { fDir + "/" + wantBase }
+		candFinal = candFinal.Append(endRel)
+		if !tbl.fileTarget[fi] || !ok || endRel == startRel {
+			continue
+		}
+		if tbl.fileSup[fi] {
+			skips = skips.Append(FileCaseSkip{
+				Kind:   "file",
+				From:   filepath.Join([]string{tbl.root, origRel}),
+				To:     filepath.Join([]string{tbl.root, endRel}),
+				Reason: "suppressed by lint directive",
+			})
+			continue
+		}
+		active[fi] = true
+	}
+
+	let mut changed = true
+	for changed {
+		changed = false
+		let mut drop = slices.Repeat([]bool{false}, nFiles)
+		for fi in 0..nFiles {
+			if !active[fi] {
+				continue
+			}
+			let target = candFinal[fi]
+			let mut collision = false
+			for fj in 0..nFiles {
+				if fj == fi {
+					continue
+				}
+				let otherEff = if active[fj] { candFinal[fj] } else { effOrig[fj] }
+				if otherEff == target {
+					collision = true
+					break
+				}
+			}
+			if !collision {
+				let absTarget = filepath.Join([]string{tbl.root, target})
+				if strings.ToLower(effOrig[fi]) != strings.ToLower(target) && fileOrDirExists(absTarget) {
+					collision = true
+				}
+			}
+			if collision {
+				drop[fi] = true
+			}
+		}
+		for fi in 0..nFiles {
+			if drop[fi] {
+				active[fi] = false
+				skips = skips.Append(FileCaseSkip{
+					Kind:   "file",
+					From:   filepath.Join([]string{tbl.root, effOrig[fi]}),
+					To:     filepath.Join([]string{tbl.root, candFinal[fi]}),
+					Reason: "target file already exists or collides",
+				})
+				changed = true
+			}
+		}
+	}
+
+	let mut moveFileIdx = []int{}
+	let mut fromRel = []string{}
+	let mut toRel = []string{}
+	for fi in 0..nFiles {
+		if active[fi] {
+			moveFileIdx = moveFileIdx.Append(fi)
+			fromRel = fromRel.Append(effOrig[fi])
+			toRel = toRel.Append(candFinal[fi])
+		}
+	}
+	fileRenamePlan{moveFileIdx: moveFileIdx, fromRel: fromRel, toRel: toRel, skips: skips}
+}
+
+func pathDepth(rel string) int {
+	strings.Count(rel, "/") + 1
+}
+
+func buildTwoPhaseSteps(root string, dPlan dirRenamePlan, fPlan fileRenamePlan) []RenameStep needs fs.Files {
+	let mut steps = []RenameStep{}
+	let mut tmpSeq = 0
+
+	let nDirMoves = dPlan.moveFrom.Len()
+	let mut dirOrder = slices.WithCapacity[int](nDirMoves)
+	for i in 0..nDirMoves {
+		dirOrder = dirOrder.Append(i)
+	}
+	dirOrder = slices.SortFunc(dirOrder, func(a int, b int) int {
+		let da = pathDepth(dPlan.moveFrom[a])
+		let db = pathDepth(dPlan.moveFrom[b])
+		if da != db {
+			return cmp.Compare(db, da)
+		}
+		cmp.Compare(dPlan.moveFrom[a], dPlan.moveFrom[b])
+	})
+
+	let mut curDepth = -1
+	let mut groupFrom = []string{}
+	let mut groupTo = []string{}
+	let mut groupTmp = []string{}
+	for k in 0..dirOrder.Len()+1 {
+		let flush = k == dirOrder.Len() || (curDepth >= 0 && pathDepth(dPlan.moveFrom[dirOrder[k]]) != curDepth)
+		if flush && groupFrom.Len() > 0 {
+			for i in 0..groupFrom.Len() {
+				steps = steps.Append(RenameStep{Phase: 1, Kind: "dir", From: groupFrom[i], To: groupTmp[i]})
+			}
+			for i in 0..groupFrom.Len() {
+				steps = steps.Append(RenameStep{Phase: 2, Kind: "dir", From: groupTmp[i], To: groupTo[i]})
+			}
+			groupFrom = []string{}
+			groupTo = []string{}
+			groupTmp = []string{}
+		}
+		if k < dirOrder.Len() {
+			let idx = dirOrder[k]
+			let origRel = dPlan.moveFrom[idx]
+			curDepth = pathDepth(origRel)
+			let fromAbs = filepath.Join([]string{root, origRel})
+			let parent = filepath.Dir(fromAbs)
+			let toAbs = filepath.Join([]string{parent, filepath.Base(dPlan.moveTo[idx])})
+			let mut tmpAbs = ""
+			for {
+				tmpSeq = tmpSeq + 1
+				let cand = filepath.Join([]string{parent, ".ergo-fix-tmp-" + strconv.Itoa(tmpSeq)})
+				if !fileOrDirExists(cand) {
+					tmpAbs = cand
+					break
+				}
+			}
+			groupFrom = groupFrom.Append(fromAbs)
+			groupTo = groupTo.Append(toAbs)
+			groupTmp = groupTmp.Append(tmpAbs)
+		}
+	}
+
+	let nFileMoves = fPlan.fromRel.Len()
+	let mut fileFrom = slices.WithCapacity[string](nFileMoves)
+	let mut fileTo = slices.WithCapacity[string](nFileMoves)
+	let mut fileTmp = slices.WithCapacity[string](nFileMoves)
+	for i in 0..nFileMoves {
+		let fromAbs = filepath.Join([]string{root, fPlan.fromRel[i]})
+		let toAbs = filepath.Join([]string{root, fPlan.toRel[i]})
+		let parent = filepath.Dir(fromAbs)
+		let mut tmpAbs = ""
+		for {
+			tmpSeq = tmpSeq + 1
+			let cand = filepath.Join([]string{parent, ".ergo-fix-tmp-" + strconv.Itoa(tmpSeq)})
+			if !fileOrDirExists(cand) {
+				tmpAbs = cand
+				break
+			}
+		}
+		fileFrom = fileFrom.Append(fromAbs)
+		fileTo = fileTo.Append(toAbs)
+		fileTmp = fileTmp.Append(tmpAbs)
+	}
+	for i in 0..nFileMoves {
+		steps = steps.Append(RenameStep{Phase: 1, Kind: "file", From: fileFrom[i], To: fileTmp[i]})
+	}
+	for i in 0..nFileMoves {
+		steps = steps.Append(RenameStep{Phase: 2, Kind: "file", From: fileTmp[i], To: fileTo[i]})
+	}
+	steps
+}
+
+// PlanFileCase builds a collision-safe two-phase file/directory rename plan without modifying the filesystem.
+func PlanFileCase(root string, targets []string, opts FileCaseOptions) FileCasePlan fails ConfigError | fs.NotFound | fs.Denied | fs.Failed needs fs.Files {
+	try ValidateFileCaseOptions(opts)
+	let modPath = readModuleName(root)
+	if !opts.Active || opts.Style == "" {
+		return FileCasePlan{
+			Root:        filepath.Clean(root),
+			ModPath:     modPath,
+			Steps:       []RenameStep{},
+			Renames:     []FileCaseRename{},
+			Skipped:     []FileCaseSkip{},
+			ImportEdits: []FileCaseImportEdit{},
+			textEdits:   []plannedFileTextEdit{},
+		}
+	}
+	let tbl = try collectScopeTable(root, targets, modPath)
+	if tbl.fileRels.Len() == 0 {
+		return FileCasePlan{
+			Root:        tbl.root,
+			ModPath:     modPath,
+			Steps:       []RenameStep{},
+			Renames:     []FileCaseRename{},
+			Skipped:     []FileCaseSkip{},
+			ImportEdits: []FileCaseImportEdit{},
+			textEdits:   []plannedFileTextEdit{},
+		}
+	}
+	let nDirs = tbl.dirRels.Len()
+	let mut allowedDir = slices.Clone(tbl.dirTarget)
+	let mut allSkips = []FileCaseSkip{}
+	let mut dPlan = dirRenamePlan{
+		effDir:   slices.Clone(tbl.dirRels),
+		moveIdx:  []int{},
+		moveFrom: []string{},
+		moveTo:   []string{},
+		skips:    []FileCaseSkip{},
+	}
+	let mut plannedEdits = []plannedFileTextEdit{}
+	let mut impSummaries = []FileCaseImportEdit{}
+	if opts.Dirs && nDirs > 0 {
+		for {
+			dPlan = computeDirPlan(tbl, opts, allowedDir)
+			for s in dPlan.skips {
+				allSkips = allSkips.Append(s)
+			}
+			let (eds, sum, conflictDir) = checkAndPlanImportEdits(tbl, dPlan)
+			if conflictDir == "" {
+				plannedEdits = eds
+				impSummaries = sum
+				break
+			}
+			for di in 0..nDirs {
+				if tbl.dirRels[di] == conflictDir {
+					allowedDir[di] = false
+					allSkips = allSkips.Append(FileCaseSkip{
+						Kind:   "dir",
+						From:   filepath.Join([]string{tbl.root, conflictDir}),
+						To:     filepath.Join([]string{tbl.root, dPlan.effDir[di]}),
+						Reason: "renamed package qualifier collides with a local declaration in caller",
+					})
+					break
+				}
+			}
+		}
+	}
+	let fPlan = computeFilePlan(tbl, opts, dPlan)
+	for s in fPlan.skips {
+		allSkips = allSkips.Append(s)
+	}
+
+	let mut finalRelByFileIdx = slices.WithCapacity[string](tbl.fileRels.Len())
+	for fi in 0..tbl.fileRels.Len() {
+		let di = tbl.fileDirs[fi]
+		let fDir = if di == uint32(4294967295) { "." } else { dPlan.effDir[int(di)] }
+		let base = filepath.Base(tbl.fileRels[fi])
+		let rel = if fDir == "." { base } else { fDir + "/" + base }
+		finalRelByFileIdx = finalRelByFileIdx.Append(rel)
+	}
+	for k in 0..fPlan.moveFileIdx.Len() {
+		finalRelByFileIdx[fPlan.moveFileIdx[k]] = fPlan.toRel[k]
+	}
+	for ei in 0..plannedEdits.Len() {
+		let curEff = plannedEdits[ei].finalRel
+		for k in 0..fPlan.fromRel.Len() {
+			if fPlan.fromRel[k] == curEff {
+				plannedEdits[ei].finalRel = fPlan.toRel[k]
+				break
+			}
+		}
+	}
+
+	let mut renames = []FileCaseRename{}
+	for k in 0..dPlan.moveFrom.Len() {
+		renames = renames.Append(FileCaseRename{
+			Kind: "dir",
+			From: filepath.Join([]string{tbl.root, dPlan.moveFrom[k]}),
+			To:   filepath.Join([]string{tbl.root, dPlan.moveTo[k]}),
+		})
+	}
+	for fi in 0..fPlan.fromRel.Len() {
+		let origFileRel = tbl.fileRels[fPlan.moveFileIdx[fi]]
+		renames = renames.Append(FileCaseRename{
+			Kind: "file",
+			From: filepath.Join([]string{tbl.root, origFileRel}),
+			To:   filepath.Join([]string{tbl.root, fPlan.toRel[fi]}),
+		})
+	}
+	let steps = buildTwoPhaseSteps(tbl.root, dPlan, fPlan)
+	FileCasePlan{
+		Root:        tbl.root,
+		ModPath:     modPath,
+		Steps:       steps,
+		Renames:     renames,
+		Skipped:     allSkips,
+		ImportEdits: impSummaries,
+		textEdits:   plannedEdits,
+	}
+}
+
+// ApplyFileCase executes planned two-phase renames and intra-repo import edits through fs.Writes.
+func ApplyFileCase(plan FileCasePlan) FileCaseReport fails fs.NotFound | fs.Denied | fs.Failed | fs.CrossDevice | OverlapError | OutOfBoundsError needs fs.Files | fs.Writes {
+	for st in plan.Steps {
+		try fs.Writes.Rename(st.From, st.To)
+	}
+	for te in plan.textEdits {
+		let absPath = filepath.Join([]string{plan.Root, te.finalRel})
+		let cur = try fs.Files.ReadFile(absPath)
+		let applied = try ApplyEdits(te.finalRel, cur, te.edits)
+		let formatted = FormatIfOrigValid(te.finalRel, cur, applied)
+		if formatted != cur {
+			try fs.Writes.WriteFile(absPath, formatted)
+		}
+	}
+	FileCaseReport{
+		Steps:       plan.Steps,
+		Renames:     plan.Renames,
+		Skipped:     plan.Skipped,
+		ImportEdits: plan.ImportEdits,
+	}
+}
+
+// FixFileCase plans and applies collision-safe file-name-case renames and import updates.
+func FixFileCase(root string, targets []string, opts FileCaseOptions) FileCaseReport fails ConfigError | fs.NotFound | fs.Denied | fs.Failed | fs.CrossDevice | OverlapError | OutOfBoundsError needs fs.Files | fs.Writes {
+	let plan = try PlanFileCase(root, targets, opts)
+	try ApplyFileCase(plan)
+}
+
+func makeSeedCaseFile(styleSeed int) (string, string) {
+	let styles = []string{CaseSnake, CaseKebab, CaseCamel, CasePascal, CaseFlat}
+	let idx = int(uint64(styleSeed) % uint64(styles.Len()))
+	(styles[idx], "HTTPClient_linux_test.ergo")
+}
+
+// FileCaseNormalizesAllStylesAndAcronyms: all five styles normalize acronyms and preserve compound suffixes idempotently.
+law FileCaseNormalizesAllStylesAndAcronyms(seed int) {
+	let (style, file) = makeSeedCaseFile(seed)
+	let (norm, ok1) = NormalizeErgoFileName(file, style)
+	let (again, ok2) = NormalizeErgoFileName(norm, style)
+	let expectedPrefix = if style == CaseSnake {
+		"http_client"
+	} else if style == CaseKebab {
+		"http-client"
+	} else if style == CaseCamel {
+		"httpClient"
+	} else if style == CasePascal {
+		"HttpClient"
+	} else {
+		"httpclient"
+	}
+	let j2sWords = SplitCaseWords("JSON2SQL")
+	ok1 && ok2 && again == norm && norm == expectedPrefix+"_linux_test.ergo" && j2sWords.Len() == 2 && j2sWords[0] == "json2" && j2sWords[1] == "sql"
+}
+
+func checkTwoPhasePlan(seed int) bool {
+	let style = if seed%2 == 0 { CaseSnake } else { CaseKebab }
+	let m = fstest.NewMemory()
+	let opts = FileCaseOptions{Active: true, Style: style, Dirs: true}
+	with context { fs.Files: m, fs.Writes: m } {
+		m.MkdirAll("/repo/MyPkg") catch {
+		case fs.Denied as dn:
+			let _ = dn.Path
+			return false
+		case fs.Failed as ff:
+			let _ = ff.Path
+			return false
+		}
+		m.WriteFile("/repo/ergo.mod", "module example.com/app\n") catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return false
+		}
+		m.WriteFile("/repo/MyPkg/BadName.ergo", "func Hi() int { 1 }\n") catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return false
+		}
+		let plan = PlanFileCase("/repo", []string{}, opts) catch {
+		case ConfigError, fs.NotFound, fs.Denied, fs.Failed:
+			return false
+		}
+		let untouched = fileOrDirExists("/repo/MyPkg/BadName.ergo")
+		let mut sawFileStep = false
+		let mut kindOrderOk = true
+		let mut lastFilePhase = 0
+		let mut lastDirPhase = 0
+		let mut fileBatchOk = true
+		let mut dirBatchOk = true
+		for st in plan.Steps {
+			if st.Kind == "file" {
+				sawFileStep = true
+				if st.Phase < lastFilePhase {
+					fileBatchOk = false
+				}
+				lastFilePhase = st.Phase
+			} else {
+				if sawFileStep {
+					kindOrderOk = false
+				}
+				if st.Phase == 1 && lastDirPhase == 2 {
+					lastDirPhase = 1
+				} else if st.Phase < lastDirPhase {
+					dirBatchOk = false
+				} else {
+					lastDirPhase = st.Phase
+				}
+			}
+		}
+		untouched && kindOrderOk && dirBatchOk && fileBatchOk && plan.Steps.Len() == 4 && plan.Steps[0].Kind == "dir" && plan.Steps[0].Phase == 1 && plan.Renames.Len() == 2
+	}
+}
+
+// FileCaseTwoPhasePlanSeparatesPhases: dry-run planning never writes and emits Phase 1 temp moves before Phase 2 finals per batch.
+law FileCaseTwoPhasePlanSeparatesPhases(seed int) { checkTwoPhasePlan(seed) }
+
+test FileCaseRenamesDirsUpdatesImportsAndIsIdempotent {
+	let m = fstest.NewMemory()
+	with context { fs.Files: m, fs.Writes: m } {
+		m.MkdirAll("/app/UserAuth") catch {
+		case fs.Denied, fs.Failed:
+			assert false
+			return
+		}
+		m.MkdirAll("/app/OtherPkg") catch {
+		case fs.Denied, fs.Failed:
+			assert false
+			return
+		}
+		m.WriteFile("/app/ergo.mod", "module example.com/demo\n") catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			assert false
+			return
+		}
+		m.WriteFile("/app/UserAuth/LoginHandler.ergo", "func AuthToken() string { \"ok\" }\n") catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			assert false
+			return
+		}
+		m.WriteFile("/app/OtherPkg/MainCaller.ergo", "import example.com/demo/UserAuth\n\nfunc Run() string {\n\tUserAuth.AuthToken()\n}\n") catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			assert false
+			return
+		}
+		m.WriteFile("/app/OtherPkg/ClashCaller.ergo", "import user_auth example.com/demo/UserAuth\n\nfunc ClashRun() string {\n\tuser_auth.AuthToken()\n}\n") catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			assert false
+			return
+		}
+		let cfgText = "{\"version\":1,\"rules\":{\"file-name-case\":{\"severity\":\"error\",\"options\":{\"case\":\"snake_case\",\"dirs\":true}}}}"
+		let opts = ParseFileCaseConfig(cfgText) catch {
+		case ConfigError:
+			assert false
+			return
+		}
+		assert opts.Active
+		let rep1 = FixFileCase("/app", []string{}, opts) catch {
+		case ConfigError, fs.NotFound, fs.Denied, fs.Failed, fs.CrossDevice, OverlapError, OutOfBoundsError:
+			assert false
+			return
+		}
+		assert rep1.Renames.Len() == 5
+		assert rep1.ImportEdits.Len() == 2
+		let updatedCaller = m.ReadFile("/app/other_pkg/main_caller.ergo") catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			assert false
+			return
+		}
+		assert strings.Contains(updatedCaller, "import example.com/demo/user_auth")
+		assert strings.Contains(updatedCaller, "user_auth.AuthToken()")
+		let updatedAlias = m.ReadFile("/app/other_pkg/clash_caller.ergo") catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			assert false
+			return
+		}
+		assert strings.Contains(updatedAlias, "import example.com/demo/user_auth")
+		assert !strings.Contains(updatedAlias, "user_auth example.com")
+		let rep2 = FixFileCase("/app", []string{}, opts) catch {
+		case ConfigError, fs.NotFound, fs.Denied, fs.Failed, fs.CrossDevice, OverlapError, OutOfBoundsError:
+			assert false
+			return
+		}
+		assert rep2.Renames.Len() == 0
+		assert rep2.ImportEdits.Len() == 0
+	}
+}
+
+test FileCaseHandlesNestedDirsClashRevertCollisionsAndSuppression {
+	let m = fstest.NewMemory()
+	with context { fs.Files: m, fs.Writes: m } {
+		m.MkdirAll("/r/OuterDir/InnerDir") catch {
+		case fs.Denied, fs.Failed:
+			assert false
+			return
+		}
+		m.MkdirAll("/r/BadDir") catch {
+		case fs.Denied, fs.Failed:
+			assert false
+			return
+		}
+		m.WriteFile("/r/ergo.mod", "module example.com/n\n") catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			assert false
+			return
+		}
+		m.WriteFile("/r/OuterDir/InnerDir/MyFile.ergo", "func Nested() int { 1 }\n") catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			assert false
+			return
+		}
+		m.WriteFile("/r/BadDir/Ok.ergo", "func Ok() int { 2 }\n") catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			assert false
+			return
+		}
+		m.WriteFile("/r/BadCaller.ergo", "import example.com/n/BadDir\n\nfunc F() int {\n\tlet bad_dir = 10\n\tlet _ = bad_dir\n\tBadDir.Ok()\n}\n") catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			assert false
+			return
+		}
+		m.WriteFile("/r/DupName.ergo", "func A() int { 1 }\n") catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			assert false
+			return
+		}
+		m.WriteFile("/r/dup-name.ergo", "func B() int { 2 }\n") catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			assert false
+			return
+		}
+		m.WriteFile("/r/KeepSup.ergo", "// ergo-lint-disable-next-line file-name-case -- keep legacy name\nfunc Sup() int { 3 }\n") catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			assert false
+			return
+		}
+		let opts = FileCaseOptions{Active: true, Style: CaseSnake, Dirs: true}
+		let rep = FixFileCase("/r", []string{}, opts) catch {
+		case ConfigError, fs.NotFound, fs.Denied, fs.Failed, fs.CrossDevice, OverlapError, OutOfBoundsError:
+			assert false
+			return
+		}
+		assert rep.Skipped.Len() >= 3
+		assert fileOrDirExists("/r/outer_dir/inner_dir/my_file.ergo")
+		assert fileOrDirExists("/r/BadDir/ok.ergo")
+		assert fileOrDirExists("/r/KeepSup.ergo")
+		assert fileOrDirExists("/r/DupName.ergo")
+		assert fileOrDirExists("/r/dup-name.ergo")
+		let _ = ParseFileCaseConfig("{\"rules\":{\"file-name-case\":{\"options\":{\"case\":\"unknown\"}}}}") catch {
+		case ConfigError as ce:
+			assert strings.Contains(ce.Message, "unknown")
+			return
+		}
+		assert false
+	}
+}

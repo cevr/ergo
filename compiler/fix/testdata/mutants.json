@@ -1,0 +1,215 @@
+{
+  "about": "compiler/fix: pure-Ergo DoD byte-span edit engine, import merger/sorter/de-aliaser, S115 law & test co-location, len/mut/stdtypes/globalfuncs passes, and collision-safe two-phase file-name-case planner.",
+  "mutants": [
+    {
+      "name": "selfhost-fix-edits-overlap-ignored",
+      "origin": "wf10 SELFHOST-FIX",
+      "file": "compiler/fix/edits.ergo",
+      "decl": "validateOrder",
+      "from": "\t\t\tif prev.To > cur.From {",
+      "to": "\t\t\tif false && prev.To > cur.From {",
+      "rule": "ApplyEdits must refuse overlapping byte-span edits with OverlapError.",
+      "killers": ["compiler/fix:law:OverlappingEditsRefused"]
+    },
+    {
+      "name": "selfhost-fix-edits-oob-ignored",
+      "origin": "wf10 SELFHOST-FIX",
+      "file": "compiler/fix/edits.ergo",
+      "decl": "validateOrder",
+      "from": "\t\tif cur.From < 0 || cur.To < cur.From || cur.To > srcLen {",
+      "to": "\t\tif cur.From < 0 || cur.To < cur.From || false {",
+      "rule": "ApplyEdits must reject out-of-bounds spans with OutOfBoundsError.",
+      "killers": ["compiler/fix:OutOfBoundsEditRejected"]
+    },
+    {
+      "name": "selfhost-fix-imports-go-order",
+      "origin": "wf10 SELFHOST-FIX",
+      "file": "compiler/fix/imports.ergo",
+      "decl": "CompareImports",
+      "from": "\tif a.IsGo != b.IsGo {\n\t\treturn if a.IsGo { 1 } else { -1 }\n\t}",
+      "to": "\tif a.IsGo != b.IsGo {\n\t\treturn if a.IsGo { -1 } else { 1 }\n\t}",
+      "rule": "Canonical import sorting places Ergo imports before Go imports.",
+      "killers": ["compiler/fix:law:MergeSortsAndDealiases"]
+    },
+    {
+      "name": "selfhost-fix-imports-drops-used",
+      "origin": "wf10 SELFHOST-FIX",
+      "file": "compiler/fix/imports.ergo",
+      "decl": "UsedImportMask",
+      "from": "\t\t\tfor j, imp in imports {\n\t\t\t\tif ImportQualifier(imp) == qName {\n\t\t\t\t\tused[j] = true\n\t\t\t\t}\n\t\t\t}",
+      "to": "\t\t\tfor j, imp in imports {\n\t\t\t\tif ImportQualifier(imp) == qName {\n\t\t\t\t\tused[j] = false\n\t\t\t\t}\n\t\t\t}",
+      "rule": "Import pruning keeps imports whose qualifier resolves outside package declarations.",
+      "killers": ["compiler/fix:PruneDropsUnusedImportAndPreservesUsed"]
+    },
+    {
+      "name": "selfhost-fix-lawfix-ignores-tests",
+      "origin": "wf10 SELFHOST-FIX",
+      "file": "compiler/fix/law_fix.ergo",
+      "decl": "PlanLawFix",
+      "from": "\t\tif dk != dkLaw && dk != dkTest {",
+      "to": "\t\tif dk != dkLaw {",
+      "rule": "S115 co-location moves both top-level law and top-level test declarations beside their subjects.",
+      "killers": ["compiler/fix:law:LawFixCoLocatesLawsAndTestsAndIsIdempotent", "compiler/fix:LawFixRelocatesImportsDealiasesAndEnforcesAmbiguityGuard"]
+    },
+    {
+      "name": "selfhost-fix-lawfix-helper-churns",
+      "origin": "wf10 SELFHOST-FIX",
+      "file": "compiler/fix/law_fix.ergo",
+      "decl": "PlanLawFix",
+      "from": "\t\t\tif dest == g.DeclFile[d] {",
+      "to": "\t\t\tif u == user && dest == g.DeclFile[d] {",
+      "rule": "An exclusive helper stays put if any user stays or arrives in its file, guaranteeing idempotency.",
+      "killers": ["compiler/fix:LawFixUnexportsHelpersJoinsLeftoversMovesProvidersAndRenamesConcept"]
+    },
+    {
+      "name": "selfhost-fix-lawfix-ambiguity-bypass",
+      "origin": "wf10 SELFHOST-FIX",
+      "file": "compiler/fix/law_fix.ergo",
+      "decl": "pickMainSubject",
+      "from": "\tif tieOtherFile {\n\t\treturn subjectChoice{decl: subjects[bestIdx], ambiguous: true}\n\t}",
+      "to": "\tif tieOtherFile {\n\t\treturn subjectChoice{decl: subjects[bestIdx], ambiguous: false}\n\t}",
+      "rule": "Ambiguous subject ties across distinct files must be guarded instead of moving arbitrarily.",
+      "killers": ["compiler/fix:LawFixRelocatesImportsDealiasesAndEnforcesAmbiguityGuard"]
+    },
+    {
+      "name": "selfhost-fix-lawfix-keeps-empty-file",
+      "origin": "wf10 SELFHOST-FIX",
+      "file": "compiler/fix/law_fix.ergo",
+      "decl": "PlanLawFix",
+      "from": "\t\tif leftNonImport == 0 && arrivedByFile[fi].Len() == 0 && movedByFile[fi].Len() > 0 {",
+      "to": "\t\tif false && leftNonImport == 0 && arrivedByFile[fi].Len() == 0 && movedByFile[fi].Len() > 0 {",
+      "rule": "Files left with no non-import declarations after moves are recorded as Deleted.",
+      "killers": ["compiler/fix:law:LawFixCoLocatesLawsAndTestsAndIsIdempotent", "compiler/fix:LawFixRelocatesImportsDealiasesAndEnforcesAmbiguityGuard"]
+    },
+    {
+      "name": "selfhost-fix-lawfix-skips-leftover-join",
+      "origin": "wf10 SELFHOST-FIX",
+      "file": "compiler/fix/law_fix.ergo",
+      "decl": "planLeftoverTestJoins",
+      "from": "\t\tif !isLawsFileName(path) {",
+      "to": "\t\tif isLawsFileName(path) {",
+      "rule": "Unplaced leftover tests in a laws file join an existing tests.ergo when present.",
+      "killers": ["compiler/fix:LawFixUnexportsHelpersJoinsLeftoversMovesProvidersAndRenamesConcept"]
+    },
+    {
+      "name": "selfhost-fix-lawfix-drops-rename-concept",
+      "origin": "wf10 SELFHOST-FIX",
+      "file": "compiler/fix/law_fix.ergo",
+      "decl": "planLawFileRenames",
+      "from": "\t\tif !keptAlive[fi] || !isLawsFileName(origFiles[fi].Path) {",
+      "to": "\t\tif !keptAlive[fi] || isLawsFileName(origFiles[fi].Path) {",
+      "rule": "A remaining laws file holding non-law declarations renames after its primary concept.",
+      "killers": ["compiler/fix:LawFixUnexportsHelpersJoinsLeftoversMovesProvidersAndRenamesConcept"]
+    },
+    {
+      "name": "selfhost-fix-len-ignores-shadow",
+      "origin": "wf10 SELFHOST-FIX",
+      "file": "compiler/fix/len.ergo",
+      "decl": "isUniverseLenCall",
+      "from": "\tmatch bind.ResolutionOf(u, ps, bind.PNodeOf(ps, fileIdx, fun)) {\n\tcase bind.Outside:\n\t\t!hasNonImportPkgDecl(s, \"len\")\n\tcase _:\n\t\tfalse\n\t}",
+      "to": "\tmatch bind.ResolutionOf(u, ps, bind.PNodeOf(ps, fileIdx, fun)) {\n\tcase bind.Outside, bind.Declared:\n\t\t!hasNonImportPkgDecl(s, \"len\") || true\n\tcase _:\n\t\tfalse\n\t}",
+      "rule": "User-declared len in package scope must never be rewritten to .Len().",
+      "killers": ["compiler/fix:LenSkipsPackageShadowedFunc"]
+    },
+    {
+      "name": "selfhost-fix-len-drops-conversion-parens",
+      "origin": "wf10 SELFHOST-FIX",
+      "file": "compiler/fix/len.ergo",
+      "decl": "isConversionFun",
+      "from": "\t\tif isBasicTypeName(nm) {",
+      "to": "\t\tif false && isBasicTypeName(nm) {",
+      "rule": "Type conversion arguments inside len(string(x)) require outer parentheses before .Len().",
+      "killers": ["compiler/fix:LenRewritesNestedConversionCommentsAndShadows"]
+    },
+    {
+      "name": "selfhost-fix-mut-rewrites-typearg",
+      "origin": "wf10 SELFHOST-FIX",
+      "file": "compiler/fix/mut.ergo",
+      "decl": "MutSource",
+      "from": "\t\tif st.inArg {",
+      "to": "\t\tif false && st.inArg {",
+      "rule": "*T inside non-FuncType type arguments must remain unrewritten and be reported in KeptLines.",
+      "killers": ["compiler/fix:law:MutRewritesBorrowsIdempotently"]
+    },
+    {
+      "name": "selfhost-fix-mut-drops-lent-param",
+      "origin": "wf10 SELFHOST-FIX",
+      "file": "compiler/fix/mut.ergo",
+      "decl": "collectLentParamEdits",
+      "from": "\t\t\t\t\t\tif tok >= 0 && slices.Contains(lentNames, syntax.TokText(p, tok)) {",
+      "to": "\t\t\t\t\t\tif tok >= 0 && false && slices.Contains(lentNames, syntax.TokText(p, tok)) {",
+      "rule": "Removing [T lent C] must qualify parameters of type T with mut.",
+      "killers": ["compiler/fix:law:MutRewritesBorrowsIdempotently"]
+    },
+    {
+      "name": "selfhost-fix-stdtypes-ignores-local-shadow",
+      "origin": "wf10 SELFHOST-FIX",
+      "file": "compiler/fix/std_types.ergo",
+      "decl": "collectCatalogEdits",
+      "from": "\t\t\t\t\t\tif slices.Contains(localShadow, candQual) {\n\t\t\t\t\t\t\tcontinue\n\t\t\t\t\t\t}",
+      "to": "\t\t\t\t\t\tif false && slices.Contains(localShadow, candQual) {\n\t\t\t\t\t\t\tcontinue\n\t\t\t\t\t\t}",
+      "rule": "StdTypes skips qualification inside declarations where a local variable shadows the std package qualifier.",
+      "killers": ["compiler/fix:StdTypesRespectsLocalShadowAndSelector"]
+    },
+    {
+      "name": "selfhost-fix-globalfuncs-drops-alias-clash",
+      "origin": "wf10 SELFHOST-FIX",
+      "file": "compiler/fix/global_funcs.ergo",
+      "decl": "collectGlobalFuncEdits",
+      "from": "\t\t\t\t\t\tlet alias = PickImportAlias(spec.Pkg, \"\", usedQuals)",
+      "to": "\t\t\t\t\t\tlet alias = PickImportAlias(spec.Pkg, \"\", []string{})",
+      "rule": "GlobalFuncs selects a collision-free std<pkg> import alias when the default qualifier clashes.",
+      "killers": ["compiler/fix:GlobalFuncsRewritesAllTargetsAndRespectsAliasClashAndSelfWrapper"]
+    },
+    {
+      "name": "selfhost-fix-globalfuncs-rewrites-selfwrapper",
+      "origin": "wf10 SELFHOST-FIX",
+      "file": "compiler/fix/global_funcs.ergo",
+      "decl": "collectGlobalFuncEdits",
+      "from": "\t\t\tif currentStdPkg == spec.Pkg && enclosingFn == spec.Target {",
+      "to": "\t\t\tif false && currentStdPkg == spec.Pkg && enclosingFn == spec.Target {",
+      "rule": "GlobalFuncs skips forwarding wrapper bodies like slices.WithCapacity calling MakeSlice.",
+      "killers": ["compiler/fix:GlobalFuncsRewritesAllTargetsAndRespectsAliasClashAndSelfWrapper"]
+    },
+    {
+      "name": "selfhost-fix-filecase-acronyms-unsplit",
+      "origin": "wf10 SELFHOST-FIX",
+      "file": "compiler/fix/file_case.ergo",
+      "decl": "SplitCaseWords",
+      "from": "\t\t\tif isLowerRune(prev) || utf8.IsDigit(prev) || (utf8.IsUpper(prev) && nextLower) {",
+      "to": "\t\t\tif isLowerRune(prev) || utf8.IsDigit(prev) || (false && nextLower) {",
+      "rule": "SplitCaseWords splits acronym-to-title boundaries (HTTPClient -> http_client).",
+      "killers": ["compiler/fix:law:FileCaseNormalizesAllStylesAndAcronyms"]
+    },
+    {
+      "name": "selfhost-fix-filecase-skips-clash-revert",
+      "origin": "wf10 SELFHOST-FIX",
+      "file": "compiler/fix/file_case.ergo",
+      "decl": "checkAndPlanImportEdits",
+      "from": "\t\t\t\tif newBase != oldQual && (slices.Contains(locals, newBase) || slices.Contains(existingQuals, newBase)) {",
+      "to": "\t\t\t\tif false && newBase != oldQual && (slices.Contains(locals, newBase) || slices.Contains(existingQuals, newBase)) {",
+      "rule": "Directory renames must be reverted when the resulting qualifier collides with a local declaration.",
+      "killers": ["compiler/fix:FileCaseHandlesNestedDirsClashRevertCollisionsAndSuppression"]
+    },
+    {
+      "name": "selfhost-fix-filecase-simultaneous-collision",
+      "origin": "wf10 SELFHOST-FIX",
+      "file": "compiler/fix/file_case.ergo",
+      "decl": "computeFilePlan",
+      "from": "\t\t\t\tlet otherEff = if active[fj] { candFinal[fj] } else { effOrig[fj] }",
+      "to": "\t\t\t\tlet otherEff = if active[fj] && fj < fi { candFinal[fj] } else { effOrig[fj] }",
+      "rule": "Multiple source files targeting the same normalized name must all be skipped without winner-takes-all race.",
+      "killers": ["compiler/fix:FileCaseHandlesNestedDirsClashRevertCollisionsAndSuppression"]
+    },
+    {
+      "name": "selfhost-fix-filecase-reverses-phases",
+      "origin": "wf10 SELFHOST-FIX",
+      "file": "compiler/fix/file_case.ergo",
+      "decl": "buildTwoPhaseSteps",
+      "from": "\tfor i in 0..nFileMoves {\n\t\tsteps = steps.Append(RenameStep{Phase: 1, Kind: \"file\", From: fileFrom[i], To: fileTmp[i]})\n\t}\n\tfor i in 0..nFileMoves {\n\t\tsteps = steps.Append(RenameStep{Phase: 2, Kind: \"file\", From: fileTmp[i], To: fileTo[i]})\n\t}",
+      "to": "\tfor i in 0..nFileMoves {\n\t\tsteps = steps.Append(RenameStep{Phase: 2, Kind: \"file\", From: fileTmp[i], To: fileTo[i]})\n\t}\n\tfor i in 0..nFileMoves {\n\t\tsteps = steps.Append(RenameStep{Phase: 1, Kind: \"file\", From: fileFrom[i], To: fileTmp[i]})\n\t}",
+      "rule": "Two-phase planning emits Phase 1 temporary moves before Phase 2 final renames.",
+      "killers": ["compiler/fix:law:FileCaseTwoPhasePlanSeparatesPhases"]
+    }
+  ]
+}
