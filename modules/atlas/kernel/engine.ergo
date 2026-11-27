@@ -1,0 +1,431 @@
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/handles
+import github.com/cevr/ergo/modules/atlas/questions
+import github.com/cevr/ergo/modules/atlas/subagent
+import option
+import strings
+import sync
+
+// EvalRequest describes one kernel cell evaluation with role, bounds, and live handle context.
+type EvalRequest {
+	CellID        string,
+	SessionID     handle.SessionID,
+	ThreadID      handle.ThreadID,
+	RootThreadID  handle.ThreadID,
+	Owner         handle.OwnerID,
+	Role          subagent.AgentRole,
+	Code          string,
+	ComputeMs     int,
+	WaitMs        int,
+	AskMs         int,
+	IsAutomation  bool,
+	ToolNames     []string,
+	ActiveHandles []handle.HandleID,
+}
+
+// EvalResult reports the completed, cut, handed, unfinished, killed, or failed cell outcome.
+type EvalResult {
+	Status          EvalStatus,
+	ValueJSON       string,
+	Logs            string,
+	ErrorKind       string,
+	ErrorMessage    string,
+	BindingsJSON    string,
+	SnapshotBytes   int,
+	Cut             option.Option[CutReport],
+	PostCutExecuted bool,
+}
+
+// SnapshotBlob carries the serialized binding snapshot and lost-binding metadata of a kernel session.
+type SnapshotBlob {
+	Format            int,
+	Engine            string,
+	BuildID           string,
+	BindingsJSON      string,
+	LostBindings      []string,
+	EngineBytesBase64 string,
+}
+
+// RestoreResult summarizes restoring a kernel session from a SnapshotBlob.
+type RestoreResult {
+	Restored     bool,
+	LostBindings []string,
+	Notice       string,
+}
+
+// KernelEngine is the swappable execution engine capability (Phase-1 Luau, Fake/Scripted for laws & tests).
+type KernelEngine {
+	EngineName() string,
+	Eval(req EvalRequest) EvalResult fails KernelError,
+	Snapshot(sessionID handle.SessionID) SnapshotBlob fails KernelError,
+	Restore(sessionID handle.SessionID, blob SnapshotBlob) RestoreResult fails KernelError,
+	Cut(cellID string, reason CutReason) CutReport fails KernelError,
+	Kill(cellID string) fails KernelError,
+	Close() fails KernelError,
+
+	// RolePolicyRefusesBlockingQuestion proves any KernelEngine refuses the removed blocking question tool across roles.
+	law RolePolicyRefusesBlockingQuestion(e Self) {
+		let req = EvalRequest{
+			CellID:        "contract-q",
+			SessionID:     "sess-contract",
+			ThreadID:      "th-contract",
+			RootThreadID:  "th-contract",
+			Owner:         handle.OwnerID{ServerID: "srv", Location: "c", Epoch: 1},
+			Role:          subagent.RoleImplementor,
+			Code:          "x = 1",
+			ComputeMs:     DefaultComputeMs(),
+			WaitMs:        DefaultWaitMs(),
+			AskMs:         DefaultAskMs(),
+			IsAutomation:  false,
+			ToolNames:     []string{"question"},
+			ActiveHandles: []handle.HandleID{},
+		}
+		let mut refused = false
+		let _ = e.Eval(req) catch {
+		case KernelError as err:
+			match err {
+			case QuestionPolicyError:
+				refused = true
+			case KernelBoundExceeded, RootWaitForbidden, UnfinishedCellError, SlotWaitExpired, SnapshotTooLarge, EngineFailure, HandleBridgeFailure, StoreFailure:
+				refused = false
+			}
+			EvalResult{Status: EvalFailed, ValueJSON: "", Logs: "", ErrorKind: "", ErrorMessage: "", BindingsJSON: "{}", SnapshotBytes: 2, Cut: option.None, PostCutExecuted: false}
+		}
+		refused
+	},
+
+	// OversizedSnapshotRestoreRefused proves any KernelEngine refuses restoring bindings exceeding 128 KiB.
+	law OversizedSnapshotRestoreRefused(e Self) {
+		let oversized = SnapshotBlob{
+			Format:            2,
+			Engine:            e.EngineName(),
+			BuildID:           "contract-v1",
+			BindingsJSON:      strings.Repeat("x", MaxSnapshotBytes()+1),
+			LostBindings:      []string{},
+			EngineBytesBase64: "",
+		}
+		let mut refused = false
+		let _ = e.Restore("sess-contract", oversized) catch {
+		case KernelError as err:
+			match err {
+			case SnapshotTooLarge:
+				refused = true
+			case KernelBoundExceeded, RootWaitForbidden, QuestionPolicyError, UnfinishedCellError, SlotWaitExpired, EngineFailure, HandleBridgeFailure, StoreFailure:
+				refused = false
+			}
+			RestoreResult{Restored: false, LostBindings: []string{}, Notice: ""}
+		}
+		refused
+	},
+}
+
+// ScriptedOutcome configures one deterministic ScriptedEngine response for a code string or cell ID.
+type ScriptedOutcome {
+	Status        EvalStatus,
+	ValueJSON     string,
+	Logs          string,
+	ErrorKind     string,
+	ErrorMessage  string,
+	BindingsJSON  string,
+	Cut           option.Option[CutReport],
+	LostOnRestore []string,
+}
+
+// ScriptedEngine is a pure deterministic in-memory KernelEngine provider for ERGO_FALLBACK=off tests.
+type ScriptedEngine {
+	ByCode   sync.Ref[Map[string, ScriptedOutcome]],
+	Bindings sync.Ref[Map[handle.SessionID, string]],
+	LostMap  sync.Ref[Map[handle.SessionID, []string]],
+	Cuts     sync.Ref[Map[string, CutReport]],
+	Killed   sync.Ref[Map[string, bool]],
+} implements KernelEngine
+
+// NewScriptedEngine creates a deterministic ScriptedEngine preloaded with outcomes keyed by code.
+func NewScriptedEngine(outcomes Map[string, ScriptedOutcome]) ScriptedEngine {
+	ScriptedEngine{
+		ByCode:   sync.NewRef(outcomes),
+		Bindings: sync.NewRef(Map[handle.SessionID, string]{}),
+		LostMap:  sync.NewRef(Map[handle.SessionID, []string]{}),
+		Cuts:     sync.NewRef(Map[string, CutReport]{}),
+		Killed:   sync.NewRef(Map[string, bool]{}),
+	}
+}
+
+// EngineName returns "scripted".
+func EngineName(_ ScriptedEngine) string { "scripted" }
+
+func putStringMap[K comparable, V](m Map[K, V], k K, v V) Map[K, V] {
+	let mut out = m
+	out[k] = v
+	out
+}
+
+// Eval executes a scripted cell outcome deterministically while enforcing role and cut boundaries.
+func Eval(e ScriptedEngine, req EvalRequest) EvalResult fails KernelError {
+	for t in req.ToolNames {
+		if t == questions.RemovedToolID() {
+			try EnforceRoleToolPolicy(req.Role, t, "")
+		}
+	}
+	if strings.Contains(req.Code, "subagents.wait") {
+		try EnforceRoleToolPolicy(req.Role, "subagents", "wait")
+	}
+	let isKilled = match e.Killed.Get().Get(req.CellID) {
+	case option.Some[bool] as k:
+		k.Value
+	case option.None:
+		false
+	}
+	if isKilled {
+		let rep = BuildCutReport(CutJournalInput{Started: false, Reason: CutKilled, Calls: []CallJournalEntry{}, Maps: option.None, Sleeps: []SleepCutEntry{}, LostBindings: []string{}})
+		return EvalResult{
+			Status:          EvalKilled,
+			ValueJSON:       "null",
+			Logs:            "",
+			ErrorKind:       "killed",
+			ErrorMessage:    "cell killed before running",
+			BindingsJSON:    "{}",
+			SnapshotBytes:   2,
+			Cut:             option.Some[CutReport]{Value: rep},
+			PostCutExecuted: false,
+		}
+	}
+	let scripted = match e.ByCode.Get().Get(req.Code) {
+	case option.Some[ScriptedOutcome] as s:
+		s.Value
+	case option.None:
+		ScriptedOutcome{
+			Status:        EvalCompleted,
+			ValueJSON:     "{\"ok\":true}",
+			Logs:          "",
+			ErrorKind:     "",
+			ErrorMessage:  "",
+			BindingsJSON:  "{\"ok\":true}",
+			Cut:           option.None,
+			LostOnRestore: []string{},
+		}
+	}
+	let snap = if scripted.BindingsJSON == "" { "{}" } else { scripted.BindingsJSON }
+	if snap.Len() > MaxSnapshotBytes() {
+		return SnapshotTooLarge{Bytes: snap.Len(), Limit: MaxSnapshotBytes()}
+	}
+	e.Bindings.Set(putStringMap(e.Bindings.Get(), req.SessionID, snap))
+	e.LostMap.Set(putStringMap(e.LostMap.Get(), req.SessionID, scripted.LostOnRestore))
+	match scripted.Cut {
+	case option.Some[CutReport] as cr:
+		e.Cuts.Set(putStringMap(e.Cuts.Get(), req.CellID, cr.Value))
+	case option.None:
+	}
+	EvalResult{
+		Status:          scripted.Status,
+		ValueJSON:       scripted.ValueJSON,
+		Logs:            scripted.Logs,
+		ErrorKind:       scripted.ErrorKind,
+		ErrorMessage:    scripted.ErrorMessage,
+		BindingsJSON:    snap,
+		SnapshotBytes:   snap.Len(),
+		Cut:             scripted.Cut,
+		PostCutExecuted: false,
+	}
+}
+
+// Snapshot returns the current session's bindings blob.
+func Snapshot(e ScriptedEngine, sessionID handle.SessionID) SnapshotBlob fails KernelError {
+	let b = match e.Bindings.Get().Get(sessionID) {
+	case option.Some[string] as s:
+		s.Value
+	case option.None:
+		"{}"
+	}
+	let lost = match e.LostMap.Get().Get(sessionID) {
+	case option.Some[[]string] as l:
+		l.Value
+	case option.None:
+		[]string{}
+	}
+	if b.Len() > MaxSnapshotBytes() {
+		return SnapshotTooLarge{Bytes: b.Len(), Limit: MaxSnapshotBytes()}
+	}
+	SnapshotBlob{
+		Format:            2,
+		Engine:            "scripted",
+		BuildID:           "scripted-v1",
+		BindingsJSON:      b,
+		LostBindings:      lost,
+		EngineBytesBase64: "",
+	}
+}
+
+// Restore restores bindings and emits a bounded notice strictly when bindings were lost.
+func Restore(e ScriptedEngine, sessionID handle.SessionID, blob SnapshotBlob) RestoreResult fails KernelError {
+	if blob.BindingsJSON.Len() > MaxSnapshotBytes() {
+		return SnapshotTooLarge{Bytes: blob.BindingsJSON.Len(), Limit: MaxSnapshotBytes()}
+	}
+	e.Bindings.Set(putStringMap(e.Bindings.Get(), sessionID, blob.BindingsJSON))
+	e.LostMap.Set(putStringMap(e.LostMap.Get(), sessionID, blob.LostBindings))
+	let notice = FormatLostBindingsNotice(blob.LostBindings)
+	RestoreResult{
+		Restored:     true,
+		LostBindings: blob.LostBindings,
+		Notice:       notice,
+	}
+}
+
+// Cut returns or records the CutReport for cellID.
+func Cut(e ScriptedEngine, cellID string, reason CutReason) CutReport fails KernelError {
+	match e.Cuts.Get().Get(cellID) {
+	case option.Some[CutReport] as c:
+		c.Value
+	case option.None:
+		let rep = BuildCutReport(CutJournalInput{Started: false, Reason: reason, Calls: []CallJournalEntry{}, Maps: option.None, Sleeps: []SleepCutEntry{}, LostBindings: []string{}})
+		e.Cuts.Set(putStringMap(e.Cuts.Get(), cellID, rep))
+		rep
+	}
+}
+
+// Kill marks cellID killed so future executions immediately terminate cleanly.
+func Kill(e ScriptedEngine, cellID string) fails KernelError {
+	e.Killed.Set(putStringMap(e.Killed.Get(), cellID, true))
+}
+
+// Close releases ScriptedEngine resources.
+func Close(_ ScriptedEngine) fails KernelError {}
+
+// PrepareEvalRequest validates bounds and strips removed blocking question tools for any KernelEngine call.
+func PrepareEvalRequest(req EvalRequest) EvalRequest fails KernelError {
+	let boundedWait = if req.WaitMs <= 0 { DefaultWaitMs() } else { ClampWaitMs(req.WaitMs, DefaultWaitMs()) }
+	let boundedComp = if req.ComputeMs <= 0 { DefaultComputeMs() } else if req.ComputeMs > DefaultComputeMs() { DefaultComputeMs() } else { req.ComputeMs }
+	let boundedAsk = if req.AskMs <= 0 { DefaultAskMs() } else if req.AskMs > DefaultAskMs() { DefaultAskMs() } else { req.AskMs }
+	let filteredTools = questions.FilterVisibleTools(req.Role, req.ToolNames)
+	EvalRequest{
+		..req,
+		WaitMs:    boundedWait,
+		ComputeMs: boundedComp,
+		AskMs:     boundedAsk,
+		ToolNames: filteredTools,
+	}
+}
+
+// RunCellWithEngine executes a cell via any KernelEngine and hands off active KindCall handles when EvalHanded.
+func RunCellWithEngine[E KernelEngine](engine E, reg handles.Registry, req EvalRequest) (handles.Registry, EvalResult) fails KernelError {
+	let safeReq = try PrepareEvalRequest(req)
+	let res = try engine.Eval(safeReq)
+	if res.PostCutExecuted {
+		return EngineFailure{Message: "invariant violation: code ran after cut/unfinished"}
+	}
+	let mut nextReg = reg
+	let handOff = match res.Status {
+	case EvalHanded:
+		true
+	case EvalCompleted, EvalUnfinished, EvalCut, EvalKilled, EvalFailed:
+		false
+	}
+	if handOff {
+		for hid in safeReq.ActiveHandles {
+			match handles.GetUnified(nextReg, hid) {
+			case option.Some[handles.UnifiedHandle] as uh:
+				if uh.Value.Kind == handle.KindCall && handle.IsOpen(uh.Value.Disposition) {
+					let spawnID = handle.HandleID("land:\(hid)")
+					nextReg = handles.MarkHanded(nextReg, hid, spawnID) catch {
+					case handles.HandleServiceError as hs:
+						return HandleBridgeFailure{Cause: hs}
+					}
+				}
+			case option.None:
+			}
+		}
+	}
+	(nextReg, res)
+}
+
+func makeTestEvalReq(role subagent.AgentRole, code string, tools []string, active []handle.HandleID) EvalRequest {
+	EvalRequest{
+		CellID:        "cell-1",
+		SessionID:     "sess-k1",
+		ThreadID:      "th-k1",
+		RootThreadID:  "th-root",
+		Owner:         handle.OwnerID{ServerID: "srv", Location: "worker-1", Epoch: 1},
+		Role:          role,
+		Code:          code,
+		ComputeMs:     DefaultComputeMs(),
+		WaitMs:        DefaultWaitMs(),
+		AskMs:         DefaultAskMs(),
+		IsAutomation:  false,
+		ToolNames:     tools,
+		ActiveHandles: active,
+	}
+}
+
+// CleanVsLostRestoreNoticeLaw verifies empty notice on clean restore and <=160 char notice ONLY when lost.
+law CleanVsLostRestoreNoticeLaw() {
+	let eng = NewScriptedEngine(Map[string, ScriptedOutcome]{})
+	let cleanBlob = SnapshotBlob{
+		Format:            2,
+		Engine:            "scripted",
+		BuildID:           "scripted-v1",
+		BindingsJSON:      "{\"x\":42}",
+		LostBindings:      []string{},
+		EngineBytesBase64: "",
+	}
+	let cleanRes = eng.Restore("sess-k1", cleanBlob) catch {
+	case KernelError:
+		return false
+	}
+	let lostBlob = SnapshotBlob{
+		..cleanBlob,
+		LostBindings: []string{"fn_cb", "opaque_coro"},
+	}
+	let lostRes = eng.Restore("sess-k1", lostBlob) catch {
+	case KernelError:
+		return false
+	}
+	cleanRes.Restored && cleanRes.Notice == "" && lostRes.Restored && lostRes.Notice != "" && lostRes.Notice.Len() <= MaxLostBindingsNoticeChars()
+}
+
+// RunCellHandedAndFilterLaw proves RunCellWithEngine strips blocking question and marks KindCall handed without waking.
+law RunCellHandedAndFilterLaw() {
+	let owner = handle.OwnerID{ServerID: "srv", Location: "worker-1", Epoch: 1}
+	let mut reg = handles.NewRegistry()
+	reg = handles.OpenCallOrLand(reg, handle.OpenHandleSpec{ID: "c-live", Kind: handle.KindCall, Owner: owner, Session: "sess-k1", Summary: ""}, "th-k1", "") catch {
+	case handles.HandleServiceError:
+		return false
+	}
+	let cutRep = BuildCutReport(CutJournalInput{
+		Started: true,
+		Reason:  CutWaiting,
+		Calls:   []CallJournalEntry{
+			CallJournalEntry{HandleID: "c-live", Tool: "subagents", Action: "start", Status: CallStarted, Summary: "background"},
+		},
+		Maps:         option.Some[MapCutJournal]{Value: MapCutJournal{Items: 4, Finished: 1, Pending: 1, Started: 1, NotStarted: 1, Remaining: 3}},
+		Sleeps:       []SleepCutEntry{},
+		LostBindings: []string{},
+	})
+	let outcomes = putStringMap(
+		Map[string, ScriptedOutcome]{},
+		"start_bg()",
+		ScriptedOutcome{
+			Status:        EvalHanded,
+			ValueJSON:     "null",
+			Logs:          "",
+			ErrorKind:     "unfinished",
+			ErrorMessage:  "handed to background",
+			BindingsJSON:  "{\"h\":\"c-live\"}",
+			Cut:           option.Some[CutReport]{Value: cutRep},
+			LostOnRestore: []string{},
+		},
+	)
+	let eng = NewScriptedEngine(outcomes)
+	let req = makeTestEvalReq(subagent.RoleRoot, "start_bg()", []string{"question", "subagents", "shell"}, []handle.HandleID{"c-live"})
+	let (nextReg, res) = RunCellWithEngine(eng, reg, req) catch {
+	case KernelError:
+		return false
+	}
+	let isHanded = match handles.GetUnified(nextReg, "c-live") {
+	case option.Some[handles.UnifiedHandle] as u:
+		u.Value.Disposition == handle.DispHanded && !u.Value.WakeEmitted
+	case option.None:
+		false
+	}
+	let (_, flushed) = handles.FlushSessionBurst(nextReg, "sess-k1", 5000, handles.TurnBusyState{TurnActive: false, Compacting: false, PoolHolding: false, QueuedPrompts: 0})
+	res.Status == EvalHanded && isHanded && !flushed.Delivered
+}

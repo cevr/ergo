@@ -1,0 +1,371 @@
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/memory
+import github.com/cevr/ergo/modules/atlas/reconcile
+import github.com/cevr/ergo/modules/atlas/sqlite
+import option
+
+// StoreBridgeError describes a validated store bridge failure.
+type StoreBridgeError { Message string }
+
+func wrapExec[R](run func() memory.ExecuteResult fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed needs R) memory.ExecuteResult fails StoreBridgeError needs R {
+	run() catch {
+	case memory.NotFound, memory.AlreadyExists, memory.InvalidTransition, memory.CommandReused, memory.InvalidInput, memory.LeaseFenced, memory.ThreadDomainErr, memory.SubagentDomainErr, memory.HandleDomainErr, memory.LimitDomainErr, memory.RequestDomainErr, memory.CutoverDomainErr, memory.StoreFailed:
+		return StoreBridgeError{Message: "store execute failed"}
+	}
+}
+
+func wrapStoreOp[T, R](run func() T fails memory.StoreFailed needs R) T fails StoreBridgeError needs R {
+	run() catch {
+	case memory.StoreFailed:
+		return StoreBridgeError{Message: "store query failed"}
+	}
+}
+
+// BridgeEnvelope builds an idempotent store command envelope.
+func BridgeEnvelope(seq int, atMs int, cmd memory.Command) memory.Envelope {
+	memory.Envelope{
+		ID:         memory.CommandID("handles-\(seq)"),
+		Actor:      "handles",
+		AtMs:       int64(atMs),
+		LeaseFence: option.None,
+		Command:    cmd,
+	}
+}
+
+// StoreOpenReq bundles handle open parameters for store persistence.
+type StoreOpenReq {
+	Seq          int,
+	NowMs        int,
+	Spec         handle.OpenHandleSpec,
+	SubagentRoot option.Option[handle.ThreadID],
+	NodeID       option.Option[handle.ThreadID],
+}
+
+// StoreSettleReq bundles handle settlement parameters for store persistence.
+type StoreSettleReq {
+	Seq          int,
+	NowMs        int,
+	ID           handle.HandleID,
+	Disposition  handle.Disposition,
+	Summary      string,
+	SubagentRoot option.Option[handle.ThreadID],
+	NodeID       option.Option[handle.ThreadID],
+}
+
+// StoreFlushReq bundles burst flush parameters for store-backed wake delivery.
+type StoreFlushReq {
+	SeqStart  int,
+	Session   handle.SessionID,
+	NowMs     int,
+	SettledMs Map[handle.HandleID, int],
+	Busy      TurnBusyState,
+}
+
+// StoreOpenCallOrLandWith persists opening a KindCall or KindLand handle using row-polymorphic store execution.
+func StoreOpenCallOrLandWith[R](execFn func(env memory.Envelope) memory.ExecuteResult fails StoreBridgeError needs R, req StoreOpenReq) fails StoreBridgeError needs R {
+	let _ = try execFn(BridgeEnvelope(req.Seq, req.NowMs, memory.CmdOpenHandle{
+		Spec:         req.Spec,
+		SubagentRoot: req.SubagentRoot,
+		NodeID:       req.NodeID,
+	}))
+}
+
+// StoreOpenCallOrLand persists opening a KindCall or KindLand handle in any memory.Store.
+func StoreOpenCallOrLand[S memory.Store](store S, req StoreOpenReq) fails StoreBridgeError {
+	try StoreOpenCallOrLandWith(func(env memory.Envelope) memory.ExecuteResult fails StoreBridgeError {
+		wrapExec(func() memory.ExecuteResult fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+			try store.Execute(env)
+		})
+	}, req)
+}
+
+// StoreMarkHandedWith persists DispHanded transition onto a call handle without recording a wake.
+func StoreMarkHandedWith[R](execFn func(env memory.Envelope) memory.ExecuteResult fails StoreBridgeError needs R, seq int, nowMs int, callID handle.HandleID, spawnedID handle.HandleID) fails StoreBridgeError needs R {
+	let _ = try execFn(BridgeEnvelope(seq, nowMs, memory.CmdMarkHandleHanded{
+		CallID:    callID,
+		SpawnedID: spawnedID,
+	}))
+}
+
+// StoreSettleAndQueueWakeWith settles a handle once and records a single WakeRecord when emitted.
+func StoreSettleAndQueueWakeWith[R](execFn func(env memory.Envelope) memory.ExecuteResult fails StoreBridgeError needs R, snapFn func() memory.State fails StoreBridgeError needs R, req StoreSettleReq) bool fails StoreBridgeError needs R {
+	let before = try snapFn()
+	let wasOpen = match before.Registry.Handles.Get(req.ID) {
+	case option.Some[handle.WakeHandle] as h:
+		handle.IsOpen(h.Value.Disposition)
+	case option.None:
+		false
+	}
+	if !wasOpen {
+		return false
+	}
+	let _ = try execFn(BridgeEnvelope(req.Seq, req.NowMs, memory.CmdSettleHandle{
+		ID:           req.ID,
+		Disposition:  req.Disposition,
+		Summary:      req.Summary,
+		SubagentRoot: req.SubagentRoot,
+		NodeID:       req.NodeID,
+	}))
+	let snap = try snapFn()
+	match snap.Registry.Handles.Get(req.ID) {
+	case option.Some[handle.WakeHandle] as s:
+		if s.Value.WakeEmitted && handle.EmitsRegistryWake(s.Value.Disposition) {
+			let did = handle.WakeDeliveryID(req.ID)
+			let already = match snap.Wakes.Get(did) {
+			case option.Some[reconcile.WakeRecord]:
+				true
+			case option.None:
+				false
+			}
+			if !already {
+				let _ = try execFn(BridgeEnvelope(req.Seq+1, req.NowMs, memory.CmdRecordWake{
+					Wake: reconcile.WakeRecord{
+						DeliveryID:     did,
+						HandleID:       req.ID,
+						Delivered:      false,
+						PayloadSummary: req.Summary,
+					},
+				}))
+			}
+			return true
+		}
+	case option.None:
+	}
+	false
+}
+
+// StoreRetireOwnerCallsWith persists deadOwner retirement in store, leaving live foreign owners open.
+func StoreRetireOwnerCallsWith[R](execFn func(env memory.Envelope) memory.ExecuteResult fails StoreBridgeError needs R, seq int, nowMs int, deadOwner handle.OwnerID) fails StoreBridgeError needs R {
+	let _ = try execFn(BridgeEnvelope(seq, nowMs, memory.CmdRetireOwnerCalls{
+		DeadOwner: deadOwner,
+	}))
+}
+
+func collectStoreReadyWakes(snap memory.State, session handle.SessionID, settledMs Map[handle.HandleID, int]) ([]string, []handle.WakeHandle, int) {
+	let mut items = []handle.WakeHandle{}
+	let mut deliveryIDs = []string{}
+	let mut earliest = -1
+	for _, did in snap.WakeOrder {
+		let wr = match snap.Wakes.Get(did) {
+		case option.Some[reconcile.WakeRecord] as r:
+			r.Value
+		case option.None:
+			continue
+		}
+		if wr.Delivered {
+			continue
+		}
+		let h = match snap.Registry.Handles.Get(wr.HandleID) {
+		case option.Some[handle.WakeHandle] as hv:
+			hv.Value
+		case option.None:
+			continue
+		}
+		if h.Session != session || !handle.EmitsRegistryWake(h.Disposition) {
+			continue
+		}
+		let ts = match settledMs.Get(h.ID) {
+		case option.Some[int] as s:
+			s.Value
+		case option.None:
+			0
+		}
+		if earliest < 0 || ts < earliest {
+			earliest = ts
+		}
+		deliveryIDs = deliveryIDs.Append(wr.DeliveryID)
+		items = items.Append(handle.WakeHandle{..h, Summary: wr.PayloadSummary})
+	}
+	(deliveryIDs, items, earliest)
+}
+
+// StoreFlushBurstWith checks unsettled wakes against the 2s burst window and delivers one coalesced letter.
+func StoreFlushBurstWith[R](execFn func(env memory.Envelope) memory.ExecuteResult fails StoreBridgeError needs R, snapFn func() memory.State fails StoreBridgeError needs R, req StoreFlushReq) FlushOutcome fails StoreBridgeError needs R {
+	let snap = try snapFn()
+	if IsTurnBusy(req.Busy) {
+		return FlushOutcome{..emptyFlushOutcome(), JoinedRunningTurn: true}
+	}
+	let (deliveryIDs, items, earliest) = collectStoreReadyWakes(snap, req.Session, req.SettledMs)
+	if deliveryIDs.Len() == 0 {
+		return emptyFlushOutcome()
+	}
+	let dueMs = earliest + BurstWindowMs()
+	if req.NowMs < dueMs {
+		return FlushOutcome{..emptyFlushOutcome(), WaitingRemainingMs: dueMs - req.NowMs}
+	}
+	let letter = FormatBoundedWakeLetter(items)
+	let mut seq = req.SeqStart
+	for did in deliveryIDs {
+		let _ = try execFn(BridgeEnvelope(seq, req.NowMs, memory.CmdMarkWakeDelivered{WakeDeliveryID: did}))
+		seq = seq + 1
+	}
+	FlushOutcome{
+		Delivered:          true,
+		JoinedRunningTurn:  false,
+		ParkedArchived:     false,
+		Letter:             letter,
+		DeliveryIDs:        deliveryIDs,
+		WaitingRemainingMs: 0,
+	}
+}
+
+// StoreHandleView returns unified read-only handles from any memory.Store via GetHandleView.
+func StoreHandleView[S memory.Store](store S, session option.Option[handle.SessionID]) memory.HandleView fails StoreBridgeError {
+	wrapStoreOp(func() memory.HandleView fails memory.StoreFailed {
+		try store.GetHandleView(memory.HandleFilter{Session: session, Owner: option.None, OpenOnly: false})
+	})
+}
+
+// HandleStoreChecks abstracts Memory vs WAL SQLite store verification cleanly across capability boundaries.
+type HandleStoreChecks {
+	CheckParity(tag int) bool,
+
+	// SqliteHandlesMatchMemory verifies MemStore and WALStore produce identical handle/wake state.
+	law SqliteHandlesMatchMemory(x Self) { x.CheckParity(1) },
+}
+
+type goHandleStoreChecks {} implements HandleStoreChecks
+
+func CheckParity(_ goHandleStoreChecks, _ int) bool needs go.Foreign {
+	let mem = memory.NewMemStore()
+	let wal = sqlite.NewWALStore()
+	let okMem = verifyHandleStoreWith(
+		func(env memory.Envelope) memory.ExecuteResult fails StoreBridgeError {
+			wrapExec(func() memory.ExecuteResult fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+				try mem.Execute(env)
+			})
+		},
+		func() memory.State fails StoreBridgeError {
+			wrapStoreOp(func() memory.State fails memory.StoreFailed { try mem.Snapshot() })
+		},
+		func(f memory.HandleFilter) memory.HandleView fails StoreBridgeError {
+			wrapStoreOp(func() memory.HandleView fails memory.StoreFailed { try mem.GetHandleView(f) })
+		},
+	)
+	let okWal = verifyHandleStoreWith(
+		func(env memory.Envelope) memory.ExecuteResult fails StoreBridgeError needs go.Foreign {
+			wrapExec(func() memory.ExecuteResult fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed needs go.Foreign {
+				try wal.Execute(env)
+			})
+		},
+		func() memory.State fails StoreBridgeError needs go.Foreign {
+			wrapStoreOp(func() memory.State fails memory.StoreFailed needs go.Foreign { try wal.Snapshot() })
+		},
+		func(f memory.HandleFilter) memory.HandleView fails StoreBridgeError needs go.Foreign {
+			wrapStoreOp(func() memory.HandleView fails memory.StoreFailed needs go.Foreign { try wal.GetHandleView(f) })
+		},
+	)
+	let walSnap = wal.Snapshot() catch {
+	case memory.StoreFailed:
+		sqlite.CloseWAL(wal) catch {
+		case memory.StoreFailed:
+		}
+		return false
+	}
+	let memSnap = mem.Snapshot() catch {
+	case memory.StoreFailed:
+		sqlite.CloseWAL(wal) catch {
+		case memory.StoreFailed:
+		}
+		return false
+	}
+	let eq = compareSnapshots(memSnap, walSnap)
+	sqlite.CloseWAL(wal) catch {
+	case memory.StoreFailed:
+		return false
+	}
+	okMem && okWal && eq
+}
+
+func verifyHandleStoreWith[R](execFn func(env memory.Envelope) memory.ExecuteResult fails StoreBridgeError needs R, snapFn func() memory.State fails StoreBridgeError needs R, viewFn func(f memory.HandleFilter) memory.HandleView fails StoreBridgeError needs R) bool needs R {
+	let ownerA = handle.OwnerID{ServerID: "srv", Location: "cell-a", Epoch: 1}
+	let ownerB = handle.OwnerID{ServerID: "srv", Location: "cell-b", Epoch: 2}
+	StoreOpenCallOrLandWith(execFn, StoreOpenReq{Seq: 1, NowMs: 1000, Spec: makeSpec("call-1", handle.KindCall, ownerA, "s1"), SubagentRoot: option.None, NodeID: option.None}) catch {
+	case StoreBridgeError:
+		return false
+	}
+	StoreOpenCallOrLandWith(execFn, StoreOpenReq{Seq: 2, NowMs: 1010, Spec: makeSpec("call-hand", handle.KindCall, ownerA, "s1"), SubagentRoot: option.None, NodeID: option.None}) catch {
+	case StoreBridgeError:
+		return false
+	}
+	StoreOpenCallOrLandWith(execFn, StoreOpenReq{Seq: 3, NowMs: 1020, Spec: makeSpec("land-1", handle.KindLand, ownerA, "s1"), SubagentRoot: option.None, NodeID: option.None}) catch {
+	case StoreBridgeError:
+		return false
+	}
+	StoreOpenCallOrLandWith(execFn, StoreOpenReq{Seq: 4, NowMs: 1030, Spec: makeSpec("call-B", handle.KindCall, ownerB, "s1"), SubagentRoot: option.None, NodeID: option.None}) catch {
+	case StoreBridgeError:
+		return false
+	}
+	StoreMarkHandedWith(execFn, 5, 1040, "call-hand", "land-1") catch {
+	case StoreBridgeError:
+		return false
+	}
+	let queued1 = StoreSettleAndQueueWakeWith(execFn, snapFn, StoreSettleReq{Seq: 6, NowMs: 1500, ID: "call-1", Disposition: handle.DispSucceeded, Summary: "done", SubagentRoot: option.None, NodeID: option.None}) catch {
+	case StoreBridgeError:
+		return false
+	}
+	if !queued1 {
+		return false
+	}
+	let dup = StoreSettleAndQueueWakeWith(execFn, snapFn, StoreSettleReq{Seq: 7, NowMs: 1600, ID: "call-1", Disposition: handle.DispFailed, Summary: "dup", SubagentRoot: option.None, NodeID: option.None}) catch {
+	case StoreBridgeError:
+		return false
+	}
+	if dup {
+		return false
+	}
+	let settledMs = mapPut(Map[handle.HandleID, int]{}, handle.HandleID("call-1"), 1500)
+	let idle = TurnBusyState{TurnActive: false, Compacting: false, PoolHolding: false, QueuedPrompts: 0}
+	let early = StoreFlushBurstWith(execFn, snapFn, StoreFlushReq{SeqStart: 10, Session: "s1", NowMs: 3499, SettledMs: settledMs, Busy: idle}) catch {
+	case StoreBridgeError:
+		return false
+	}
+	if early.Delivered || early.WaitingRemainingMs != 1 {
+		return false
+	}
+	let flushed = StoreFlushBurstWith(execFn, snapFn, StoreFlushReq{SeqStart: 11, Session: "s1", NowMs: 3500, SettledMs: settledMs, Busy: idle}) catch {
+	case StoreBridgeError:
+		return false
+	}
+	if !flushed.Delivered || flushed.DeliveryIDs.Len() != 1 {
+		return false
+	}
+	let twice = StoreFlushBurstWith(execFn, snapFn, StoreFlushReq{SeqStart: 15, Session: "s1", NowMs: 5000, SettledMs: settledMs, Busy: idle}) catch {
+	case StoreBridgeError:
+		return false
+	}
+	if twice.Delivered {
+		return false
+	}
+	StoreRetireOwnerCallsWith(execFn, 20, 6000, ownerA) catch {
+	case StoreBridgeError:
+		return false
+	}
+	let hv = viewFn(memory.HandleFilter{Session: option.Some[handle.SessionID]{Value: "s1"}, Owner: option.None, OpenOnly: false}) catch {
+	case StoreBridgeError:
+		return false
+	}
+	hv.Handles.Len() == 4
+}
+
+func compareSnapshots(a memory.State, b memory.State) bool {
+	a.Registry.Handles.Len() == b.Registry.Handles.Len() && a.Wakes.Len() == b.Wakes.Len()
+}
+
+// MemoryStoreHandleParity runs handle lifecycle verification directly on pure in-memory MemStore.
+law MemoryStoreHandleParity() {
+	let mem = memory.NewMemStore()
+	verifyHandleStoreWith(
+		func(env memory.Envelope) memory.ExecuteResult fails StoreBridgeError {
+			wrapExec(func() memory.ExecuteResult fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+				try mem.Execute(env)
+			})
+		},
+		func() memory.State fails StoreBridgeError {
+			wrapStoreOp(func() memory.State fails memory.StoreFailed { try mem.Snapshot() })
+		},
+		func(f memory.HandleFilter) memory.HandleView fails StoreBridgeError {
+			wrapStoreOp(func() memory.HandleView fails memory.StoreFailed { try mem.GetHandleView(f) })
+		},
+	)
+}

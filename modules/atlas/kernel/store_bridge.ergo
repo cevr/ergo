@@ -1,0 +1,289 @@
+import github.com/cevr/ergo/modules/atlas/adapter
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/memory
+import github.com/cevr/ergo/modules/atlas/sqlite
+import github.com/cevr/ergo/modules/atlas/thread
+import json
+import option
+
+func wrapKernelExec[R](run func() memory.ExecuteResult fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed needs R) memory.ExecuteResult fails KernelError needs R {
+	run() catch {
+	case memory.NotFound, memory.AlreadyExists, memory.InvalidTransition, memory.CommandReused, memory.InvalidInput, memory.LeaseFenced, memory.ThreadDomainErr, memory.SubagentDomainErr, memory.HandleDomainErr, memory.LimitDomainErr, memory.RequestDomainErr, memory.CutoverDomainErr, memory.StoreFailed:
+		return StoreFailure{Message: "kernel store execute failed"}
+	}
+}
+
+func kernelEnvelope(seq int, atMs int, cmd memory.Command) memory.Envelope {
+	memory.Envelope{
+		ID:         memory.CommandID("kernel-\(seq)"),
+		Actor:      "kernel",
+		AtMs:       int64(atMs),
+		LeaseFence: option.None,
+		Command:    cmd,
+	}
+}
+
+func callStatusName(s CallStatus) string {
+	match s {
+	case CallFinished:
+		"finished"
+	case CallPending:
+		"pending"
+	case CallInterrupted:
+		"interrupted"
+	case CallStarted:
+		"started"
+	}
+}
+
+func cutReasonName(r CutReason) string {
+	match r {
+	case CutCompleted:
+		"completed"
+	case CutStarted:
+		"started"
+	case CutWaiting:
+		"waiting"
+	case CutAsking:
+		"asking"
+	case CutCompute:
+		"compute"
+	case CutIdle:
+		"idle"
+	case CutKilled:
+		"killed"
+	}
+}
+
+// KernelCallJSONEntry is the JSON wire representation of one CutReport call journal item.
+type KernelCallJSONEntry {
+	HandleID string,
+	Tool     string,
+	Action   string,
+	Status   string,
+	Summary  string,
+}
+
+// EncodeCallsJSON serializes CutReport call entries to compact JSON for durable cut journals.
+func EncodeCallsJSON(calls []CallJournalEntry) string {
+	let mut entries = []KernelCallJSONEntry{}
+	for c in calls {
+		entries = entries.Append(KernelCallJSONEntry{
+			HandleID: string(c.HandleID),
+			Tool:     c.Tool,
+			Action:   c.Action,
+			Status:   callStatusName(c.Status),
+			Summary:  c.Summary,
+		})
+	}
+	json.Encode(json.Codec[[]KernelCallJSONEntry]{MaxBytes: 0, MaxDepth: 0}, entries)
+}
+
+// EncodeMapsJSON serializes an optional MapCutJournal into JSON for cut.maps persistence.
+func EncodeMapsJSON(maps option.Option[MapCutJournal]) string {
+	match maps {
+	case option.Some[MapCutJournal] as m:
+		json.Encode(json.Codec[MapCutJournal]{MaxBytes: 0, MaxDepth: 0}, m.Value)
+	case option.None:
+		"{}"
+	}
+}
+
+// SaveSnapshotInput bundles parameters for saving a kernel binding snapshot.
+type SaveSnapshotInput {
+	Seq       int,
+	NowMs     int,
+	SessionID handle.SessionID,
+	ThreadID  handle.ThreadID,
+	RootID    handle.ThreadID,
+	Blob      SnapshotBlob,
+}
+
+// RecordCutInput bundles parameters for persisting one cut.calls / cut.maps audit journal.
+type RecordCutInput {
+	Seq         int,
+	CutID       string,
+	SessionID   handle.SessionID,
+	ThreadID    handle.ThreadID,
+	RootID      handle.ThreadID,
+	StartedAtMs int,
+	EndedAtMs   int,
+	Report      CutReport,
+}
+
+// StoreSaveSnapshot validates size and lost-notice caps and persists a kernel binding snapshot.
+func StoreSaveSnapshot[R](execFn func(env memory.Envelope) memory.ExecuteResult fails KernelError needs R, inp SaveSnapshotInput) fails KernelError needs R {
+	if inp.Blob.BindingsJSON.Len() > MaxSnapshotBytes() {
+		return SnapshotTooLarge{Bytes: inp.Blob.BindingsJSON.Len(), Limit: MaxSnapshotBytes()}
+	}
+	let notice = FormatLostBindingsNotice(inp.Blob.LostBindings)
+	let _ = try execFn(kernelEnvelope(inp.Seq, inp.NowMs, memory.CmdSaveKernelSnapshot{
+		SessionID:     inp.SessionID,
+		ThreadID:      inp.ThreadID,
+		RootThreadID:  inp.RootID,
+		BindingsJSON:  inp.Blob.BindingsJSON,
+		SnapshotBytes: inp.Blob.BindingsJSON.Len(),
+		LostNotice:    notice,
+	}))
+}
+
+// StoreRecordCut persists one cut.calls / cut.maps audit journal and updates per-root hourly active time.
+func StoreRecordCut[R](execFn func(env memory.Envelope) memory.ExecuteResult fails KernelError needs R, inp RecordCutInput) fails KernelError needs R {
+	let _ = try execFn(kernelEnvelope(inp.Seq, inp.EndedAtMs, memory.CmdRecordKernelCut{
+		CutID:        inp.CutID,
+		SessionID:    inp.SessionID,
+		ThreadID:     inp.ThreadID,
+		RootThreadID: inp.RootID,
+		CallsJSON:    EncodeCallsJSON(inp.Report.Calls),
+		MapsJSON:     EncodeMapsJSON(inp.Report.Maps),
+		StartedAtMs:  int64(inp.StartedAtMs),
+		EndedAtMs:    int64(inp.EndedAtMs),
+		Reason:       cutReasonName(inp.Report.Reason),
+	}))
+}
+
+// KernelStoreChecks verifies MemStore and SQLite WALStore kernel snapshot & cut journal parity.
+type KernelStoreChecks {
+	CheckParity(tag int) bool,
+
+	// SqliteKernelMatchesMemory proves WALStore and MemStore agree on snapshots, lost notices, cuts, and >15% flags.
+	law SqliteKernelMatchesMemory(x Self) { x.CheckParity(1) },
+}
+
+type goKernelStoreChecks {} implements KernelStoreChecks
+
+func CheckParity(_ goKernelStoreChecks, _ int) bool needs go.Foreign {
+	let mem = memory.NewMemStore()
+	let wal = sqlite.NewWALStore()
+	let okMem = verifyKernelStore(
+		func(env memory.Envelope) memory.ExecuteResult fails KernelError {
+			wrapKernelExec(func() memory.ExecuteResult fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+				try mem.Execute(env)
+			})
+		},
+		func(sess handle.SessionID) memory.KernelView fails KernelError {
+			mem.GetKernelView(sess) catch {
+			case memory.StoreFailed:
+				return StoreFailure{Message: "kernel view failed"}
+			}
+		},
+	)
+	let okWal = verifyKernelStore(
+		func(env memory.Envelope) memory.ExecuteResult fails KernelError needs go.Foreign {
+			wrapKernelExec(func() memory.ExecuteResult fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed needs go.Foreign {
+				try wal.Execute(env)
+			})
+		},
+		func(sess handle.SessionID) memory.KernelView fails KernelError needs go.Foreign {
+			wal.GetKernelView(sess) catch {
+			case memory.StoreFailed:
+				return StoreFailure{Message: "kernel view failed"}
+			}
+		},
+	)
+	sqlite.CloseWAL(wal) catch {
+	case memory.StoreFailed:
+		return false
+	}
+	okMem && okWal
+}
+
+func makeKernelThreadSpec(id handle.ThreadID) thread.ThreadSpec {
+	thread.ThreadSpec{
+		ID:                 id,
+		ParentThreadID:     option.None,
+		Driver:             adapter.ClaudeMeta,
+		AgyDirectSupported: false,
+		RequestedMode:      adapter.ModeAutoEdit,
+		Instance:           adapter.InstanceID("inst-k"),
+		ConfigDir:          "/tmp/cfg-k",
+		SharedHome:         option.None,
+		Model:              adapter.ModelID("opus"),
+		LinkOrigin:         thread.OriginLocal,
+	}
+}
+
+func verifyKernelStore[R](execFn func(env memory.Envelope) memory.ExecuteResult fails KernelError needs R, kvFn func(sess handle.SessionID) memory.KernelView fails KernelError needs R) bool needs R {
+	let rootID = handle.ThreadID("th-k-root")
+	let sessID = handle.SessionID("sess-k-store")
+	let _ = execFn(kernelEnvelope(1, 1000, memory.CmdCreateThread{Spec: makeKernelThreadSpec(rootID), EdgeLabel: ""})) catch {
+	case KernelError:
+		return false
+	}
+	let cleanBlob = SnapshotBlob{
+		Format:            2,
+		Engine:            "luau",
+		BuildID:           "luau-cpp",
+		BindingsJSON:      "{\"n\":1}",
+		LostBindings:      []string{},
+		EngineBytesBase64: "",
+	}
+	StoreSaveSnapshot(execFn, SaveSnapshotInput{Seq: 2, NowMs: 1100, SessionID: sessID, ThreadID: rootID, RootID: rootID, Blob: cleanBlob}) catch {
+	case KernelError:
+		return false
+	}
+	let kvClean = kvFn(sessID) catch {
+	case KernelError:
+		return false
+	}
+	let cleanOK = match kvClean.Snapshot {
+	case option.Some[memory.KernelSnapshot] as s:
+		s.Value.LostNotice == "" && s.Value.BindingsJSON == "{\"n\":1}"
+	case option.None:
+		false
+	}
+	let lostBlob = SnapshotBlob{
+		..cleanBlob,
+		BindingsJSON: "{\"n\":2}",
+		LostBindings: []string{"fn_timer", "coro_ref"},
+	}
+	StoreSaveSnapshot(execFn, SaveSnapshotInput{Seq: 3, NowMs: 2000, SessionID: sessID, ThreadID: rootID, RootID: rootID, Blob: lostBlob}) catch {
+	case KernelError:
+		return false
+	}
+	let cutRep = BuildCutReport(CutJournalInput{
+		Started: true,
+		Reason:  CutWaiting,
+		Calls:   []CallJournalEntry{
+			CallJournalEntry{HandleID: "h1", Tool: "shell", Action: "start", Status: CallStarted, Summary: "bg"},
+		},
+		Maps:         option.Some[MapCutJournal]{Value: MapCutJournal{Items: 3, Finished: 1, Pending: 0, Started: 1, NotStarted: 1, Remaining: 2}},
+		Sleeps:       []SleepCutEntry{},
+		LostBindings: lostBlob.LostBindings,
+	})
+	StoreRecordCut(execFn, RecordCutInput{Seq: 4, CutID: "cut-1", SessionID: sessID, ThreadID: rootID, RootID: rootID, StartedAtMs: 1000, EndedAtMs: 601000, Report: cutRep}) catch {
+	case KernelError:
+		return false
+	}
+	let kvAfter = kvFn(sessID) catch {
+	case KernelError:
+		return false
+	}
+	let lostOK = match kvAfter.Snapshot {
+	case option.Some[memory.KernelSnapshot] as s:
+		s.Value.LostNotice != "" && s.Value.LostNotice.Len() <= MaxLostBindingsNoticeChars()
+	case option.None:
+		false
+	}
+	let cutOK = kvAfter.Journals.Len() == 1 && kvAfter.Journals[0].RootShareExceeded
+	let flaggedOK = kvAfter.RootUsages.Len() >= 1 && kvAfter.RootUsages[0].Flagged
+	cleanOK && lostOK && cutOK && flaggedOK
+}
+
+// MemoryStoreKernelParity verifies MemStore snapshot, cut journals, lost notice, and >15% flag without FFI.
+law MemoryStoreKernelParity() {
+	let mem = memory.NewMemStore()
+	verifyKernelStore(
+		func(env memory.Envelope) memory.ExecuteResult fails KernelError {
+			wrapKernelExec(func() memory.ExecuteResult fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+				try mem.Execute(env)
+			})
+		},
+		func(sess handle.SessionID) memory.KernelView fails KernelError {
+			mem.GetKernelView(sess) catch {
+			case memory.StoreFailed:
+				return StoreFailure{Message: "kernel view failed"}
+			}
+		},
+	)
+}

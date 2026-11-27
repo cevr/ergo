@@ -1,0 +1,368 @@
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/subagent
+import option
+import slices
+
+// SlotWaitEntry represents one non-root cell waiting FIFO for a free worker slot.
+type SlotWaitEntry {
+	CellID       string,
+	Role         subagent.AgentRole,
+	EnqueuedAtMs int,
+	DeadlineMs   int,
+}
+
+// SlotAcquireResult reports whether a cell received a slot immediately, queued FIFO, or expired unrun.
+type SlotAcquireResult = SlotGranted{CellID string, RootExempt bool} | SlotQueued{CellID string, Position int, DeadlineMs int} | SlotDeniedExpired{CellID string, Message string, RanCode bool}
+
+// SlotPool manages the 32-worker kernel slot pool while keeping roots and automation wait-free.
+type SlotPool {
+	MaxWorkers    int,
+	ActiveWorkers []string,
+	RootActive    []string,
+	WaitQueue     []SlotWaitEntry,
+}
+
+// NewSlotPool constructs a 32-slot worker pool.
+func NewSlotPool() SlotPool {
+	SlotPool{
+		MaxWorkers:    MaxRoleWorkerSlots(),
+		ActiveWorkers: []string{},
+		RootActive:    []string{},
+		WaitQueue:     []SlotWaitEntry{},
+	}
+}
+
+func isRootOrAuto(role subagent.AgentRole, isAutomation bool) bool {
+	if isAutomation {
+		return true
+	}
+	match role {
+	case subagent.RoleRoot:
+		true
+	case subagent.RolePlanner, subagent.RoleImplementor, subagent.RoleVerifier, subagent.RoleReviewer, subagent.RoleWorker:
+		false
+	}
+}
+
+func hasString(xs []string, target string) bool {
+	for x in xs {
+		if x == target {
+			return true
+		}
+	}
+	false
+}
+
+func removeString(xs []string, target string) []string {
+	let mut out = []string{}
+	for x in xs {
+		if x != target {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+// SlotRequest bundles parameters for acquiring a kernel slot in SlotPool.
+type SlotRequest {
+	CellID          string,
+	Role            subagent.AgentRole,
+	IsAutomation    bool,
+	NowMs           int,
+	RemainingWaitMs int,
+}
+
+// RequestSlot grants an immediate slot to roots/automation and FIFO-queues extra non-root cells past 32.
+func RequestSlot(pool SlotPool, req SlotRequest) (SlotPool, SlotAcquireResult) {
+	if isRootOrAuto(req.Role, req.IsAutomation) {
+		let nextRoots = if hasString(pool.RootActive, req.CellID) { pool.RootActive } else { pool.RootActive.Append(req.CellID) }
+		return (SlotPool{..pool, RootActive: nextRoots}, SlotGranted{CellID: req.CellID, RootExempt: true})
+	}
+	if hasString(pool.ActiveWorkers, req.CellID) {
+		return (pool, SlotGranted{CellID: req.CellID, RootExempt: false})
+	}
+	for i in 0..pool.WaitQueue.Len() {
+		if pool.WaitQueue[i].CellID == req.CellID {
+			return (pool, SlotQueued{CellID: req.CellID, Position: i + 1, DeadlineMs: pool.WaitQueue[i].DeadlineMs})
+		}
+	}
+	if pool.ActiveWorkers.Len() < pool.MaxWorkers && pool.WaitQueue.Len() == 0 {
+		return (SlotPool{..pool, ActiveWorkers: pool.ActiveWorkers.Append(req.CellID)}, SlotGranted{CellID: req.CellID, RootExempt: false})
+	}
+	let budget = ClampWaitMs(req.RemainingWaitMs, DefaultWaitMs())
+	if budget <= 0 {
+		return (pool, SlotDeniedExpired{CellID: req.CellID, Message: "no kernel free; nothing ran", RanCode: false})
+	}
+	let deadline = req.NowMs + budget
+	let entry = SlotWaitEntry{CellID: req.CellID, Role: req.Role, EnqueuedAtMs: req.NowMs, DeadlineMs: deadline}
+	let nextQ = pool.WaitQueue.Append(entry)
+	(SlotPool{..pool, WaitQueue: nextQ}, SlotQueued{CellID: req.CellID, Position: nextQ.Len(), DeadlineMs: deadline})
+}
+
+// ExpireTimedOutWaiters evicts non-root waiters past their remaining budget cleanly without running code.
+func ExpireTimedOutWaiters(pool SlotPool, nowMs int) (SlotPool, []SlotAcquireResult) {
+	let mut kept = []SlotWaitEntry{}
+	let mut expired = []SlotAcquireResult{}
+	for w in pool.WaitQueue {
+		if nowMs >= w.DeadlineMs {
+			expired = expired.Append(SlotDeniedExpired{
+				CellID:  w.CellID,
+				Message: "no kernel free; nothing ran",
+				RanCode: false,
+			})
+		} else {
+			kept = kept.Append(w)
+		}
+	}
+	(SlotPool{..pool, WaitQueue: kept}, expired)
+}
+
+// ReleaseSlot frees an active slot (or queued entry) and promotes the earliest unexpired FIFO waiter.
+func ReleaseSlot(pool SlotPool, cellID string, nowMs int) (SlotPool, option.Option[string]) {
+	let nextRoots = removeString(pool.RootActive, cellID)
+	let wasWorker = hasString(pool.ActiveWorkers, cellID)
+	let mut nextWorkers = removeString(pool.ActiveWorkers, cellID)
+	let mut nextQ = []SlotWaitEntry{}
+	for w in pool.WaitQueue {
+		if w.CellID != cellID {
+			nextQ = nextQ.Append(w)
+		}
+	}
+	let mut promoted option.Option[string] = option.None
+	if wasWorker && nextWorkers.Len() < pool.MaxWorkers {
+		let mut afterQ = []SlotWaitEntry{}
+		for w in nextQ {
+			let stillEmpty = match promoted {
+			case option.None:
+				true
+			case option.Some[string]:
+				false
+			}
+			if stillEmpty && nowMs < w.DeadlineMs {
+				nextWorkers = nextWorkers.Append(w.CellID)
+				promoted = option.Some[string]{Value: w.CellID}
+			} else if stillEmpty && nowMs >= w.DeadlineMs {
+			} else {
+				afterQ = afterQ.Append(w)
+			}
+		}
+		nextQ = afterQ
+	}
+	(SlotPool{
+		..pool,
+		ActiveWorkers: nextWorkers,
+		RootActive:    nextRoots,
+		WaitQueue:     nextQ,
+	}, promoted)
+}
+
+// CellDurationSample records one active cell duration (including slot-wait time) for hourly share tracking.
+type CellDurationSample {
+	CellID      string,
+	Description string,
+	StartedAtMs int,
+	EndedAtMs   int,
+	DurationMs  int,
+}
+
+// RootHourState maintains per-root kernel time samples and last hourly warning timestamp.
+type RootHourState {
+	Samples          []CellDurationSample,
+	LastWarnedBucket int,
+}
+
+// RootUsageWarning reports when a root thread exceeded 15 percent active kernel time in one hour.
+type RootUsageWarning {
+	RootThreadID handle.ThreadID,
+	ActiveMs     int,
+	WindowMs     int,
+	SharePct     int,
+	LongestCells []string,
+}
+
+// RootUsageTracker tracks per-root active cell durations and fires once per hour above 15 percent.
+type RootUsageTracker {
+	ByRoot Map[handle.ThreadID, RootHourState],
+}
+
+// NewRootUsageTracker constructs an empty RootUsageTracker.
+func NewRootUsageTracker() RootUsageTracker {
+	RootUsageTracker{ByRoot: Map[handle.ThreadID, RootHourState]{}}
+}
+
+func putRootState(m Map[handle.ThreadID, RootHourState], k handle.ThreadID, v RootHourState) Map[handle.ThreadID, RootHourState] {
+	let mut out = m
+	out[k] = v
+	out
+}
+
+func sampleOverlapMs(s CellDurationSample, windowStart int, windowEnd int) int {
+	let lo = if s.StartedAtMs > windowStart { s.StartedAtMs } else { windowStart }
+	let hi = if s.EndedAtMs < windowEnd { s.EndedAtMs } else { windowEnd }
+	if hi > lo { hi - lo } else { 0 }
+}
+
+func topLongestDescriptions(samples []CellDurationSample, windowStart int, windowEnd int) []string {
+	let sorted = slices.SortStableFunc(samples, func(a CellDurationSample, b CellDurationSample) int {
+		let da = sampleOverlapMs(a, windowStart, windowEnd)
+		let db = sampleOverlapMs(b, windowStart, windowEnd)
+		if da > db { -1 } else if da < db { 1 } else { 0 }
+	})
+	let limit = if sorted.Len() < 3 { sorted.Len() } else { 3 }
+	let mut out = []string{}
+	for i in 0..limit {
+		let ov = sampleOverlapMs(sorted[i], windowStart, windowEnd)
+		if ov > 0 {
+			out = out.Append("\(sorted[i].Description) (\(ov)ms)")
+		}
+	}
+	out
+}
+
+// CellDurationInput bundles one cell runtime sample for hourly root usage share tracking.
+type CellDurationInput {
+	RootID      handle.ThreadID,
+	CellID      string,
+	Description string,
+	StartedAtMs int,
+	EndedAtMs   int,
+}
+
+// RecordCellDuration adds one cell runtime interval (including queue wait) and flags >15 percent once per hour.
+func RecordCellDuration(tracker RootUsageTracker, inp CellDurationInput) (RootUsageTracker, option.Option[RootUsageWarning]) {
+	let dur = if inp.EndedAtMs > inp.StartedAtMs { inp.EndedAtMs - inp.StartedAtMs } else { 0 }
+	let cur = match tracker.ByRoot.Get(inp.RootID) {
+	case option.Some[RootHourState] as s:
+		s.Value
+	case option.None:
+		RootHourState{Samples: []CellDurationSample{}, LastWarnedBucket: -1}
+	}
+	let winStart = inp.EndedAtMs - RootUsageWindowMs()
+	let mut kept = []CellDurationSample{}
+	for smp in cur.Samples {
+		if smp.EndedAtMs > winStart {
+			kept = kept.Append(smp)
+		}
+	}
+	kept = kept.Append(CellDurationSample{
+		CellID:      inp.CellID,
+		Description: inp.Description,
+		StartedAtMs: inp.StartedAtMs,
+		EndedAtMs:   inp.EndedAtMs,
+		DurationMs:  dur,
+	})
+	let mut activeTotal = 0
+	for smp in kept {
+		activeTotal = activeTotal + sampleOverlapMs(smp, winStart, inp.EndedAtMs)
+	}
+	let bucket = if inp.EndedAtMs <= 0 { 0 } else { inp.EndedAtMs / RootUsageWindowMs() }
+	let pct = (activeTotal * 100) / RootUsageWindowMs()
+	let over15 = activeTotal*100 > RootUsageFlagPct()*RootUsageWindowMs()
+	let mut warn option.Option[RootUsageWarning] = option.None
+	let mut nextBucket = cur.LastWarnedBucket
+	if over15 && cur.LastWarnedBucket != bucket {
+		nextBucket = bucket
+		warn = option.Some[RootUsageWarning]{
+			Value: RootUsageWarning{
+				RootThreadID: inp.RootID,
+				ActiveMs:     activeTotal,
+				WindowMs:     RootUsageWindowMs(),
+				SharePct:     pct,
+				LongestCells: topLongestDescriptions(kept, winStart, inp.EndedAtMs),
+			},
+		}
+	}
+	let nextTracker = RootUsageTracker{
+		ByRoot: putRootState(tracker.ByRoot, inp.RootID, RootHourState{Samples: kept, LastWarnedBucket: nextBucket}),
+	}
+	(nextTracker, warn)
+}
+
+// SlotPool32WorkerAndRootExemptLaw proves roots and automation never queue even when all 32 worker slots are busy.
+law SlotPool32WorkerAndRootExemptLaw() {
+	let mut pool = NewSlotPool()
+	for i in 0..32 {
+		let (pNext, res) = RequestSlot(pool, SlotRequest{CellID: "w-\(i)", Role: subagent.RoleImplementor, IsAutomation: false, NowMs: 1000, RemainingWaitMs: DefaultWaitMs()})
+		pool = pNext
+		let granted = match res {
+		case SlotGranted as g:
+			!g.RootExempt
+		case SlotQueued, SlotDeniedExpired:
+			false
+		}
+		if !granted {
+			return false
+		}
+	}
+	let (pWait1, rWait1) = RequestSlot(pool, SlotRequest{CellID: "w-32", Role: subagent.RoleVerifier, IsAutomation: false, NowMs: 1000, RemainingWaitMs: 5000})
+	pool = pWait1
+	let (pWait2, rWait2) = RequestSlot(pool, SlotRequest{CellID: "w-33", Role: subagent.RolePlanner, IsAutomation: false, NowMs: 1000, RemainingWaitMs: 10000})
+	pool = pWait2
+	let q1OK = match rWait1 {
+	case SlotQueued as q:
+		q.Position == 1 && q.DeadlineMs == 6000
+	case SlotGranted, SlotDeniedExpired:
+		false
+	}
+	let q2OK = match rWait2 {
+	case SlotQueued as q:
+		q.Position == 2
+	case SlotGranted, SlotDeniedExpired:
+		false
+	}
+	let (pRoot, rRoot) = RequestSlot(pool, SlotRequest{CellID: "root-urgent", Role: subagent.RoleRoot, IsAutomation: false, NowMs: 1000, RemainingWaitMs: DefaultWaitMs()})
+	pool = pRoot
+	let rootOK = match rRoot {
+	case SlotGranted as g:
+		g.RootExempt
+	case SlotQueued, SlotDeniedExpired:
+		false
+	}
+	let (pAuto, rAuto) = RequestSlot(pool, SlotRequest{CellID: "cron-1", Role: subagent.RoleWorker, IsAutomation: true, NowMs: 1000, RemainingWaitMs: DefaultWaitMs()})
+	pool = pAuto
+	let autoOK = match rAuto {
+	case SlotGranted as g:
+		g.RootExempt
+	case SlotQueued, SlotDeniedExpired:
+		false
+	}
+	let (pExp, expList) = ExpireTimedOutWaiters(pool, 6000)
+	pool = pExp
+	let expOK = expList.Len() == 1 && match expList[0] {
+	case SlotDeniedExpired as d:
+		d.CellID == "w-32" && !d.RanCode
+	case SlotGranted, SlotQueued:
+		false
+	}
+	let (pRel, promoted) = ReleaseSlot(pool, "w-0", 7000)
+	pool = pRel
+	let promOK = promoted == option.Some[string]{Value: "w-33"}
+	q1OK && q2OK && rootOK && autoOK && pool.WaitQueue.Len() == 0 && expOK && promOK
+}
+
+// RootHourlyShareFlagLaw proves >15% triggers once per hourly window naming top longest cells first.
+law RootHourlyShareFlagLaw() {
+	let mut tr = NewRootUsageTracker()
+	let (t1, w1) = RecordCellDuration(tr, CellDurationInput{RootID: "root-1", CellID: "c1", Description: "short scan", StartedAtMs: 1000, EndedAtMs: 501000})
+	tr = t1
+	let underNoWarn = w1 == option.None
+	let (t2, w2) = RecordCellDuration(tr, CellDurationInput{RootID: "root-1", CellID: "c2", Description: "big compile batch", StartedAtMs: 502000, EndedAtMs: 602000})
+	tr = t2
+	let flaggedOnce = match w2 {
+	case option.Some[RootUsageWarning] as w:
+		w.Value.ActiveMs == 600000 && w.Value.SharePct >= 16 && w.Value.LongestCells[0] == "short scan (500000ms)" && w.Value.LongestCells[1] == "big compile batch (100000ms)"
+	case option.None:
+		false
+	}
+	let (t3, w3) = RecordCellDuration(tr, CellDurationInput{RootID: "root-1", CellID: "c3", Description: "third run same hour", StartedAtMs: 603000, EndedAtMs: 703000})
+	tr = t3
+	let noDupInSameHour = w3 == option.None
+	let (_, w4) = RecordCellDuration(tr, CellDurationInput{RootID: "root-1", CellID: "c4", Description: "next hour heavy", StartedAtMs: 3605000, EndedAtMs: 4205000})
+	let nextHourFlags = match w4 {
+	case option.Some[RootUsageWarning]:
+		true
+	case option.None:
+		false
+	}
+	underNoWarn && flaggedOnce && noDupInSameHour && nextHourFlags
+}
