@@ -1,0 +1,164 @@
+import compiler/check/bind
+import compiler/check/load
+import compiler/check/types
+import compiler/lint
+import compiler/syntax
+import option
+import slices
+
+func buildGlossaries(pairs []string) Map[string, string] {
+	let mut out = Map[string, string]{}
+	let mut i = 0
+	for i+1 < pairs.Len() {
+		out[pairs[i]] = pairs[i+1]
+		i += 2
+	}
+	out
+}
+
+func buildConfig(configJSON string, presets []string, glossaries Map[string, string]) lint.Configuration fails lint.BadConfig {
+	let cfg = if configJSON == "" {
+		lint.DefaultConfig()
+	} else {
+		try lint.ParseConfig(configJSON)
+	}
+	try lint.Configure(cfg, presets, glossaries)
+}
+
+// LintConfigValidate parses and layers an ergo.lint.json configuration with presets and glossaries.
+func LintConfigValidate(configJSON string, presets []string, glossaryPairs []string) string {
+	let glossaries = buildGlossaries(glossaryPairs)
+	let _ = buildConfig(configJSON, presets, glossaries) catch {
+	case lint.BadConfig as e:
+		return "bad \(e.Message)\n"
+	}
+	"ok\n"
+}
+
+// LintFileCasePath normalizes a module-relative path under a configured file-name-case style.
+func LintFileCasePath(rel string, style string, dirs bool) string {
+	let n = lint.NormalizeRelPath(rel, lint.FileNameCaseOptions{Case: style, Dirs: dirs})
+	if n.Valid { "1 \(n.Rel)\n" } else { "0 \(rel)\n" }
+}
+
+// LintSourcesJSON runs the self-hosted linter over an in-memory multi-package program and encodes JSON output.
+func LintSourcesJSON(
+	configJSON string,
+	presets []string,
+	closed bool,
+	check bool,
+	pkgMeta []string,
+	pkgExt []string,
+	pkgForeign []string,
+	filePkgIdx []int,
+	fileRels []string,
+	fileSrcs []string,
+	glossaryPairs []string,
+	repeat int,
+) string {
+	if pkgMeta.Len()%5 != 0 {
+		return "malformed pkgMeta\n"
+	}
+	let nPkgs = pkgMeta.Len() / 5
+	if pkgExt.Len() != nPkgs || pkgForeign.Len() != nPkgs {
+		return "malformed tables\n"
+	}
+	if filePkgIdx.Len() != fileRels.Len() || filePkgIdx.Len() != fileSrcs.Len() {
+		return "malformed files\n"
+	}
+	let glossaries = buildGlossaries(glossaryPairs)
+	let conf = buildConfig(configJSON, presets, glossaries) catch {
+	case lint.BadConfig as e:
+		return "bad \(e.Message)\n"
+	}
+	let mut pkgFiles = slices.WithCapacity[[]lint.FileInput](nPkgs)
+	let mut pkgBind = slices.WithCapacity[[]bind.File](nPkgs)
+	let mut pkgPaths = slices.WithCapacity[[]string](nPkgs)
+	for _ in 0..nPkgs {
+		pkgFiles = pkgFiles.Append([]lint.FileInput{})
+		pkgBind = pkgBind.Append([]bind.File{})
+		pkgPaths = pkgPaths.Append([]string{})
+	}
+	let mut anyParseErr = false
+	for fi in 0..filePkgIdx.Len() {
+		let pi = filePkgIdx[fi]
+		if pi < 0 || pi >= nPkgs {
+			return "malformed file package index\n"
+		}
+		let rel = fileRels[fi]
+		let src = fileSrcs[fi]
+		let parsed = syntax.Parse(src)
+		if parsed.Failed {
+			anyParseErr = true
+		}
+		pkgFiles[pi] = pkgFiles[pi].Append(lint.FileInput{Rel: rel, Src: src, Parsed: parsed})
+		pkgBind[pi] = pkgBind[pi].Append(bind.File{Name: lint.SlashBase(rel), Parsed: parsed})
+		pkgPaths[pi] = pkgPaths[pi].Append(rel)
+	}
+
+	let mut units = slices.WithCapacity[lint.UnitInput](nPkgs)
+	if check && !anyParseErr && nPkgs > 0 {
+		let mut loadUnits = slices.WithCapacity[load.Unit](nPkgs)
+		for pi in 0..nPkgs {
+			let tab = load.TablesOf(pkgExt[pi], pkgForeign[pi])
+			let mut lu = load.UnitOf(tab, pkgBind[pi], pkgPaths[pi])
+			lu.Path = pkgMeta[pi*5+1]
+			loadUnits = loadUnits.Append(lu)
+		}
+		let prog = load.LoadAll(loadUnits, []types.Iface{}, 1)
+		let mut typedByUnit = slices.Repeat([]int{-1}, nPkgs)
+		for li, uIdx in prog.Units {
+			typedByUnit[uIdx] = li
+		}
+		for pi in 0..nPkgs {
+			let flag = pkgMeta[pi*5+4]
+			let isDep = flag == "dep"
+			let isEntry = flag == "entry"
+			let typedOpt = if typedByUnit[pi] >= 0 {
+				option.Some[load.Typed]{Value: load.TypeAt(prog, typedByUnit[pi])}
+			} else {
+				option.None
+			}
+			units = units.Append(lint.UnitInput{
+				Module:     pkgMeta[pi*5+0],
+				Path:       pkgMeta[pi*5+1],
+				Dir:        pkgMeta[pi*5+2],
+				Name:       pkgMeta[pi*5+3],
+				Dependency: isDep,
+				HasEntry:   isEntry,
+				Files:      pkgFiles[pi],
+				BindFiles:  pkgBind[pi],
+				Typed:      typedOpt,
+			})
+		}
+	} else {
+		for pi in 0..nPkgs {
+			let flag = pkgMeta[pi*5+4]
+			units = units.Append(lint.UnitInput{
+				Module:     pkgMeta[pi*5+0],
+				Path:       pkgMeta[pi*5+1],
+				Dir:        pkgMeta[pi*5+2],
+				Name:       pkgMeta[pi*5+3],
+				Dependency: flag == "dep",
+				HasEntry:   flag == "entry",
+				Files:      pkgFiles[pi],
+				BindFiles:  pkgBind[pi],
+				Typed:      option.None,
+			})
+		}
+	}
+
+	let inp = lint.Input{
+		Checked:    check && !anyParseErr,
+		Closed:     closed,
+		ModuleDirs: Map[string, string]{},
+		Glossaries: glossaries,
+		Units:      units,
+	}
+	let reps = if repeat < 1 { 1 } else { repeat }
+	let mut res = lint.Run(conf, inp)
+	for _ in 1..reps {
+		res = lint.Run(conf, inp)
+	}
+	"ok\n" + lint.FormatResultJSON(res)
+}

@@ -1,0 +1,375 @@
+import compiler/syntax
+import option
+
+// ByteLower marks lowercase ASCII letters a..z.
+let ByteLower = uint8(1)
+
+// ByteUpper marks uppercase ASCII letters A..Z.
+let ByteUpper = uint8(2)
+
+// ByteDigit marks ASCII decimal digits 0..9.
+let ByteDigit = uint8(4)
+
+// ByteUnderscore marks the ASCII underscore byte.
+let ByteUnderscore = uint8(8)
+
+// ByteBlank marks ASCII space, tab, carriage return, and newline.
+let ByteBlank = uint8(16)
+
+// ByteHex marks ASCII hexadecimal digits.
+let ByteHex = uint8(32)
+
+// ByteHyphen marks the ASCII hyphen-minus byte.
+let ByteHyphen = uint8(64)
+
+// ByteJSONPunct marks JSON structural punctuation bytes.
+let ByteJSONPunct = uint8(128)
+
+// ByteMask returns the compiled byte-class bitmask for ASCII byte b.
+func ByteMask(b byte) uint8 { byte(asciiByteTable[int(b)]) }
+
+// NodeIdxIdent marks KIdent rows collected into FileIndex.
+let NodeIdxIdent = uint8(1)
+
+// NodeIdxCall marks KCallExpr rows collected into FileIndex.
+let NodeIdxCall = uint8(2)
+
+// NodeIdxSelector marks KSelectorExpr rows collected into FileIndex.
+let NodeIdxSelector = uint8(4)
+
+// NodeIdxDeclStmt marks KDeclStmt rows collected into FileIndex.
+let NodeIdxDeclStmt = uint8(8)
+
+// NodeIdxSwitch marks switch, match, and catch rows collected into FileIndex.
+let NodeIdxSwitch = uint8(16)
+
+// NodeIdxAssign marks KAssignStmt rows collected into FileIndex.
+let NodeIdxAssign = uint8(32)
+
+// NodeIdxBinary marks KBinaryExpr rows collected into FileIndex.
+let NodeIdxBinary = uint8(64)
+
+// NodeIdxField marks KField rows collected into FileIndex.
+let NodeIdxField = uint8(128)
+
+// NodeRoleTestLaw marks test and law declarations.
+let NodeRoleTestLaw = uint8(1)
+
+// NodeRoleFuncLit marks function literal expressions.
+let NodeRoleFuncLit = uint8(2)
+
+// NodeRoleCatch marks catch expressions.
+let NodeRoleCatch = uint8(4)
+
+// NodeRoleLoop marks for and range loop statements.
+let NodeRoleLoop = uint8(8)
+
+// NodeRoleBranchDecision marks cyclomatic decision nodes.
+let NodeRoleBranchDecision = uint8(16)
+
+// NodeRoleTypeSwitch marks union match statements.
+let NodeRoleTypeSwitch = uint8(32)
+
+// NodeRoleTopDecl marks top-level file declarations.
+let NodeRoleTopDecl = uint8(64)
+
+// NodeRoleHalsteadOp marks nodes that contribute a fixed Halstead operator.
+let NodeRoleHalsteadOp = uint8(128)
+
+// NodeIdxMask returns the collection bitmask for a syntax node kind.
+func NodeIdxMask(k uint8) uint8 {
+	let i = int(k)
+	if i >= nodeIdxTable.Len() {
+		return uint8(0)
+	}
+	byte(nodeIdxTable[i])
+}
+
+// NodeRoleMask returns the role bitmask for a syntax node kind.
+func NodeRoleMask(k uint8) uint8 {
+	let i = int(k)
+	if i >= nodeRoleTable.Len() {
+		return uint8(0)
+	}
+	byte(nodeRoleTable[i])
+}
+
+// HalsteadFixedOp returns the fixed Halstead operator index for a syntax node kind, or 0 for none.
+func HalsteadFixedOp(k uint8) uint8 {
+	let i = int(k)
+	if i >= halsteadNodeTable.Len() {
+		return uint8(0)
+	}
+	byte(halsteadNodeTable[i])
+}
+
+// StdCoveredBy returns the std package covering a Go standard-library import path.
+func StdCoveredBy(goPath string) (string, bool) {
+	match stdCoverageMap.Get(goPath) {
+	case option.Some{Value: v}:
+		(v, true)
+	case option.None:
+		("", false)
+	}
+}
+
+let asciiByteTable = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x10\x10\x00\x00\x10\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x10\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x80\x40\x00\x00\x24\x24\x24\x24\x24\x24\x24\x24\x24\x24\x80\x00\x00\x00\x00\x00\x00\x22\x22\x22\x22\x22\x22\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x80\x00\x80\x00\x08\x00\x21\x21\x21\x21\x21\x21\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x80\x00\x80\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+
+let nodeIdxTable = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x80\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x04\x00\x00\x00\x02\x00\x00\x40\x00\x10\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x08\x00\x20\x00\x00\x00\x00\x10\x10\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+
+let nodeRoleTable = "\x00\x00\x40\x00\x40\x00\x40\x40\x40\x41\x41\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x90\x90\x00\x00\x00\x80\x00\x82\x00\x80\x80\x00\x00\x80\x00\x00\x00\x80\x84\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x80\x00\x00\x80\x00\x00\x90\x80\xa0\x98\x98\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+
+let halsteadNodeTable = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x01\x00\x00\x00\x02\x00\x03\x00\x04\x05\x00\x00\x06\x00\x00\x00\x07\x08\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x09\x00\x00\x0a\x00\x00\x0b\x0c\x0c\x0d\x0d\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+
+let stdCoverageMap = Map[string, string]{
+	"archive/tar":     "archive",
+	"archive/zip":     "archive",
+	"sync/atomic":     "atomic",
+	"encoding/base64": "base64",
+	"math/bits":       "bits",
+	"cmp":             "cmp",
+	"hash/crc32":      "crc32",
+	"encoding/csv":    "csv",
+	"embed":           "embed",
+	"os/exec":         "exec",
+	"path/filepath":   "filepath",
+	"flag":            "flag",
+	"io/fs":           "fs",
+	"testing/fstest":  "fstest",
+	"encoding/hex":    "hex",
+	"crypto/hmac":     "hmac",
+	"html":            "html",
+	"html/template":   "html",
+	"net/http":        "http",
+	"encoding/json":   "json",
+	"log":             "log",
+	"log/slog":        "log",
+	"maps":            "maps",
+	"net":             "net",
+	"math":            "math",
+	"os":              "os",
+	"math/rand":       "rand",
+	"math/rand/v2":    "rand",
+	"crypto/sha1":     "sha1",
+	"crypto/sha256":   "sha256",
+	"os/signal":       "signal",
+	"crypto/sha512":   "sha512",
+	"database/sql":    "sql",
+	"encoding/xml":    "xml",
+	"slices":          "slices",
+	"sort":            "slices",
+	"strconv":         "strconv",
+	"strings":         "strings",
+	"sync":            "sync",
+	"testing":         "testing",
+	"time":            "time",
+	"net/url":         "url",
+	"unicode/utf8":    "utf8",
+	"compress/zlib":   "zlib",
+	"compress/gzip":   "zlib",
+	"compress/flate":  "zlib",
+}
+
+let pureGoMap = Map[string, bool]{
+	"":                true,
+	"strings":         true,
+	"strconv":         true,
+	"unicode":         true,
+	"unicode/utf8":    true,
+	"unicode/utf16":   true,
+	"slices":          true,
+	"sort":            true,
+	"math":            true,
+	"math/bits":       true,
+	"path/filepath":   true,
+	"encoding/hex":    true,
+	"encoding/base64": true,
+	"crypto/sha256":   true,
+	"hash/crc32":      true,
+	"crypto/sha512":   true,
+	"crypto/sha1":     true,
+	"crypto/hmac":     true,
+	"net/url":         true,
+	"net/netip":       true,
+	"simd/archsimd":   true,
+}
+
+// IsPureGoPackage reports whether a Go import path belongs to the pure allowlist.
+func IsPureGoPackage(path string) bool {
+	match pureGoMap.Get(path) {
+	case option.Some{Value: v}:
+		v
+	case option.None:
+		false
+	}
+}
+
+let pureRuntimeBodyMap = Map[string, bool]{
+	"Append":                    true,
+	"ArenaTake":                 true,
+	"Base64StdDecode":           true,
+	"Base64StdEncode":           true,
+	"Base64URLDecode":           true,
+	"Base64URLEncode":           true,
+	"BitsAdd64":                 true,
+	"BitsDiv64":                 true,
+	"BitsMul64":                 true,
+	"BitsSub64":                 true,
+	"BuildHole":                 true,
+	"BuildInFold":               true,
+	"BuildKnown":                true,
+	"CSVFormat":                 true,
+	"CSVReadAll":                true,
+	"CivilBuffer":               true,
+	"CivilText":                 true,
+	"CmpMax":                    true,
+	"CmpMin":                    true,
+	"ConfigEnvKey":              true,
+	"ConfigEnvName":             true,
+	"ConfigFlagKey":             true,
+	"ConfigFlagName":            true,
+	"Crc32Update":               true,
+	"FSClone":                   true,
+	"FSMapText":                 true,
+	"FilepathExt":               true,
+	"FilepathJoin":              true,
+	"FilepathRel":               true,
+	"Get":                       true,
+	"HexDecode":                 true,
+	"HexEncode":                 true,
+	"HmacEqual":                 true,
+	"HmacKeyState":              true,
+	"HmacKeyedSum":              true,
+	"HmacSHA1":                  true,
+	"HmacSHA256":                true,
+	"HmacSHA512":                true,
+	"HotpKeyState":              true,
+	"HotpNumber":                true,
+	"JSONAppendBool":            true,
+	"JSONAppendFloat":           true,
+	"JSONAppendInt":             true,
+	"JSONAppendQuoted":          true,
+	"JSONAppendQuotedBytes":     true,
+	"JSONAppendUint":            true,
+	"JSONBytesText":             true,
+	"LiteralLoopback":           true,
+	"LoopbackAddress":           true,
+	"MachineTimerNotPositiveAt": true,
+	"MapTake":                   true,
+	"MapsClone":                 true,
+	"MathToInt16":               true,
+	"MathToInt32":               true,
+	"MathToInt8":                true,
+	"MathToUint16":              true,
+	"MathToUint32":              true,
+	"MathToUint8":               true,
+	"NewHost":                   true,
+	"Put":                       true,
+	"Reserve":                   true,
+	"Sha1Sum":                   true,
+	"Sha512Sum":                 true,
+	"SliceOfLen":                true,
+	"SlicesClone":               true,
+	"SlicesConcat":              true,
+	"SlicesDelete":              true,
+	"SlicesFill":                true,
+	"SlicesInsert":              true,
+	"SlicesRepeat":              true,
+	"SlicesReverse":             true,
+	"SlicesSlice":               true,
+	"SlicesSort":                true,
+	"SlicesTake":                true,
+	"StrconvAppendFloat":        true,
+	"StrconvAppendInt":          true,
+	"StrconvAppendUint":         true,
+	"StrconvAtoi":               true,
+	"StrconvParseFloat":         true,
+	"StrconvParseInt":           true,
+	"StrconvUnquote":            true,
+	"StringsBuilderAppend":      true,
+	"StringsBuilderAppendByte":  true,
+	"StringsBuilderAppendBytes": true,
+	"StringsBuilderAppendFrom":  true,
+	"StringsBuilderGrow":        true,
+	"StringsBuilderText":        true,
+	"StringsBytes":              true,
+	"StringsJoin":               true,
+	"StringsSlice":              true,
+	"TimeAppendUTC":             true,
+	"TimeCount":                 true,
+	"TimeDivide":                true,
+	"TimeDurationISO":           true,
+	"TimeDurationText":          true,
+	"TimeFormat":                true,
+	"TimeParse":                 true,
+	"TimeParseDuration":         true,
+	"TimeParseDurationISO":      true,
+	"TimeRound":                 true,
+	"TimeTruncate":              true,
+	"UTF8AppendRune":            true,
+	"UTF8DecodeRuneInString":    true,
+	"UTF8RuneText":              true,
+	"UTF8String":                true,
+	"Unreachable":               true,
+	"WithCapacity":              true,
+}
+
+// IsStdRuntimePureOrInert reports whether a runtime/v1 body name adds no footprint.
+func IsStdRuntimePureOrInert(name string) bool {
+	match pureRuntimeBodyMap.Get(name) {
+	case option.Some{Value: v}:
+		v
+	case option.None:
+		false
+	}
+}
+
+func byteClassOK(b byte) bool {
+	let m = ByteMask(b)
+	let lower = b >= 'a' && b <= 'z'
+	let upper = b >= 'A' && b <= 'Z'
+	let digit = b >= '0' && b <= '9'
+	let under = b == '_'
+	let blank = b == ' ' || b == '\t' || b == '\r' || b == '\n'
+	let hex = digit || (b >= 'a' && b <= 'f') || (b >= 'A' && b <= 'F')
+	let hyphen = b == '-'
+	let punct = b == '{' || b == '}' || b == '[' || b == ']' || b == ':' || b == ','
+		(m&ByteLower != 0) == lower &&
+		(m&ByteUpper != 0) == upper &&
+		(m&ByteDigit != 0) == digit &&
+		(m&ByteUnderscore != 0) == under &&
+		(m&ByteBlank != 0) == blank &&
+		(m&ByteHex != 0) == hex &&
+		(m&ByteHyphen != 0) == hyphen &&
+		(m&ByteJSONPunct != 0) == punct
+}
+
+law ByteTableMatchesPredicates(n int) {
+	let mut ok = true
+	for i in 0..256 {
+		let b = byte(((n+i)%256 + 256) % 256)
+		ok = ok && byteClassOK(b)
+	}
+	ok
+}
+
+law NodeTablesMatchKinds(n int) {
+	let k = uint8(((n % 72) + 72) % 72)
+	let idx = NodeIdxMask(k)
+	let role = NodeRoleMask(k)
+	let h = HalsteadFixedOp(k)
+	let idxOK = (idx&NodeIdxCall != 0) == (k == syntax.KCallExpr) &&
+		(idx&NodeIdxIdent != 0) == (k == syntax.KIdent) &&
+		(idx&NodeIdxSelector != 0) == (k == syntax.KSelectorExpr) &&
+		(idx&NodeIdxDeclStmt != 0) == (k == syntax.KDeclStmt) &&
+		(idx&NodeIdxAssign != 0) == (k == syntax.KAssignStmt) &&
+		(idx&NodeIdxBinary != 0) == (k == syntax.KBinaryExpr) &&
+		(idx&NodeIdxField != 0) == (k == syntax.KField) &&
+		(idx&NodeIdxSwitch != 0) == (k == syntax.KSwitchStmt || k == syntax.KTypeSwitchStmt || k == syntax.KCatchExpr)
+	let roleOK = (role&NodeRoleTypeSwitch != 0) == (k == syntax.KTypeSwitchStmt) &&
+		(role&NodeRoleFuncLit != 0) == (k == syntax.KFuncLit) &&
+		(role&NodeRoleCatch != 0) == (k == syntax.KCatchExpr) &&
+		(role&NodeRoleLoop != 0) == (k == syntax.KForStmt || k == syntax.KRangeStmt) &&
+		(role&NodeRoleHalsteadOp != 0) == (h != uint8(0))
+	idxOK && roleOK
+}

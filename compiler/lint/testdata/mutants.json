@@ -1,0 +1,155 @@
+{
+  "about": "compiler/lint: self-hosted DoD linter invariants across tables, strict JSON, config layering, filecase, file index, metrics, CSR graph, graph layout, policy, comments, suppressions, AST shapes, and semantic checks.",
+  "mutants": [
+    {
+      "name": "lint-selfhost-byte-mask-lookup",
+      "origin": "wf10 LINT-SELFHOST",
+      "file": "compiler/lint/tables.ergo",
+      "decl": "ByteMask",
+      "from": "func ByteMask(b byte) uint8 { byte(asciiByteTable[int(b)]) }",
+      "to": "func ByteMask(b byte) uint8 { byte(0) }",
+      "rule": "ByteMask consults the compile-time ASCII byte-class table for every byte.",
+      "killers": ["compiler/lint:law:ByteTableMatchesPredicates"]
+    },
+    {
+      "name": "lint-selfhost-node-idx-mask",
+      "origin": "wf10 LINT-SELFHOST",
+      "file": "compiler/lint/tables.ergo",
+      "decl": "NodeIdxMask",
+      "from": "\tbyte(nodeIdxTable[i])\n",
+      "to": "\tbyte(0)\n",
+      "rule": "NodeIdxMask maps syntax node kinds to FileIndex collection bits.",
+      "killers": ["compiler/lint:law:NodeTablesMatchKinds"]
+    },
+    {
+      "name": "lint-selfhost-strict-json-dup-key",
+      "origin": "wf10 LINT-SELFHOST",
+      "file": "compiler/lint/jsonparse.ergo",
+      "decl": "parseJSONObject",
+      "from": "\t\tcase option.Some:\n\t\t\treturn BadConfig{Message: \"key \\(strconv.Quote(key)) is stated twice\"}\n",
+      "to": "\t\tcase option.Some:\n\t\t\tif false {\n\t\t\t\treturn BadConfig{Message: \"key \\(strconv.Quote(key)) is stated twice\"}\n\t\t\t}\n",
+      "rule": "Strict JSON parsing refuses objects that repeat a key.",
+      "killers": ["compiler/lint:StrictJSONRejectsDupKeysAndTrailingData"]
+    },
+    {
+      "name": "lint-selfhost-config-dup-preset",
+      "origin": "wf10 LINT-SELFHOST",
+      "file": "compiler/lint/config.ergo",
+      "decl": "Configure",
+      "from": "\t\tcase option.Some:\n\t\t\treturn BadConfig{Message: \"preset \\(layerName) is applied twice\"}\n",
+      "to": "\t\tcase option.Some:\n\t\t\tlet _ = layerName\n",
+      "rule": "Configuration rejects applying the same preset layer twice.",
+      "killers": ["compiler/lint:ConfigParsingAndLayering"]
+    },
+    {
+      "name": "lint-selfhost-filecase-acronym-split",
+      "origin": "wf10 LINT-SELFHOST",
+      "file": "compiler/lint/filecase.ergo",
+      "decl": "splitCaseASCII",
+      "from": "\t\t\tlet acronymEnd = (pm&ByteUpper) != 0 && i+1 < s.Len() && (ByteMask(s[i+1])&ByteLower) != 0\n",
+      "to": "\t\t\tlet acronymEnd = false\n",
+      "rule": "Acronyms followed by camel-case words split before the final uppercase letter.",
+      "killers": ["compiler/lint:FileCaseAndConceptSuffixMatchGo"]
+    },
+    {
+      "name": "lint-selfhost-filecase-kind-suffix",
+      "origin": "wf10 LINT-SELFHOST",
+      "file": "compiler/lint/filecase.ergo",
+      "decl": "KindSuffix",
+      "from": "\tlet cut = strings.LastIndexAny(stem, \"_.\")\n\tif cut <= 0 {\n\t\treturn (\"\", false)\n\t}\n",
+      "to": "\tlet cut = strings.LastIndexAny(stem, \"_.\")\n\tif cut < 0 {\n\t\treturn (\"\", false)\n\t}\n",
+      "rule": "A file whose entire stem equals a concept word without a separator prefix is not flagged as a kind suffix.",
+      "killers": ["compiler/lint:FileCaseAndConceptSuffixMatchGo"]
+    },
+    {
+      "name": "lint-selfhost-index-derived-where-testfile",
+      "origin": "wf10 LINT-SELFHOST",
+      "file": "compiler/lint/index.ergo",
+      "decl": "checkLawTestFile",
+      "from": "\tif hasDerivedRefinementLaw(p, declNodes) {\n\t\treturn true\n\t}\n",
+      "to": "\tif false && hasDerivedRefinementLaw(p, declNodes) {\n\t\treturn true\n\t}\n",
+      "rule": "A non-record refined type declaration generates a top-level refinement law so TestFile matches refined syntax.",
+      "killers": ["compiler/lint:FileIndexCapturesNodesAndLines"]
+    },
+    {
+      "name": "lint-selfhost-metrics-nesting-cognitive",
+      "origin": "wf10 LINT-SELFHOST",
+      "file": "compiler/lint/metrics.ergo",
+      "decl": "cogIfChain",
+      "from": "\t\tif first {\n\t\t\ttotal += 1 + nesting\n\t\t\tfirst = false\n",
+      "to": "\t\tif first {\n\t\t\ttotal += 1\n\t\t\tfirst = false\n",
+      "rule": "An initial if statement adds nesting depth to its cognitive complexity.",
+      "killers": ["compiler/lint:MetricsMatchKnownBodies"]
+    },
+    {
+      "name": "lint-selfhost-graph-csr-bounds",
+      "origin": "wf10 LINT-SELFHOST",
+      "file": "compiler/lint/graph.ergo",
+      "decl": "BuildProgramGraphWithIndexes",
+      "from": "\tfor i in 0..nFilesTotal {\n\t\tedgeAtStart[i+1] = edgeAtStart[i] + atCounts[i]\n\t\tintoStart[i+1] = intoStart[i] + intoCounts[i]\n\t}\n",
+      "to": "\tfor i in 0..nFilesTotal {\n\t\tedgeAtStart[i+1] = edgeAtStart[i]\n\t\tintoStart[i+1] = intoStart[i] + intoCounts[i]\n\t}\n",
+      "rule": "EdgeAtStart stores cumulative CSR bounds matching total positioned edges across files.",
+      "killers": ["compiler/lint:law:ProgramGraphCSRBoundsHold", "compiler/lint:GraphLayoutCatchesLongFileWideDirFolderCycleAndLayer"]
+    },
+    {
+      "name": "lint-selfhost-layout-long-file",
+      "origin": "wf10 LINT-SELFHOST",
+      "file": "compiler/lint/graphlayout.ergo",
+      "decl": "CheckLongFile",
+      "from": "\t\tif !codegraph.LongFile(fl, opts.MaxFileLines) {\n\t\t\tcontinue\n\t\t}\n",
+      "to": "\t\tif codegraph.LongFile(fl, opts.MaxFileLines) {\n\t\t\tcontinue\n\t\t}\n",
+      "rule": "CheckLongFile emits L165 only when a file exceeds MaxFileLines.",
+      "killers": ["compiler/lint:GraphLayoutCatchesLongFileWideDirFolderCycleAndLayer"]
+    },
+    {
+      "name": "lint-selfhost-policy-strict-warning",
+      "origin": "wf10 LINT-SELFHOST",
+      "file": "compiler/lint/types.ergo",
+      "decl": "PolicyPassed",
+      "from": "\t\tif strict && f.Severity == SeverityWarning {\n\t\t\treturn false\n\t\t}\n",
+      "to": "\t\tif false && strict && f.Severity == SeverityWarning {\n\t\t\treturn false\n\t\t}\n",
+      "rule": "PolicyPassed in strict mode rejects runs containing warning findings.",
+      "killers": ["compiler/lint:PolicyRejectsErrorAndStrictWarning"]
+    },
+    {
+      "name": "lint-selfhost-comments-non-doc",
+      "origin": "wf10 LINT-SELFHOST",
+      "file": "compiler/lint/comments.ergo",
+      "decl": "CheckCommentedCode",
+      "from": "\t\tif !isDoc && parsesAsCode(groupBody(p, cIdx, glen)) {\n",
+      "to": "\t\tif isDoc && parsesAsCode(groupBody(p, cIdx, glen)) {\n",
+      "rule": "CheckCommentedCode inspects non-doc comments rather than attached doc comments.",
+      "killers": ["compiler/lint:CommentsAndDirectives"]
+    },
+    {
+      "name": "lint-selfhost-run-suppression-kept",
+      "origin": "wf10 LINT-SELFHOST",
+      "file": "compiler/lint/run.ergo",
+      "decl": "applySuppressions",
+      "from": "\tfor i, f in raw {\n\t\tif !suppressed[i] {\n\t\t\tfinalOut = finalOut.Append(f)\n\t\t}\n\t}\n",
+      "to": "\tfor i, f in raw {\n\t\tlet _ = i\n\t\tfinalOut = finalOut.Append(f)\n\t}\n",
+      "rule": "applySuppressions omits findings covered by a matching suppression directive.",
+      "killers": ["compiler/lint:RunnerProducesSortedFindingsAndAppliesSuppressions"]
+    },
+    {
+      "name": "lint-selfhost-shape-identical-arms",
+      "origin": "wf10 LINT-SELFHOST",
+      "file": "compiler/lint/shape.ergo",
+      "decl": "checkSwitchIdenticalArms",
+      "from": "\tif armRecs.Len() < 2 {\n\t\treturn\n\t}\n",
+      "to": "\tif armRecs.Len() >= 2 {\n\t\treturn\n\t}\n",
+      "rule": "checkSwitchIdenticalArms inspects switches with two or more arms.",
+      "killers": ["compiler/lint:IdenticalArmsAndDuplicateUnionTests"]
+    },
+    {
+      "name": "lint-selfhost-semantic-long-param-bound",
+      "origin": "wf10 LINT-SELFHOST",
+      "file": "compiler/lint/rules_semantic.ergo",
+      "decl": "CheckLongParameterList",
+      "from": "\t\t\t\tlet nParams = countFieldListParams(t, ft.Params)\n\t\t\t\tif nParams > maxParams {\n",
+      "to": "\t\t\t\tlet nParams = countFieldListParams(t, ft.Params)\n\t\t\t\tif nParams > maxParams+100 {\n",
+      "rule": "CheckLongParameterList flags non-method functions whose parameter count exceeds maxParams.",
+      "killers": ["compiler/lint:SemanticRulesCatchSelfAssignLongParamForeignStdAndVacuousTest"]
+    }
+  ]
+}

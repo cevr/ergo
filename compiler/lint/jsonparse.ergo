@@ -1,0 +1,374 @@
+import option
+import strconv
+import strings
+import utf8
+
+// JNull represents JSON null.
+type JNull {}
+
+// JBool represents a JSON boolean.
+type JBool {
+	// V is the boolean value.
+	V bool,
+}
+
+// JNum represents a JSON number token.
+type JNum {
+	// Raw is the validated raw JSON number text.
+	Raw string,
+}
+
+// JStr represents a decoded JSON string.
+type JStr {
+	// V is the decoded UTF-8 string value.
+	V string,
+}
+
+// JMember represents one key-value pair inside a JSON object.
+type JMember {
+	// Key is the decoded member name.
+	Key string,
+	// Value is the decoded member value.
+	Value JVal,
+}
+
+// JArr represents a JSON array.
+type JArr {
+	// Items holds the decoded array elements.
+	Items []JVal,
+}
+
+// JObj represents a JSON object.
+type JObj {
+	// Members holds the decoded members in source order.
+	Members []JMember,
+}
+
+// JVal is the closed union of strict JSON values.
+type JVal = JNull | JBool | JNum | JStr | JArr | JObj
+
+type jsonCursor {
+	src string,
+	pos int,
+}
+
+func skipJSONSpace(c mut jsonCursor) {
+	for c.pos < c.src.Len() {
+		let ch = c.src[c.pos]
+		if ch != ' ' && ch != '\t' && ch != '\n' && ch != '\r' {
+			break
+		}
+		c.pos += 1
+	}
+}
+
+func hexNibble(b byte) (int, bool) {
+	if (ByteMask(b) & ByteDigit) != 0 {
+		return (int(b - '0'), true)
+	}
+	if b >= 'a' && b <= 'f' {
+		return (int(b-'a') + 10, true)
+	}
+	if b >= 'A' && b <= 'F' {
+		return (int(b-'A') + 10, true)
+	}
+	(0, false)
+}
+
+func readHex4(c mut jsonCursor) int fails BadConfig {
+	if c.pos+4 > c.src.Len() {
+		return BadConfig{Message: "unexpected EOF in \\u escape"}
+	}
+	let mut v = 0
+	for i in 0..4 {
+		let (d, ok) = hexNibble(c.src[c.pos+i])
+		if !ok {
+			return BadConfig{Message: "invalid hex digit in \\u escape"}
+		}
+		v = (v << 4) | d
+	}
+	c.pos += 4
+	v
+}
+
+func writeJSONEscape(c mut jsonCursor, b mut strings.Builder) fails BadConfig {
+	if c.pos >= c.src.Len() {
+		return BadConfig{Message: "unexpected EOF in string escape"}
+	}
+	let esc = c.src[c.pos]
+	c.pos += 1
+	if esc == '"' || esc == '\\' || esc == '/' {
+		b.WriteByte(esc)
+		return
+	}
+	if esc == 'b' {
+		b.WriteByte('\b')
+		return
+	}
+	if esc == 'f' {
+		b.WriteByte('\f')
+		return
+	}
+	if esc == 'n' {
+		b.WriteByte('\n')
+		return
+	}
+	if esc == 'r' {
+		b.WriteByte('\r')
+		return
+	}
+	if esc == 't' {
+		b.WriteByte('\t')
+		return
+	}
+	if esc == 'u' {
+		let r1 = try readHex4(c)
+		if r1 >= 0xd800 && r1 <= 0xdbff {
+			if c.pos+2 <= c.src.Len() && c.src[c.pos] == '\\' && c.src[c.pos+1] == 'u' {
+				c.pos += 2
+				let r2 = try readHex4(c)
+				if r2 >= 0xdc00 && r2 <= 0xdfff {
+					let cp = 0x10000 + ((r1 - 0xd800) << 10) + (r2 - 0xdc00)
+					b.WriteString(utf8.RuneText(rune(cp)))
+					return
+				}
+			}
+			b.WriteString(utf8.RuneText(rune(0xfffd)))
+			return
+		}
+		b.WriteString(utf8.RuneText(rune(r1)))
+		return
+	}
+	BadConfig{Message: "invalid escape sequence in JSON string"}
+}
+
+func parseJSONString(c mut jsonCursor) string fails BadConfig {
+	if c.pos >= c.src.Len() || c.src[c.pos] != '"' {
+		return BadConfig{Message: "expected JSON string"}
+	}
+	c.pos += 1
+	let fastStart = c.pos
+	for c.pos < c.src.Len() {
+		let ch = c.src[c.pos]
+		if ch == '"' {
+			let res = c.src[fastStart:c.pos]
+			c.pos += 1
+			return res
+		}
+		if ch == '\\' || ch < 0x20 {
+			break
+		}
+		c.pos += 1
+	}
+	if c.pos >= c.src.Len() {
+		return BadConfig{Message: "unterminated JSON string"}
+	}
+	if c.src[c.pos] < 0x20 {
+		return BadConfig{Message: "control byte in JSON string"}
+	}
+	let mut b = strings.NewBuilder()
+	b.WriteString(c.src[fastStart:c.pos])
+	for c.pos < c.src.Len() {
+		let ch = c.src[c.pos]
+		if ch == '"' {
+			c.pos += 1
+			return b.String()
+		}
+		if ch < 0x20 {
+			return BadConfig{Message: "control byte in JSON string"}
+		}
+		if ch == '\\' {
+			c.pos += 1
+			try writeJSONEscape(c, &b)
+			continue
+		}
+		b.WriteByte(ch)
+		c.pos += 1
+	}
+	BadConfig{Message: "unterminated JSON string"}
+}
+
+func parseJSONNumber(c mut jsonCursor) string fails BadConfig {
+	let start = c.pos
+	if c.pos < c.src.Len() && c.src[c.pos] == '-' {
+		c.pos += 1
+	}
+	if c.pos >= c.src.Len() || (ByteMask(c.src[c.pos])&ByteDigit) == 0 {
+		return BadConfig{Message: "invalid JSON number"}
+	}
+	if c.src[c.pos] == '0' {
+		c.pos += 1
+	} else {
+		for c.pos < c.src.Len() && (ByteMask(c.src[c.pos])&ByteDigit) != 0 {
+			c.pos += 1
+		}
+	}
+	if c.pos < c.src.Len() && c.src[c.pos] == '.' {
+		c.pos += 1
+		if c.pos >= c.src.Len() || (ByteMask(c.src[c.pos])&ByteDigit) == 0 {
+			return BadConfig{Message: "invalid fraction in JSON number"}
+		}
+		for c.pos < c.src.Len() && (ByteMask(c.src[c.pos])&ByteDigit) != 0 {
+			c.pos += 1
+		}
+	}
+	if c.pos < c.src.Len() && (c.src[c.pos] == 'e' || c.src[c.pos] == 'E') {
+		c.pos += 1
+		if c.pos < c.src.Len() && (c.src[c.pos] == '+' || c.src[c.pos] == '-') {
+			c.pos += 1
+		}
+		if c.pos >= c.src.Len() || (ByteMask(c.src[c.pos])&ByteDigit) == 0 {
+			return BadConfig{Message: "invalid exponent in JSON number"}
+		}
+		for c.pos < c.src.Len() && (ByteMask(c.src[c.pos])&ByteDigit) != 0 {
+			c.pos += 1
+		}
+	}
+	c.src[start:c.pos]
+}
+
+func parseJSONArray(c mut jsonCursor, depth int) JVal fails BadConfig {
+	c.pos += 1
+	skipJSONSpace(c)
+	let mut items = []JVal{}
+	if c.pos < c.src.Len() && c.src[c.pos] == ']' {
+		c.pos += 1
+		return JArr{Items: items}
+	}
+	for {
+		items = items.Append(try parseJSONVal(c, depth+1))
+		skipJSONSpace(c)
+		if c.pos >= c.src.Len() {
+			return BadConfig{Message: "unexpected EOF in JSON array"}
+		}
+		if c.src[c.pos] == ']' {
+			c.pos += 1
+			return JArr{Items: items}
+		}
+		if c.src[c.pos] != ',' {
+			return BadConfig{Message: "expected ',' or ']' in JSON array"}
+		}
+		c.pos += 1
+	}
+	JArr{Items: items}
+}
+
+func parseJSONObject(c mut jsonCursor, depth int) JVal fails BadConfig {
+	c.pos += 1
+	skipJSONSpace(c)
+	let mut members = []JMember{}
+	let mut seen = Map[string, bool]{}
+	if c.pos < c.src.Len() && c.src[c.pos] == '}' {
+		c.pos += 1
+		return JObj{Members: members}
+	}
+	for {
+		skipJSONSpace(c)
+		let key = try parseJSONString(c)
+		match seen.Get(key) {
+		case option.Some:
+			return BadConfig{Message: "key \(strconv.Quote(key)) is stated twice"}
+		case option.None:
+			seen[key] = true
+		}
+		skipJSONSpace(c)
+		if c.pos >= c.src.Len() || c.src[c.pos] != ':' {
+			return BadConfig{Message: "expected ':' after JSON object key"}
+		}
+		c.pos += 1
+		let val = try parseJSONVal(c, depth+1)
+		members = members.Append(JMember{Key: key, Value: val})
+		skipJSONSpace(c)
+		if c.pos >= c.src.Len() {
+			return BadConfig{Message: "unexpected EOF in JSON object"}
+		}
+		if c.src[c.pos] == '}' {
+			c.pos += 1
+			return JObj{Members: members}
+		}
+		if c.src[c.pos] != ',' {
+			return BadConfig{Message: "expected ',' or '}' in JSON object"}
+		}
+		c.pos += 1
+	}
+	JObj{Members: members}
+}
+
+func parseJSONVal(c mut jsonCursor, depth int) JVal fails BadConfig {
+	if depth > 256 {
+		return BadConfig{Message: "JSON nesting exceeds maximum depth"}
+	}
+	skipJSONSpace(c)
+	if c.pos >= c.src.Len() {
+		return BadConfig{Message: "unexpected end of JSON input"}
+	}
+	let ch = c.src[c.pos]
+	if ch == '{' {
+		return try parseJSONObject(c, depth)
+	}
+	if ch == '[' {
+		return try parseJSONArray(c, depth)
+	}
+	if ch == '"' {
+		return JStr{V: try parseJSONString(c)}
+	}
+	if ch == 't' && c.pos+4 <= c.src.Len() && c.src[c.pos:c.pos+4] == "true" {
+		c.pos += 4
+		return JBool{V: true}
+	}
+	if ch == 'f' && c.pos+5 <= c.src.Len() && c.src[c.pos:c.pos+5] == "false" {
+		c.pos += 5
+		return JBool{V: false}
+	}
+	if ch == 'n' && c.pos+4 <= c.src.Len() && c.src[c.pos:c.pos+4] == "null" {
+		c.pos += 4
+		return JNull
+	}
+	if ch == '-' || (ByteMask(ch)&ByteDigit) != 0 {
+		return JNum{Raw: try parseJSONNumber(c)}
+	}
+	BadConfig{Message: "unexpected character in JSON input"}
+}
+
+// ParseStrictJSON parses exactly one JSON value, refusing duplicate object keys and trailing tokens.
+func ParseStrictJSON(text string) JVal fails BadConfig {
+	let mut c = jsonCursor{src: text, pos: 0}
+	let v = try parseJSONVal(&c, 0)
+	skipJSONSpace(&c)
+	if c.pos < c.src.Len() {
+		return BadConfig{Message: "data after the JSON value"}
+	}
+	v
+}
+
+test StrictJSONRejectsDupKeysAndTrailingData {
+	let v = ParseStrictJSON(`{"version": 1, "rules": {"no-comments": "error"}}`) catch {
+	case _:
+		assert false
+		return
+	}
+	match v {
+	case JObj as obj:
+		assert obj.Members.Len() == 2
+	case _:
+		assert false
+	}
+	let mut dupFailed = false
+	let dup = ParseStrictJSON(`{"a": 1, "a": 2}`) catch {
+	case BadConfig as e:
+		dupFailed = true
+		assert strings.Contains(e.Message, "stated twice")
+		JNull
+	}
+	assert dupFailed
+	let _ = dup
+	let mut trailingFailed = false
+	let tr = ParseStrictJSON(`{"version": 1} extra`) catch {
+	case BadConfig as e:
+		trailingFailed = true
+		assert strings.Contains(e.Message, "data after")
+		JNull
+	}
+	assert trailingFailed
+	let _ = tr
+}

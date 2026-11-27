@@ -1,0 +1,593 @@
+import compiler/syntax
+import dense
+import option
+import slices
+import strconv
+
+// MetricsScratch holds reusable buffers across complexity and Halstead checks.
+type MetricsScratch {
+	stack    []uint32,
+	children []uint32,
+	idTab    opTable,
+	litTab   opTable,
+	boolOps  []uint8,
+	operands []uint32,
+}
+
+type opTable {
+	gen    []uint32,
+	tok    []uint32,
+	hashes []uint32,
+	curGen uint32,
+	count  int,
+}
+
+func newOpTable() opTable {
+	let n = 256
+	opTable{
+		gen:    slices.Repeat([]uint32{uint32(0)}, n),
+		tok:    slices.Repeat([]uint32{uint32(0)}, n),
+		hashes: slices.Repeat([]uint32{uint32(0)}, n),
+		curGen: uint32(1),
+		count:  0,
+	}
+}
+
+// NewMetricsScratch allocates reusable buffers for complexity rule evaluation.
+func NewMetricsScratch() MetricsScratch {
+	MetricsScratch{
+		stack:    slices.WithCapacity[uint32](128),
+		children: slices.WithCapacity[uint32](32),
+		idTab:    newOpTable(),
+		litTab:   newOpTable(),
+		boolOps:  slices.WithCapacity[uint8](16),
+		operands: slices.WithCapacity[uint32](16),
+	}
+}
+
+func resetOpTable(t mut opTable) {
+	t.curGen += uint32(1)
+	if t.curGen == uint32(0) {
+		for i in 0..t.gen.Len() {
+			t.gen[i] = uint32(0)
+		}
+		t.curGen = uint32(1)
+	}
+	t.count = 0
+}
+
+func hashTokenText(p syntax.Parsed, tok uint32) uint32 {
+	let src = syntax.SourceOf(p)
+	let s = syntax.TokPos(p, int(tok))
+	let e = syntax.TokEnd(p, int(tok))
+	let raw = s < e && src[s] == '`'
+	let mut h = uint32(2166136261)
+	for i in s..e {
+		let c = src[i]
+		if raw && c == '\r' {
+			continue
+		}
+		h = (h ^ uint32(c)) * uint32(16777619)
+	}
+	h
+}
+
+func equalTokenText(p syntax.Parsed, t1 uint32, t2 uint32) bool {
+	if t1 == t2 {
+		return true
+	}
+	let src = syntax.SourceOf(p)
+	let s1 = syntax.TokPos(p, int(t1))
+	let e1 = syntax.TokEnd(p, int(t1))
+	let s2 = syntax.TokPos(p, int(t2))
+	let e2 = syntax.TokEnd(p, int(t2))
+	let raw1 = s1 < e1 && src[s1] == '`'
+	let raw2 = s2 < e2 && src[s2] == '`'
+	if !raw1 && !raw2 {
+		return e1-s1 == e2-s2 && src[s1:e1] == src[s2:e2]
+	}
+	syntax.TokText(p, int(t1)) == syntax.TokText(p, int(t2))
+}
+
+func growOpTable(t mut opTable) {
+	let oldCap = t.gen.Len()
+	let newCap = oldCap * 2
+	let mut newGen = slices.Repeat([]uint32{uint32(0)}, newCap)
+	let mut newTok = slices.Repeat([]uint32{uint32(0)}, newCap)
+	let mut newHashes = slices.Repeat([]uint32{uint32(0)}, newCap)
+	let mask = uint32(newCap - 1)
+	let g = t.curGen
+	for i in 0..oldCap {
+		if t.gen[i] != g {
+			continue
+		}
+		let mut idx = int(t.hashes[i] & mask)
+		for newGen[idx] == g {
+			idx = (idx + 1) & int(mask)
+		}
+		newGen[idx] = g
+		newTok[idx] = t.tok[i]
+		newHashes[idx] = t.hashes[i]
+	}
+	t.gen = newGen
+	t.tok = newTok
+	t.hashes = newHashes
+}
+
+func insertOpToken(t mut opTable, p syntax.Parsed, tok uint32) {
+	if (t.count+1)*2 >= t.gen.Len() {
+		growOpTable(t)
+	}
+	let h = hashTokenText(p, tok)
+	let mask = t.gen.Len() - 1
+	let g = t.curGen
+	let mut idx = int(h) & mask
+	for t.gen[idx] == g {
+		if t.hashes[idx] == h && equalTokenText(p, t.tok[idx], tok) {
+			return
+		}
+		idx = (idx + 1) & mask
+	}
+	t.gen[idx] = g
+	t.tok[idx] = tok
+	t.hashes[idx] = h
+	t.count += 1
+}
+
+// Cyclomatic computes McCabe cyclomatic complexity for a function body block.
+func Cyclomatic(p syntax.Parsed, body dense.ID[syntax.Node]) int {
+	let mut sc = NewMetricsScratch()
+	CyclomaticWith(p, body, &sc)
+}
+
+// CyclomaticWith computes cyclomatic complexity using caller-supplied scratch buffers.
+func CyclomaticWith(p syntax.Parsed, body dense.ID[syntax.Node], sc mut MetricsScratch) int {
+	1 + decisionsIn(p, body, sc)
+}
+
+func decisionsIn(p syntax.Parsed, root dense.ID[syntax.Node], sc mut MetricsScratch) int {
+	let t = p.Tree
+	let mut count = 0
+	let mut localStack = []uint32{uint32(dense.Index(root))}
+	for localStack.Len() > 0 {
+		let cur = localStack[localStack.Len()-1]
+		localStack = localStack[:localStack.Len()-1]
+		let id = syntax.NodeAt(t, int(cur))
+		let k = syntax.KindOf(t, id)
+		if k == syntax.KTypeSwitchStmt {
+			count += 1
+			let ts = syntax.TypeSwitchStmtOf(t, id)
+			count += decisionsIn(p, ts.Subject, sc)
+			let mut best = 0
+			for i in 0..syntax.Len(ts.Clauses) {
+				let cc = syntax.CaseClauseOf(t, syntax.Item(t, ts.Clauses, i))
+				let mut arm = 0
+				for j in 0..syntax.Len(cc.Body) {
+					arm += decisionsIn(p, syntax.Item(t, cc.Body, j), sc)
+				}
+				if arm > best {
+					best = arm
+				}
+			}
+			count += best
+			continue
+		}
+		if (NodeRoleMask(k) & NodeRoleBranchDecision) != 0 {
+			count += 1
+		} else if k == syntax.KBinaryExpr {
+			let b = syntax.BinaryExprOf(t, id)
+			let op = syntax.TokKind(p, b.Op)
+			if op == syntax.Land || op == syntax.Lor {
+				count += 1
+			}
+		}
+		sc.children = syntax.Children(t, id, sc.children[:0])
+		let mut i = sc.children.Len() - 1
+		for i >= 0 {
+			localStack = localStack.Append(sc.children[i])
+			i -= 1
+		}
+	}
+	count
+}
+
+// Cognitive computes SonarSource cognitive complexity for a function body block.
+func Cognitive(p syntax.Parsed, body dense.ID[syntax.Node]) int {
+	let mut sc = NewMetricsScratch()
+	CognitiveWith(p, body, &sc)
+}
+
+// CognitiveWith computes cognitive complexity using caller-supplied scratch buffers.
+func CognitiveWith(p syntax.Parsed, body dense.ID[syntax.Node], sc mut MetricsScratch) int {
+	cogBlock(p, body, 0, sc)
+}
+
+func cogBlock(p syntax.Parsed, blockID dense.ID[syntax.Node], nesting int, sc mut MetricsScratch) int {
+	let b = syntax.BlockStmtOf(p.Tree, blockID)
+	cogList(p, b.List, nesting, sc)
+}
+
+func cogList(p syntax.Parsed, list syntax.List, nesting int, sc mut MetricsScratch) int {
+	let mut sum = 0
+	for i in 0..syntax.Len(list) {
+		sum += cogNode(p, syntax.Item(p.Tree, list, i), nesting, sc)
+	}
+	sum
+}
+
+func cogIfChain(p syntax.Parsed, id dense.ID[syntax.Node], nesting int, sc mut MetricsScratch) int {
+	let mut total = 0
+	let mut cur = id
+	let mut first = true
+	for {
+		if first {
+			total += 1 + nesting
+			first = false
+		} else {
+			total += 1
+		}
+		let s = syntax.IfStmtOf(p.Tree, cur)
+		total += cogNode(p, s.Cond, nesting, sc)
+		total += cogBlock(p, s.Body, nesting+1, sc)
+		match dense.Unpack(s.Else) {
+		case option.Some{Value: e}:
+			let ek = syntax.KindOf(p.Tree, e)
+			if ek == syntax.KIfStmt {
+				cur = e
+				continue
+			}
+			if ek == syntax.KBlockStmt {
+				total += 1
+				total += cogBlock(p, e, nesting+1, sc)
+			}
+			break
+		case option.None:
+			break
+		}
+	}
+	total
+}
+
+func collectBoolRun(p syntax.Parsed, id dense.ID[syntax.Node], sc mut MetricsScratch) {
+	let t = p.Tree
+	let k = syntax.KindOf(t, id)
+	if k == syntax.KParenExpr {
+		collectBoolRun(p, syntax.ParenExprOf(t, id).X, sc)
+		return
+	}
+	if k == syntax.KBinaryExpr {
+		let b = syntax.BinaryExprOf(t, id)
+		let op = syntax.TokKind(p, b.Op)
+		if op == syntax.Land || op == syntax.Lor {
+			collectBoolRun(p, b.X, sc)
+			sc.boolOps = sc.boolOps.Append(op)
+			collectBoolRun(p, b.Y, sc)
+			return
+		}
+	}
+	sc.operands = sc.operands.Append(uint32(dense.Index(id)))
+}
+
+func cogNode(p syntax.Parsed, root dense.ID[syntax.Node], nesting int, sc mut MetricsScratch) int {
+	let t = p.Tree
+	let mut total = 0
+	let mut local = []uint32{uint32(dense.Index(root))}
+	for local.Len() > 0 {
+		let cur = local[local.Len()-1]
+		local = local[:local.Len()-1]
+		let id = syntax.NodeAt(t, int(cur))
+		let k = syntax.KindOf(t, id)
+		if k == syntax.KIfStmt {
+			total += cogIfChain(p, id, nesting, sc)
+			continue
+		}
+		if k == syntax.KSwitchStmt {
+			total += 1 + nesting
+			let sw = syntax.SwitchStmtOf(t, id)
+			total += cogNode(p, sw.Tag, nesting, sc)
+			for i in 0..syntax.Len(sw.Clauses) {
+				let cc = syntax.CaseClauseOf(t, syntax.Item(t, sw.Clauses, i))
+				total += cogList(p, cc.Body, nesting+1, sc)
+			}
+			continue
+		}
+		if k == syntax.KTypeSwitchStmt {
+			total += 1 + nesting
+			let ts = syntax.TypeSwitchStmtOf(t, id)
+			total += cogNode(p, ts.Subject, nesting, sc)
+			let mut best = 0
+			for i in 0..syntax.Len(ts.Clauses) {
+				let cc = syntax.CaseClauseOf(t, syntax.Item(t, ts.Clauses, i))
+				let arm = cogList(p, cc.Body, nesting+1, sc)
+				if arm > best {
+					best = arm
+				}
+			}
+			total += best
+			continue
+		}
+		if k == syntax.KForStmt {
+			total += 1 + nesting
+			let fs = syntax.ForStmtOf(t, id)
+			match dense.Unpack(fs.Cond) {
+			case option.Some{Value: c}:
+				total += cogNode(p, c, nesting, sc)
+			case option.None:
+			}
+			total += cogBlock(p, fs.Body, nesting+1, sc)
+			continue
+		}
+		if k == syntax.KRangeStmt {
+			total += 1 + nesting
+			let rs = syntax.RangeStmtOf(t, id)
+			total += cogNode(p, rs.X, nesting, sc)
+			total += cogBlock(p, rs.Body, nesting+1, sc)
+			continue
+		}
+		if k == syntax.KCatchExpr {
+			total += 1 + nesting
+			let ce = syntax.CatchExprOf(t, id)
+			total += cogNode(p, ce.X, nesting, sc)
+			for i in 0..syntax.Len(ce.Arms) {
+				let arm = syntax.CatchArmOf(t, syntax.Item(t, ce.Arms, i))
+				total += cogList(p, arm.Body, nesting+1, sc)
+			}
+			continue
+		}
+		if k == syntax.KFuncLit {
+			let fl = syntax.FuncLitOf(t, id)
+			total += cogBlock(p, fl.Body, nesting+1, sc)
+			continue
+		}
+		if k == syntax.KBinaryExpr {
+			let b = syntax.BinaryExprOf(t, id)
+			let op = syntax.TokKind(p, b.Op)
+			if op == syntax.Land || op == syntax.Lor {
+				sc.boolOps = sc.boolOps[:0]
+				sc.operands = sc.operands[:0]
+				collectBoolRun(p, id, sc)
+				total += 1
+				for i in 1..sc.boolOps.Len() {
+					if sc.boolOps[i] != sc.boolOps[i-1] {
+						total += 1
+					}
+				}
+				let opsEnd = sc.operands.Len()
+				let mut copied = []uint32{}
+				for oi in 0..opsEnd {
+					copied = copied.Append(sc.operands[oi])
+				}
+				for oid in copied {
+					total += cogNode(p, syntax.NodeAt(t, int(oid)), nesting, sc)
+				}
+				continue
+			}
+		}
+		sc.children = syntax.Children(t, id, sc.children[:0])
+		let mut i = sc.children.Len() - 1
+		for i >= 0 {
+			local = local.Append(sc.children[i])
+			i -= 1
+		}
+	}
+	total
+}
+
+func setOpBit(bits mut []uint64, code int) {
+	let word = code / 64
+	let bit = code % 64
+	(*bits)[word] = (*bits)[word] | (uint64(1) << bit)
+}
+
+func popCount64(x uint64) int {
+	let mut v = x
+	let mut c = 0
+	for v != uint64(0) {
+		v = v & (v - uint64(1))
+		c += 1
+	}
+	c
+}
+
+func pushHalsteadChildren(p syntax.Parsed, id dense.ID[syntax.Node], k uint8, sc mut MetricsScratch) {
+	let t = p.Tree
+	if k == syntax.KTakesClause {
+		return
+	}
+	if k == syntax.KMapType {
+		let m = syntax.MapTypeOf(t, id)
+		match dense.Unpack(m.Hashing) {
+		case option.Some{Value: h}:
+			sc.stack = sc.stack.Append(uint32(dense.Index(h)))
+		case option.None:
+		}
+		sc.stack = sc.stack.Append(uint32(dense.Index(m.Value)))
+		sc.stack = sc.stack.Append(uint32(dense.Index(m.Key)))
+		return
+	}
+	if k == syntax.KField {
+		let f = syntax.FieldOf(t, id)
+		match dense.Unpack(f.Where) {
+		case option.Some{Value: w}:
+			sc.stack = sc.stack.Append(uint32(dense.Index(w)))
+		case option.None:
+		}
+		match dense.Unpack(f.Key) {
+		case option.Some{Value: ky}:
+			sc.stack = sc.stack.Append(uint32(dense.Index(ky)))
+		case option.None:
+		}
+		match dense.Unpack(f.Type) {
+		case option.Some{Value: ty}:
+			sc.stack = sc.stack.Append(uint32(dense.Index(ty)))
+		case option.None:
+		}
+		let mut j = syntax.Len(f.Names) - 1
+		for j >= 0 {
+			sc.stack = sc.stack.Append(uint32(dense.Index(syntax.Item(t, f.Names, j))))
+			j -= 1
+		}
+		return
+	}
+	sc.children = syntax.Children(t, id, sc.children[:0])
+	let mut i = sc.children.Len() - 1
+	for i >= 0 {
+		sc.stack = sc.stack.Append(sc.children[i])
+		i -= 1
+	}
+}
+
+func recordHalsteadOp(p syntax.Parsed, id dense.ID[syntax.Node], k uint8, opBits mut []uint64) {
+	let t = p.Tree
+	let fixedOp = HalsteadFixedOp(k)
+	if fixedOp != uint8(0) {
+		setOpBit(opBits, 256+int(fixedOp))
+		return
+	}
+	if k == syntax.KBinaryExpr {
+		setOpBit(opBits, int(syntax.TokKind(p, syntax.BinaryExprOf(t, id).Op)))
+	} else if k == syntax.KUnaryExpr {
+		setOpBit(opBits, 128+int(syntax.TokKind(p, syntax.UnaryExprOf(t, id).Op)))
+	} else if k == syntax.KAssignStmt {
+		setOpBit(opBits, int(syntax.TokKind(p, syntax.AssignStmtOf(t, id).Tok)))
+	} else if k == syntax.KBranchStmt {
+		setOpBit(opBits, int(syntax.TokKind(p, syntax.BranchStmtOf(t, id).Tok)))
+	}
+}
+
+// Halstead computes Halstead difficulty for a function body block.
+func Halstead(p syntax.Parsed, body dense.ID[syntax.Node]) float64 {
+	let mut sc = NewMetricsScratch()
+	HalsteadWith(p, body, &sc)
+}
+
+// HalsteadWith computes Halstead difficulty using caller-supplied scratch buffers.
+func HalsteadWith(p syntax.Parsed, body dense.ID[syntax.Node], sc mut MetricsScratch) float64 {
+	let t = p.Tree
+	resetOpTable(&sc.idTab)
+	resetOpTable(&sc.litTab)
+	let mut opBits = []uint64{uint64(0), uint64(0), uint64(0), uint64(0), uint64(0)}
+	let mut total = 0
+	sc.stack = sc.stack[:0]
+	sc.stack = sc.stack.Append(uint32(dense.Index(body)))
+	for sc.stack.Len() > 0 {
+		let cur = sc.stack[sc.stack.Len()-1]
+		sc.stack = sc.stack[:sc.stack.Len()-1]
+		let id = syntax.NodeAt(t, int(cur))
+		let k = syntax.KindOf(t, id)
+		if k == syntax.KIdent {
+			let nm = syntax.NameOf(t, id)
+			insertOpToken(&sc.idTab, p, uint32(nm.Tok))
+			total += 1
+		} else if k == syntax.KBasicLit {
+			let bl = syntax.BasicLitOf(t, id)
+			insertOpToken(&sc.litTab, p, uint32(bl.Tok))
+			total += 1
+		} else {
+			recordHalsteadOp(p, id, k, &opBits)
+		}
+		pushHalsteadChildren(p, id, k, sc)
+	}
+	let distinct = sc.idTab.count + sc.litTab.count
+	if distinct == 0 {
+		return 0.0
+	}
+	let mut n1 = 0
+	for w in opBits {
+		n1 += popCount64(w)
+	}
+	float64(n1) / 2.0 * float64(total) / float64(distinct)
+}
+
+// FormatMetric formats a complexity or Halstead number matching Go fmt %v output.
+func FormatMetric(v float64) string {
+	strconv.FormatFloat(v, 'g', -1)
+}
+
+// MaxOptions configures numeric complexity and count thresholds.
+type MaxOptions {
+	// Max is the configured upper bound.
+	Max float64,
+}
+
+// CheckComplexity runs cognitive, cyclomatic, or Halstead difficulty checks on parsed functions.
+func CheckComplexity(p syntax.Parsed, fi FileIndex, rel string, rule string, maxVal float64, out mut []Finding) {
+	let t = p.Tree
+	let mut sc = NewMetricsScratch()
+	for dr in fi.Decls {
+		if dr.Kind != syntax.KFuncDecl {
+			continue
+		}
+		let fid = syntax.NodeAt(t, int(dr.Node))
+		let fd = syntax.FuncDeclOf(t, fid)
+		match dense.Unpack(fd.Body) {
+		case option.Some{Value: body}:
+			let name = NodeText(p, fd.Name)
+			let val = if rule == "cognitive-complexity" {
+				float64(CognitiveWith(p, body, &sc))
+			} else if rule == "cyclomatic-complexity" {
+				float64(CyclomaticWith(p, body, &sc))
+			} else {
+				HalsteadWith(p, body, &sc)
+			}
+			if val > maxVal {
+				let off = syntax.NodePos(p, fd.Name)
+				let end = syntax.NodeEnd(p, fd.Name)
+				let pos = syntax.PositionOf(fi.Lines, off)
+				let label = if rule == "cognitive-complexity" {
+					"cognitive complexity"
+				} else if rule == "cyclomatic-complexity" {
+					"cyclomatic complexity"
+				} else {
+					"Halstead difficulty"
+				}
+				let msg = "\(label) of \(name) is \(FormatMetric(val)), more than \(FormatMetric(maxVal))"
+				*out = (*out).Append(Finding{
+					..EmptyFinding(),
+					File:    rel,
+					Offset:  off,
+					Length:  end - off,
+					Line:    pos.Line,
+					Column:  pos.Column,
+					Message: msg,
+				})
+			}
+		case option.None:
+		}
+	}
+}
+
+law CyclomaticAtLeastOne(src string) {
+	let p = syntax.Parse(src)
+	if p.Failed {
+		return true
+	}
+	let fi = BuildFileIndex(p)
+	let mut ok = true
+	for dr in fi.Decls {
+		if dr.Kind == syntax.KFuncDecl {
+			let fd = syntax.FuncDeclOf(p.Tree, syntax.NodeAt(p.Tree, int(dr.Node)))
+			match dense.Unpack(fd.Body) {
+			case option.Some{Value: b}:
+				ok = ok && Cyclomatic(p, b) >= 1 && Cognitive(p, b) >= 0 && Halstead(p, b) >= 0.0
+			case option.None:
+			}
+		}
+	}
+	ok
+}
+
+test MetricsMatchKnownBodies {
+	let src = "func f(a bool, b bool, xs []int) int {\n\tif a && b || a {\n\t\tfor x in xs {\n\t\t\tif x > 0 {\n\t\t\t\treturn x\n\t\t\t}\n\t\t}\n\t}\n\t0\n}\n"
+	let p = syntax.Parse(src)
+	assert !p.Failed
+	let fd = syntax.FuncDeclOf(p.Tree, syntax.NodeAt(p.Tree, int(BuildFileIndex(p).Decls[0].Node)))
+	match dense.Unpack(fd.Body) {
+	case option.Some{Value: b}:
+		assert Cyclomatic(p, b) == 6
+		assert Cognitive(p, b) == 8
+		assert Halstead(p, b) > 0.0
+	case option.None:
+		assert false
+	}
+}
