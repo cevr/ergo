@@ -219,142 +219,6 @@ func WriteSection(w mut Buf, id uint8, payload []byte) {
 	w.RawBytes(payload)
 }
 
-func pow2Step(expShift int) float64 {
-	let mut p = 2.0
-	for _ in 0..expShift {
-		p = p * p
-	}
-	p
-}
-
-func invPow2Step(expShift int) float64 {
-	let mut p = 0.5
-	for _ in 0..expShift {
-		p = p * p
-	}
-	p
-}
-
-func scalePosToUnit(absF float64) (float64, int) {
-	let mut m = absF
-	let mut exp = 0
-	let mut k = 9
-	for k >= 0 {
-		let up = pow2Step(k)
-		if m >= up {
-			m = m * invPow2Step(k)
-			exp = exp + (1 << k)
-		}
-		k = k - 1
-	}
-	(m, exp)
-}
-
-func scaleSubToUnit(absF float64) (float64, int) {
-	let mut m = absF
-	let mut exp = 0
-	let n512 = invPow2Step(9)
-	let p512 = pow2Step(9)
-	for m < n512 {
-		m = m * p512
-		exp = exp - 512
-	}
-	let mut k = 8
-	for k >= 0 {
-		let dn = invPow2Step(k)
-		if m < dn {
-			m = m * pow2Step(k)
-			exp = exp - (1 << k)
-		}
-		k = k - 1
-	}
-	if m < 1.0 {
-		m = m * 2.0
-		exp = exp - 1
-	}
-	(m, exp)
-}
-
-// Float64Bits converts f to its IEEE-754 binary64 bit pattern.
-func Float64Bits(f float64) uint64 {
-	if math.IsNaN(f) {
-		return uint64(0x7ff8000000000001)
-	}
-	let neg = f < 0.0 || (f == 0.0 && math.IsInf(1.0/f, -1))
-	let signBit = if neg { uint64(1) << 63 } else { uint64(0) }
-	if f == 0.0 {
-		return signBit
-	}
-	if math.IsInf(f, 0) {
-		return signBit | uint64(0x7ff0000000000000)
-	}
-	let absF = math.Abs(f)
-	let (m, exp) = if absF >= 2.0 {
-		scalePosToUnit(absF)
-	} else if absF < 1.0 {
-		scaleSubToUnit(absF)
-	} else {
-		(absF, 0)
-	}
-	if exp >= -1022 {
-		let biased = uint64(exp + 1023)
-		let frac = uint64((m - 1.0) * 4503599627370496.0)
-		return signBit | (biased << 52) | (frac & uint64(0xfffffffffffff))
-	}
-	let mut scaled = m
-	let shift = exp + 1074
-	for _ in 0..shift {
-		scaled = scaled * 2.0
-	}
-	signBit | (uint64(scaled) & uint64(0xfffffffffffff))
-}
-
-func mulPow2(val float64, e int) float64 {
-	let mut out = val
-	if e > 0 {
-		let mut rem = e
-		for rem >= 512 {
-			out = out * pow2Step(9)
-			rem = rem - 512
-		}
-		for _ in 0..rem {
-			out = out * 2.0
-		}
-		return out
-	}
-	let mut rem = -e
-	for rem >= 512 {
-		out = out * invPow2Step(9)
-		rem = rem - 512
-	}
-	for _ in 0..rem {
-		out = out * 0.5
-	}
-	out
-}
-
-// Float64FromBits converts an IEEE-754 binary64 bit pattern to float64.
-func Float64FromBits(bits uint64) float64 {
-	let neg = (bits >> 63) != uint64(0)
-	let exp = int((bits >> 52) & uint64(0x7ff))
-	let mant = bits & uint64(0xfffffffffffff)
-	if exp == 0x7ff {
-		if mant != uint64(0) {
-			return math.NaN()
-		}
-		return math.Inf(if neg { -1 } else { 1 })
-	}
-	let sign = if neg { -1.0 } else { 1.0 }
-	if exp == 0 {
-		if mant == uint64(0) {
-			return if neg { -0.0 } else { 0.0 }
-		}
-		return sign * mulPow2(float64(mant), -1074)
-	}
-	let mag = 1.0 + float64(mant)/4503599627370496.0
-	sign * mulPow2(mag, exp-1023)
-}
-
 // Reader is a bounds-checked binary decoder cursor over a byte slice.
 type Reader {
 	Bytes []byte,
@@ -643,19 +507,6 @@ law SLEB64RoundTrips(x int64) {
 	got == x && r.At == w.BufLen()
 }
 
-// Float64BitsRoundTrips proves pure-Ergo IEEE-754 binary64 encoding and decoding round-trips.
-law Float64BitsRoundTrips(f float64) {
-	let bits = Float64Bits(f)
-	let back = Float64FromBits(bits)
-	if math.IsNaN(f) {
-		return math.IsNaN(back)
-	}
-	if f == 0.0 {
-		return back == 0.0 && math.IsInf(1.0/back, -1) == math.IsInf(1.0/f, -1) && Float64Bits(back) == bits
-	}
-	back == f && Float64Bits(back) == bits
-}
-
 func rejectsULEB32(bs []byte, wantKind string) bool {
 	let mut r = NewReader(bs)
 	let _ = r.ReadULEB32() catch {
@@ -751,9 +602,6 @@ test LEB128BoundariesAndMalformedRejected {
 	assert roundTripI64(int64(-65))
 	assert roundTripI64(math.MaxInt64())
 	assert roundTripI64(math.MinInt64())
-	assert Float64Bits(-0.0) == (uint64(1) << 63)
-	assert Float64Bits(0.0) == uint64(0)
-	assert math.IsInf(1.0/Float64FromBits(Float64Bits(-0.0)), -1)
 
 	assert rejectsULEB32([]byte{}, "eof")
 	assert rejectsULEB32([]byte{byte(0x80)}, "eof")

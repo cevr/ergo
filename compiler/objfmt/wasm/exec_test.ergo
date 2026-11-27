@@ -1,9 +1,40 @@
 import exec
 import fs
+import os
 
 // WasmExec runs emitted WebAssembly binaries on real host JavaScript engines.
 type WasmExec {
 	RunWith(engine string, wasmBytes []byte, script string) exec.Result fails fs.NotFound | fs.Denied | fs.Failed | exec.NotFound | exec.Denied | exec.Failed,
+
+	// LiveAddModuleValidatesInBunAndNode proves an engine's own validator accepts the add module and its add wraps like i32.add.
+	law LiveAddModuleValidatesInBunAndNode() {
+		let m = BuildAddModule() catch {
+		case WasmError:
+			return false
+		}
+		let wasm = Emit(m) catch {
+		case WasmError:
+			return false
+		}
+		let js = "const fs = require('fs');\n" +
+			"const bytes = fs.readFileSync('mod.wasm');\n" +
+			"(async () => {\n" +
+			"  if (!WebAssembly.validate(bytes)) { process.stdout.write('invalid'); return; }\n" +
+			"  const { instance } = await WebAssembly.instantiate(bytes);\n" +
+			"  const add = instance.exports.add;\n" +
+			"  process.stdout.write([add(2, 3), add(-1, 1), add(2147483647, 1)].join(','));\n" +
+			"})().catch((err) => { console.error(err); process.exit(1); });\n"
+		let want = "5,0,-2147483648"
+		let rBun = RunWith("bun", wasm, js) catch {
+		case fs.NotFound, fs.Denied, fs.Failed, exec.NotFound, exec.Denied, exec.Failed:
+			return false
+		}
+		let rNode = RunWith("node", wasm, js) catch {
+		case fs.NotFound, fs.Denied, fs.Failed, exec.NotFound, exec.Denied, exec.Failed:
+			return false
+		}
+		rBun.Status == 0 && rBun.Stdout == want && rNode.Status == 0 && rNode.Stdout == want
+	},
 
 	// LiveArithAndControlFlowRunsInBunAndNode proves pure arithmetic and control-flow wasm runs identically on Bun and Node.
 	law LiveArithAndControlFlowRunsInBunAndNode() {
@@ -31,11 +62,11 @@ type WasmExec {
 			"  process.stdout.write(out);\n" +
 			"})().catch((err) => { console.error(err); process.exit(1); });\n"
 		let want = "1,1,120,3628800,0,1,55,144,6,21,-727379926,5,17,17"
-		let rBun = RunWith("/home/exedev/.local/bin/bun", wasm, js) catch {
+		let rBun = RunWith("bun", wasm, js) catch {
 		case fs.NotFound, fs.Denied, fs.Failed, exec.NotFound, exec.Denied, exec.Failed:
 			return false
 		}
-		let rNode = RunWith("/home/exedev/.local/bin/node", wasm, js) catch {
+		let rNode = RunWith("node", wasm, js) catch {
 		case fs.NotFound, fs.Denied, fs.Failed, exec.NotFound, exec.Denied, exec.Failed:
 			return false
 		}
@@ -63,11 +94,11 @@ type WasmExec {
 			"  process.stdout.write(sum + ':' + logs.join(','));\n" +
 			"})().catch((err) => { console.error(err); process.exit(1); });\n"
 		let want = "54:4,9,16,25"
-		let rBun = RunWith("/home/exedev/.local/bin/bun", wasm, js) catch {
+		let rBun = RunWith("bun", wasm, js) catch {
 		case fs.NotFound, fs.Denied, fs.Failed, exec.NotFound, exec.Denied, exec.Failed:
 			return false
 		}
-		let rNode = RunWith("/home/exedev/.local/bin/node", wasm, js) catch {
+		let rNode = RunWith("node", wasm, js) catch {
 		case fs.NotFound, fs.Denied, fs.Failed, exec.NotFound, exec.Denied, exec.Failed:
 			return false
 		}
@@ -97,11 +128,11 @@ type WasmExec {
 			"  process.stdout.write(rodata + '|' + out + '|' + e.__heap_base.value + '|' + ptr + '|' + len + '|' + e.arena_ptr.value);\n" +
 			"})().catch((err) => { console.error(err); process.exit(1); });\n"
 		let want = "hello from ergo wasm|HELLO FROM ERGO WASM!|1024|1024|21|1045"
-		let rBun = RunWith("/home/exedev/.local/bin/bun", wasm, js) catch {
+		let rBun = RunWith("bun", wasm, js) catch {
 		case fs.NotFound, fs.Denied, fs.Failed, exec.NotFound, exec.Denied, exec.Failed:
 			return false
 		}
-		let rNode = RunWith("/home/exedev/.local/bin/node", wasm, js) catch {
+		let rNode = RunWith("node", wasm, js) catch {
 		case fs.NotFound, fs.Denied, fs.Failed, exec.NotFound, exec.Denied, exec.Failed:
 			return false
 		}
@@ -144,11 +175,11 @@ type WasmExec {
 			"  process.stdout.write(started + '|' + initText + '|' + sw + '|' + fval + '|' + prevPages + '->' + nowPages);\n" +
 			"})().catch((err) => { console.error(err); process.exit(1); });\n"
 		let wantMain = "77|ergo|10,20,30,99|-3.25|1->2"
-		let rBun = RunWith("/home/exedev/.local/bin/bun", wasm, jsMain) catch {
+		let rBun = RunWith("bun", wasm, jsMain) catch {
 		case fs.NotFound, fs.Denied, fs.Failed, exec.NotFound, exec.Denied, exec.Failed:
 			return false
 		}
-		let rNode = RunWith("/home/exedev/.local/bin/node", wasm, jsMain) catch {
+		let rNode = RunWith("node", wasm, jsMain) catch {
 		case fs.NotFound, fs.Denied, fs.Failed, exec.NotFound, exec.Denied, exec.Failed:
 			return false
 		}
@@ -158,11 +189,11 @@ type WasmExec {
 			"  const { instance } = await WebAssembly.instantiate(bytes);\n" +
 			"  process.stdout.write(String(instance.exports.fill_and_copy()));\n" +
 			"})().catch((err) => { console.error(err); process.exit(1); });\n"
-		let rBunZero = RunWith("/home/exedev/.local/bin/bun", wasmZero, jsZero) catch {
+		let rBunZero = RunWith("bun", wasmZero, jsZero) catch {
 		case fs.NotFound, fs.Denied, fs.Failed, exec.NotFound, exec.Denied, exec.Failed:
 			return false
 		}
-		let rNodeZero = RunWith("/home/exedev/.local/bin/node", wasmZero, jsZero) catch {
+		let rNodeZero = RunWith("node", wasmZero, jsZero) catch {
 		case fs.NotFound, fs.Denied, fs.Failed, exec.NotFound, exec.Denied, exec.Failed:
 			return false
 		}
@@ -179,12 +210,12 @@ type hostWasmRunner {
 func RunWith(h hostWasmRunner, engine string, wasmBytes []byte, script string) exec.Result fails fs.NotFound | fs.Denied | fs.Failed | exec.NotFound | exec.Denied | exec.Failed {
 	try h.writes.WriteFile("mod.wasm", wasmBytes.Text())
 	try h.writes.WriteFile("run.cjs", script)
-	let cmd = exec.New(engine, []string{"run.cjs"}).WithEnv("PATH", "/home/exedev/.local/bin:/usr/bin:/bin")
+	let cmd = exec.New(engine, []string{"run.cjs"})
 	try h.runner.Run(cmd)
 }
 
 let onLiveWasmRuntimes = context needs TestAmbient {
-	WasmExec: hostWasmRunner{writes: fs.NewTestHost(), runner: exec.NewTestHost()},
+	WasmExec: hostWasmRunner{writes: fs.NewTestHost(), runner: exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ()))},
 }
 
 func emitFactCode() CodeBuf {
@@ -504,7 +535,8 @@ func BuildBulkAndStartModule() Module fails WasmError {
 	let fPick = try m.AddFunc(tI32ToI32, []byte{}, cbPick)
 
 	let mut cbFConst = NewCodeBuf()
-	cbFConst.F64Const(-3.25)
+	let minusThreePointTwoFiveBits uint64 = 0xc00a000000000000
+	cbFConst.F64ConstBits(minusThreePointTwoFiveBits)
 	let fFConst = try m.AddFunc(tVoidToF64, []byte{}, cbFConst)
 
 	let mut cbGrow = NewCodeBuf()

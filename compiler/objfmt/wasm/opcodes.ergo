@@ -885,11 +885,6 @@ func F64ConstBits(c mut CodeBuf, bits uint64) {
 	c.Buf.U64LE(bits)
 }
 
-// F64Const emits f64.const for float64 value v.
-func F64Const(c mut CodeBuf, v float64) {
-	c.F64ConstBits(Float64Bits(v))
-}
-
 // I32Eqz emits i32.eqz.
 func I32Eqz(c mut CodeBuf) { c.Buf.U8(OpI32Eqz) }
 

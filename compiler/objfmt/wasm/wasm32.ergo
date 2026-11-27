@@ -52,11 +52,6 @@ func InitConstF64Bits(bits uint64) InitExpr {
 	InitExpr{Kind: InitF64, Bits: bits, GlobalIdx: uint32(0)}
 }
 
-// InitConstF64 creates an f64.const initializer expression for f.
-func InitConstF64(f float64) InitExpr {
-	InitConstF64Bits(Float64Bits(f))
-}
-
 // InitConstGlobalGet creates a global.get initializer expression referencing globalIdx.
 func InitConstGlobalGet(globalIdx uint32) InitExpr {
 	InitExpr{Kind: InitGlobalGet, Bits: uint64(0), GlobalIdx: globalIdx}

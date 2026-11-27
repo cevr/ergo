@@ -905,6 +905,6 @@ test DecodeRejectsCorruptedBinaries {
 	let mut trailingBody = []byte{byte(0x00), byte(0x61), byte(0x73), byte(0x6d), byte(1), byte(0), byte(0), byte(0)}
 	trailingBody = trailingBody.AppendBytes([]byte{SecType, byte(4), byte(1), byte(0x60), byte(0), byte(0)})
 	trailingBody = trailingBody.AppendBytes([]byte{SecFunction, byte(2), byte(1), byte(0)})
-	trailingBody = trailingBody.AppendBytes([]byte{SecCode, byte(7), byte(1), byte(5), byte(0), OpEnd, OpNop, OpEnd})
+	trailingBody = trailingBody.AppendBytes([]byte{SecCode, byte(6), byte(1), byte(4), byte(0), OpEnd, OpNop, OpEnd})
 	assert decodeExpectKind(trailingBody, "trailing-bytes")
 }

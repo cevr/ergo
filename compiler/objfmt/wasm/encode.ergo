@@ -473,6 +473,46 @@ func Emit(m Module) []byte fails WasmError {
 	out.BufBytes()
 }
 
+// BuildAddModule builds the smallest useful module: one function add(i32, i32) i32 exported as "add".
+func BuildAddModule() Module fails WasmError {
+	let mut m = NewModule()
+	let sig = m.InternType([]byte{ValI32, ValI32}, []byte{ValI32})
+	let mut cb = NewCodeBuf()
+	cb.LocalGet(uint32(0))
+	cb.LocalGet(uint32(1))
+	cb.I32Add()
+	let f = try m.AddFunc(sig, []byte{}, cb)
+	m.AddExportFunc("add", f)
+	m
+}
+
+test AddModuleBytesAreTheSpecAndValidate {
+	let m = BuildAddModule() catch {
+	case WasmError:
+		NewModule()
+	}
+	let bin = Emit(m) catch {
+	case WasmError:
+		[]byte{}
+	}
+	let want = []byte{
+		byte(0x00), byte(0x61), byte(0x73), byte(0x6d), byte(0x01), byte(0x00), byte(0x00), byte(0x00),
+		byte(0x01), byte(0x07), byte(0x01), byte(0x60), byte(0x02), byte(0x7f), byte(0x7f), byte(0x01), byte(0x7f),
+		byte(0x03), byte(0x02), byte(0x01), byte(0x00),
+		byte(0x07), byte(0x07), byte(0x01), byte(0x03), byte(0x61), byte(0x64), byte(0x64), byte(0x00), byte(0x00),
+		byte(0x0a), byte(0x09), byte(0x01), byte(0x07), byte(0x00), byte(0x20), byte(0x00), byte(0x20), byte(0x01), byte(0x6a), byte(0x0b),
+	}
+	assert bin == want
+	let d = Decode(bin) catch {
+	case WasmError:
+		emptyDecodedModule(uint32(0))
+	}
+	assert d.Exports.Len() == 1
+	assert d.Bodies.Len() == 1
+	assert d.DecodedSigParams(uint32(0)) == []byte{ValI32, ValI32}
+	assert d.DecodedSigResults(uint32(0)) == []byte{ValI32}
+}
+
 test EmitRejectsInvalidModuleContracts {
 	let mut dupExp = NewModule()
 	let sig = dupExp.AddType([]byte{}, []byte{})
