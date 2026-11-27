@@ -1,0 +1,635 @@
+import github.com/cevr/ergo/modules/atlas/guard
+import github.com/cevr/ergo/modules/atlas/handles
+import github.com/cevr/ergo/modules/atlas/kernel
+import github.com/cevr/ergo/modules/atlas/questions
+import github.com/cevr/ergo/modules/atlas/subagent
+import json
+import jsonschema
+import llm
+import option
+import strconv
+import strings
+
+// UnknownToolError indicates the model invoked an unrecognized tool identifier.
+type UnknownToolError {
+	Name string,
+}
+
+// BadToolArgs indicates missing, mistyped, or invalid arguments to a tool call.
+type BadToolArgs {
+	Tool   string,
+	Field  string,
+	Reason string,
+}
+
+// BlockingQuestionError wraps questions.BlockingQuestionForbidden when blocking question is invoked.
+type BlockingQuestionError {
+	Cause questions.BlockingQuestionForbidden,
+}
+
+// GuardBlockedError wraps a non-bypassable shell/workspace safety refusal from atlas/guard.
+type GuardBlockedError {
+	Cause guard.GuardError,
+}
+
+// ApprovalDeniedError indicates a mutating tool required approval under PermissionMode and was denied.
+type ApprovalDeniedError {
+	Tool   string,
+	Reason string,
+}
+
+// ToolIoError indicates an underlying filesystem or command runner failure.
+type ToolIoError {
+	Tool   string,
+	Reason string,
+}
+
+// ToolKernelError wraps a kernel engine refusal or execution error.
+type ToolKernelError {
+	Cause kernel.KernelError,
+}
+
+// ToolSubagentError wraps a subagent tree boundary or settlement refusal.
+type ToolSubagentError {
+	Cause subagent.SubagentRefusal,
+}
+
+// ToolHandleError wraps a handle registry error.
+type ToolHandleError {
+	Cause handles.HandleServiceError,
+}
+
+// ToolQuestionError wraps an async question validation/book error.
+type ToolQuestionError {
+	Cause questions.QuestionError,
+}
+
+// ToolError is the exhaustive failure union for all surgical tool parsing, gating, and execution.
+type ToolError = UnknownToolError | BadToolArgs | BlockingQuestionError | GuardBlockedError | ApprovalDeniedError | ToolIoError | ToolKernelError | ToolSubagentError | ToolHandleError | ToolQuestionError
+
+// ReadArgs holds parsed arguments for the surgical read tool.
+type ReadArgs {
+	Path   string,
+	Offset int,
+	Limit  int,
+}
+
+// EditArgs holds parsed arguments for the surgical edit tool.
+type EditArgs {
+	Path       string,
+	OldString  string,
+	NewString  string,
+	ReplaceAll bool,
+	Create     bool,
+}
+
+// ShellArgs holds parsed arguments for the guard-gated shell tool.
+type ShellArgs {
+	Command    string,
+	Cwd        string,
+	Background bool,
+}
+
+// SearchArgs holds parsed arguments for workspace search across files.
+type SearchArgs {
+	Pattern    string,
+	Root       string,
+	Glob       string,
+	MaxResults int,
+}
+
+// HandlesArgs holds parsed arguments for querying or cancelling DELIVERS handles.
+type HandlesArgs {
+	Action  string,
+	ID      string,
+	Session string,
+}
+
+// KernelArgs holds parsed arguments for persistent kernel cell evaluation and management.
+type KernelArgs {
+	Action       string,
+	CellID       string,
+	Code         string,
+	ComputeMs    int,
+	WaitMs       int,
+	AskMs        int,
+	BindingsJSON string,
+	LostBindings []string,
+}
+
+// SubagentArgs holds parsed arguments for subtree inspection, spawning, handle tracking, and hand-back.
+type SubagentArgs {
+	Action   string,
+	ParentID string,
+	ChildID  string,
+	Role     string,
+	HandleID string,
+}
+
+// AskUserAsyncArgs holds parsed arguments for ask_user_async (never blocking).
+type AskUserAsyncArgs {
+	ID         string,
+	Header     string,
+	Prompt     string,
+	Assumption string,
+	Options    []string,
+}
+
+// JobArgs holds parsed arguments for durable background jobs routed via DelivererWakes.
+type JobArgs {
+	Action  string,
+	ID      string,
+	Command string,
+	Cwd     string,
+}
+
+// ParsedRead carries parsed read arguments.
+type ParsedRead {
+	Args ReadArgs,
+}
+
+// ParsedEdit carries parsed edit arguments.
+type ParsedEdit {
+	Args EditArgs,
+}
+
+// ParsedShell carries parsed shell arguments.
+type ParsedShell {
+	Args ShellArgs,
+}
+
+// ParsedSearch carries parsed search arguments.
+type ParsedSearch {
+	Args SearchArgs,
+}
+
+// ParsedHandles carries parsed handles arguments.
+type ParsedHandles {
+	Args HandlesArgs,
+}
+
+// ParsedKernel carries parsed kernel arguments.
+type ParsedKernel {
+	Args KernelArgs,
+}
+
+// ParsedSubagent carries parsed subagent arguments.
+type ParsedSubagent {
+	Args SubagentArgs,
+}
+
+// ParsedAskUserAsync carries parsed ask_user_async arguments.
+type ParsedAskUserAsync {
+	Args AskUserAsyncArgs,
+}
+
+// ParsedJob carries parsed job arguments.
+type ParsedJob {
+	Args JobArgs,
+}
+
+// ParsedToolCall is the typed discriminated union over all 9 surgical core tools.
+type ParsedToolCall = ParsedRead | ParsedEdit | ParsedShell | ParsedSearch | ParsedHandles | ParsedKernel | ParsedSubagent | ParsedAskUserAsync | ParsedJob
+
+// CoreToolNames returns the 9 surgical core tool names (explicitly excluding blocking question).
+func CoreToolNames() []string {
+	[]string{"read", "edit", "shell", "search", "handles", "kernel", "subagent", "ask_user_async", "job"}
+}
+
+func makeToolSpec(name string, desc string, props []jsonschema.Prop, required []string) llm.ToolSpec {
+	llm.ToolSpec{
+		Name:        name,
+		Description: desc,
+		Input:       jsonschema.Encode(jsonschema.Object(props, required)),
+	}
+}
+
+func readToolSpec() llm.ToolSpec {
+	makeToolSpec("read", "Read lines of a workspace file (read-only; batches in parallel)", []jsonschema.Prop{
+		jsonschema.Prop{Key: "path", Schema: jsonschema.String()},
+		jsonschema.Prop{Key: "offset", Schema: jsonschema.Integer()},
+		jsonschema.Prop{Key: "limit", Schema: jsonschema.Integer()},
+	}, []string{"path"})
+}
+
+func editToolSpec() llm.ToolSpec {
+	makeToolSpec("edit", "Perform an exact text edit or create a file inside the workspace", []jsonschema.Prop{
+		jsonschema.Prop{Key: "path", Schema: jsonschema.String()},
+		jsonschema.Prop{Key: "old_string", Schema: jsonschema.String()},
+		jsonschema.Prop{Key: "new_string", Schema: jsonschema.String()},
+		jsonschema.Prop{Key: "replace_all", Schema: jsonschema.Bool()},
+		jsonschema.Prop{Key: "create", Schema: jsonschema.Bool()},
+	}, []string{"path", "new_string"})
+}
+
+func shellToolSpec() llm.ToolSpec {
+	makeToolSpec("shell", "Execute a shell command subject to atlas/guard safety rules and permission mode", []jsonschema.Prop{
+		jsonschema.Prop{Key: "command", Schema: jsonschema.String()},
+		jsonschema.Prop{Key: "cwd", Schema: jsonschema.String()},
+		jsonschema.Prop{Key: "background", Schema: jsonschema.Bool()},
+	}, []string{"command"})
+}
+
+func searchToolSpec() llm.ToolSpec {
+	makeToolSpec("search", "Search workspace files matching pattern and optional glob (read-only)", []jsonschema.Prop{
+		jsonschema.Prop{Key: "pattern", Schema: jsonschema.String()},
+		jsonschema.Prop{Key: "root", Schema: jsonschema.String()},
+		jsonschema.Prop{Key: "glob", Schema: jsonschema.String()},
+		jsonschema.Prop{Key: "max_results", Schema: jsonschema.Integer()},
+	}, []string{"pattern"})
+}
+
+func handlesToolSpec() llm.ToolSpec {
+	makeToolSpec("handles", "Inspect or cancel unified DELIVERS handles", []jsonschema.Prop{
+		jsonschema.Prop{Key: "action", Schema: jsonschema.String()},
+		jsonschema.Prop{Key: "id", Schema: jsonschema.String()},
+		jsonschema.Prop{Key: "session", Schema: jsonschema.String()},
+	}, []string{"action"})
+}
+
+func kernelToolSpec() llm.ToolSpec {
+	makeToolSpec("kernel", "Evaluate, cut, snapshot, restore, or kill persistent kernel cells", []jsonschema.Prop{
+		jsonschema.Prop{Key: "action", Schema: jsonschema.String()},
+		jsonschema.Prop{Key: "cell_id", Schema: jsonschema.String()},
+		jsonschema.Prop{Key: "code", Schema: jsonschema.String()},
+		jsonschema.Prop{Key: "compute_ms", Schema: jsonschema.Integer()},
+		jsonschema.Prop{Key: "wait_ms", Schema: jsonschema.Integer()},
+		jsonschema.Prop{Key: "ask_ms", Schema: jsonschema.Integer()},
+		jsonschema.Prop{Key: "bindings_json", Schema: jsonschema.String()},
+		jsonschema.Prop{Key: "lost_bindings", Schema: jsonschema.Array(jsonschema.String())},
+	}, []string{"action"})
+}
+
+func subagentToolSpec() llm.ToolSpec {
+	makeToolSpec("subagent", "Inspect subtree, spawn child subagent with parentThreadID, track handles, and finalize hand-back", []jsonschema.Prop{
+		jsonschema.Prop{Key: "action", Schema: jsonschema.String()},
+		jsonschema.Prop{Key: "parent_id", Schema: jsonschema.String()},
+		jsonschema.Prop{Key: "child_id", Schema: jsonschema.String()},
+		jsonschema.Prop{Key: "role", Schema: jsonschema.String()},
+		jsonschema.Prop{Key: "handle_id", Schema: jsonschema.String()},
+	}, []string{"action"})
+}
+
+func askUserAsyncToolSpec() llm.ToolSpec {
+	makeToolSpec("ask_user_async", "Ask the user an asynchronous non-blocking question paired with a working assumption", []jsonschema.Prop{
+		jsonschema.Prop{Key: "id", Schema: jsonschema.String()},
+		jsonschema.Prop{Key: "header", Schema: jsonschema.String()},
+		jsonschema.Prop{Key: "question", Schema: jsonschema.String()},
+		jsonschema.Prop{Key: "assumption", Schema: jsonschema.String()},
+		jsonschema.Prop{Key: "options", Schema: jsonschema.Array(jsonschema.String())},
+	}, []string{"question", "assumption"})
+}
+
+func jobToolSpec() llm.ToolSpec {
+	makeToolSpec("job", "Start, inspect, list, or cancel durable background jobs wired to DELIVERS", []jsonschema.Prop{
+		jsonschema.Prop{Key: "action", Schema: jsonschema.String()},
+		jsonschema.Prop{Key: "id", Schema: jsonschema.String()},
+		jsonschema.Prop{Key: "command", Schema: jsonschema.String()},
+		jsonschema.Prop{Key: "cwd", Schema: jsonschema.String()},
+	}, []string{"action"})
+}
+
+func specByName(name string) option.Option[llm.ToolSpec] {
+	if name == "read" {
+		return option.Some[llm.ToolSpec]{Value: readToolSpec()}
+	}
+	if name == "edit" {
+		return option.Some[llm.ToolSpec]{Value: editToolSpec()}
+	}
+	if name == "shell" {
+		return option.Some[llm.ToolSpec]{Value: shellToolSpec()}
+	}
+	if name == "search" {
+		return option.Some[llm.ToolSpec]{Value: searchToolSpec()}
+	}
+	if name == "handles" {
+		return option.Some[llm.ToolSpec]{Value: handlesToolSpec()}
+	}
+	if name == "kernel" {
+		return option.Some[llm.ToolSpec]{Value: kernelToolSpec()}
+	}
+	if name == "subagent" {
+		return option.Some[llm.ToolSpec]{Value: subagentToolSpec()}
+	}
+	if name == "ask_user_async" {
+		return option.Some[llm.ToolSpec]{Value: askUserAsyncToolSpec()}
+	}
+	if name == "job" {
+		return option.Some[llm.ToolSpec]{Value: jobToolSpec()}
+	}
+	option.None
+}
+
+// ToolSpecsForRole returns visible tool schemas for role (filtering removed blocking question).
+func ToolSpecsForRole(role subagent.AgentRole) []llm.ToolSpec {
+	let names = questions.FilterVisibleTools(role, CoreToolNames())
+	let mut out = []llm.ToolSpec{}
+	for name in names {
+		match specByName(name) {
+		case option.Some[llm.ToolSpec] as spec:
+			out = out.Append(spec.Value)
+		case option.None:
+		}
+	}
+	out
+}
+
+func jsonValueCodec() json.Codec[json.Value] {
+	json.Codec[json.Value]{MaxBytes: 1048576, MaxDepth: 32}
+}
+
+func decodeRawJSONValue(raw string) option.Option[json.Value] {
+	let val = json.Decode(jsonValueCodec(), raw) catch {
+	case _:
+		return option.None
+	}
+	option.Some[json.Value]{Value: val}
+}
+
+func decodeJSONObject(tool string, rawJSON string) Map[string, json.Value] fails ToolError {
+	let trimmed = strings.TrimSpace(rawJSON)
+	if trimmed == "" {
+		return Map[string, json.Value]{}
+	}
+	let v = match decodeRawJSONValue(trimmed) {
+	case option.Some[json.Value] as some:
+		some.Value
+	case option.None:
+		return BadToolArgs{Tool: tool, Field: "", Reason: "invalid JSON arguments"}
+	}
+	match v {
+	case json.Object as obj:
+		let mut out = Map[string, json.Value]{}
+		for mem in obj.Members {
+			out[mem.Key] = mem.Value
+		}
+		out
+	case json.Null, json.Boolean, json.Num, json.Str, json.Array:
+		BadToolArgs{Tool: tool, Field: "", Reason: "tool arguments must decode to a JSON object"}
+	}
+}
+
+func optStringField(m Map[string, json.Value], tool string, key string, def string) string fails ToolError {
+	match m.Get(key) {
+	case option.None:
+		def
+	case option.Some[json.Value] as v:
+		match v.Value {
+		case json.Str as s:
+			s.Value
+		case json.Null:
+			def
+		case json.Boolean, json.Num, json.Array, json.Object:
+			BadToolArgs{Tool: tool, Field: key, Reason: "expected string"}
+		}
+	}
+}
+
+func reqStringField(m Map[string, json.Value], tool string, key string) string fails ToolError {
+	let val = try optStringField(m, tool, key, "")
+	if strings.TrimSpace(val) == "" {
+		return BadToolArgs{Tool: tool, Field: key, Reason: "missing required non-empty string field"}
+	}
+	val
+}
+
+func optBoolField(m Map[string, json.Value], tool string, key string, def bool) bool fails ToolError {
+	match m.Get(key) {
+	case option.None:
+		def
+	case option.Some[json.Value] as v:
+		match v.Value {
+		case json.Boolean as b:
+			b.Value
+		case json.Null:
+			def
+		case json.Str, json.Num, json.Array, json.Object:
+			BadToolArgs{Tool: tool, Field: key, Reason: "expected boolean"}
+		}
+	}
+}
+
+func optIntField(m Map[string, json.Value], tool string, key string, def int) int fails ToolError {
+	match m.Get(key) {
+	case option.None:
+		def
+	case option.Some[json.Value] as v:
+		match v.Value {
+		case json.Num as n:
+			let encoded = json.Encode(jsonValueCodec(), n)
+			strconv.Atoi(encoded) catch {
+			case strconv.Malformed:
+				return BadToolArgs{Tool: tool, Field: key, Reason: "expected integer, got \(encoded)"}
+			case strconv.OutOfRange:
+				return BadToolArgs{Tool: tool, Field: key, Reason: "integer out of range: \(encoded)"}
+			}
+		case json.Null:
+			def
+		case json.Str, json.Boolean, json.Array, json.Object:
+			BadToolArgs{Tool: tool, Field: key, Reason: "expected integer"}
+		}
+	}
+}
+
+func optStringListField(m Map[string, json.Value], tool string, key string) []string fails ToolError {
+	match m.Get(key) {
+	case option.None:
+		[]string{}
+	case option.Some[json.Value] as v:
+		match v.Value {
+		case json.Array as arr:
+			let mut out = []string{}
+			for item in arr.Items {
+				match item {
+				case json.Str as s:
+					out = out.Append(s.Value)
+				case json.Null, json.Boolean, json.Num, json.Array, json.Object:
+					return BadToolArgs{Tool: tool, Field: key, Reason: "expected string array"}
+				}
+			}
+			out
+		case json.Null:
+			[]string{}
+		case json.Str, json.Boolean, json.Num, json.Object:
+			BadToolArgs{Tool: tool, Field: key, Reason: "expected array of strings"}
+		}
+	}
+}
+
+func parseReadArgs(m Map[string, json.Value]) ParsedToolCall fails ToolError {
+	ParsedRead{Args: ReadArgs{
+		Path:   try reqStringField(m, "read", "path"),
+		Offset: try optIntField(m, "read", "offset", 1),
+		Limit:  try optIntField(m, "read", "limit", 200),
+	}}
+}
+
+func parseEditArgs(m Map[string, json.Value]) ParsedToolCall fails ToolError {
+	ParsedEdit{Args: EditArgs{
+		Path:       try reqStringField(m, "edit", "path"),
+		OldString:  try optStringField(m, "edit", "old_string", ""),
+		NewString:  try optStringField(m, "edit", "new_string", ""),
+		ReplaceAll: try optBoolField(m, "edit", "replace_all", false),
+		Create:     try optBoolField(m, "edit", "create", false),
+	}}
+}
+
+func parseShellArgs(m Map[string, json.Value]) ParsedToolCall fails ToolError {
+	ParsedShell{Args: ShellArgs{
+		Command:    try reqStringField(m, "shell", "command"),
+		Cwd:        try optStringField(m, "shell", "cwd", ""),
+		Background: try optBoolField(m, "shell", "background", false),
+	}}
+}
+
+func parseSearchArgs(m Map[string, json.Value]) ParsedToolCall fails ToolError {
+	ParsedSearch{Args: SearchArgs{
+		Pattern:    try reqStringField(m, "search", "pattern"),
+		Root:       try optStringField(m, "search", "root", "."),
+		Glob:       try optStringField(m, "search", "glob", ""),
+		MaxResults: try optIntField(m, "search", "max_results", 50),
+	}}
+}
+
+func parseHandlesArgs(m Map[string, json.Value]) ParsedToolCall fails ToolError {
+	ParsedHandles{Args: HandlesArgs{
+		Action:  try reqStringField(m, "handles", "action"),
+		ID:      try optStringField(m, "handles", "id", ""),
+		Session: try optStringField(m, "handles", "session", ""),
+	}}
+}
+
+func parseKernelArgs(m Map[string, json.Value]) ParsedToolCall fails ToolError {
+	ParsedKernel{Args: KernelArgs{
+		Action:       try reqStringField(m, "kernel", "action"),
+		CellID:       try optStringField(m, "kernel", "cell_id", "cell-1"),
+		Code:         try optStringField(m, "kernel", "code", ""),
+		ComputeMs:    try optIntField(m, "kernel", "compute_ms", kernel.DefaultComputeMs()),
+		WaitMs:       try optIntField(m, "kernel", "wait_ms", kernel.DefaultWaitMs()),
+		AskMs:        try optIntField(m, "kernel", "ask_ms", kernel.DefaultAskMs()),
+		BindingsJSON: try optStringField(m, "kernel", "bindings_json", "{}"),
+		LostBindings: try optStringListField(m, "kernel", "lost_bindings"),
+	}}
+}
+
+func parseSubagentArgs(m Map[string, json.Value]) ParsedToolCall fails ToolError {
+	ParsedSubagent{Args: SubagentArgs{
+		Action:   try reqStringField(m, "subagent", "action"),
+		ParentID: try optStringField(m, "subagent", "parent_id", ""),
+		ChildID:  try optStringField(m, "subagent", "child_id", ""),
+		Role:     try optStringField(m, "subagent", "role", "worker"),
+		HandleID: try optStringField(m, "subagent", "handle_id", ""),
+	}}
+}
+
+func parseAskUserAsyncArgs(m Map[string, json.Value]) ParsedToolCall fails ToolError {
+	let prompt = match m.Get("prompt") {
+	case option.Some[json.Value]:
+		try reqStringField(m, "ask_user_async", "prompt")
+	case option.None:
+		try reqStringField(m, "ask_user_async", "question")
+	}
+	ParsedAskUserAsync{Args: AskUserAsyncArgs{
+		ID:         try optStringField(m, "ask_user_async", "id", ""),
+		Header:     try optStringField(m, "ask_user_async", "header", "Question"),
+		Prompt:     prompt,
+		Assumption: try reqStringField(m, "ask_user_async", "assumption"),
+		Options:    try optStringListField(m, "ask_user_async", "options"),
+	}}
+}
+
+func parseJobArgs(m Map[string, json.Value]) ParsedToolCall fails ToolError {
+	ParsedJob{Args: JobArgs{
+		Action:  try reqStringField(m, "job", "action"),
+		ID:      try optStringField(m, "job", "id", ""),
+		Command: try optStringField(m, "job", "command", ""),
+		Cwd:     try optStringField(m, "job", "cwd", ""),
+	}}
+}
+
+func dispatchParseByName(name string, m Map[string, json.Value]) ParsedToolCall fails ToolError {
+	if name == "read" {
+		return try parseReadArgs(m)
+	}
+	if name == "edit" {
+		return try parseEditArgs(m)
+	}
+	if name == "shell" {
+		return try parseShellArgs(m)
+	}
+	if name == "search" {
+		return try parseSearchArgs(m)
+	}
+	if name == "handles" {
+		return try parseHandlesArgs(m)
+	}
+	if name == "kernel" {
+		return try parseKernelArgs(m)
+	}
+	if name == "subagent" {
+		return try parseSubagentArgs(m)
+	}
+	if name == "ask_user_async" {
+		return try parseAskUserAsyncArgs(m)
+	}
+	if name == "job" {
+		return try parseJobArgs(m)
+	}
+	UnknownToolError{Name: name}
+}
+
+// ParseToolCall decodes name and rawJSON into a typed ParsedToolCall, rejecting blocking question for all roles.
+func ParseToolCall(role subagent.AgentRole, name string, rawJSON string) ParsedToolCall fails ToolError {
+	questions.RequireAsyncOnly(role, name) catch {
+	case questions.BlockingQuestionForbidden as f:
+		return BlockingQuestionError{Cause: f}
+	}
+	let m = try decodeJSONObject(name, rawJSON)
+	try dispatchParseByName(name, m)
+}
+
+// IsReadOnly reports whether call is side-effect-free and eligible for parallel read batching.
+func IsReadOnly(call ParsedToolCall) bool {
+	match call {
+	case ParsedRead, ParsedSearch:
+		true
+	case ParsedHandles as h:
+		h.Args.Action == "list" || h.Args.Action == "get"
+	case ParsedSubagent as s:
+		s.Args.Action == "list"
+	case ParsedJob as j:
+		j.Args.Action == "status" || j.Args.Action == "list"
+	case ParsedEdit, ParsedShell, ParsedKernel, ParsedAskUserAsync:
+		false
+	}
+}
+
+// IsReadOnlyCall classifies a raw tool name/JSON pair as parallel-safe read-only vs barrier-ordered mutating.
+func IsReadOnlyCall(role subagent.AgentRole, name string, rawJSON string) bool {
+	let parsed = ParseToolCall(role, name, rawJSON) catch {
+	case ToolError:
+		return false
+	}
+	IsReadOnly(parsed)
+}
+
+// SchemasFilterQuestionLaw verifies ToolSpecsForRole exposes all 9 surgical tools except blocking question across every role.
+law SchemasFilterQuestionLaw() {
+	for role in questions.AllAgentRoles() {
+		let specs = ToolSpecsForRole(role)
+		let mut sawAsync = false
+		let mut sawBlocking = false
+		for s in specs {
+			if s.Name == "ask_user_async" {
+				sawAsync = true
+			}
+			if s.Name == "question" {
+				sawBlocking = true
+			}
+		}
+		if !sawAsync || sawBlocking {
+			return false
+		}
+	}
+	true
+}
