@@ -5,7 +5,8 @@ This document defines Ergo's end-to-end native execution architecture following 
 Ergo replaces Go as its product runtime and object format with direct native code generation (ELF64 on Linux, Mach-O64 on macOS, `.wasm` on browser/edge) over zero-GC deterministic memory management (Perceus RC + compile-time `own` unique reuse, scoped O(1) bump arenas, and BEAM/OTP per-actor bounded heaps) and standard platform C ABI interoperability. Go remains **Stage-0 bootstrap only** until self-hosted Ergo passes identical `Stage-1 -> Stage-2` native bootstrap in [`NB-7`](units.md#nb-7-stage-1---stage-2-native-bootstrap--stage-0-go-deletion).
 
 Related documents:
-- [units.md](units.md) — ordered vertical implementation slices (`NB-1` through `NB-7`), owned paths, and verification gates
+- [units.md](units.md) — ordered vertical implementation slices (`NB-1` through `NB-12` and their lettered sub-units), owned paths, and verification gates
+- [Budgets and settled forks](#budgets-and-settled-forks-2026-11-27) — compile-time, store, actor-density and RC budgets, each with the unit whose gate carries it
 - [NORTH_STAR.md](../../../NORTH_STAR.md) — pillars, tiebreaks, and native performance floor
 - [docs/decisions.md](../../decisions.md#native-backend-pivot-elfmach-o-perceusarenas-c--bun-ffi-2026-11-27) — recorded pivot decisions and superseded Go-only priors
 - [docs/spec/types.md](../../spec/types.md) — value semantics, `own`/`mut`, flat unions, and laws
@@ -36,7 +37,8 @@ Every target shares one frontend, one typed IR, and one check-time evaluator:
                       Dev / Test Tier             Release Tier
                       [compiler/nativelower]      Optimizing SSA Backend
                       Perceus RC + Arenas +       (Cranelift/QBE/LLVM or
-                      x86_64/arm64 baseline       native SSA + SIMD + LTO)
+                      x86_64/arm64 baseline       native SSA + SIMD + LTO;
+                                                  decided: Ergo's own)
                                   |                   |
                                   v                   +----------+
                       [compiler/objfmt]               |          |
@@ -72,7 +74,7 @@ Every target shares one frontend, one typed IR, and one check-time evaluator:
    - Native tests (`--native`/FFI/actor/I/O) and `ergo run` / `ergo build` lower through `compiler/nativelower/` directly into `compiler/objfmt/`, emitting standard ELF64 (`.o`/executable/`.so`) or Mach-O64 (`.o`/executable/`.dylib`) bytes in memory with **zero `goobj`, zero Go stack-maps (`PCDATA`/`FUNCDATA`), zero write barriers, zero `GOCACHE`, and zero `toolchain/ir` patched Go compiler**.
    - Emits standard DWARF `.debug_line` / `__debug_line` and `.eh_frame` / `__unwind_info` tables so `lldb`, `gdb`, `perf`, and crash backtraces resolve directly to `.ergo` file:line:col spans.
 2. **Release Optimizing Tier (`ergo build --release` and `--platform wasm32`):**
-   - Consumes the identical typed SSA IR and checked optimization facts (`given`/`gives`/`keeps`, `own` uniqueness, proved laws, loop fusion) through an optimizing SSA backend (Cranelift, QBE, LLVM, or Ergo's native SSA pass pipeline) with register allocation, instruction scheduling, SIMD auto-vectorization/kernels, dead-code elimination, and LTO.
+   - Consumes the identical typed SSA IR and checked optimization facts (`given`/`gives`/`keeps`, `own` uniqueness, proved laws, loop fusion) through Ergo's own optimizing SSA backend, `compiler/ssaopt` ([decided 2026-11-27](#release-optimizer-ergos-own-compilerssaopt)), with register allocation, instruction scheduling, SIMD auto-vectorization/kernels, dead-code elimination, and LTO.
    - Targets `linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64`, and `wasm32`.
    - Every optimization preserves identical semantics to Dev Tier and `compiler/eval`, enforced by seeded cross-tier agreement suites.
 
@@ -175,7 +177,7 @@ Ergo partitions memory across four explicit tiers so normal code pays zero GC pa
 
 Extending [`std/process`](../../../internal/sketch/std/process/process.ergo) (`Limits{Time, Steps}` -> adding `Bytes int` and failure `OverBytes { Limit int }`) and `std/actor`:
 
-1. **Isolated slab allocator:** Every `actor` and `process.Run` owns an `ErgoActorHeap` backed by 64 KiB–2 MiB OS slabs (`mmap`/`VirtualAlloc`/pool slabs). No two actors share mutable heap slabs.
+1. **Isolated slab allocator:** Every `actor` and `process.Run` owns an `ErgoActorHeap` backed by 64 KiB–2 MiB OS slabs (`mmap`/`VirtualAlloc`/pool slabs), after a 256 B first chunk from a shared size-classed pool ([actor density](#fiber-stacks-and-actor-density)). No two actors share mutable heap slabs.
 2. **Exact accounting:** Every allocation on `heap` increments `heap->live_bytes += hdr->alloc_bytes` and verifies `heap->live_bytes <= heap->limit_bytes` (when `limit_bytes > 0`). Every freed `ErgoHdr` decrements `heap->live_bytes -= hdr->alloc_bytes`.
 3. **`OverBytes` enforcement:** If an allocation exceeds `limit_bytes`, the actor does not abort the host process. The runtime trips an actor-local fault (`OverBytes{Limit}`), executes masked exit cleanup (`Closer` OS handles) with a bounded cleanup reserve, and delivers `OverBytes` cleanly to the supervisor or `process.Run` caller.
 4. **O(1) crash reclamation:** On any actor termination — normal `Done`, `die`/defect (`Unreachable`, assertion fault), `OverBytes`, or `OverSteps` — the scheduler returns every slab in `actor->heap` to the OS/slab pool in O(1) time without walking individual objects.
@@ -191,14 +193,14 @@ Ergo maps structured concurrency (`task.Go`), actors (`std/actor`), and bounded 
 
 - **Worker Pool & Fibers:**
   - `N` OS worker threads (defaulting to available physical/cgroup cores, configurable via runtime flags) execute `M` lightweight fibers (`ErgoFiber`).
-  - Each `ErgoFiber` holds: stack chunk (guard-paged native stack or segmented/pool stack), saved callee-saved registers (`x86_64` SysV / `arm64` AAPCS64), `int64_t steps_remaining`, `ErgoActorHeap *heap`, `ErgoArena *arena`, cancellation/mask state (I1/I2), and a local lock-free Chase-Lev work-stealing deque.
+  - Each `ErgoFiber` holds: a pooled, contiguous, fixed-reserve stack held only while a task or turn is parked mid-function ([decided 2026-11-27](#fiber-stacks-and-actor-density)), saved callee-saved registers (`x86_64` SysV / `arm64` AAPCS64), `int64_t steps_remaining`, `ErgoActorHeap *heap`, `ErgoArena *arena`, cancellation/mask state (I1/I2), and a local lock-free Chase-Lev work-stealing deque.
 - **OS Event Reactors:**
   - **Linux:** **`io_uring`** (`io_uring_enter` batched SQE/CQE ring) handling non-blocking TCP/Unix sockets (including `SCM_RIGHTS` FD passing), timers (`IORING_OP_TIMEOUT`), files, pipes, signals (`signalfd`), and cross-thread `eventfd` wakes.
   - **macOS:** **`kqueue`** (`kevent64`) handling BSD sockets, pipes, `EVFILT_TIMER`, `EVFILT_SIGNAL`, and `EVFILT_USER` wakes.
   - **WASM (`wasm32`):** Single-threaded cooperative trampoline bridged to JS Promises / WASI `poll_oneoff`.
 - **Native Reduction Counting (`Limits.Steps`):**
   - Each fiber decrements `fiber->steps_remaining` at non-leaf function prologues and loop back-edges (a single register/TLS decrement + `js`/`jle` slow-path call, costing ~1 cycle when non-zero).
-  - **Cooperative preemption:** A fiber starts each scheduler slice with a cooperative quantum (e.g., `2000` reductions). When `steps_remaining <= 0` and no `Limits.Steps` cap is exhausted, the slow path yields to the worker deque and reschedules fairly so tight compute loops never starve peer actors or I/O completions.
+  - **Cooperative preemption:** A fiber starts each scheduler slice with a cooperative quantum (e.g., `2000` reductions). When `steps_remaining <= 0` and no `Limits.Steps` cap is exhausted, the slow path yields to the worker deque and reschedules fairly so tight compute loops never starve peer actors or I/O completions. A fiber inside an `extern c` call is not interrupted; its worker's queue is handed to another thread ([Preemption and blocking foreign calls](#preemption-and-blocking-foreign-calls)).
   - **Exact `Limits.Steps` budget:** Inside a budgeted `process.Run` (`Limits{Steps: N}`), reaching `0` total reductions triggers `OverSteps{Limit}`, runs masked exit cleanup (I2), and returns `OverSteps` to the parent without disturbing peer actors.
 - **Deterministic Exploration (`--explore`):**
   - `ergo test --explore [dfs|pct|random]` swaps the scheduler's ready-queue pick and event-settle hooks through a test-build scheduler vtable (`ErgoSchedHooks`), preserving full deterministic schedule replay and token reproduction (`--schedule TOKEN`) on native binaries.
@@ -272,6 +274,113 @@ Five compiler and runtime levers lower the native floor without weakening contra
 - **Boundary-scoped memory policy providers:** Ordinary functions take no `mem.Alloc` capability and have zero GC knobs; boundaries (handlers, parsers, tests) enter explicit scoped bump arenas, enforce `Limits.Bytes`, inject deterministic alloc faults / zero-alloc checks, or bind opt-in backing pools (`std/arena`, `io_uring` registered buffers, `mmap`).
 - **Zero-annotation `--explore-faults`:** Replays test executions across compiler-known `needs` failure edges (`fails` rows, `OverBytes`, I1/I2 stop) to verify cleanup without manual failpoint hooks in production code.
 - **Typed static specialization (no Zig-style `comptime`):** Closed-union subsets compose upward from standalone nominal variant types; conditional code uses typed `const` dead-code elimination (disabled branches still typecheck); platform backends bind via `needs` + `under <platform>`; compile-time tables use pure `const` eval and `derive`.
+
+---
+
+## Budgets and Settled Forks (2026-11-27)
+
+The owner's goal, verbatim (2026-11-27): "what I really desire is basically fast a very fast language as fast as possible to the floor a language with guarantees, you know, whether it be memory, whether it be types and safety like that we're doing with Ergo with a kind of like beam/OTP inspired architecture and et cetera, all the things that we've planned and fast compile times, like very fast compile times, sub-second minimum, ideally, you know, sub millisecond and no huge caches, you know, having a like the kind of the shared native work tree binaries that we're doing, not having to have like a hundred or two hundred gigabytes like Rust, like two orders of magnitude below that, you know, even three if we can".
+
+This section turns that goal into budgets that a unit's gate carries, and settles the forks the sections above left open. Every budget is a count (user-mode instructions of the process tree, counted work, or bytes), never wall time ([AGENTS.md](../../../AGENTS.md), Tests). The decision record with its evidence is [docs/decisions.md](../../decisions.md#native-backend-budgets-and-settled-forks-2026-11-27); the carrying units are in [units.md](units.md#budget-and-fork-units-2026-11-27).
+
+**Conventions.**
+
+- **The subject** is the self-hosted compiler: the package closure of `compiler/cmd/ergo`. Measured at `2c72383f6`: 453 `.ergo` files under `compiler/`, 247,872 lines and 7,861,324 bytes without tests, about 8,600 top-level functions.
+- **One second is 3,000 M `instructions:u`; one millisecond is 3 M.** This is the recorded conversion of the owner's times into the repository's unit (one core at 3 GHz and one instruction per cycle, the conservative end). A budget is the whole process tree's total, so more cores never hide work. A warm `ergo` process start alone is 2.9 to 3.0 M ([compile-speed receipt](../../receipts/compile-speed.md), "Process start"): the millisecond budget can only be met inside a resident process.
+- **A target** is the owner's number. **A first step** is what the carrying unit's gate enforces when it lands. Between them the measured value is a ratchet: a landing may not raise it.
+
+### Build budgets
+
+| Budget | Target (owner) | First enforceable step | Gate |
+| --- | --- | --- | --- |
+| Cold `ergo build` of the subject, Dev tier, empty store | tree total <= 3,000 M instr: front (parse, check, IR) <= 1,950 M, backend (`compiler/perceus`, `compiler/nativelower`, `compiler/objfmt` encode) <= 800 M, link and write <= 250 M | Counted work at small sizes: each IR instruction is visited at most 3 times by the backend (`lower.visits <= 3 * ir.insts`), every function is encoded once, no stage reads a file twice. The tree total and the three cells are recorded and ratcheted. | `NB-4` (counted work), `NB-7` (the instruction ceilings, on `ergo-stage2`) |
+| Rebuild after a one-function body edit, in the resident compiler | <= 3 M instr on the daemon for the request (one millisecond) | Counted work: 1 file read, 1 declaration checked, 1 function lowered, 1 function's bytes patched, 0 other functions touched, 0 processes started. | `NB-11` (counted work), `NB-7` (the 3 M ceiling) |
+| Link of the subject | cold <= 250 M instr; after a one-function edit: bytes written <= the function's new code plus its relocations and line-table rows | In-process link (0 processes started), work linear in relocations; the patched executable runs the same as a fresh one. | `NB-1` (in-process link), `NB-11` (patch) |
+
+- **The dev tier links in process.** `compiler/objfmt` lays out and writes the executable itself; `ld.lld` and `ld64` stay for `--release`, for `--lib` where a platform demands it, and as a cross-check. A linker process cannot meet the budget: wild and mold each spend about 600 M instructions linking ripgrep ([wild BENCHMARKING.md](https://github.com/davidlattimore/wild/blob/main/BENCHMARKING.md): 596.8 M and 638.4 M), twice the whole link cell, and neither links incrementally (mold's author rejected it; wild plans it).
+- **Two layouts.** A dev build leaves padding after each function and calls through stable addresses so that an edit rewrites one function in place (Zig's incremental design: its self-hosted backends exist "because we can dramatically outperform LLVM at compilation speed", and incremental compilation "will allow small changes to rebuild in milliseconds", [Zig devlog 2025-06-08 and 2025-06-14](https://ziglang.org/devlog/2025/)). `ergo build --fresh` and every `--release` build write the canonical dense layout; the byte-identical fixpoint of `NB-7` is stated on the canonical layout only.
+- **Reference point.** Zig builds its own compiler with its own x86-64 backend in 191 G instructions and 10 s (same devlog); the Ergo target is 64 times fewer instructions for a compiler a fraction of the size. Stage 0 today: the first build of a ten-package program is 18,777 M instr and a body edit 6,409 M ([compile-speed receipt](../../receipts/compile-speed.md)).
+
+### Store and artefact budget
+
+Measured today (2026-11-27, `du -sh` of the cache root's folders on the workbox): `go` 60 G, `modules` 30 G, `toolchain` 21 G, `std` 14 G, `irc` 2.5 G, `gomod-examples` 557 M, `laws` 106 M, the rest under 50 M: about 128 GB, which is the size the owner names for Rust.
+
+| Budget | Target (owner) | First enforceable step | Gate |
+| --- | --- | --- | --- |
+| Every Ergo artefact on one machine, all repositories and work trees | <= 10 GiB by default (owner, 2026-11-27: "Larger: 10 GiB"; settable with `ERGO_CACHE_MAX`); the store refuses to grow past its cap and evicts the least recently used entries at write time | The cap law on the native artefact classes as they appear (objects, function code, checked tables, linked images): bytes in the store <= cap at every quiescent point of a seeded sequence of builds and trims; an entry a running build holds is never evicted. | `NB-12` |
+| The subject's scenario: cold build, `ergo test` of its packages, then ten workspaces each with one body edit and a rebuild | cache root <= 200 MiB (three orders below the 200 GB the owner names; derived from that figure, not from the machine cap, so the 10 GiB answer does not loosen it) | The scenario's bytes are recorded per class and ratcheted; a second workspace adds only the bytes of what differs (content-addressed, function-granular). | `NB-12` (scenario), `NB-7` (the ceiling, once the Go classes are deleted) |
+| Inside a work tree | 0 bytes of Ergo artefacts other than the outputs the command names; an output is a clone of the store's image where the file system clones | Counted: files written in the work tree per build = the named outputs. | `NB-12` |
+
+The Go classes (`go`, `toolchain`, `modules`, `std`, `irc`: 127.5 of the 128 GB) are Stage-0 and are deleted in `NB-7`; no native unit may add a class that is not content-addressed in the one store.
+
+### The resident compiler
+
+The compiler is a service: `ergo dev`, the daemon that exists ([tooling](../../tooling.md), "ergo dev": one per workspace and release, socket and lock under `dev/` in the cache root, lifecycle model `models/dev`). Today it answers only a warm check from memory and holds no checked program. `NB-11` makes it hold the checked tables, each function's semantic hash and each function's machine code, recompile only the functions whose hash changed, and patch the dev-layout output in place. `ergo build`, `ergo run` and `ergo test` start it by themselves (owner, 2026-11-27: "Yes, start it automatically"); `ERGO_DEV=off` refuses. It is the same daemon, never a second one (the model's first invariant), and the CLI stays its client with the in-process answer as the fallback. Its laws: the daemon's answer equals the cold in-process answer for every seeded edit sequence, and the counted work of the build-budget table.
+
+### Release optimizer: Ergo's own (`compiler/ssaopt`)
+
+Decided: the Release tier is an SSA optimizer written in Ergo. Cranelift and QBE are rejected; LLVM is a measuring control (`clang -O2` on the matched C kernel), never a linked dependency and never on the bootstrap path.
+
+| Criterion | LLVM | Cranelift | QBE | Ergo's own |
+| --- | --- | --- | --- | --- |
+| Carries `given`/`gives`/`keeps`, `own`, proved laws | Partly, by translation to `llvm.assume`, `noalias`, range metadata; a law-driven fusion or a tree reduction must be done before it | No such input | No such input | Native: the facts are on the IR it reads |
+| Build time | Zig measured `hello` at 8.50 G instr through LLVM against 3.21 G through its own backend, and its compiler at 75 s against 20 s | "approximately an order of magnitude faster than" LLVM (its README) | "super quick" | Ours to budget and ratchet |
+| Dependency weight | A C++ toolchain in the compiler and in the bootstrap | A Rust toolchain in the bootstrap | C, 10% of the code of an industrial backend, but it writes assembly text: needs an assembler process | None: self-hosted, under Ergo's own laws and mutants |
+| Code quality | The reference | "~14% slower than" LLVM on Wasm workloads (its README, citing arXiv 2011.13127); built for JIT compile speed | Aims at "70% of the performance of industrial optimizing compilers"; no SIMD, no inlining | To be measured: `NB-6C` |
+
+The guarantee that rules out a linked external backend is the `NB-7` fixpoint with no foreign toolchain, and the owner's cache and compile-time goal. What stays open is measured, not asked: `NB-6C` builds the optimizer's first passes and counts instructions against `clang -O2` on the repository's matched kernels. Its acceptance is a ratio per kernel class (<= 1.10 of the control); a class that loses names the missing pass as a unit. Only if a class still loses by more than 1.25 after its named passes land does an optional emitter of LLVM IR text for an external `clang` open, outside the bootstrap.
+
+### Fiber stacks and actor density
+
+Decided, against a stated capacity: **1,000,000 live actors on one node, 100,000 of them parked in the middle of a turn.**
+
+- **An idle actor has no stack.** An actor between turns is its state, its mailbox and its heap. A turn borrows a stack from its worker's pool and gives it back when the turn returns. Only a task or a turn that parks mid-function keeps its stack.
+- **Stacks are pooled, contiguous and fixed in reserve.** A stack is carved from a large mapped region, 256 KiB of address space by default, PROVISIONAL until `NB-5D` measures real programs (owner, 2026-11-27: "fixed but should mwasure with real programs"; a spawn may state another reserve), committed by the kernel only as pages are touched, and handed back to the pool with its pages released. Overflow is caught by a limit compare in the prologue of a non-leaf function, next to the reduction decrement, so no stack needs its own guard mapping: a guard page per stack is two mappings per stack, and 100,000 parked fibers would pass Linux's default `vm.max_map_count` of 65,530. Past its reserve a task ends with the `StackOverflow` defect, which ends that actor only.
+- **Not segmented, not copied.** Segmented stacks pay at every hot boundary crossing. Growing by copying needs a map of every pointer into the stack, and this backend has no stack maps and passes pointers to stack slots into C.
+- **`extern c` runs on the worker's own thread stack**, which is large and guard-paged by the OS, so the fiber reserve never has to fit a C library's frames.
+- **Actor heaps start small.** The first chunk of an `ErgoActorHeap` is 256 B from a shared size-classed pool and grows geometrically to the 64 KiB to 2 MiB slabs named above; teardown stays O(1) in the number of chunks, which is logarithmic in the heap's size. (A 64 KiB first slab would cost 64 GB at the stated count.)
+
+| Budget | Number | Reference | Gate |
+| --- | --- | --- | --- |
+| Runtime-owned bytes per idle actor (struct, mailbox header, first heap chunk; not the user's state past it) | <= 512 B, at 1,000,000 actors | BEAM: 2,616 B (327 words) for a new process ([Erlang efficiency guide, Processes](https://www.erlang.org/doc/system/eff_guide_processes.html)) | `NB-5D` |
+| Stack bytes held by an idle actor | 0 | | `NB-5D` |
+| Committed bytes per fiber parked at depth 1 | <= one page (4 KiB; 16 KiB on Apple arm64) + 256 B | | `NB-5D` |
+| Mappings | <= 64 for 100,000 parked fibers | `vm.max_map_count` 65,530 | `NB-5D` |
+
+### Preemption and blocking foreign calls
+
+- **Ergo code is preempted by count.** The reduction decrement at prologues and back-edges is compiler-inserted, so a loop in Ergo cannot hold a worker past its quantum. No signal is used: `--lib` promises a library with no signal handlers, which rules out Go's signal-based asynchronous preemption.
+- **A foreign call cannot be interrupted; its worker is handed off instead.** Every `extern c` call is bracketed by two stores that mark the worker "in foreign code since reduction tick T". A monitor thread that finds a worker past its quantum in foreign code moves that worker's run queue and reactor ring to a spare thread, which continues the queued fibers. When the C function returns, its thread finds it no longer owns a worker, queues its fiber as ready and joins the spare pool. This is Go's syscall and cgo hand-off (an M "can be blocked or in a syscall w/o an associated P", [runtime/proc.go](https://github.com/golang/go/blob/master/src/runtime/proc.go)), chosen over BEAM's dirty schedulers because BEAM's guarantee rests on the author's flag: an unflagged long NIF "degrades responsiveness of the VM" and a misclassified one lets "dirty I/O schedulers ... starve ordinary schedulers" ([erl_nif](https://www.erlang.org/doc/apps/erts/erl_nif.html)). Here the guarantee holds for every foreign call, declared or not.
+- **A declaration only saves the wait.** A `CONTRACT` entry may mark a function `blocking`; such a call goes straight to the blocking pool (Tokio's `spawn_blocking`, BEAM's dirty I/O), so its peers do not wait one quantum for the monitor. A contract may also name an `interrupt` function (as `sqlite3_interrupt`) that the runtime calls when the fiber is stopped (I1).
+- **Hand-off keeps non-atomic RC sound.** The fibers that move are all parked; their actors move whole, heap and all, with the queue (the agreed core-affine design: whole-actor migration when parked).
+- **A foreign call that never returns** holds one thread and its one fiber, nothing else. Killing it is the job of `process.Child` (an OS process with `KillAlwaysLands`), not of the scheduler.
+
+Law (`NB-5C`): with one worker configured, fiber A calls a C function that blocks reading a pipe; fibers B1..Bk are queued behind it and the last writes the pipe. The test passes when A returns, which can only happen if the queue ran while A was blocked; without hand-off it never finishes (a deadline names the hang, nothing is timed). Counted: hand-offs = 1, threads created <= 1; and over 1,000,000 short foreign calls hand-offs = 0 and the bracket costs <= 4 instructions a call. The hand-off's interleavings (the C function returns exactly as the monitor moves the queue) are an explored model, `models/handoff`.
+
+### Perceus RC cost
+
+Assumed until now, measured from `NB-4E` on. The workloads are named: **W1**, `compiler/syntax` and `compiler/format` run natively over every `.ergo` file under `compiler/` (available at the `NB-4` gate); **W2**, `ergo-stage2` building the subject (`NB-7`).
+
+| Count | Acceptable | Why this number | Gate |
+| --- | --- | --- | --- |
+| Atomic RC operations executed on a single-actor workload | 0 | By construction (`NB-4C`). Koka measured 5% to 59% slowdown from atomic counts alone ([Perceus, PLDI 2021](https://www.microsoft.com/en-us/research/wp-content/uploads/2021/06/perceus-pldi21.pdf), section 4). | `NB-4E` |
+| Instructions spent in `dup` and `drop` that write memory, as a share of the run's `instructions:u` | <= 2% | The matched control (C or Rust with ownership) spends 0; 2% is the declared loss ceiling and anything above it is a bug with a named `compiler/perceus` follow-up (the floor rule). | `NB-4E` |
+| Reuse sites that take the in-place path at run time | >= 95% of the statically paired sites; 100% of `own` sites (no count test is emitted) | Koka without reuse analysis is more than 2 times slower on `rbtree` (same paper). | `NB-4E` |
+| RC operations removed: Perceus `dup` + `drop` emitted against the scoped baseline (a `dup` at every copy, a `drop` at every scope exit), over the subject's IR | Reported and ratcheted from the first receipt | No prior number transfers to Ergo's DoD-heavy code; the first receipt sets it. | `NB-4E` |
+
+The receipt is `docs/receipts/rc-cost.md` (written by `NB-4E`); the static counts come from `compiler/perceus`'s `TransformStats`, the dynamic ones from counters in a stats build of `runtime/native`.
+
+### The Go route as the compliance oracle
+
+Owner, 2026-11-27: "use the Go backend as a sort of compliance test so that we can write our own backend code against the Go compiler since we know the Go compiler works pretty much everywhere".
+
+Decided: until `NB-7`, the Stage-0 Go route is the differential oracle of the native route. The same checked program is built both ways and run on the same cases, and the observable results must be equal.
+
+- **Compared:** standard output and standard error bytes; the exit code; each typed failure (its variant and payload) and each defect (its kind and `.ergo` position); every law's verdict and counterexample; and, under `ergo test --explore --schedule TOKEN`, the sequence of observable events for the same token. The last one binds `NB-5`: choice points are numbered by [the runtime spec](../../spec/runtime.md), not by a runtime, so one token means one schedule on both.
+- **Never compared:** memory, allocation counts, addresses, timing, reduction counts, the bytes of the two executables, or any order the spec leaves open.
+- **Three oracles while Go lives.** Where `compiler/eval` can run the program (pure code, laws), eval, the Go route and the native route must all agree, and two against one names the faulty one. Where eval cannot (I/O, tasks, actors, `extern c`, the std suites, the examples), the Go route is the oracle alone.
+- **A known Stage-0 fault** is a listed divergence with its reason, in a sites file written by the tool (as `check_agree.sites`); nothing is skipped silently and the list may only shrink.
+- **What replaces it.** `NB-7` deletes Go only at a head where this differential is green over the whole corpus. From then the oracles are `compiler/eval` for pure code; the cross-tier agreement suites (eval, Dev tier, Release tier, `wasm32`: independent lowerings of one IR); agreement of the same suites across `linux/amd64`, `linux/arm64` and `darwin/arm64` (the portability the Go compiler gave); and, for effectful and concurrent behaviour, the std law suites, the explored models and schedule replay.
 
 ---
 

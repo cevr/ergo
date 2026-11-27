@@ -1,4 +1,4 @@
-# Ergo Native Backend — Ordered Build Units (`NB-1` to `NB-7`)
+# Ergo Native Backend — Ordered Build Units (`NB-1` to `NB-12`)
 
 Breaks execution of [architecture.md](architecture.md) into seven vertical, parallelizable slices (`NB-1` through `NB-7`), grounded in the existing compiler modules (`compiler/check/`, `compiler/ir/`, `compiler/eval/`, `compiler/bindc/`, `compiler/nativeobj/`, `compiler/driver/`, `compiler/cmd/ergo/`) while freezing Stage-0 Go dependencies (`toolchain/ir/`, `internal/gobind/`, `runtime/v1/`, `runtime/rt/`) until deletion in `NB-7`.
 
@@ -61,6 +61,7 @@ Breaks execution of [architecture.md](architecture.md) into seven vertical, para
 2. **Data-oriented compiler style:** All new Ergo packages (`compiler/objfmt`, `compiler/nativeabi`, `compiler/tsffi`, `compiler/nativelower`) follow Ergo's dense SoA layout conventions (`std/dense`, `uint32` IDs, zero pointer-keyed maps, zero `int32`/`int64` record fields where disallowed by `scripts/dodfloor`).
 3. **Cross-tier agreement:** Every lowering slice keeps [`compiler/eval`](../../../compiler/eval/vm.ergo) as its semantic oracle and runs seeded property suites + `--mutants` under `ERGO_FALLBACK=off`.
 4. **Prior-art grounding:** Each unit compares against the standing peer designs ([architecture.md](architecture.md#memory-tiers), [PRIOR_ART.md](../../../PRIOR_ART.md)): Zig direct object emission, Koka/Lean 4 Perceus reuse, Erlang/OTP per-process heaps and reductions, Rust `extern "C"` / zero-runtime DSOs, and MoonBit `.wasm`/native lowering.
+5. **Budgets are gates:** a unit whose gate carries a [budget](architecture.md#budgets-and-settled-forks-2026-11-27) hands back the measured count beside the budget. Every budget is `instructions:u`, counted work or bytes; none is a wall time.
 
 ---
 
@@ -81,6 +82,7 @@ Breaks execution of [architecture.md](architecture.md) into seven vertical, para
   - `ergo test --fresh compiler/objfmt` (round-trip parser/structural laws verifying ELF64 and Mach-O64 headers, section alignment, symbol tables, relocation offsets, and DWARF line programs).
   - Native link smoke test emitting `.o` objects for both `x86_64` and `arm64` (cross-checked by `readelf -a` / `objdump -dr` on Linux and `otool -l` / `nm` on macOS, plus linking and running a real multi-object native executable calling `libc` `write`/`exit`).
   - `ergo test --mutants compiler/objfmt` (100% mutant kill rate).
+- **Budget gate ([link budget](architecture.md#build-budgets)):** the dev tier links in process. `LinkStartsNoProcess`: a dev-tier link of a multi-object program starts 0 processes and its counted work is linear (`link.relocs_applied == relocations in the inputs`, each input section copied once). `ld.lld`/`ld64` stay as the `--release` and `--lib` driver and as the cross-check of the in-process link (same symbols, same run output). Command: `ergo test --fresh compiler/objfmt` (the law), and `go run ./scripts/buildcost native -subject compiler/cmd/ergo -cells` for the link cell once `NB-B0` lands (ceiling 250 M instr at `NB-7`).
 
 ---
 
@@ -137,6 +139,11 @@ Breaks execution of [architecture.md](architecture.md) into seven vertical, para
   - `TestNativeLowerAgreesWithEval`: seeded generated corpus (scalars, records, flat & recursive unions, closures, `own` loops, `Append`/`Put`, `try`/`catch`, defects) compiled natively to ELF64/Mach-O64 and compared output-for-output, failure-for-failure, and exit-for-exit against [`compiler/eval`](../../../compiler/eval/vm.ergo) under `ERGO_FALLBACK=off`.
   - Memory & reuse receipts: ASan/LSan leak check == 0 across all corpus tests, plus measured instruction/allocation count proving `rc == 1` reuse loops perform O(1) heap allocations vs Stage-0 Go baseline.
   - `ergo test --mutants compiler/nativelower`.
+- **Budget gate ([build budgets](architecture.md#build-budgets), [RC cost](architecture.md#perceus-rc-cost)):**
+  - `BackendWorkIsLinear` (a law in `compiler/nativelower`, counted at small sizes, never timed): for seeded programs of 1, 2, 4 and 8 times a base size, `lower.visits <= 3 * ir.insts`, `encode.funcs == funcs`, and `lower.visits` doubles when the program doubles. Command: `ergo test --fresh compiler/nativelower`.
+  - The backend cell (`compiler/perceus` + `compiler/nativelower` + `compiler/objfmt` encode) of a cold build of the subject is recorded and ratcheted from this unit on, with the ceiling of 800 M instr enforced at `NB-7`. Command: `go run ./scripts/buildcost native -subject compiler/cmd/ergo -cells`.
+  - The RC counts of [`NB-4E`](#nb-4e-rc-cost-receipt) on workload W1.
+- **Compliance gate ([the Go route as oracle](architecture.md#the-go-route-as-the-compliance-oracle)):** `TestNativeAgreesWithGoRoute` (`internal/selfhostcheck`; seeded, a failing seed prints the Ergo source, both observations and the replay command; builds Go because the Go-built program is the oracle; `needsBuild`, one-binary helper, kernel memory bound): each program of the seeded corpus and each of `examples/` is built by the Go route and by the native route and run on the same cases; output, exit code, typed failures, defects and law verdicts are equal, and where eval can run the program all three agree. Command: `go test ./internal/selfhostcheck -run TestNativeAgreesWithGoRoute` (under the crunch rule a unit runs it on its own example only; the whole corpus is owed).
 
 ---
 
@@ -155,6 +162,8 @@ Breaks execution of [architecture.md](architecture.md) into seven vertical, para
   - Explicit isolation properties: `OverBytesEndsActorOnly`, `OverStepsEndsProcessOnly`, `CrashReclaimsActorHeapInO1`, `I1StopCancelsBlockedSocketRead`, `I2MaskFinishesCleanup`, and `--explore` deterministic replay parity.
   - Concurrent HTTP/socket echo & actor ping-pong benchmark comparing native `io_uring`/`kqueue` fiber runtime against matched Stage-0 Go and C/Rust controls.
   - Native scheduler/runtime C + Ergo mutant suites.
+- **Budget gate ([stacks and density](architecture.md#fiber-stacks-and-actor-density), [preemption](architecture.md#preemption-and-blocking-foreign-calls)):** the stack model and the hand-off are decided; this unit builds them and its gate includes the laws of [`NB-5C`](#nb-5c-foreign-call-hand-off) and [`NB-5D`](#nb-5d-actor-density). "Fiber stack pools with guard pages" above reads: pooled contiguous stacks with a prologue limit compare, no guard mapping per stack.
+- **Compliance gate:** `TestNativeAgreesWithGoRoute` widens to the std suites this unit binds (`std/task`, `std/actor`, `std/process`, `std/net`, `std/time`, `std/sync`, `std/queue`) and adds `-explore`: for seeded schedule tokens, the observable event sequence of the native runtime equals the Go runtime's for the same token. Command: `go test ./internal/selfhostcheck -run TestNativeAgreesWithGoRoute -explore`.
 
 ---
 
@@ -166,7 +175,7 @@ Breaks execution of [architecture.md](architecture.md) into seven vertical, para
   - **`.wasm` Build Target (`ergo build --platform wasm32`):**
     - Lower typed SSA IR to `wasm32` binary module + compact linear-memory Perceus RC & arena runtime (zero WasmGC lock-in, tiny binary size suitable for browser & edge workers) + typed `.d.ts`/ESM JS loader from `compiler/tsffi`.
   - **Optimizing Release Tier (`ergo build --release`):**
-    - Lower Ergo typed SSA IR + proved optimization facts (`given`/`gives`/`keeps`, `own` uniqueness, purity, fused `Transform` laws, `std/simd` vector loops) through an optimizing SSA backend (Cranelift/QBE/LLVM or native SSA optimizer + LTO) targeting `linux/{amd64,arm64}`, `darwin/{amd64,arm64}`, and `wasm32`.
+    - Lower Ergo typed SSA IR + proved optimization facts (`given`/`gives`/`keeps`, `own` uniqueness, purity, fused `Transform` laws, `std/simd` vector loops) through Ergo's own SSA optimizer, `compiler/ssaopt` ([decided 2026-11-27](architecture.md#release-optimizer-ergos-own-compilerssaopt); its floor is measured by [`NB-6C`](#nb-6c-ssa-optimizer-floor)), with LTO, targeting `linux/{amd64,arm64}`, `darwin/{amd64,arm64}`, and `wasm32`.
     - Cross-tier safety invariant: Release Tier optimizations never alter observable outputs, typed failures, defects, or `Limits` enforcement.
 - **Runnable Verification Gate:**
   - Cross-tier agreement suite: every example, law, and seeded corpus test produces identical results across `compiler/eval`, Dev Tier (`NB-4`), Release Tier (`--release`), and `wasm32` (executed in Bun/Node WebAssembly runtime).
@@ -188,6 +197,102 @@ Breaks execution of [architecture.md](architecture.md) into seven vertical, para
   - Clean `PATH` (no `go` binary) native bootstrap test: `sha256(ergo-stage2) == sha256(ergo-stage3)` on Linux (`amd64`/`arm64`) and macOS (`arm64`), `ldd`/`otool -L` confirming zero Go runtime linkage.
   - Full repository suite under `ergo-stage2`: `ergo test --fresh ./...` across stdlib, `compiler/`, `modules/`, `examples/`, conformance corpus, and `--mutants` with `ERGO_FALLBACK=off`.
   - Spec byte budget check: `python3` / `wc -c` verifying sum of `docs/spec/*.md` excluding `docs/spec/stdlib.md` is `< 256000` bytes.
+- **Budget gate (the owner's ceilings, measured on `ergo-stage2`; [budgets](architecture.md#budgets-and-settled-forks-2026-11-27)):**
+  - Cold build of the subject: `go run ./scripts/buildcost native -subject compiler/cmd/ergo -cells -ceiling` exits 0 only when the tree total is <= 3,000 M `instructions:u` and the cells are within front 1,950 M, backend 800 M, link and write 250 M.
+  - One-function edit in the resident compiler: `go run ./scripts/buildcost native -subject compiler/cmd/ergo -edit body -resident -ceiling` exits 0 only when the daemon's request is <= 3 M instr.
+  - Store: `go run ./scripts/cachecost -scenario subject -ceiling` exits 0 only when the cache root is <= 200 MiB after the scenario and holds none of the Stage-0 classes (`go`, `toolchain`, `modules`, `std`, `irc`); the machine cap is 10 GiB by default.
+  - RC cost on workload W2 within the [`NB-4E`](#nb-4e-rc-cost-receipt) counts.
+  - Compliance: the last `go test ./internal/selfhostcheck -run TestNativeAgreesWithGoRoute -explore` over the whole corpus is green at the head that deletes Go, with an empty divergence list or each remaining row shown to be a Stage-0 fault. After the deletion the oracles are `compiler/eval`, the cross-tier agreement suite of `NB-6`, and the same suites agreeing across `linux/amd64`, `linux/arm64` and `darwin/arm64`.
+  - A ceiling that is not met at this gate does not weaken: the unit stays open with the measured cell and the named follow-up that lowers it (the floor rule: slower is a bug).
+
+---
+
+## Budget and Fork Units (2026-11-27)
+
+These units carry the [budgets and settled forks](architecture.md#budgets-and-settled-forks-2026-11-27). They land before or beside the code generator, so that each budget is a gate from the first line of `compiler/nativelower`. Under the backend crunch rule each unit runs only its own law and its packages' focused tests; the instruction campaigns are listed as owed and run after the backend swap.
+
+```text
+  NB-B0 (harness) ──► every budget command below
+  NB-1 ─► in-process link ─┐
+  NB-4 ─► NB-4E (RC receipt)
+  NB-4 + SEMANTIC-FUNC-HASH-V1 + NB-1 ─► NB-11 (resident compiler) ─► NB-7 ceilings
+  NB-1 + NB-4 ─► NB-12 (one store, byte cap) ─► NB-7 ceilings
+  NB-2 + NB-4 ─► NB-5 ─► NB-5C (foreign hand-off), NB-5D (actor density)
+  NB-4 ─► NB-6C (ssaopt floor) ─► NB-6 release tier, NB-8
+```
+
+### `NB-B0`. Budget Harness (`buildcost native`, `cachecost`)
+
+- **Owns:** `scripts/buildcost/native.go` (the `native` subcommand), `scripts/cachecost/**`, `docs/receipts/native-budgets.md`.
+- **Dependencies:** none for the harness; each cell reads "unmeasured: waits `NB-n`" until that unit lands (never 0, as in [native-ab](../../receipts/native-ab.md)).
+- **Scope:** `buildcost native -subject PKG [-cells] [-edit body|signature] [-resident] [-ceiling]` runs one `ergo build` (or one resident request) of the subject under the tree instruction counter that `buildcost count` already has, splits the total into the cells front, backend, link and write by the compiler's stage counters (`ERGO_STAGE_REPORT`), and checks conservation: the cells sum to the tree's total exactly, with the residual as its own cell. `cachecost [-scenario subject] [-ceiling]` prints bytes per class of the cache root (`du -sb`, one line a class) and runs the store scenario. An unknown subcommand of `buildcost` exits 2 (today an unknown word starts the default scenarios).
+- **Acceptance law (red now):** `go run ./scripts/buildcost native -subject compiler/cmd/nativeab/testdata/subject -cells` prints a conserved table (today: no such subcommand); `go run ./scripts/cachecost` prints the class table (today: no such script). `TestNativeCellsConserve`: for seeded synthetic stage reports, the cells sum to the total and a lost or duplicated record fails.
+- **Affected checks:** `go build ./scripts/...`, `go test ./scripts/buildcost ./scripts/cachecost`.
+
+### `NB-4E`. RC Cost Receipt
+
+- **Owns:** `compiler/cmd/rccost/**`, `runtime/native/ergo_stats.c` and the `ERGO_RT_STATS` counters in `runtime/native/ergo_rc.c`, `docs/receipts/rc-cost.md`.
+- **Dependencies:** `NB-4A` (on main: `compiler/perceus` with `TransformStats`), `NB-4` for the dynamic half, `NB-4C` for the atomic count.
+- **Scope:** `rccost static PKG...` lowers each package's IR through `compiler/perceus` and prints, per package and in total: allocations, `dup` and `drop` emitted, reuse pairs, arena promotions, and the scoped baseline (a `dup` at every copy of a counted value, a `drop` at every scope exit) computed from the same IR. `rccost run WORKLOAD` runs a native binary built with `ERGO_RT_STATS` and prints the executed counts (`dup`, `drop`, atomic operations, allocations, reuse hits, reuse fallbacks) beside the run's `instructions:u`. Workloads W1 and W2 are defined in [the architecture](architecture.md#perceus-rc-cost).
+- **Acceptance law:** `RcCountsAgree`: for the seeded corpus of `compiler/perceus`, the executed counts of the native run equal the counts of `compiler/perceus`'s verifier (`VerifyStats`) on the same path. Then the gate counts: atomic operations 0 on W1; RC instruction share <= 2%; in-place reuse >= 95% of paired sites and 100% of `own` sites; the removed-operation ratio recorded and ratcheted.
+- **Commands:** `ergo run ./compiler/cmd/rccost -- static ./compiler/...` (red now: no such package; the static half needs only what is on main), `ergo run ./compiler/cmd/rccost -- run W1`.
+- **A count over its number** is a bug with a named `compiler/perceus` follow-up (borrow inference of a parameter, a missed pairing), not a note.
+
+### `NB-5C`. Foreign-Call Hand-Off
+
+- **Owns:** `runtime/native/handoff.c`, the foreign-call bracket in `compiler/nativelower` (two stores around each `extern c` call), the `blocking` and `interrupt` fields of the `compiler/bindc` contract, `models/handoff/**`.
+- **Dependencies:** `NB-5` (scheduler), `NB-3` (direct `extern c`).
+- **Scope:** as decided in [Preemption and blocking foreign calls](architecture.md#preemption-and-blocking-foreign-calls): the in-foreign mark, the monitor, the move of a worker's run queue and reactor ring to a spare thread, the return path of the blocked thread, the blocking pool for calls a contract marks `blocking`, the `interrupt` hook on I1 stop. Under `--explore` the monitor's decision is a scheduler hook, so a schedule token replays a hand-off.
+- **Acceptance laws:**
+  - `models/handoff` (explored exhaustively, `ergo test models/handoff`): a run queue has exactly one owning thread at every step; no fiber runs on two threads; every ready fiber is owned by a thread that is not in foreign code after finitely many steps; the interleaving "the C function returns while the monitor moves the queue" loses and duplicates no fiber.
+  - `BlockedForeignCallStarvesNoPeer` (native, one worker): fiber A blocks in C on a pipe read; B1..Bk queued behind it run and the last writes the pipe; the test ends when A returns. Counted: hand-offs = 1, threads created <= 1. No time is compared; a deadline only names a hang.
+  - `ShortForeignCallsNeverHandOff`: 1,000,000 calls of a C function that returns at once: hand-offs = 0, and the bracket adds <= 4 `instructions:u` a call against the same loop with the bracket compiled out.
+  - `HandOffKeepsCountsLocal`: under TSan, a hand-off with 1,000 parked actors on the moved queue reports no race on any non-atomic count.
+- **Commands:** `ergo test models/handoff`; `make -C runtime/native test-handoff` (ASan and TSan builds).
+
+### `NB-5D`. Actor Density
+
+- **Owns:** `runtime/native/stack_pool.c`, the first-chunk size classes in `runtime/native/ergo_actor.c`, the prologue stack-limit compare in `compiler/nativelower`, `runtime/native/density_test.c`.
+- **Dependencies:** `NB-2`, `NB-5`.
+- **Scope:** as decided in [Fiber stacks and actor density](architecture.md#fiber-stacks-and-actor-density): stackless idle actors, pooled contiguous fixed-reserve stacks with a prologue limit compare, `extern c` on the worker's thread stack, a 256 B first heap chunk.
+- **Acceptance law (`DensityHolds`, counted bytes from the runtime's own counters, never RSS):** spawn 1,000,000 actors that each hold one `int` and wait for a message: `runtime_bytes / actors <= 512`, `stacks_held == 0`. Park 100,000 fibers at depth 1: `stack_bytes_committed / fibers <= page + 256`, `mappings <= 64`. A task that recurses past its reserve ends with `StackOverflow`, and its 999 peers finish (`StackOverflowEndsActorOnly`). The same law at 1,000 and 10,000 actors shows the bytes per actor do not grow with the count.
+- **Command:** `make -C runtime/native test-density` (the kernel-enforced memory bound of the test is 1 GiB).
+- **Stack-depth receipt (owner, 2026-11-27: "fixed but should mwasure with real programs").** The fixed limit stands; its default of 256 KiB is PROVISIONAL until this receipt exists.
+  - **Instrument:** a stats build of `runtime/native` (`ERGO_RT_STATS`) records, per task, the lowest stack pointer the prologue limit compare saw, and prints at exit the count of tasks and their peak depth in bytes: maximum, p99 and a histogram by power of two. It counts Ergo frames only; `extern c` runs on the worker's thread stack.
+  - **Corpus (named):** (1) the self-hosted compiler: `ergo-stage1 build ./compiler/cmd/ergo` and `ergo-stage1 test` of the packages under `compiler/`, with the deepest inputs the repository has (the conformance corpus and `examples/**`); (2) the conformance ports: the programs under `conformance/` and the suite `go run ./scripts/conformance` drives; (3) the actor and server showcases: `examples/atlas`, `examples/chat`, `examples/echo-chat`, `examples/jobq`, `examples/jobs-web`, `examples/relay`, `examples/kvstore`, `examples/fetchpool`, each under its example cases; (4) the recursive programs: `examples/jsonparse`, `examples/regex`, `examples/stackvm`, `examples/sudoku`, `examples/raytrace`.
+  - **Command:** `go run ./scripts/stackdepth -corpus all -o docs/receipts/stack-depth.md` (red now: no such script; it builds each program natively with the stats runtime, runs its cases, and writes one row a program: tasks, maximum, p99).
+  - **Rule that sets the default:** default reserve = the corpus maximum of peak depth, times 4, rounded up to a power of two, and never below 64 KiB. The margin of 4 is stated because the corpus's inputs are not the deepest a user will write; reserve is address space, so the margin costs no memory. The receipt records the maximum, the computed default and the program that set it; `StackDefaultFollowsReceipt` fails when the runtime's constant differs from the receipt's computed value. If any single program's maximum is more than 16 times the corpus p99, it is listed as an outlier that states its own reserve at its spawn, and the default is computed without it.
+  - **Density is restated at the measured default:** the mapping and committed-byte numbers of `DensityHolds` do not depend on the reserve; only the address space does (100,000 parked fibers times the reserve must stay under the 47-bit user address space with a factor of 16 to spare, which bounds the default at 64 MiB).
+
+### `NB-6C`. SSA Optimizer Floor
+
+- **Owns:** `compiler/ssaopt/**` first passes (inlining, register allocation, dead code and bounds-check elimination from `given`/`keeps`), `compiler/cmd/optfloor/**`, `docs/receipts/opt-floor.md`.
+- **Dependencies:** `NB-4`.
+- **Scope:** settle by measurement what [the decision](architecture.md#release-optimizer-ergos-own-compilerssaopt) leaves open: how far Ergo's own optimizer is from `clang -O2`. The kernels are the repository's matched controls ([bench](../../specs/bench.md)) in four classes: scalar loops, slice and bounds-heavy code, calls and closures, allocation and reuse.
+- **Acceptance law:** `optfloor run` builds each kernel with `--release` and its C control with `clang -O2`, runs both on the same input, checks the outputs equal, and prints `instructions:u` of each. Accepted when every class is <= 1.10 of its control, or when each class above it has its missing pass named as an opened unit. A class still above 1.25 after its named passes land opens `NB-6D` (an emitter of LLVM IR text for an external `clang`, outside the bootstrap). Cross-tier agreement (`NB-6`) holds for every kernel.
+- **Command:** `ergo run ./compiler/cmd/optfloor -- run` (red now: no such package). Compile cost of `--release` is recorded beside it with `buildcost native -release`.
+
+### `NB-11`. Resident Compiler (`ergo dev` builds)
+
+- **Owns:** `compiler/resident/**` (the kept program: checked tables, per-function hash, per-function code), `compiler/objfmt/patch.ergo` (dev layout, in-place patch), the `build`, `run` and `test` requests of the `ergo dev` protocol in `compiler/cmd/ergo/**`, `models/dev/**` (the lifecycle model gains the kept program).
+- **Dependencies:** `NB-1` (in-process link), `NB-4`, `SEMANTIC-FUNC-HASH-V1` (the function-granular hash, with its separate span hash so a moved line updates the line table without recompiling), the daemon on main ([tooling](../../tooling.md), "ergo dev").
+- **Scope:** the one daemon per workspace and release keeps the checked program in memory and serves `build`, `run` and native `test`. On a request it re-reads only files whose stat changed, re-checks only the declarations whose text changed and their dependents by signature hash, lowers only the functions whose semantic hash changed, and patches the dev-layout output in place (a function that outgrew its slot moves to the end; its callers reach it through its stable address). The CLI is the client: `ergo build`, `ergo run` and `ergo test` start the daemon when none serves the workspace (owner, 2026-11-27: "Yes, start it automatically"), and answer in process under `ERGO_DEV=off` or when the start fails (`AutoStartIsRefusable`: with `ERGO_DEV=off` a build starts 0 processes and leaves no socket). Kept memory is bounded: the daemon's counted bytes for the subject are <= 512 MiB, and it exits when idle, as today.
+- **Acceptance laws:**
+  - `ResidentAgreesWithCold` (model-based, seeded; a failing seed prints the edit sequence and the replay command): for a random sequence of edits (body, signature, add, delete, rename, comment, file move) to a generated program, after each edit the daemon's diagnostics equal the in-process ones and the patched executable's output, failure and exit equal those of `ergo build --fresh`.
+  - `OneBodyEditRebuildsOneFunction` (counted): after one body edit, `files_read == 1`, `decls_checked == 1`, `funcs_lowered == 1`, `funcs_patched == 1`, `bytes_patched <= new code + its relocations + its line rows`, `processes == 0`. A comment or format edit: `funcs_lowered == 0`. A signature edit: `funcs_lowered` equals the function and its direct callers.
+  - `models/dev`: at most one daemon per workspace and release still holds; a request is never answered from a program older than its inputs.
+- **Commands:** `ergo test --fresh compiler/resident`, `ergo test models/dev`, `go run ./scripts/buildcost native -subject compiler/cmd/ergo -edit body -resident` (recorded here, ceiling 3 M at `NB-7`).
+
+### `NB-12`. One Store, Byte Cap
+
+- **Owns:** `compiler/build/store_cap.ergo`, `compiler/build/trim.ergo` (the byte cap beside today's age and entry caps), `compiler/build/native_store.ergo` (the native classes: function code, objects, checked tables, linked images), the scenario of `scripts/cachecost`.
+- **Dependencies:** `NB-1`, `NB-4`; `NB-B0` for the command.
+- **Scope:** one content-addressed store for a machine's user, shared by every repository and work tree, with a byte cap (default 10 GiB, owner 2026-11-27, settable with `ERGO_CACHE_MAX`). A write that would pass the cap first evicts least-recently-used entries no running build holds. Native artefacts are keyed by content at function grain, so a second work tree adds only what differs. A build writes nothing into the work tree except its named outputs, each a clone of the store's image where the file system clones.
+- **Acceptance laws:**
+  - `StoreNeverPassesItsCap` (model-based, seeded, against a reference model of the store): after any sequence of builds, edits, trims and concurrent builds in several work trees, `store_bytes <= cap` at every quiescent point; no entry held by a running build is evicted; a build after an eviction is correct (it rebuilds, it never reads a missing entry).
+  - `SecondWorkTreeAddsOnlyTheDifference` (counted): building an identical tree in a second workspace writes 0 store bytes; with one body edit it writes that function's entries and one image.
+  - `WorkTreeHoldsOnlyOutputs` (counted): files created in the work tree by `ergo build -o X` = `{X}`.
+- **Commands:** `ergo test --fresh compiler/build`; `go run ./scripts/cachecost -scenario subject` (recorded here; ceiling 200 MiB and the absence of the Stage-0 classes at `NB-7`).
 
 ---
 

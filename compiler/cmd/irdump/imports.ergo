@@ -4,6 +4,7 @@ import compiler/check/store
 import compiler/syntax
 import option
 import slices
+import strings
 
 // exactLoadedUnits indexes only unambiguous loaded units. Equal paths
 // (even of equal file lists) do not prove equal declaration rows.
@@ -86,6 +87,98 @@ func hasSources(dep expr.Dep) bool {
 	true
 }
 
+// Program is the program a package is lowered with
+// (lower.PackageInProgram): every other package of it and its root's
+// import path, "" when the package is the root.
+type Program { Imports option.Option[[]expr.Dep], Root string }
+
+// StdProgram names the program the Go builder lowers std with: a root of
+// no declarations that reaches every std body, std its only packages.
+let StdProgram = "/ergo-std-program"
+
+type rootClosure { at int, key string, closure option.Option[[]int] }
+
+func loadedAt(available Map[string, int], path string) int {
+	match available.Get(path) {
+	case option.Some[int] as at:
+		at.Value
+	case option.None:
+		-1
+	}
+}
+
+func underStd(u load.Unit, std string) bool {
+	std != "" && u.Paths.Len() > 0 && strings.HasPrefix(u.Paths[0], std+"/")
+}
+
+// rootClosures is each root's import closure, keyed in the order the Go
+// builder's agreement corpus takes its programs: production roots before
+// test builds, each by its folder.
+func rootClosures(p load.Program, units []load.Unit, roots []string, tests []string, available Map[string, int]) []rootClosure {
+	let mut out = []rootClosure{}
+	for i in 0..p.Loaded.Len() {
+		let path = p.Loaded[i].Path
+		if !slices.Contains(roots, path) {
+			continue
+		}
+		let u = units[p.Units[i]]
+		let rank = if slices.Contains(tests, path) { "1" } else { "0" }
+		let first = if u.Paths.Len() > 0 { u.Paths[0] } else { "" }
+		out = out.Append(rootClosure{at: i, key: rank + first, closure: closureOf(p, i, available)})
+	}
+	out
+}
+
+// programOf is the program a non-root unit is lowered with: a std unit
+// with the rest of std (StdProgram), any other with the first root whose
+// closure holds it, its root among its imports. A unit no root reaches,
+// or a std unit beside an unproved std package, has none.
+func programOf(p load.Program, units []load.Unit, at int, std string, closures []rootClosure, available Map[string, int]) Program {
+	let path = p.Loaded[at].Path
+	if underStd(units[p.Units[at]], std) {
+		let mut deps = []expr.Dep{}
+		for i in 0..p.Loaded.Len() {
+			let other = p.Loaded[i].Path
+			if i == at || other == path || !underStd(units[p.Units[i]], std) {
+				continue
+			}
+			if loadedAt(available, other) != i || !hasSources(p.Loaded[i]) {
+				return Program{Imports: option.None, Root: ""}
+			}
+			deps = deps.Append(p.Loaded[i])
+		}
+		return Program{Imports: option.Some[[]expr.Dep]{Value: deps}, Root: StdProgram}
+	}
+	if loadedAt(available, path) != at {
+		return Program{Imports: option.None, Root: ""}
+	}
+	let mut best = -1
+	for j, c in closures {
+		match c.closure {
+		case option.Some[[]int] as ats:
+			if slices.Contains(ats.Value, at) && (best < 0 || c.key < closures[best].key) {
+				best = j
+			}
+		case option.None:
+		}
+	}
+	if best < 0 {
+		return Program{Imports: option.None, Root: ""}
+	}
+	let c = closures[best]
+	let mut deps = []expr.Dep{p.Loaded[c.at]}
+	match c.closure {
+	case option.Some[[]int] as ats:
+		for i in ats.Value {
+			if p.Loaded[i].Path != path {
+				deps = deps.Append(p.Loaded[i])
+			}
+		}
+	case option.None:
+	}
+	Program{Imports: option.Some[[]expr.Dep]{Value: deps}, Root: p.Loaded[c.at].Path}
+}
+
 // shapeImports is the declaration inventory of a unit, including a
 // non-root. Follow exact loaded edges only: a missing, ambiguous or
 // unparsed unit proves neither its own declarations nor its imports.
@@ -125,6 +218,21 @@ func shapeImports(p load.Program, unit int, exact Map[string, int]) Map[string, 
 // contents nor its order depend on task width. An interface without
 // sources cannot certify that the package has no private declarations.
 func rootImports(p load.Program, root int, available Map[string, int]) option.Option[[]expr.Dep] {
+	match closureOf(p, root, available) {
+	case option.Some[[]int] as ats:
+		let mut deps = slices.WithCapacity[expr.Dep](ats.Value.Len())
+		for i in ats.Value {
+			deps = deps.Append(p.Loaded[i])
+		}
+		option.Some[[]expr.Dep]{Value: deps}
+	case option.None:
+		option.None
+	}
+}
+
+// closureOf is rootImports by loaded index: the closure's packages, in
+// its order, without a copy of their stores.
+func closureOf(p load.Program, root int, available Map[string, int]) option.Option[[]int] {
 	let first = p.Loaded[root]
 	if !hasSources(first) {
 		return option.None
@@ -134,7 +242,7 @@ func rootImports(p load.Program, root int, available Map[string, int]) option.Op
 		paths = paths.Append(path)
 	}
 	let mut seen = Map[string, bool]{first.Path: true}
-	let mut deps = []expr.Dep{}
+	let mut ats = []int{}
 	let mut i = 0
 	for i < paths.Len() {
 		let path = paths[i]
@@ -143,23 +251,14 @@ func rootImports(p load.Program, root int, available Map[string, int]) option.Op
 			continue
 		}
 		seen = seen.Put(path, true)
-		let at = match available.Get(path) {
-		case option.Some[int] as loaded:
-			loaded.Value
-		case option.None:
+		let at = loadedAt(available, path)
+		if at < 0 || !hasSources(p.Loaded[at]) {
 			return option.None
 		}
-		if at < 0 {
-			return option.None
-		}
-		let dep = p.Loaded[at]
-		if !hasSources(dep) {
-			return option.None
-		}
-		deps = deps.Append(dep)
-		for imported in store.ImportPaths(dep.S) {
+		ats = ats.Append(at)
+		for imported in store.ImportPaths(p.Loaded[at].S) {
 			paths = paths.Append(imported)
 		}
 	}
-	option.Some[[]expr.Dep]{Value: deps}
+	option.Some[[]int]{Value: ats}
 }

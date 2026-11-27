@@ -1,0 +1,21 @@
+type Shape = Circle{R int} | Square{S int} | Dot{}
+
+func Area(s Shape) int {
+	match s {
+	case Circle as c:
+		c.R * c.R * 3
+	case Square as q:
+		q.S * q.S
+	case Dot:
+		0
+	}
+}
+
+func MakeSquare(n int) Shape { Square{S: n} }
+
+func Double(x int) int { x + x }
+
+func Scale(x int, k int) int {
+	let d = Double(x)
+	d * k
+}
