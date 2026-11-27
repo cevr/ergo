@@ -1,0 +1,627 @@
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/memory
+import github.com/cevr/ergo/modules/atlas/reconcile
+import github.com/cevr/ergo/modules/atlas/subagent
+import github.com/cevr/ergo/modules/atlas/thread
+import github.com/cevr/ergo/modules/atlas/turn
+import option
+import sql
+
+func queryEventsTx(fromSeq int) []memory.StoredEvent fails memory.StoreFailed needs sql.Tx {
+	let rows = try queryTx(
+		"SELECT seq, command_id, event_json FROM events WHERE seq > ? ORDER BY seq ASC",
+		[]sql.Value{sql.Int{N: int64(fromSeq)}},
+	)
+	let mut out = []memory.StoredEvent{}
+	for _, row in rows {
+		let seq = try intAt(row, 0)
+		let cid = memory.CommandID(try textAt(row, 1))
+		let ev = try decodeEvent(try textAt(row, 2))
+		out = out.Append(memory.StoredEvent{Seq: seq, CommandID: cid, Event: ev})
+	}
+	out
+}
+
+func loadCommandsTx(s memory.State) memory.State fails memory.StoreFailed needs sql.Tx {
+	let rows = try queryTx("SELECT command_id, actor, at_ms, payload_json FROM commands ORDER BY at_ms ASC, command_id ASC", []sql.Value{})
+	let mut cmds = s.Commands
+	for _, row in rows {
+		let cid = memory.CommandID(try textAt(row, 0))
+		let actor = try textAt(row, 1)
+		let atMs = try int64At(row, 2)
+		let cmd = try decodeCommand(try textAt(row, 3))
+		cmds = cmds.Put(cid, memory.CommandReceipt{ID: cid, Actor: actor, AtMs: atMs, Command: cmd})
+	}
+	memory.State{..s, Commands: cmds}
+}
+
+func loadThreadsAndTreesTx(s memory.State) memory.State fails memory.StoreFailed needs sql.Tx {
+	let tRows = try queryTx("SELECT thread_json FROM threads ORDER BY seq_order ASC", []sql.Value{})
+	let mut threads = s.Threads
+	let mut threadOrder = s.ThreadOrder
+	for _, row in tRows {
+		let t = try decodeThread(try textAt(row, 0))
+		threads = threads.Put(t.ID, t)
+		threadOrder = threadOrder.Append(t.ID)
+	}
+	let eRows = try queryTx(
+		"SELECT parent_thread_id, child_thread_id, kind, label, created_at_ms FROM thread_edges ORDER BY seq_order ASC",
+		[]sql.Value{},
+	)
+	let mut edges = s.BranchEdges
+	for _, row in eRows {
+		let kindName = try textAt(row, 2)
+		let kind = match memory.ParseBranchKind(kindName) {
+		case option.Some[memory.BranchKind] as k:
+			k.Value
+		case option.None:
+			return memory.StoreFailed{Reason: "unknown branch kind: \(kindName)"}
+		}
+		edges = edges.Append(memory.BranchEdge{
+			ParentThreadID: handle.ThreadID(try textAt(row, 0)),
+			ChildThreadID:  handle.ThreadID(try textAt(row, 1)),
+			Kind:           kind,
+			Label:          try textAt(row, 3),
+			CreatedAtMs:    try int64At(row, 4),
+		})
+	}
+	let trRows = try queryTx(
+		"SELECT root_id, budget_used, out_of_subtree_violation, bounds_json, order_json FROM subagent_trees ORDER BY seq_order ASC",
+		[]sql.Value{},
+	)
+	let mut trees = s.Trees
+	let mut treeOrder = s.TreeOrder
+	for _, row in trRows {
+		let rootID = handle.ThreadID(try textAt(row, 0))
+		let tree = try querySubagentTreeByIDTx(rootID, row)
+		trees = trees.Put(rootID, tree)
+		treeOrder = treeOrder.Append(rootID)
+	}
+	memory.State{..s, Threads: threads, ThreadOrder: threadOrder, BranchEdges: edges, Trees: trees, TreeOrder: treeOrder}
+}
+
+func loadRegistryAndWakesTx(s memory.State) memory.State fails memory.StoreFailed needs sql.Tx {
+	let hRows = try queryTx("SELECT handle_id, wake_letter_count, handle_json FROM handles ORDER BY seq_order ASC", []sql.Value{})
+	let mut handles = s.Registry.Handles
+	let mut order = s.Registry.Order
+	let mut letters = s.Registry.WakeLetters
+	for _, row in hRows {
+		let hid = handle.HandleID(try textAt(row, 0))
+		let cnt = try intAt(row, 1)
+		let h = try decodeWakeHandle(try textAt(row, 2))
+		handles = handles.Put(hid, h)
+		order = order.Append(hid)
+		if cnt > 0 {
+			letters = letters.Put(hid, cnt)
+		}
+	}
+	let wRows = try queryTx("SELECT delivery_id, handle_id, delivered, payload_summary FROM wakes ORDER BY seq_order ASC", []sql.Value{})
+	let mut wakes = s.Wakes
+	let mut wakeOrd = s.WakeOrder
+	for _, row in wRows {
+		let did = try textAt(row, 0)
+		let wr = reconcile.WakeRecord{
+			DeliveryID:     did,
+			HandleID:       handle.HandleID(try textAt(row, 1)),
+			Delivered:      try boolAt(row, 2),
+			PayloadSummary: try textAt(row, 3),
+		}
+		wakes = wakes.Put(did, wr)
+		wakeOrd = wakeOrd.Append(did)
+	}
+	let hoRows = try queryTx("SELECT hold_json FROM holds ORDER BY seq_order ASC", []sql.Value{})
+	let mut holds = s.Holds
+	let mut holdOrd = s.HoldOrder
+	for _, row in hoRows {
+		let ph = try decodePoolHold(try textAt(row, 0))
+		holds = holds.Put(ph.HoldKey, ph)
+		holdOrd = holdOrd.Append(ph.HoldKey)
+	}
+	memory.State{
+		..s,
+		Registry:  handle.RegistryState{Handles: handles, Order: order, WakeLetters: letters},
+		Wakes:     wakes,
+		WakeOrder: wakeOrd,
+		Holds:     holds,
+		HoldOrder: holdOrd,
+	}
+}
+
+func loadQuestionsAndPoolTx(s memory.State) memory.State fails memory.StoreFailed needs sql.Tx {
+	let qRows = try queryTx("SELECT question_json FROM questions ORDER BY seq_order ASC", []sql.Value{})
+	let mut qs = s.Questions
+	let mut qOrd = s.QuestionOrder
+	for _, row in qRows {
+		let q = try decodeQuestion(try textAt(row, 0))
+		qs = qs.Put(q.ID, q)
+		qOrd = qOrd.Append(q.ID)
+	}
+	let rRows = try queryTx("SELECT request_json FROM requests ORDER BY seq_order ASC", []sql.Value{})
+	let mut reqs = s.Requests
+	let mut rOrd = s.RequestOrder
+	for _, row in rRows {
+		let r = try decodeRequest(try textAt(row, 0))
+		reqs = reqs.Put(r.ID, r)
+		rOrd = rOrd.Append(r.ID)
+	}
+	let aRows = try queryTx("SELECT account_json FROM pool_accounts ORDER BY seq_order ASC", []sql.Value{})
+	let mut accs = s.Accounts
+	let mut aOrd = s.AccountOrder
+	for _, row in aRows {
+		let a = try decodePoolAccount(try textAt(row, 0))
+		accs = accs.Put(a.ID, a)
+		aOrd = aOrd.Append(a.ID)
+	}
+	let cRows = try queryTx("SELECT claim_json FROM pool_resets ORDER BY seq_order ASC", []sql.Value{})
+	let mut claims = s.ResetClaims
+	let mut cOrd = s.ClaimOrder
+	for _, row in cRows {
+		let cl = try decodeResetClaim(try textAt(row, 0))
+		claims = claims.Put(cl.ClaimKey, cl)
+		cOrd = cOrd.Append(cl.ClaimKey)
+	}
+	let pRows = try queryTx("SELECT push_json FROM pool_pushes ORDER BY seq_order ASC", []sql.Value{})
+	let mut pushes = s.Pushes
+	let mut pOrd = s.PushOrder
+	for _, row in pRows {
+		let p = try decodeOwnerPush(try textAt(row, 0))
+		pushes = pushes.Put(p.PushID, p)
+		pOrd = pOrd.Append(p.PushID)
+	}
+	memory.State{
+		..s,
+		Questions:     qs,
+		QuestionOrder: qOrd,
+		Requests:      reqs,
+		RequestOrder:  rOrd,
+		Accounts:      accs,
+		AccountOrder:  aOrd,
+		ResetClaims:   claims,
+		ClaimOrder:    cOrd,
+		Pushes:        pushes,
+		PushOrder:     pOrd,
+	}
+}
+
+func loadKernelAndLeasesTx(s memory.State) memory.State fails memory.StoreFailed needs sql.Tx {
+	let lRows = try queryTx("SELECT limit_key, limit_json FROM limit_states ORDER BY seq_order ASC", []sql.Value{})
+	let mut limits = s.Limits
+	let mut lOrd = s.LimitOrder
+	for _, row in lRows {
+		let lk = try textAt(row, 0)
+		let ls = try decodeLimitState(try textAt(row, 1))
+		limits = limits.Put(lk, ls)
+		lOrd = lOrd.Append(lk)
+	}
+	let snRows = try queryTx("SELECT snapshot_json FROM kernel_snapshots ORDER BY seq_order ASC", []sql.Value{})
+	let mut snaps = s.Snapshots
+	let mut snOrd = s.SnapshotOrder
+	for _, row in snRows {
+		let sn = try decodeKernelSnapshot(try textAt(row, 0))
+		snaps = snaps.Put(sn.SessionID, sn)
+		snOrd = snOrd.Append(sn.SessionID)
+	}
+	let jRows = try queryTx("SELECT journal_json FROM kernel_journals ORDER BY seq_order ASC", []sql.Value{})
+	let mut journals = s.Journals
+	let mut jOrd = s.JournalOrder
+	for _, row in jRows {
+		let j = try decodeKernelJournal(try textAt(row, 0))
+		journals = journals.Put(j.CutID, j)
+		jOrd = jOrd.Append(j.CutID)
+	}
+	let uRows = try queryTx("SELECT root_thread_id, active_cell_ms, window_start_ms, last_updated_ms, flagged FROM kernel_root_usage ORDER BY seq_order ASC", []sql.Value{})
+	let mut usages = s.RootUsages
+	let mut uOrd = s.RootUsageOrd
+	for _, row in uRows {
+		let rid = handle.ThreadID(try textAt(row, 0))
+		let u = memory.KernelRootUsage{
+			RootThreadID:  rid,
+			ActiveCellMs:  try int64At(row, 1),
+			WindowStartMs: try int64At(row, 2),
+			LastUpdatedMs: try int64At(row, 3),
+			Flagged:       try boolAt(row, 4),
+		}
+		usages = usages.Put(rid, u)
+		uOrd = uOrd.Append(rid)
+	}
+	let lrRows = try queryTx("SELECT lease_json FROM leases ORDER BY seq_order ASC", []sql.Value{})
+	let mut leases = s.Leases
+	let mut lrOrd = s.LeaseOrder
+	for _, row in lrRows {
+		let lr = try decodeLeaseRecord(try textAt(row, 0))
+		leases = leases.Put(lr.LeaseID, lr)
+		lrOrd = lrOrd.Append(lr.LeaseID)
+	}
+	memory.State{
+		..s,
+		Limits:        limits,
+		LimitOrder:    lOrd,
+		Snapshots:     snaps,
+		SnapshotOrder: snOrd,
+		Journals:      journals,
+		JournalOrder:  jOrd,
+		RootUsages:    usages,
+		RootUsageOrd:  uOrd,
+		Leases:        leases,
+		LeaseOrder:    lrOrd,
+	}
+}
+
+func loadStateTx() memory.State fails memory.StoreFailed needs sql.Tx {
+	let seqRows = try queryTx("SELECT COALESCE(MAX(seq), 0) FROM events", []sql.Value{})
+	let maxSeq = if seqRows.Len() > 0 { try intAt(seqRows[0], 0) } else { 0 }
+	let s0 = memory.State{..memory.InitialState(), Seq: maxSeq}
+	let s1 = try loadCommandsTx(s0)
+	let s2 = try loadThreadsAndTreesTx(s1)
+	let s3 = try loadRegistryAndWakesTx(s2)
+	let s4 = try loadQuestionsAndPoolTx(s3)
+	try loadKernelAndLeasesTx(s4)
+}
+
+func queryThreadViewTx(id handle.ThreadID) option.Option[memory.ThreadView] fails memory.StoreFailed needs sql.Tx {
+	let rows = try queryTx("SELECT thread_json FROM threads WHERE thread_id = ?", []sql.Value{sql.Text{S: string(id)}})
+	if rows.Len() == 0 {
+		return option.None
+	}
+	let t = try decodeThread(try textAt(rows[0], 0))
+	let eRows = try queryTx(
+		"SELECT parent_thread_id, child_thread_id, kind, label, created_at_ms FROM thread_edges WHERE parent_thread_id = ? OR child_thread_id = ? ORDER BY seq_order ASC",
+		[]sql.Value{sql.Text{S: string(id)}, sql.Text{S: string(id)}},
+	)
+	let mut edges = []memory.BranchEdge{}
+	for _, row in eRows {
+		let kindName = try textAt(row, 2)
+		let kind = match memory.ParseBranchKind(kindName) {
+		case option.Some[memory.BranchKind] as k:
+			k.Value
+		case option.None:
+			return memory.StoreFailed{Reason: "unknown branch kind: \(kindName)"}
+		}
+		edges = edges.Append(memory.BranchEdge{
+			ParentThreadID: handle.ThreadID(try textAt(row, 0)),
+			ChildThreadID:  handle.ThreadID(try textAt(row, 1)),
+			Kind:           kind,
+			Label:          try textAt(row, 3),
+			CreatedAtMs:    try int64At(row, 4),
+		})
+	}
+	let qRows = try queryTx("SELECT prompt_json FROM prompt_queue WHERE thread_id = ? ORDER BY pos ASC", []sql.Value{sql.Text{S: string(id)}})
+	let mut pq = []thread.QueuedPrompt{}
+	for _, row in qRows {
+		pq = pq.Append(try decodeQueuedPrompt(try textAt(row, 0)))
+	}
+	option.Some[memory.ThreadView]{Value: memory.ThreadView{Thread: t, Edges: edges, PromptQueue: pq}}
+}
+
+func querySubagentTreeByIDTx(rootID handle.ThreadID, treeRow sql.Row) subagent.Tree fails memory.StoreFailed needs sql.Tx {
+	let budgetUsed = try intAt(treeRow, 1)
+	let violation = try boolAt(treeRow, 2)
+	let bounds = try decodeTreeBounds(try textAt(treeRow, 3))
+	let order = try decodeTreeOrder(try textAt(treeRow, 4))
+	let nRows = try queryTx("SELECT node_json FROM subagent_nodes WHERE root_id = ?", []sql.Value{sql.Text{S: string(rootID)}})
+	let mut nodes = []subagent.SubagentNode{}
+	for _, row in nRows {
+		nodes = nodes.Append(try decodeSubagentNode(try textAt(row, 0)))
+	}
+	memory.ToSubagentTree(memory.SubagentTreeSnapshot{
+		RootID:                rootID,
+		Bounds:                bounds,
+		BudgetUsed:            budgetUsed,
+		OutOfSubtreeViolation: violation,
+		Order:                 order,
+		Nodes:                 nodes,
+	})
+}
+
+func querySubagentTreeTx(rootID handle.ThreadID) option.Option[subagent.Tree] fails memory.StoreFailed needs sql.Tx {
+	let rows = try queryTx(
+		"SELECT root_id, budget_used, out_of_subtree_violation, bounds_json, order_json FROM subagent_trees WHERE root_id = ?",
+		[]sql.Value{sql.Text{S: string(rootID)}},
+	)
+	if rows.Len() == 0 {
+		return option.None
+	}
+	option.Some[subagent.Tree]{Value: try querySubagentTreeByIDTx(rootID, rows[0])}
+}
+
+func queryFilteredHandlesTx(filter memory.HandleFilter) ([]handle.WakeHandle, Map[handle.HandleID, bool]) fails memory.StoreFailed needs sql.Tx {
+	let mut clauses = []string{}
+	let mut args = []sql.Value{}
+	if filter.OpenOnly {
+		clauses = clauses.Append("disposition = 'open'")
+	}
+	match filter.Session {
+	case option.Some[handle.SessionID] as sid:
+		clauses = clauses.Append("session_id = ?")
+		args = args.Append(sql.Text{S: string(sid.Value)})
+	case option.None:
+	}
+	match filter.Owner {
+	case option.Some[handle.OwnerID] as o:
+		clauses = clauses.Append("server_id = ? AND location = ? AND epoch = ?")
+		args = args.Append(sql.Text{S: o.Value.ServerID}).Append(sql.Text{S: o.Value.Location}).Append(sql.Int{N: int64(o.Value.Epoch)})
+	case option.None:
+	}
+	let whereSQL = if clauses.Len() == 0 { "" } else { " WHERE " + joinWithAnd(clauses) }
+	let hRows = try queryTx("SELECT handle_json FROM handles"+whereSQL+" ORDER BY seq_order ASC", args)
+	let mut handles = []handle.WakeHandle{}
+	let mut matchedIDs = Map[handle.HandleID, bool]{}
+	for _, row in hRows {
+		let h = try decodeWakeHandle(try textAt(row, 0))
+		handles = handles.Append(h)
+		matchedIDs = matchedIDs.Put(h.ID, true)
+	}
+	(handles, matchedIDs)
+}
+
+func queryFilteredWakesTx(filter memory.HandleFilter, matchedIDs Map[handle.HandleID, bool]) []reconcile.WakeRecord fails memory.StoreFailed needs sql.Tx {
+	let hasScopeFilter = filter.Session != option.None || filter.Owner != option.None
+	let wakeSQL = if filter.OpenOnly {
+		"SELECT delivery_id, handle_id, delivered, payload_summary FROM wakes WHERE delivered = 0 ORDER BY seq_order ASC"
+	} else {
+		"SELECT delivery_id, handle_id, delivered, payload_summary FROM wakes ORDER BY seq_order ASC"
+	}
+	let wRows = try queryTx(wakeSQL, []sql.Value{})
+	let mut wakes = []reconcile.WakeRecord{}
+	for _, row in wRows {
+		let wr = reconcile.WakeRecord{
+			DeliveryID:     try textAt(row, 0),
+			HandleID:       handle.HandleID(try textAt(row, 1)),
+			Delivered:      try boolAt(row, 2),
+			PayloadSummary: try textAt(row, 3),
+		}
+		if !hasScopeFilter || matchedIDs.Get(wr.HandleID) != option.None {
+			wakes = wakes.Append(wr)
+		}
+	}
+	wakes
+}
+
+func queryHandleViewTx(filter memory.HandleFilter) memory.HandleView fails memory.StoreFailed needs sql.Tx {
+	let (handles, matchedIDs) = try queryFilteredHandlesTx(filter)
+	let wakes = try queryFilteredWakesTx(filter, matchedIDs)
+	let holdSQL = if filter.OpenOnly {
+		"SELECT hold_json FROM holds WHERE status = 'waiting' ORDER BY seq_order ASC"
+	} else {
+		"SELECT hold_json FROM holds ORDER BY seq_order ASC"
+	}
+	let hoRows = try queryTx(holdSQL, []sql.Value{})
+	let mut holds = []memory.PoolHold{}
+	for _, row in hoRows {
+		holds = holds.Append(try decodePoolHold(try textAt(row, 0)))
+	}
+	memory.HandleView{Handles: handles, Wakes: wakes, Holds: holds}
+}
+
+func joinWithAnd(parts []string) string {
+	let mut out = ""
+	for i, p in parts {
+		if i > 0 {
+			out = out + " AND "
+		}
+		out = out + p
+	}
+	out
+}
+
+func queryQuestionsTx(filter memory.QuestionFilter) []memory.AsyncQuestion fails memory.StoreFailed needs sql.Tx {
+	let mut clauses = []string{}
+	let mut args = []sql.Value{}
+	match filter.ThreadID {
+	case option.Some[handle.ThreadID] as tid:
+		clauses = clauses.Append("thread_id = ?")
+		args = args.Append(sql.Text{S: string(tid.Value)})
+	case option.None:
+	}
+	match filter.Status {
+	case option.Some[memory.QuestionStatus] as st:
+		clauses = clauses.Append("status = ?")
+		args = args.Append(sql.Text{S: memory.QuestionStatusName(st.Value)})
+	case option.None:
+	}
+	let whereSQL = if clauses.Len() == 0 { "" } else { " WHERE " + joinWithAnd(clauses) }
+	let rows = try queryTx("SELECT question_json FROM questions"+whereSQL+" ORDER BY seq_order ASC", args)
+	let mut out = []memory.AsyncQuestion{}
+	for _, row in rows {
+		out = out.Append(try decodeQuestion(try textAt(row, 0)))
+	}
+	out
+}
+
+func queryPoolViewTx(nowMs int64) memory.PoolView fails memory.StoreFailed needs sql.Tx {
+	let aRows = try queryTx("SELECT account_json FROM pool_accounts ORDER BY seq_order ASC", []sql.Value{})
+	let mut accounts = []memory.PoolAccount{}
+	for _, row in aRows {
+		accounts = accounts.Append(try decodePoolAccount(try textAt(row, 0)))
+	}
+	let cRows = try queryTx("SELECT claim_json FROM pool_resets ORDER BY seq_order ASC", []sql.Value{})
+	let mut claims = []memory.ResetClaim{}
+	for _, row in cRows {
+		claims = claims.Append(try decodeResetClaim(try textAt(row, 0)))
+	}
+	let pRows = try queryTx(
+		"SELECT push_json FROM pool_pushes WHERE cancelled = 0 AND starts_at_ms <= ? AND ends_at_ms > ? ORDER BY seq_order ASC",
+		[]sql.Value{sql.Int{N: nowMs}, sql.Int{N: nowMs}},
+	)
+	let mut activePushes = []memory.OwnerPush{}
+	for _, row in pRows {
+		activePushes = activePushes.Append(try decodeOwnerPush(try textAt(row, 0)))
+	}
+	let dueRows = try queryTx(
+		"SELECT hold_json FROM holds WHERE status = 'waiting' AND retry_at_ms <= ? ORDER BY seq_order ASC",
+		[]sql.Value{sql.Int{N: nowMs}},
+	)
+	let mut dueHolds = []memory.PoolHold{}
+	for _, row in dueRows {
+		dueHolds = dueHolds.Append(try decodePoolHold(try textAt(row, 0)))
+	}
+	let allRows = try queryTx("SELECT hold_json FROM holds ORDER BY seq_order ASC", []sql.Value{})
+	let mut allHolds = []memory.PoolHold{}
+	for _, row in allRows {
+		allHolds = allHolds.Append(try decodePoolHold(try textAt(row, 0)))
+	}
+	memory.PoolView{
+		Accounts:     accounts,
+		ResetClaims:  claims,
+		ActivePushes: activePushes,
+		DueHolds:     dueHolds,
+		AllHolds:     allHolds,
+	}
+}
+
+func queryKernelViewTx(sessionID handle.SessionID) memory.KernelView fails memory.StoreFailed needs sql.Tx {
+	let snap = if sessionID == handle.SessionID("") {
+		option.None
+	} else {
+		let sRows = try queryTx("SELECT snapshot_json FROM kernel_snapshots WHERE session_id = ?", []sql.Value{sql.Text{S: string(sessionID)}})
+		if sRows.Len() == 0 {
+			option.None
+		} else {
+			option.Some[memory.KernelSnapshot]{Value: try decodeKernelSnapshot(try textAt(sRows[0], 0))}
+		}
+	}
+	let jRows = if sessionID == handle.SessionID("") {
+		try queryTx("SELECT journal_json FROM kernel_journals ORDER BY seq_order ASC", []sql.Value{})
+	} else {
+		try queryTx("SELECT journal_json FROM kernel_journals WHERE session_id = ? ORDER BY seq_order ASC", []sql.Value{sql.Text{S: string(sessionID)}})
+	}
+	let mut journals = []memory.KernelCutJournal{}
+	for _, row in jRows {
+		journals = journals.Append(try decodeKernelJournal(try textAt(row, 0)))
+	}
+	let uRows = try queryTx("SELECT root_thread_id, active_cell_ms, window_start_ms, last_updated_ms, flagged FROM kernel_root_usage ORDER BY seq_order ASC", []sql.Value{})
+	let mut usages = []memory.KernelRootUsage{}
+	for _, row in uRows {
+		usages = usages.Append(memory.KernelRootUsage{
+			RootThreadID:  handle.ThreadID(try textAt(row, 0)),
+			ActiveCellMs:  try int64At(row, 1),
+			WindowStartMs: try int64At(row, 2),
+			LastUpdatedMs: try int64At(row, 3),
+			Flagged:       try boolAt(row, 4),
+		})
+	}
+	let lRows = try queryTx("SELECT limit_json FROM limit_states ORDER BY seq_order ASC", []sql.Value{})
+	let mut limits = []turn.LimitState{}
+	for _, row in lRows {
+		limits = limits.Append(try decodeLimitState(try textAt(row, 0)))
+	}
+	let rRows = try queryTx("SELECT request_json FROM requests ORDER BY seq_order ASC", []sql.Value{})
+	let mut reqs = []turn.RequestState{}
+	for _, row in rRows {
+		reqs = reqs.Append(try decodeRequest(try textAt(row, 0)))
+	}
+	memory.KernelView{
+		Snapshot:   snap,
+		Journals:   journals,
+		RootUsages: usages,
+		Limits:     limits,
+		Requests:   reqs,
+	}
+}
+
+func containsOwnerID(owners []handle.OwnerID, target handle.OwnerID) bool {
+	for _, o in owners {
+		if o == target {
+			return true
+		}
+	}
+	false
+}
+
+func queryOpenOwnersTx() []handle.OwnerID fails memory.StoreFailed needs sql.Tx {
+	let rows = try queryTx(
+		"SELECT server_id, location, epoch FROM handles WHERE kind = 'call' AND disposition = 'open' ORDER BY seq_order ASC",
+		[]sql.Value{},
+	)
+	let mut out = []handle.OwnerID{}
+	for _, row in rows {
+		let own = handle.OwnerID{
+			ServerID: try textAt(row, 0),
+			Location: try textAt(row, 1),
+			Epoch:    try intAt(row, 2),
+		}
+		if !containsOwnerID(out, own) {
+			out = out.Append(own)
+		}
+	}
+	out
+}
+
+func queryBootSnapshotTx(query memory.BootQuery) reconcile.BootSnapshot fails memory.StoreFailed needs sql.Tx {
+	let sBase = try loadRegistryAndWakesTx(memory.InitialState())
+	let tRows = try queryTx("SELECT thread_json FROM threads ORDER BY seq_order ASC", []sql.Value{})
+	let mut openTurns = []turn.TurnState{}
+	for _, row in tRows {
+		let t = try decodeThread(try textAt(row, 0))
+		match t.ActiveTurn {
+		case option.Some[turn.TurnState] as at:
+			openTurns = openTurns.Append(at.Value)
+		case option.None:
+		}
+	}
+	let rRows = try queryTx("SELECT request_json FROM requests ORDER BY seq_order ASC", []sql.Value{})
+	let mut openReqs = []turn.RequestState{}
+	for _, row in rRows {
+		openReqs = openReqs.Append(try decodeRequest(try textAt(row, 0)))
+	}
+	let mut pendingWakes = []reconcile.WakeRecord{}
+	for _, did in sBase.WakeOrder {
+		match sBase.Wakes.Get(did) {
+		case option.Some[reconcile.WakeRecord] as w:
+			pendingWakes = pendingWakes.Append(w.Value)
+		case option.None:
+		}
+	}
+	let fallbackTree = subagent.NewTree(
+		handle.ThreadID("__boot__"),
+		subagent.TreeBounds{MaxDepth: 8, MaxFanOut: 32, MaxBudget: 128},
+	)
+	let tree = match query.RootID {
+	case option.Some[handle.ThreadID] as rid:
+		match try querySubagentTreeTx(rid.Value) {
+		case option.Some[subagent.Tree] as found:
+			found.Value
+		case option.None:
+			fallbackTree
+		}
+	case option.None:
+		fallbackTree
+	}
+	reconcile.BootSnapshot{
+		BootingOwner:               query.BootingOwner,
+		LiveForeignOwners:          query.LiveForeignOwners,
+		Registry:                   sBase.Registry,
+		PendingWakes:               pendingWakes,
+		OpenTurns:                  openTurns,
+		OpenRequests:               openReqs,
+		PendingRequestsSurviveBoot: query.PendingRequestsSurviveBoot,
+		AgentTree:                  tree,
+	}
+}
+
+func queryLeaseAndBootTx(query memory.BootQuery) memory.BootLeaseView fails memory.StoreFailed needs sql.Tx {
+	let active = if query.LeaseID == "" {
+		option.None
+	} else {
+		let oneRows = try queryTx("SELECT lease_json FROM leases WHERE lease_id = ?", []sql.Value{sql.Text{S: query.LeaseID}})
+		if oneRows.Len() == 0 {
+			option.None
+		} else {
+			option.Some[memory.LeaseRecord]{Value: try decodeLeaseRecord(try textAt(oneRows[0], 0))}
+		}
+	}
+	let lRows = try queryTx("SELECT lease_json FROM leases ORDER BY seq_order ASC", []sql.Value{})
+	let mut allLeases = []memory.LeaseRecord{}
+	for _, row in lRows {
+		let lr = try decodeLeaseRecord(try textAt(row, 0))
+		allLeases = allLeases.Append(lr)
+	}
+	let owners = try queryOpenOwnersTx()
+	let bootSnap = try queryBootSnapshotTx(query)
+	memory.BootLeaseView{
+		ActiveLease:  active,
+		AllLeases:    allLeases,
+		OpenOwners:   owners,
+		BootSnapshot: bootSnap,
+	}
+}

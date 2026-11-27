@@ -1,0 +1,665 @@
+import github.com/cevr/ergo/modules/atlas/adapter
+import github.com/cevr/ergo/modules/atlas/cutover
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/reconcile
+import github.com/cevr/ergo/modules/atlas/session
+import github.com/cevr/ergo/modules/atlas/subagent
+import github.com/cevr/ergo/modules/atlas/thread
+import github.com/cevr/ergo/modules/atlas/turn
+import option
+
+// CommandID uniquely identifies an idempotent store write command.
+type CommandID string
+
+// BranchFork marks a branch edge created by explicit fork or branch transition.
+type BranchFork {}
+
+// BranchSubagent marks a branch edge binding a spawned subagent child thread to its parent.
+type BranchSubagent {}
+
+// BranchHandoff marks a branch edge recording continuity handoff between threads.
+type BranchHandoff {}
+
+// BranchKind classifies the relationship recorded by a BranchEdge.
+type BranchKind = BranchFork | BranchSubagent | BranchHandoff
+
+// BranchKindName returns the canonical persisted name of k.
+func BranchKindName(k BranchKind) string {
+	match k {
+	case BranchFork:
+		"fork"
+	case BranchSubagent:
+		"subagent"
+	case BranchHandoff:
+		"handoff"
+	}
+}
+
+// ParseBranchKind parses a canonical BranchKind name.
+func ParseBranchKind(text string) option.Option[BranchKind] {
+	match text {
+	case "fork":
+		option.Some[BranchKind]{Value: BranchFork}
+	case "subagent":
+		option.Some[BranchKind]{Value: BranchSubagent}
+	case "handoff":
+		option.Some[BranchKind]{Value: BranchHandoff}
+	case _:
+		option.None
+	}
+}
+
+// BranchKindNameRoundTrips verifies that every BranchKind survives name formatting and parsing.
+law BranchKindNameRoundTrips(k BranchKind) {
+	ParseBranchKind(BranchKindName(k)) == option.Some[BranchKind]{Value: k}
+}
+
+// BranchEdge records one durable directed parent-to-child thread relationship.
+type BranchEdge {
+	ParentThreadID handle.ThreadID,
+	ChildThreadID  handle.ThreadID,
+	Kind           BranchKind,
+	Label          string,
+	CreatedAtMs    int64,
+}
+
+// HoldWaiting indicates a pool hold is parked waiting for RetryAtMs.
+type HoldWaiting {}
+
+// HoldWoken indicates a pool hold has reached RetryAtMs and emitted its wake once.
+type HoldWoken {}
+
+// HoldCancelled indicates a pool hold was cancelled before waking.
+type HoldCancelled {}
+
+// HoldStatus models the durable lifecycle of a quota pool hold.
+type HoldStatus = HoldWaiting | HoldWoken | HoldCancelled
+
+// HoldStatusName returns the canonical persisted name of s.
+func HoldStatusName(s HoldStatus) string {
+	match s {
+	case HoldWaiting:
+		"waiting"
+	case HoldWoken:
+		"woken"
+	case HoldCancelled:
+		"cancelled"
+	}
+}
+
+// ParseHoldStatus parses a canonical HoldStatus name.
+func ParseHoldStatus(text string) option.Option[HoldStatus] {
+	match text {
+	case "waiting":
+		option.Some[HoldStatus]{Value: HoldWaiting}
+	case "woken":
+		option.Some[HoldStatus]{Value: HoldWoken}
+	case "cancelled":
+		option.Some[HoldStatus]{Value: HoldCancelled}
+	case _:
+		option.None
+	}
+}
+
+// HoldStatusNameRoundTrips verifies that every HoldStatus survives name formatting and parsing.
+law HoldStatusNameRoundTrips(s HoldStatus) {
+	ParseHoldStatus(HoldStatusName(s)) == option.Some[HoldStatus]{Value: s}
+}
+
+// PoolHold tracks one waiting capacity hold keyed by HoldKey with canonical HoldWakeDeliveryID.
+type PoolHold {
+	HoldKey        string,
+	ThreadID       handle.ThreadID,
+	AccountID      session.AccountID,
+	RetryAtMs      int64,
+	DeliveryID     string,
+	Status         HoldStatus,
+	ParentNotified bool,
+	CreatedAtMs    int64,
+	UpdatedAtMs    int64,
+}
+
+// QuestionOpen indicates an ask_user_async question awaits a reply.
+type QuestionOpen {}
+
+// QuestionAnswered indicates an ask_user_async question received a recorded answer.
+type QuestionAnswered {}
+
+// QuestionWithdrawn indicates an ask_user_async question was withdrawn or expired without wake.
+type QuestionWithdrawn {}
+
+// QuestionStatus tracks the lifecycle of one ask_user_async question.
+type QuestionStatus = QuestionOpen | QuestionAnswered | QuestionWithdrawn
+
+// QuestionStatusName returns the canonical persisted name of s.
+func QuestionStatusName(s QuestionStatus) string {
+	match s {
+	case QuestionOpen:
+		"open"
+	case QuestionAnswered:
+		"answered"
+	case QuestionWithdrawn:
+		"withdrawn"
+	}
+}
+
+// ParseQuestionStatus parses a canonical QuestionStatus name.
+func ParseQuestionStatus(text string) option.Option[QuestionStatus] {
+	match text {
+	case "open":
+		option.Some[QuestionStatus]{Value: QuestionOpen}
+	case "answered":
+		option.Some[QuestionStatus]{Value: QuestionAnswered}
+	case "withdrawn":
+		option.Some[QuestionStatus]{Value: QuestionWithdrawn}
+	case _:
+		option.None
+	}
+}
+
+// QuestionStatusNameRoundTrips verifies that every QuestionStatus survives name formatting and parsing.
+law QuestionStatusNameRoundTrips(s QuestionStatus) {
+	ParseQuestionStatus(QuestionStatusName(s)) == option.Some[QuestionStatus]{Value: s}
+}
+
+// AsyncQuestion stores one durable ask_user_async entry correlated with its KindQuestion handle and RequestState.
+type AsyncQuestion {
+	ID          turn.RequestID,
+	ThreadID    handle.ThreadID,
+	HandleID    handle.HandleID,
+	Header      string,
+	Prompt      string,
+	Assumption  string,
+	Options     []string,
+	TargetRole  subagent.AgentRole,
+	Status      QuestionStatus,
+	Answer      option.Option[string],
+	AnsweredBy  option.Option[turn.Responder],
+	AskedAtMs   int64,
+	UpdatedAtMs int64,
+}
+
+// LimitWindow5h identifies the rolling 5-hour account quota window.
+type LimitWindow5h {}
+
+// LimitWindow7d identifies the rolling 7-day account quota window.
+type LimitWindow7d {}
+
+// LimitWindowModel identifies a model-specific quota window.
+type LimitWindowModel {
+	Model string,
+}
+
+// LimitWindowKind identifies which quota window a reset claim covers.
+type LimitWindowKind = LimitWindow5h | LimitWindow7d | LimitWindowModel
+
+// ModelWindowUsage captures per-model utilization percentage and reset time on an account.
+type ModelWindowUsage {
+	Model     string,
+	UsedPct   int,
+	ResetAtMs int64,
+}
+
+// PoolAccount stores quota windows, unsettled starts, and health state for one credential slot.
+type PoolAccount {
+	ID              session.AccountID,
+	Provider        string,
+	Priority        int,
+	Healthy         bool,
+	Window5hUsedPct int,
+	Window5hResetMs int64,
+	Window7dUsedPct int,
+	Window7dResetMs int64,
+	ModelWindows    []ModelWindowUsage,
+	InflightStarts  int,
+	LimitedUntilMs  int64,
+	UpdatedAtMs     int64,
+}
+
+// ResetClaim records a single-winner claim for dispatching upon exhaustion window reset.
+type ResetClaim {
+	ClaimKey    string,
+	AccountID   session.AccountID,
+	WindowKind  LimitWindowKind,
+	PeriodKey   string,
+	ClaimedBy   string,
+	ClaimedAtMs int64,
+}
+
+// PushAllAccounts applies extra capacity allowance across the entire account pool.
+type PushAllAccounts {}
+
+// PushAccount scopes extra capacity allowance to one AccountID.
+type PushAccount {
+	Account session.AccountID,
+}
+
+// PushModel scopes extra capacity allowance to one model identifier.
+type PushModel {
+	Model adapter.ModelID,
+}
+
+// PushScope identifies the target set of a time-boxed OwnerPush.
+type PushScope = PushAllAccounts | PushAccount | PushModel
+
+// OwnerPush stores a time-boxed capacity reserve adjustment in the pool.
+type OwnerPush {
+	PushID     string,
+	Scope      PushScope,
+	ExtraPct   int,
+	StartsAtMs int64,
+	EndsAtMs   int64,
+	Cancelled  bool,
+	UpdatedMs  int64,
+}
+
+// KernelSnapshot stores the latest bounded serialized kernel binding snapshot for one session.
+type KernelSnapshot {
+	SessionID     handle.SessionID,
+	ThreadID      handle.ThreadID,
+	RootThreadID  handle.ThreadID,
+	BindingsJSON  string,
+	SnapshotSeq   int,
+	SnapshotBytes int,
+	UpdatedAtMs   int64,
+	LostNotice    string,
+}
+
+// KernelCutJournal stores one cut.calls / cut.maps audit record emitted by a code cell cut.
+type KernelCutJournal {
+	CutID             string,
+	SessionID         handle.SessionID,
+	ThreadID          handle.ThreadID,
+	RootThreadID      handle.ThreadID,
+	CallsJSON         string,
+	MapsJSON          string,
+	StartedAtMs       int64,
+	EndedAtMs         int64,
+	Reason            string,
+	RootShareExceeded bool,
+}
+
+// KernelRootUsage aggregates hourly active kernel cell duration per root thread for H9 accounting.
+type KernelRootUsage {
+	RootThreadID  handle.ThreadID,
+	ActiveCellMs  int64,
+	WindowStartMs int64,
+	LastUpdatedMs int64,
+	Flagged       bool,
+}
+
+// SubagentTreeSnapshot captures one subagent tree in wire-safe form without maps.
+type SubagentTreeSnapshot {
+	RootID                handle.ThreadID,
+	Bounds                subagent.TreeBounds,
+	BudgetUsed            int,
+	OutOfSubtreeViolation bool,
+	Order                 []handle.ThreadID,
+	Nodes                 []subagent.SubagentNode,
+}
+
+// LeaseRecord captures one fenced server ownership lease and its M14 cutover fields in wire-safe form.
+type LeaseRecord {
+	LeaseID             string,
+	Owner               handle.OwnerID,
+	Epoch               int,
+	FencingToken        int64,
+	Phase               cutover.CutoverPhase,
+	ActiveOwner         cutover.LeaseOwner,
+	CommitPersisted     bool,
+	NewLeaseToken       int,
+	OldDrainFinished    bool,
+	AbortedBeforeCommit bool,
+	CrashRecovered      bool,
+	OldActedAfterCommit bool,
+	DroppedCount        int,
+	WakesDelivered      int,
+	HandleOrder         []handle.HandleID,
+	Handles             []cutover.CutoverHandle,
+	AcquiredAtMs        int64,
+	UpdatedAtMs         int64,
+}
+
+// LeaseFenceCheck asserts that an incoming write matches the currently leased owner, epoch, and fencing token.
+type LeaseFenceCheck {
+	LeaseID         string,
+	ExpectedOwner   handle.OwnerID,
+	ExpectedEpoch   int,
+	MinFencingToken int64,
+}
+
+// CommandReceipt records one committed idempotent CommandID and its canonical command payload.
+type CommandReceipt {
+	ID      CommandID,
+	Actor   string,
+	AtMs    int64,
+	Command Command,
+}
+
+// ThreadView groups one projected Thread, its outgoing/incoming BranchEdges, and its FIFO PromptQueue.
+type ThreadView {
+	Thread      thread.Thread,
+	Edges       []BranchEdge,
+	PromptQueue []thread.QueuedPrompt,
+}
+
+// HandleFilter filters persisted DELIVERS handles by optional session, owner, and openness.
+type HandleFilter {
+	Session  option.Option[handle.SessionID],
+	Owner    option.Option[handle.OwnerID],
+	OpenOnly bool,
+}
+
+// HandleView holds matched DELIVERS handles together with pending wake and hold records.
+type HandleView {
+	Handles []handle.WakeHandle,
+	Wakes   []reconcile.WakeRecord,
+	Holds   []PoolHold,
+}
+
+// QuestionFilter filters persisted ask_user_async questions by optional thread and status.
+type QuestionFilter {
+	ThreadID option.Option[handle.ThreadID],
+	Status   option.Option[QuestionStatus],
+}
+
+// PoolView aggregates durable quota windows, reset claims, time-boxed pushes, and active holds.
+type PoolView {
+	Accounts     []PoolAccount,
+	ResetClaims  []ResetClaim,
+	ActivePushes []OwnerPush,
+	DueHolds     []PoolHold,
+	AllHolds     []PoolHold,
+}
+
+// KernelView aggregates kernel snapshots, cut journals, root usage, and persisted limit/request states.
+type KernelView {
+	Snapshot   option.Option[KernelSnapshot],
+	Journals   []KernelCutJournal,
+	RootUsages []KernelRootUsage,
+	Limits     []turn.LimitState,
+	Requests   []turn.RequestState,
+}
+
+// BootQuery parameterizes a BootReconcile snapshot and lease status query.
+type BootQuery {
+	RootID                     option.Option[handle.ThreadID],
+	BootingOwner               handle.OwnerID,
+	LiveForeignOwners          []handle.OwnerID,
+	PendingRequestsSurviveBoot bool,
+	LeaseID                    string,
+}
+
+// BootLeaseView returns lease state together with open owners and the BootSnapshot needed on startup.
+type BootLeaseView {
+	ActiveLease  option.Option[LeaseRecord],
+	AllLeases    []LeaseRecord,
+	OpenOwners   []handle.OwnerID,
+	BootSnapshot reconcile.BootSnapshot,
+}
+
+// NotFound refuses an operation targeting a missing persisted entity.
+type NotFound {
+	Entity string,
+	Target string,
+}
+
+// AlreadyExists refuses creating a duplicate persisted entity or claiming an already claimed period.
+type AlreadyExists {
+	Scope string,
+	Key   string,
+}
+
+// InvalidTransition refuses a store-level state transition that violates durable lifecycle rules.
+type InvalidTransition {
+	From   string,
+	Action string,
+}
+
+// CommandReused refuses reusing an already committed CommandID with a different Command payload.
+type CommandReused {
+	ID CommandID,
+}
+
+// InvalidInput refuses malformed or out-of-bounds command inputs before committing.
+type InvalidInput {
+	Field  string,
+	Reason string,
+}
+
+// LeaseFenced refuses a mutation or stale lease acquisition defeated by server ownership fencing.
+type LeaseFenced {
+	LeaseID     string,
+	ActiveEpoch int,
+	ActiveToken int64,
+}
+
+// ThreadDomainErr wraps a rejected thread domain transition from modules/atlas/thread.
+type ThreadDomainErr {
+	ThreadErr thread.ThreadRefusal,
+}
+
+// SubagentDomainErr wraps a rejected subagent tree transition from modules/atlas/subagent.
+type SubagentDomainErr {
+	SubagentErr subagent.SubagentRefusal,
+}
+
+// HandleDomainErr wraps a rejected handle registry transition from modules/atlas/handle.
+type HandleDomainErr {
+	HandleErr handle.HandleRefusal,
+}
+
+// LimitDomainErr wraps a rejected limit recovery transition from modules/atlas/turn.
+type LimitDomainErr {
+	LimitErr turn.LimitRefusal,
+}
+
+// RequestDomainErr wraps a rejected interactive request transition from modules/atlas/turn.
+type RequestDomainErr {
+	RequestErr turn.RequestRefusal,
+}
+
+// CutoverDomainErr wraps a rejected M14 cutover transition from modules/atlas/cutover.
+type CutoverDomainErr {
+	CutoverErr cutover.CutoverRefusal,
+}
+
+// Refusal is the closed union of pure domain and store-level command rejections.
+type Refusal = NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | LeaseFenced | ThreadDomainErr | SubagentDomainErr | HandleDomainErr | LimitDomainErr | RequestDomainErr | CutoverDomainErr
+
+// StoreFailed reports an infrastructure, serialization, or SQLite schema failure.
+type StoreFailed {
+	Reason string,
+}
+
+// State holds the complete deterministic in-memory projection of all Atlas store subsystems.
+type State {
+	Seq           int,
+	Commands      Map[CommandID, CommandReceipt],
+	Threads       Map[handle.ThreadID, thread.Thread],
+	ThreadOrder   []handle.ThreadID,
+	BranchEdges   []BranchEdge,
+	Trees         Map[handle.ThreadID, subagent.Tree],
+	TreeOrder     []handle.ThreadID,
+	Registry      handle.RegistryState,
+	Wakes         Map[string, reconcile.WakeRecord],
+	WakeOrder     []string,
+	Holds         Map[string, PoolHold],
+	HoldOrder     []string,
+	Questions     Map[turn.RequestID, AsyncQuestion],
+	QuestionOrder []turn.RequestID,
+	Requests      Map[turn.RequestID, turn.RequestState],
+	RequestOrder  []turn.RequestID,
+	Accounts      Map[session.AccountID, PoolAccount],
+	AccountOrder  []session.AccountID,
+	ResetClaims   Map[string, ResetClaim],
+	ClaimOrder    []string,
+	Pushes        Map[string, OwnerPush],
+	PushOrder     []string,
+	Snapshots     Map[handle.SessionID, KernelSnapshot],
+	SnapshotOrder []handle.SessionID,
+	Journals      Map[string, KernelCutJournal],
+	JournalOrder  []string,
+	RootUsages    Map[handle.ThreadID, KernelRootUsage],
+	RootUsageOrd  []handle.ThreadID,
+	Limits        Map[string, turn.LimitState],
+	LimitOrder    []string,
+	Leases        Map[string, LeaseRecord],
+	LeaseOrder    []string,
+}
+
+// InitialState constructs an empty State with Seq 0.
+func InitialState() State {
+	State{
+		Seq:           0,
+		Commands:      Map[CommandID, CommandReceipt]{},
+		Threads:       Map[handle.ThreadID, thread.Thread]{},
+		ThreadOrder:   []handle.ThreadID{},
+		BranchEdges:   []BranchEdge{},
+		Trees:         Map[handle.ThreadID, subagent.Tree]{},
+		TreeOrder:     []handle.ThreadID{},
+		Registry:      handle.EmptyRegistry(),
+		Wakes:         Map[string, reconcile.WakeRecord]{},
+		WakeOrder:     []string{},
+		Holds:         Map[string, PoolHold]{},
+		HoldOrder:     []string{},
+		Questions:     Map[turn.RequestID, AsyncQuestion]{},
+		QuestionOrder: []turn.RequestID{},
+		Requests:      Map[turn.RequestID, turn.RequestState]{},
+		RequestOrder:  []turn.RequestID{},
+		Accounts:      Map[session.AccountID, PoolAccount]{},
+		AccountOrder:  []session.AccountID{},
+		ResetClaims:   Map[string, ResetClaim]{},
+		ClaimOrder:    []string{},
+		Pushes:        Map[string, OwnerPush]{},
+		PushOrder:     []string{},
+		Snapshots:     Map[handle.SessionID, KernelSnapshot]{},
+		SnapshotOrder: []handle.SessionID{},
+		Journals:      Map[string, KernelCutJournal]{},
+		JournalOrder:  []string{},
+		RootUsages:    Map[handle.ThreadID, KernelRootUsage]{},
+		RootUsageOrd:  []handle.ThreadID{},
+		Limits:        Map[string, turn.LimitState]{},
+		LimitOrder:    []string{},
+		Leases:        Map[string, LeaseRecord]{},
+		LeaseOrder:    []string{},
+	}
+}
+
+// ToSubagentTree rebuilds a subagent.Tree from a wire-safe SubagentTreeSnapshot.
+func ToSubagentTree(snap SubagentTreeSnapshot) subagent.Tree {
+	let mut nodes = Map[handle.ThreadID, subagent.SubagentNode]{}
+	for _, n in snap.Nodes {
+		nodes = nodes.Put(n.ThreadID, n)
+	}
+	subagent.Tree{
+		RootID:                snap.RootID,
+		Nodes:                 nodes,
+		Order:                 snap.Order,
+		Bounds:                snap.Bounds,
+		BudgetUsed:            snap.BudgetUsed,
+		OutOfSubtreeViolation: snap.OutOfSubtreeViolation,
+	}
+}
+
+// FromSubagentTree converts a subagent.Tree into a wire-safe SubagentTreeSnapshot.
+func FromSubagentTree(tree subagent.Tree) SubagentTreeSnapshot {
+	let mut nodes = []subagent.SubagentNode{}
+	for _, id in tree.Order {
+		match tree.Nodes.Get(id) {
+		case option.Some[subagent.SubagentNode] as n:
+			nodes = nodes.Append(n.Value)
+		case option.None:
+		}
+	}
+	SubagentTreeSnapshot{
+		RootID:                tree.RootID,
+		Bounds:                tree.Bounds,
+		BudgetUsed:            tree.BudgetUsed,
+		OutOfSubtreeViolation: tree.OutOfSubtreeViolation,
+		Order:                 tree.Order,
+		Nodes:                 nodes,
+	}
+}
+
+// ToCutoverState rebuilds cutover.CutoverState from a wire-safe LeaseRecord.
+func ToCutoverState(rec LeaseRecord) cutover.CutoverState {
+	let mut handles = Map[handle.HandleID, cutover.CutoverHandle]{}
+	for _, ch in rec.Handles {
+		handles = handles.Put(ch.ID, ch)
+	}
+	cutover.CutoverState{
+		Phase:               rec.Phase,
+		ActiveOwner:         rec.ActiveOwner,
+		CommitPersisted:     rec.CommitPersisted,
+		NewLeaseToken:       rec.NewLeaseToken,
+		OldDrainFinished:    rec.OldDrainFinished,
+		HandleOrder:         rec.HandleOrder,
+		Handles:             handles,
+		AbortedBeforeCommit: rec.AbortedBeforeCommit,
+		CrashRecovered:      rec.CrashRecovered,
+		OldActedAfterCommit: rec.OldActedAfterCommit,
+		DroppedCount:        rec.DroppedCount,
+		WakesDelivered:      rec.WakesDelivered,
+	}
+}
+
+// PackCutoverState packs an updated cutover.CutoverState back into a LeaseRecord.
+func PackCutoverState(prev LeaseRecord, cs cutover.CutoverState, owner handle.OwnerID, token int64, atMs int64) LeaseRecord {
+	let mut handles = []cutover.CutoverHandle{}
+	for _, hid in cs.HandleOrder {
+		match cs.Handles.Get(hid) {
+		case option.Some[cutover.CutoverHandle] as h:
+			handles = handles.Append(h.Value)
+		case option.None:
+		}
+	}
+	LeaseRecord{
+		LeaseID:             prev.LeaseID,
+		Owner:               owner,
+		Epoch:               owner.Epoch,
+		FencingToken:        token,
+		Phase:               cs.Phase,
+		ActiveOwner:         cs.ActiveOwner,
+		CommitPersisted:     cs.CommitPersisted,
+		NewLeaseToken:       cs.NewLeaseToken,
+		OldDrainFinished:    cs.OldDrainFinished,
+		AbortedBeforeCommit: cs.AbortedBeforeCommit,
+		CrashRecovered:      cs.CrashRecovered,
+		OldActedAfterCommit: cs.OldActedAfterCommit,
+		DroppedCount:        cs.DroppedCount,
+		WakesDelivered:      cs.WakesDelivered,
+		HandleOrder:         cs.HandleOrder,
+		Handles:             handles,
+		AcquiredAtMs:        prev.AcquiredAtMs,
+		UpdatedAtMs:         atMs,
+	}
+}
+
+// MaxKernelSnapshotBytes caps serialized kernel cell snapshots at 128 KiB.
+func MaxKernelSnapshotBytes() int {
+	131072
+}
+
+// KernelRootWindowMs returns the 1-hour active kernel cell measurement window in milliseconds.
+func KernelRootWindowMs() int64 {
+	3600000
+}
+
+// KernelRootSharePct returns the per-root hourly active kernel cell threshold percentage (15%).
+func KernelRootSharePct() int64 {
+	15
+}
+
+// FormatResetClaimKey formats the canonical deduplication key for an exhaustion reset claim.
+func FormatResetClaimKey(accountID session.AccountID, kind LimitWindowKind, periodKey string) string {
+	let kStr = match kind {
+	case LimitWindow5h:
+		"5h"
+	case LimitWindow7d:
+		"7d"
+	case LimitWindowModel as m:
+		"model:" + m.Model
+	}
+	"\(string(accountID))|\(kStr)|\(periodKey)"
+}

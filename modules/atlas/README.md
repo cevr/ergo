@@ -12,6 +12,8 @@ Pure domain module (`modules/atlas`) defining the core data types, capability co
 | `subagent` | Recursive parent-child `Tree`, zero-spin `NodeParked` tree, subtree control bounds, and refusal of child final hand-back while holding open handles or descendants |
 | `reconcile` | Pure `BootReconcile` over persisted handles, wakes, turns, requests, and subagent tree: live-owner isolation, once-only volatile `DispLost` settlement, zero silent drops |
 | `cutover` | Live server-to-server `CutoverLifecycle` (`CutoverQuiesce` -> `CutoverTransfer` -> `CutoverCommitted` -> `CutoverDone`), single-owner lease invariant, pre-commit rollback, post-commit fencing |
+| `memory` | Pure `Store` operation contract & laws, `Decide`/`Fold`/`Scope` state machine, and mutex/channel-backed `MemStore` covering commands, threads/edges, subagent trees, handles/wakes/holds, `ask_user_async`, prompt queues, pool windows/recovery, kernel snapshots/cuts, fenced leases, and `BootReconcile` |
+| `sqlite` | Durable WAL SQLite `Store` and `WALStore` implementing `memory.Store` with single-transaction `Decide -> Commit -> Act`, schema version fencing, `BootReconcile` recovery, and `SqliteAgreesWithMemory` + crash-reopen laws |
 
 ## Verification
 
@@ -20,5 +22,6 @@ CGO_ENABLED=0 GOMAXPROCS=2 GOMEMLIMIT=4GiB GOTOOLCHAIN=local go build -p 2 -trim
 cd modules/atlas
 GOMAXPROCS=2 GOMEMLIMIT=4GiB GOTOOLCHAIN=local ERGO_FALLBACK=off /tmp/ergo fmt --check ./...
 GOMAXPROCS=2 GOMEMLIMIT=4GiB GOTOOLCHAIN=local ERGO_FALLBACK=off /tmp/ergo lint ./...
-GOMAXPROCS=2 GOMEMLIMIT=4GiB GOTOOLCHAIN=local ERGO_FALLBACK=off /tmp/ergo test --fresh ./...
+GOMAXPROCS=2 GOMEMLIMIT=4GiB GOTOOLCHAIN=local ERGO_FALLBACK=off /tmp/ergo lint --preset strict ./...
+GOMAXPROCS=2 GOMEMLIMIT=4GiB GOTOOLCHAIN=local ERGO_FALLBACK=off /tmp/ergo test -j 2 --fresh ./...
 ```

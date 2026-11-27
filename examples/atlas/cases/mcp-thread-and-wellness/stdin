@@ -1,0 +1,10 @@
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"case","version":"1"}}}
+{"jsonrpc":"2.0","method":"notifications/initialized"}
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"thread-create","arguments":{"commandID":"mcp-tc-1","actor":"root","atMs":1764145200000,"threadID":"th-mcp-1","driver":"claude-meta","permissionMode":"auto_edit","instance":"inst-1","configDir":"/var/atlas/c1","model":"sonnet","agyDirectSupported":false}}}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"turn-start","arguments":{"commandID":"mcp-ts-1","actor":"root","atMs":1764145200010,"threadID":"th-mcp-1","turnID":"turn-1"}}}
+{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"question-ask","arguments":{"commandID":"mcp-qa-1","actor":"root","atMs":1764145200020,"questionID":"q-1","threadID":"th-mcp-1","handleID":"qh-1","ownerServer":"srv","ownerLocation":"us1","ownerEpoch":1,"sessionID":"s1","header":"Approve","prompt":"Ship release?","assumption":"yes","options":["yes","no"],"targetRole":"implementor"}}}
+{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"question-answer","arguments":{"commandID":"mcp-qans-1","actor":"user","atMs":1764145200030,"questionID":"q-1","answer":"yes","responder":"primary"}}}
+{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"wellness-report-get","arguments":{"nowMs":1764145200040,"volumes":["/"],"liveOwnersConfigured":false,"liveOwners":[]}}}
+{"jsonrpc":"2.0","id":7,"method":"resources/read","params":{"uri":"atlas://wellness"}}
+{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"turn-step","arguments":{"commandID":"mcp-tf-1","actor":"driver","atMs":1764145200050,"threadID":"th-mcp-1","action":"finish-completed"}}}
+{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"thread-archive","arguments":{"commandID":"mcp-ta-1","actor":"root","atMs":1764145200060,"threadID":"th-mcp-1","archiveReason":"done"}}}

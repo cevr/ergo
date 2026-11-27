@@ -1,0 +1,1964 @@
+import ergoapi api
+import json
+import mcp
+import rpc
+import scope
+import github.com/cevr/ergo/modules/atlas/api
+import github.com/cevr/ergo/modules/atlas/api/apiapi
+import github.com/cevr/ergo/modules/atlas/memory
+
+// Request is one call of api.Api: the hub's Request.
+type Request = apiapi.Request
+
+func valueOf(text string) json.Value {
+	json.Decode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, text) catch {
+	case _:
+		json.Null
+	}
+}
+
+func textOf(v json.Value) string { json.Encode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, v) }
+
+func untagged(v json.Value) json.Value {
+	match v {
+	case json.Object as o:
+		let mut members = []json.Member{}
+		for m in o.Members {
+			if m.Key != "_tag" {
+				members = members.Append(m)
+			}
+		}
+		json.Object{Members: members}
+	case json.Null, json.Boolean, json.Num, json.Str, json.Array:
+		v
+	}
+}
+
+// Names are the tools' names, one per operation of api.Api, in its order.
+let Names = []string{"thread-create", "thread-get", "thread-list", "thread-archive", "driver-switch", "prompt-enqueue", "prompt-dequeue", "turn-start", "turn-step", "subagent-tree-init", "subagent-spawn", "subagent-control-handle", "subagent-settle-handle", "subagent-hand-back", "subagent-tree-get", "handle-open", "handle-settle", "handle-list", "owner-calls-retire", "question-ask", "question-answer", "question-withdraw", "question-list", "pool-account-upsert", "pool-hold-open", "pool-hold-transition", "pool-view", "kernel-snapshot-save", "kernel-cut-record", "kernel-view", "lease-acquire", "boot-reconcile", "boot-status", "host-capacity-get", "wellness-report-get", "mcp-token-mint", "mcp-token-revoke", "mcp-token-list"}
+
+// Description is what the tool name does: its operation's doc comment,
+// or its signature (the hub's Doc).
+func Description(name string) string {
+	match name {
+	case "thread-create":
+		apiapi.Doc(apiapi.ThreadCreateOp)
+	case "thread-get":
+		apiapi.Doc(apiapi.ThreadGetOp)
+	case "thread-list":
+		apiapi.Doc(apiapi.ThreadListOp)
+	case "thread-archive":
+		apiapi.Doc(apiapi.ThreadArchiveOp)
+	case "driver-switch":
+		apiapi.Doc(apiapi.DriverSwitchOp)
+	case "prompt-enqueue":
+		apiapi.Doc(apiapi.PromptEnqueueOp)
+	case "prompt-dequeue":
+		apiapi.Doc(apiapi.PromptDequeueOp)
+	case "turn-start":
+		apiapi.Doc(apiapi.TurnStartOp)
+	case "turn-step":
+		apiapi.Doc(apiapi.TurnStepOp)
+	case "subagent-tree-init":
+		apiapi.Doc(apiapi.SubagentTreeInitOp)
+	case "subagent-spawn":
+		apiapi.Doc(apiapi.SubagentSpawnOp)
+	case "subagent-control-handle":
+		apiapi.Doc(apiapi.SubagentControlHandleOp)
+	case "subagent-settle-handle":
+		apiapi.Doc(apiapi.SubagentSettleHandleOp)
+	case "subagent-hand-back":
+		apiapi.Doc(apiapi.SubagentHandBackOp)
+	case "subagent-tree-get":
+		apiapi.Doc(apiapi.SubagentTreeGetOp)
+	case "handle-open":
+		apiapi.Doc(apiapi.HandleOpenOp)
+	case "handle-settle":
+		apiapi.Doc(apiapi.HandleSettleOp)
+	case "handle-list":
+		apiapi.Doc(apiapi.HandleListOp)
+	case "owner-calls-retire":
+		apiapi.Doc(apiapi.OwnerCallsRetireOp)
+	case "question-ask":
+		apiapi.Doc(apiapi.QuestionAskOp)
+	case "question-answer":
+		apiapi.Doc(apiapi.QuestionAnswerOp)
+	case "question-withdraw":
+		apiapi.Doc(apiapi.QuestionWithdrawOp)
+	case "question-list":
+		apiapi.Doc(apiapi.QuestionListOp)
+	case "pool-account-upsert":
+		apiapi.Doc(apiapi.PoolAccountUpsertOp)
+	case "pool-hold-open":
+		apiapi.Doc(apiapi.PoolHoldOpenOp)
+	case "pool-hold-transition":
+		apiapi.Doc(apiapi.PoolHoldTransitionOp)
+	case "pool-view":
+		apiapi.Doc(apiapi.PoolViewOp)
+	case "kernel-snapshot-save":
+		apiapi.Doc(apiapi.KernelSnapshotSaveOp)
+	case "kernel-cut-record":
+		apiapi.Doc(apiapi.KernelCutRecordOp)
+	case "kernel-view":
+		apiapi.Doc(apiapi.KernelViewOp)
+	case "lease-acquire":
+		apiapi.Doc(apiapi.LeaseAcquireOp)
+	case "boot-reconcile":
+		apiapi.Doc(apiapi.BootReconcileOp)
+	case "boot-status":
+		apiapi.Doc(apiapi.BootStatusOp)
+	case "host-capacity-get":
+		apiapi.Doc(apiapi.HostCapacityGetOp)
+	case "wellness-report-get":
+		apiapi.Doc(apiapi.WellnessReportGetOp)
+	case "mcp-token-mint":
+		apiapi.Doc(apiapi.McpTokenMintOp)
+	case "mcp-token-revoke":
+		apiapi.Doc(apiapi.McpTokenRevokeOp)
+	case "mcp-token-list":
+		apiapi.Doc(apiapi.McpTokenListOp)
+	case _:
+		""
+	}
+}
+
+// Input is the JSON schema of the tool name's arguments (the hub's
+// Schema; an object schema with no properties for a name that is no
+// tool's).
+func Input(name string) json.Value {
+	match name {
+	case "thread-create":
+		apiapi.Schema(apiapi.ThreadCreateOp)
+	case "thread-get":
+		apiapi.Schema(apiapi.ThreadGetOp)
+	case "thread-list":
+		apiapi.Schema(apiapi.ThreadListOp)
+	case "thread-archive":
+		apiapi.Schema(apiapi.ThreadArchiveOp)
+	case "driver-switch":
+		apiapi.Schema(apiapi.DriverSwitchOp)
+	case "prompt-enqueue":
+		apiapi.Schema(apiapi.PromptEnqueueOp)
+	case "prompt-dequeue":
+		apiapi.Schema(apiapi.PromptDequeueOp)
+	case "turn-start":
+		apiapi.Schema(apiapi.TurnStartOp)
+	case "turn-step":
+		apiapi.Schema(apiapi.TurnStepOp)
+	case "subagent-tree-init":
+		apiapi.Schema(apiapi.SubagentTreeInitOp)
+	case "subagent-spawn":
+		apiapi.Schema(apiapi.SubagentSpawnOp)
+	case "subagent-control-handle":
+		apiapi.Schema(apiapi.SubagentControlHandleOp)
+	case "subagent-settle-handle":
+		apiapi.Schema(apiapi.SubagentSettleHandleOp)
+	case "subagent-hand-back":
+		apiapi.Schema(apiapi.SubagentHandBackOp)
+	case "subagent-tree-get":
+		apiapi.Schema(apiapi.SubagentTreeGetOp)
+	case "handle-open":
+		apiapi.Schema(apiapi.HandleOpenOp)
+	case "handle-settle":
+		apiapi.Schema(apiapi.HandleSettleOp)
+	case "handle-list":
+		apiapi.Schema(apiapi.HandleListOp)
+	case "owner-calls-retire":
+		apiapi.Schema(apiapi.OwnerCallsRetireOp)
+	case "question-ask":
+		apiapi.Schema(apiapi.QuestionAskOp)
+	case "question-answer":
+		apiapi.Schema(apiapi.QuestionAnswerOp)
+	case "question-withdraw":
+		apiapi.Schema(apiapi.QuestionWithdrawOp)
+	case "question-list":
+		apiapi.Schema(apiapi.QuestionListOp)
+	case "pool-account-upsert":
+		apiapi.Schema(apiapi.PoolAccountUpsertOp)
+	case "pool-hold-open":
+		apiapi.Schema(apiapi.PoolHoldOpenOp)
+	case "pool-hold-transition":
+		apiapi.Schema(apiapi.PoolHoldTransitionOp)
+	case "pool-view":
+		apiapi.Schema(apiapi.PoolViewOp)
+	case "kernel-snapshot-save":
+		apiapi.Schema(apiapi.KernelSnapshotSaveOp)
+	case "kernel-cut-record":
+		apiapi.Schema(apiapi.KernelCutRecordOp)
+	case "kernel-view":
+		apiapi.Schema(apiapi.KernelViewOp)
+	case "lease-acquire":
+		apiapi.Schema(apiapi.LeaseAcquireOp)
+	case "boot-reconcile":
+		apiapi.Schema(apiapi.BootReconcileOp)
+	case "boot-status":
+		apiapi.Schema(apiapi.BootStatusOp)
+	case "host-capacity-get":
+		apiapi.Schema(apiapi.HostCapacityGetOp)
+	case "wellness-report-get":
+		apiapi.Schema(apiapi.WellnessReportGetOp)
+	case "mcp-token-mint":
+		apiapi.Schema(apiapi.McpTokenMintOp)
+	case "mcp-token-revoke":
+		apiapi.Schema(apiapi.McpTokenRevokeOp)
+	case "mcp-token-list":
+		apiapi.Schema(apiapi.McpTokenListOp)
+	case _:
+		valueOf("{\"type\":\"object\",\"properties\":{}}")
+	}
+}
+
+// Call is the Request that a call of the tool name with arguments asks
+// for: arguments that are not the tool's fail ToolError, a name that is
+// no tool's UnknownTool.
+func Call(name string, arguments json.Value) Request fails mcp.ToolError | mcp.UnknownTool {
+	let text = match name {
+	case "thread-create":
+		rpc.Tagged("ThreadCreateRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "thread-get":
+		rpc.Tagged("ThreadGetRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "thread-list":
+		rpc.Tagged("ThreadListRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "thread-archive":
+		rpc.Tagged("ThreadArchiveRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "driver-switch":
+		rpc.Tagged("DriverSwitchRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "prompt-enqueue":
+		rpc.Tagged("PromptEnqueueRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "prompt-dequeue":
+		rpc.Tagged("PromptDequeueRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "turn-start":
+		rpc.Tagged("TurnStartRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "turn-step":
+		rpc.Tagged("TurnStepRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "subagent-tree-init":
+		rpc.Tagged("SubagentTreeInitRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "subagent-spawn":
+		rpc.Tagged("SubagentSpawnRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "subagent-control-handle":
+		rpc.Tagged("SubagentControlHandleRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "subagent-settle-handle":
+		rpc.Tagged("SubagentSettleHandleRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "subagent-hand-back":
+		rpc.Tagged("SubagentHandBackRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "subagent-tree-get":
+		rpc.Tagged("SubagentTreeGetRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "handle-open":
+		rpc.Tagged("HandleOpenRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "handle-settle":
+		rpc.Tagged("HandleSettleRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "handle-list":
+		rpc.Tagged("HandleListRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "owner-calls-retire":
+		rpc.Tagged("OwnerCallsRetireRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "question-ask":
+		rpc.Tagged("QuestionAskRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "question-answer":
+		rpc.Tagged("QuestionAnswerRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "question-withdraw":
+		rpc.Tagged("QuestionWithdrawRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "question-list":
+		rpc.Tagged("QuestionListRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "pool-account-upsert":
+		rpc.Tagged("PoolAccountUpsertRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "pool-hold-open":
+		rpc.Tagged("PoolHoldOpenRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "pool-hold-transition":
+		rpc.Tagged("PoolHoldTransitionRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "pool-view":
+		rpc.Tagged("PoolViewRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "kernel-snapshot-save":
+		rpc.Tagged("KernelSnapshotSaveRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "kernel-cut-record":
+		rpc.Tagged("KernelCutRecordRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "kernel-view":
+		rpc.Tagged("KernelViewRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "lease-acquire":
+		rpc.Tagged("LeaseAcquireRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "boot-reconcile":
+		rpc.Tagged("BootReconcileRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "boot-status":
+		rpc.Tagged("BootStatusRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "host-capacity-get":
+		rpc.Tagged("HostCapacityGetRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "wellness-report-get":
+		rpc.Tagged("WellnessReportGetRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "mcp-token-mint":
+		rpc.Tagged("McpTokenMintRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "mcp-token-revoke":
+		rpc.Tagged("McpTokenRevokeRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "mcp-token-list":
+		rpc.Tagged("McpTokenListRequest", "{\"input\":"+textOf(arguments)+"}")
+	case _:
+		return mcp.UnknownTool{Name: name}
+	}
+	rpc.Decode[Request]("arguments of "+name, text) catch {
+	case rpc.Transport as e:
+		return mcp.ToolError{Message: e.Reason}
+	}
+}
+
+// Arguments is the tool and the arguments that ask for r: Call reads
+// them as r again.
+func Arguments(r Request) (string, json.Value) {
+	match r {
+	case apiapi.ThreadCreateRequest as x:
+		("thread-create", untagged(valueOf(rpc.Encode(x.Input))))
+	case apiapi.ThreadGetRequest as x:
+		("thread-get", untagged(valueOf(rpc.Encode(x.Input))))
+	case apiapi.ThreadListRequest as x:
+		("thread-list", untagged(valueOf(rpc.Encode(x.Input))))
+	case apiapi.ThreadArchiveRequest as x:
+		("thread-archive", untagged(valueOf(rpc.Encode(x.Input))))
+	case apiapi.DriverSwitchRequest as x:
+		("driver-switch", untagged(valueOf(rpc.Encode(x.Input))))
+	case apiapi.PromptEnqueueRequest as x:
+		("prompt-enqueue", untagged(valueOf(rpc.Encode(x.Input))))
+	case apiapi.PromptDequeueRequest as x:
+		("prompt-dequeue", untagged(valueOf(rpc.Encode(x.Input))))
+	case apiapi.TurnStartRequest as x:
+		("turn-start", untagged(valueOf(rpc.Encode(x.Input))))
+	case apiapi.TurnStepRequest as x:
+		("turn-step", untagged(valueOf(rpc.Encode(x.Input))))
+	case apiapi.SubagentTreeInitRequest as x:
+		("subagent-tree-init", untagged(valueOf(rpc.Encode(x.Input))))
+	case apiapi.SubagentSpawnRequest as x:
+		("subagent-spawn", untagged(valueOf(rpc.Encode(x.Input))))
+	case apiapi.SubagentControlHandleRequest as x:
+		("subagent-control-handle", untagged(valueOf(rpc.Encode(x.Input))))
+	case apiapi.SubagentSettleHandleRequest as x:
+		("subagent-settle-handle", untagged(valueOf(rpc.Encode(x.Input))))
+	case apiapi.SubagentHandBackRequest as x:
+		("subagent-hand-back", untagged(valueOf(rpc.Encode(x.Input))))
+	case apiapi.SubagentTreeGetRequest as x:
+		("subagent-tree-get", untagged(valueOf(rpc.Encode(x.Input))))
+	case apiapi.HandleOpenRequest as x:
+		("handle-open", untagged(valueOf(rpc.Encode(x.Input))))
+	case apiapi.HandleSettleRequest as x:
+		("handle-settle", untagged(valueOf(rpc.Encode(x.Input))))
+	case apiapi.HandleListRequest as x:
+		("handle-list", untagged(valueOf(rpc.Encode(x.Input))))
+	case apiapi.OwnerCallsRetireRequest as x:
+		("owner-calls-retire", untagged(valueOf(rpc.Encode(x.Input))))
+	case apiapi.QuestionAskRequest as x:
+		("question-ask", untagged(valueOf(rpc.Encode(x.Input))))
+	case apiapi.QuestionAnswerRequest as x:
+		("question-answer", untagged(valueOf(rpc.Encode(x.Input))))
+	case apiapi.QuestionWithdrawRequest as x:
+		("question-withdraw", untagged(valueOf(rpc.Encode(x.Input))))
+	case apiapi.QuestionListRequest as x:
+		("question-list", untagged(valueOf(rpc.Encode(x.Input))))
+	case apiapi.PoolAccountUpsertRequest as x:
+		("pool-account-upsert", untagged(valueOf(rpc.Encode(x.Input))))
+	case apiapi.PoolHoldOpenRequest as x:
+		("pool-hold-open", untagged(valueOf(rpc.Encode(x.Input))))
+	case apiapi.PoolHoldTransitionRequest as x:
+		("pool-hold-transition", untagged(valueOf(rpc.Encode(x.Input))))
+	case apiapi.PoolViewRequest as x:
+		("pool-view", untagged(valueOf(rpc.Encode(x.Input))))
+	case apiapi.KernelSnapshotSaveRequest as x:
+		("kernel-snapshot-save", untagged(valueOf(rpc.Encode(x.Input))))
+	case apiapi.KernelCutRecordRequest as x:
+		("kernel-cut-record", untagged(valueOf(rpc.Encode(x.Input))))
+	case apiapi.KernelViewRequest as x:
+		("kernel-view", untagged(valueOf(rpc.Encode(x.Input))))
+	case apiapi.LeaseAcquireRequest as x:
+		("lease-acquire", untagged(valueOf(rpc.Encode(x.Input))))
+	case apiapi.BootReconcileRequest as x:
+		("boot-reconcile", untagged(valueOf(rpc.Encode(x.Input))))
+	case apiapi.BootStatusRequest as x:
+		("boot-status", untagged(valueOf(rpc.Encode(x.Input))))
+	case apiapi.HostCapacityGetRequest as x:
+		("host-capacity-get", untagged(valueOf(rpc.Encode(x.Input))))
+	case apiapi.WellnessReportGetRequest as x:
+		("wellness-report-get", untagged(valueOf(rpc.Encode(x.Input))))
+	case apiapi.McpTokenMintRequest as x:
+		("mcp-token-mint", untagged(valueOf(rpc.Encode(x.Input))))
+	case apiapi.McpTokenRevokeRequest as x:
+		("mcp-token-revoke", untagged(valueOf(rpc.Encode(x.Input))))
+	case apiapi.McpTokenListRequest as x:
+		("mcp-token-list", untagged(valueOf(rpc.Encode(x.Input))))
+	}
+}
+
+// Show is the outcome o as a tool's answer: its value as JSON (null for
+// none), or its typed failure as a ToolError whose message is the
+// failure's tagged JSON.
+func Show(o apiapi.Outcome) json.Value fails mcp.ToolError {
+	match o {
+	case apiapi.Done as done:
+		match done.Reply {
+		case apiapi.ThreadCreateReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case apiapi.ThreadGetReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case apiapi.ThreadListReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case apiapi.ThreadArchiveReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case apiapi.DriverSwitchReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case apiapi.PromptEnqueueReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case apiapi.PromptDequeueReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case apiapi.TurnStartReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case apiapi.TurnStepReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case apiapi.SubagentTreeInitReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case apiapi.SubagentSpawnReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case apiapi.SubagentControlHandleReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case apiapi.SubagentSettleHandleReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case apiapi.SubagentHandBackReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case apiapi.SubagentTreeGetReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case apiapi.HandleOpenReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case apiapi.HandleSettleReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case apiapi.HandleListReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case apiapi.OwnerCallsRetireReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case apiapi.QuestionAskReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case apiapi.QuestionAnswerReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case apiapi.QuestionWithdrawReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case apiapi.QuestionListReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case apiapi.PoolAccountUpsertReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case apiapi.PoolHoldOpenReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case apiapi.PoolHoldTransitionReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case apiapi.PoolViewReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case apiapi.KernelSnapshotSaveReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case apiapi.KernelCutRecordReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case apiapi.KernelViewReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case apiapi.LeaseAcquireReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case apiapi.BootReconcileReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case apiapi.BootStatusReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case apiapi.HostCapacityGetReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case apiapi.WellnessReportGetReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case apiapi.McpTokenMintReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case apiapi.McpTokenRevokeReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case apiapi.McpTokenListReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		}
+	case apiapi.Rejected as rejected:
+		match rejected.Failure {
+		case apiapi.NotFound as failure:
+			return mcp.ToolError{Message: rpc.Tagged("NotFound", rpc.Encode(failure.E))}
+		case apiapi.AlreadyExists as failure:
+			return mcp.ToolError{Message: rpc.Tagged("AlreadyExists", rpc.Encode(failure.E))}
+		case apiapi.InvalidTransition as failure:
+			return mcp.ToolError{Message: rpc.Tagged("InvalidTransition", rpc.Encode(failure.E))}
+		case apiapi.CommandReused as failure:
+			return mcp.ToolError{Message: rpc.Tagged("CommandReused", rpc.Encode(failure.E))}
+		case apiapi.InvalidInput as failure:
+			return mcp.ToolError{Message: rpc.Tagged("InvalidInput", rpc.Encode(failure.E))}
+		case apiapi.LeaseFenced as failure:
+			return mcp.ToolError{Message: rpc.Tagged("LeaseFenced", rpc.Encode(failure.E))}
+		case apiapi.ThreadDomainErr as failure:
+			return mcp.ToolError{Message: rpc.Tagged("ThreadDomainErr", rpc.Encode(failure.E))}
+		case apiapi.SubagentDomainErr as failure:
+			return mcp.ToolError{Message: rpc.Tagged("SubagentDomainErr", rpc.Encode(failure.E))}
+		case apiapi.HandleDomainErr as failure:
+			return mcp.ToolError{Message: rpc.Tagged("HandleDomainErr", rpc.Encode(failure.E))}
+		case apiapi.LimitDomainErr as failure:
+			return mcp.ToolError{Message: rpc.Tagged("LimitDomainErr", rpc.Encode(failure.E))}
+		case apiapi.RequestDomainErr as failure:
+			return mcp.ToolError{Message: rpc.Tagged("RequestDomainErr", rpc.Encode(failure.E))}
+		case apiapi.CutoverDomainErr as failure:
+			return mcp.ToolError{Message: rpc.Tagged("CutoverDomainErr", rpc.Encode(failure.E))}
+		case apiapi.StoreFailed as failure:
+			return mcp.ToolError{Message: rpc.Tagged("StoreFailed", rpc.Encode(failure.E))}
+		case apiapi.HostCapacityFailed as failure:
+			return mcp.ToolError{Message: rpc.Tagged("HostCapacityFailed", rpc.Encode(failure.E))}
+		case apiapi.McpAuthDenied as failure:
+			return mcp.ToolError{Message: rpc.Tagged("McpAuthDenied", rpc.Encode(failure.E))}
+		}
+	}
+}
+
+// Answer answers r through the hub's Call on the bound api.Api (Show).
+func Answer(r Request) json.Value fails mcp.ToolError needs api.Api {
+	try Show(apiapi.Call(r))
+}
+
+// ReadAnswer is the outcome of r that a tool's result says: its value's
+// JSON, or, when it is an error, an admitted failure's tagged JSON.
+// Invalid or missing replies fail Transport, outside the operation's own row.
+func ReadAnswer(r Request, result mcp.Called) apiapi.Outcome fails rpc.Transport {
+	if result.Content.Len() != 1 {
+		return rpc.Transport{Reason: "a tool answered \(result.Content.Len()) blocks, not one"}
+	}
+	let text = result.Content[0].Text
+	if !result.IsError {
+		match r {
+		case apiapi.ThreadCreateRequest:
+			let v = try rpc.Decode[api.ThreadSnapshot]("value", text)
+			apiapi.Done{Reply: apiapi.ThreadCreateReply{Value: v}}
+		case apiapi.ThreadGetRequest:
+			let v = try rpc.Decode[api.ThreadSnapshot]("value", text)
+			apiapi.Done{Reply: apiapi.ThreadGetReply{Value: v}}
+		case apiapi.ThreadListRequest:
+			let v = try rpc.Decode[api.ThreadListOutput]("value", text)
+			apiapi.Done{Reply: apiapi.ThreadListReply{Value: v}}
+		case apiapi.ThreadArchiveRequest:
+			let v = try rpc.Decode[api.ThreadSnapshot]("value", text)
+			apiapi.Done{Reply: apiapi.ThreadArchiveReply{Value: v}}
+		case apiapi.DriverSwitchRequest:
+			let v = try rpc.Decode[api.ThreadSnapshot]("value", text)
+			apiapi.Done{Reply: apiapi.DriverSwitchReply{Value: v}}
+		case apiapi.PromptEnqueueRequest:
+			let v = try rpc.Decode[api.ThreadSnapshot]("value", text)
+			apiapi.Done{Reply: apiapi.PromptEnqueueReply{Value: v}}
+		case apiapi.PromptDequeueRequest:
+			let v = try rpc.Decode[api.ThreadSnapshot]("value", text)
+			apiapi.Done{Reply: apiapi.PromptDequeueReply{Value: v}}
+		case apiapi.TurnStartRequest:
+			let v = try rpc.Decode[api.ThreadSnapshot]("value", text)
+			apiapi.Done{Reply: apiapi.TurnStartReply{Value: v}}
+		case apiapi.TurnStepRequest:
+			let v = try rpc.Decode[api.ThreadSnapshot]("value", text)
+			apiapi.Done{Reply: apiapi.TurnStepReply{Value: v}}
+		case apiapi.SubagentTreeInitRequest:
+			let v = try rpc.Decode[api.SubagentTreeOutput]("value", text)
+			apiapi.Done{Reply: apiapi.SubagentTreeInitReply{Value: v}}
+		case apiapi.SubagentSpawnRequest:
+			let v = try rpc.Decode[api.SubagentTreeOutput]("value", text)
+			apiapi.Done{Reply: apiapi.SubagentSpawnReply{Value: v}}
+		case apiapi.SubagentControlHandleRequest:
+			let v = try rpc.Decode[api.SubagentTreeOutput]("value", text)
+			apiapi.Done{Reply: apiapi.SubagentControlHandleReply{Value: v}}
+		case apiapi.SubagentSettleHandleRequest:
+			let v = try rpc.Decode[api.SubagentTreeOutput]("value", text)
+			apiapi.Done{Reply: apiapi.SubagentSettleHandleReply{Value: v}}
+		case apiapi.SubagentHandBackRequest:
+			let v = try rpc.Decode[api.SubagentTreeOutput]("value", text)
+			apiapi.Done{Reply: apiapi.SubagentHandBackReply{Value: v}}
+		case apiapi.SubagentTreeGetRequest:
+			let v = try rpc.Decode[api.SubagentTreeOutput]("value", text)
+			apiapi.Done{Reply: apiapi.SubagentTreeGetReply{Value: v}}
+		case apiapi.HandleOpenRequest:
+			let v = try rpc.Decode[api.HandleEntryView]("value", text)
+			apiapi.Done{Reply: apiapi.HandleOpenReply{Value: v}}
+		case apiapi.HandleSettleRequest:
+			let v = try rpc.Decode[api.HandleEntryView]("value", text)
+			apiapi.Done{Reply: apiapi.HandleSettleReply{Value: v}}
+		case apiapi.HandleListRequest:
+			let v = try rpc.Decode[api.HandleViewOutput]("value", text)
+			apiapi.Done{Reply: apiapi.HandleListReply{Value: v}}
+		case apiapi.OwnerCallsRetireRequest:
+			let v = try rpc.Decode[api.RetiredCallsOutput]("value", text)
+			apiapi.Done{Reply: apiapi.OwnerCallsRetireReply{Value: v}}
+		case apiapi.QuestionAskRequest:
+			let v = try rpc.Decode[api.AsyncQuestionView]("value", text)
+			apiapi.Done{Reply: apiapi.QuestionAskReply{Value: v}}
+		case apiapi.QuestionAnswerRequest:
+			let v = try rpc.Decode[api.AsyncQuestionView]("value", text)
+			apiapi.Done{Reply: apiapi.QuestionAnswerReply{Value: v}}
+		case apiapi.QuestionWithdrawRequest:
+			let v = try rpc.Decode[api.AsyncQuestionView]("value", text)
+			apiapi.Done{Reply: apiapi.QuestionWithdrawReply{Value: v}}
+		case apiapi.QuestionListRequest:
+			let v = try rpc.Decode[api.AsyncQuestionListOutput]("value", text)
+			apiapi.Done{Reply: apiapi.QuestionListReply{Value: v}}
+		case apiapi.PoolAccountUpsertRequest:
+			let v = try rpc.Decode[api.PoolViewOutput]("value", text)
+			apiapi.Done{Reply: apiapi.PoolAccountUpsertReply{Value: v}}
+		case apiapi.PoolHoldOpenRequest:
+			let v = try rpc.Decode[api.PoolViewOutput]("value", text)
+			apiapi.Done{Reply: apiapi.PoolHoldOpenReply{Value: v}}
+		case apiapi.PoolHoldTransitionRequest:
+			let v = try rpc.Decode[api.PoolViewOutput]("value", text)
+			apiapi.Done{Reply: apiapi.PoolHoldTransitionReply{Value: v}}
+		case apiapi.PoolViewRequest:
+			let v = try rpc.Decode[api.PoolViewOutput]("value", text)
+			apiapi.Done{Reply: apiapi.PoolViewReply{Value: v}}
+		case apiapi.KernelSnapshotSaveRequest:
+			let v = try rpc.Decode[api.KernelViewOutput]("value", text)
+			apiapi.Done{Reply: apiapi.KernelSnapshotSaveReply{Value: v}}
+		case apiapi.KernelCutRecordRequest:
+			let v = try rpc.Decode[api.KernelViewOutput]("value", text)
+			apiapi.Done{Reply: apiapi.KernelCutRecordReply{Value: v}}
+		case apiapi.KernelViewRequest:
+			let v = try rpc.Decode[api.KernelViewOutput]("value", text)
+			apiapi.Done{Reply: apiapi.KernelViewReply{Value: v}}
+		case apiapi.LeaseAcquireRequest:
+			let v = try rpc.Decode[api.BootLeaseOutput]("value", text)
+			apiapi.Done{Reply: apiapi.LeaseAcquireReply{Value: v}}
+		case apiapi.BootReconcileRequest:
+			let v = try rpc.Decode[api.BootLeaseOutput]("value", text)
+			apiapi.Done{Reply: apiapi.BootReconcileReply{Value: v}}
+		case apiapi.BootStatusRequest:
+			let v = try rpc.Decode[api.BootLeaseOutput]("value", text)
+			apiapi.Done{Reply: apiapi.BootStatusReply{Value: v}}
+		case apiapi.HostCapacityGetRequest:
+			let v = try rpc.Decode[api.HostCapacityReport]("value", text)
+			apiapi.Done{Reply: apiapi.HostCapacityGetReply{Value: v}}
+		case apiapi.WellnessReportGetRequest:
+			let v = try rpc.Decode[api.WellnessReport]("value", text)
+			apiapi.Done{Reply: apiapi.WellnessReportGetReply{Value: v}}
+		case apiapi.McpTokenMintRequest:
+			let v = try rpc.Decode[api.MintedToken]("value", text)
+			apiapi.Done{Reply: apiapi.McpTokenMintReply{Value: v}}
+		case apiapi.McpTokenRevokeRequest:
+			let v = try rpc.Decode[api.McpTokenRevokeOutput]("value", text)
+			apiapi.Done{Reply: apiapi.McpTokenRevokeReply{Value: v}}
+		case apiapi.McpTokenListRequest:
+			let v = try rpc.Decode[api.McpTokenListOutput]("value", text)
+			apiapi.Done{Reply: apiapi.McpTokenListReply{Value: v}}
+		}
+	} else {
+		match r {
+		case apiapi.ThreadCreateRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool thread-create answered an undeclared failure: " + text}
+			}
+		case apiapi.ThreadGetRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool thread-get answered an undeclared failure: " + text}
+			}
+		case apiapi.ThreadListRequest:
+			match rpc.TagOf(text) {
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool thread-list answered an undeclared failure: " + text}
+			}
+		case apiapi.ThreadArchiveRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool thread-archive answered an undeclared failure: " + text}
+			}
+		case apiapi.DriverSwitchRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool driver-switch answered an undeclared failure: " + text}
+			}
+		case apiapi.PromptEnqueueRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool prompt-enqueue answered an undeclared failure: " + text}
+			}
+		case apiapi.PromptDequeueRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool prompt-dequeue answered an undeclared failure: " + text}
+			}
+		case apiapi.TurnStartRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool turn-start answered an undeclared failure: " + text}
+			}
+		case apiapi.TurnStepRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool turn-step answered an undeclared failure: " + text}
+			}
+		case apiapi.SubagentTreeInitRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool subagent-tree-init answered an undeclared failure: " + text}
+			}
+		case apiapi.SubagentSpawnRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool subagent-spawn answered an undeclared failure: " + text}
+			}
+		case apiapi.SubagentControlHandleRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool subagent-control-handle answered an undeclared failure: " + text}
+			}
+		case apiapi.SubagentSettleHandleRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool subagent-settle-handle answered an undeclared failure: " + text}
+			}
+		case apiapi.SubagentHandBackRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool subagent-hand-back answered an undeclared failure: " + text}
+			}
+		case apiapi.SubagentTreeGetRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool subagent-tree-get answered an undeclared failure: " + text}
+			}
+		case apiapi.HandleOpenRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool handle-open answered an undeclared failure: " + text}
+			}
+		case apiapi.HandleSettleRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool handle-settle answered an undeclared failure: " + text}
+			}
+		case apiapi.HandleListRequest:
+			match rpc.TagOf(text) {
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool handle-list answered an undeclared failure: " + text}
+			}
+		case apiapi.OwnerCallsRetireRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool owner-calls-retire answered an undeclared failure: " + text}
+			}
+		case apiapi.QuestionAskRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool question-ask answered an undeclared failure: " + text}
+			}
+		case apiapi.QuestionAnswerRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool question-answer answered an undeclared failure: " + text}
+			}
+		case apiapi.QuestionWithdrawRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool question-withdraw answered an undeclared failure: " + text}
+			}
+		case apiapi.QuestionListRequest:
+			match rpc.TagOf(text) {
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool question-list answered an undeclared failure: " + text}
+			}
+		case apiapi.PoolAccountUpsertRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool pool-account-upsert answered an undeclared failure: " + text}
+			}
+		case apiapi.PoolHoldOpenRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool pool-hold-open answered an undeclared failure: " + text}
+			}
+		case apiapi.PoolHoldTransitionRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool pool-hold-transition answered an undeclared failure: " + text}
+			}
+		case apiapi.PoolViewRequest:
+			match rpc.TagOf(text) {
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool pool-view answered an undeclared failure: " + text}
+			}
+		case apiapi.KernelSnapshotSaveRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool kernel-snapshot-save answered an undeclared failure: " + text}
+			}
+		case apiapi.KernelCutRecordRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool kernel-cut-record answered an undeclared failure: " + text}
+			}
+		case apiapi.KernelViewRequest:
+			match rpc.TagOf(text) {
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool kernel-view answered an undeclared failure: " + text}
+			}
+		case apiapi.LeaseAcquireRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool lease-acquire answered an undeclared failure: " + text}
+			}
+		case apiapi.BootReconcileRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool boot-reconcile answered an undeclared failure: " + text}
+			}
+		case apiapi.BootStatusRequest:
+			match rpc.TagOf(text) {
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool boot-status answered an undeclared failure: " + text}
+			}
+		case apiapi.HostCapacityGetRequest:
+			match rpc.TagOf(text) {
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "HostCapacityFailed":
+				let e = try rpc.Decode[api.HostCapacityFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HostCapacityFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool host-capacity-get answered an undeclared failure: " + text}
+			}
+		case apiapi.WellnessReportGetRequest:
+			match rpc.TagOf(text) {
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool wellness-report-get answered an undeclared failure: " + text}
+			}
+		case apiapi.McpTokenMintRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case "McpAuthDenied":
+				let e = try rpc.Decode[api.McpAuthDenied]("failure", text)
+				apiapi.Rejected{Failure: apiapi.McpAuthDenied{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool mcp-token-mint answered an undeclared failure: " + text}
+			}
+		case apiapi.McpTokenRevokeRequest:
+			match rpc.TagOf(text) {
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool mcp-token-revoke answered an undeclared failure: " + text}
+			}
+		case apiapi.McpTokenListRequest:
+			match rpc.TagOf(text) {
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool mcp-token-list answered an undeclared failure: " + text}
+			}
+		}
+	}
+}
+
+func toolOver(name string, answer own func(r Request) apiapi.Outcome) mcp.Tool {
+	mcp.Tool{Name: name, Description: Description(name), Input: Input(name), Call: func(arguments json.Value) json.Value fails mcp.ToolError {
+		let r = Call(name, arguments) catch {
+		case mcp.ToolError as e:
+			return e
+		case mcp.UnknownTool as e:
+			return mcp.ToolError{Message: "no tool is named " + e.Name}
+		}
+		try Show(answer(r))
+	}}
+}
+
+func toolsOver(answer own func(r Request) apiapi.Outcome) []mcp.Tool {
+	let mut out = []mcp.Tool{}
+	for name in Names {
+		out = out.Append(toolOver(name, answer))
+	}
+	out
+}
+
+// Tools are the tools of the api.Api in force, one per operation, in its order.
+func Tools() []mcp.Tool needs api.Api {
+	let held = scope.InForce[api.Api]()
+	toolsOver(func(r Request) apiapi.Outcome {
+		with held { apiapi.Call(r) }
+	})
+}
+
+func carry(c Request, answer own func(c Request) apiapi.Outcome) apiapi.Outcome fails rpc.Transport {
+	let server = mcp.Server{Name: "carry", Version: "1", Tools: toolsOver(answer)}
+	let (name, arguments) = Arguments(c)
+	let message = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":" + rpc.Encode(name) + ",\"arguments\":" + textOf(arguments) + "}}"
+	match mcp.Handle(server, message) {
+	case mcp.Answered as a:
+		let result = json.Decode(json.Codec[mcp.Called]{MaxBytes: 0, MaxDepth: 0}, a.Result) catch {
+		case _:
+			return rpc.Transport{Reason: "a tool's result is not one: " + a.Result}
+		}
+		try ReadAnswer(c, result)
+	case mcp.Refused as e:
+		return rpc.Transport{Reason: "the server refused the call: " + e.Message}
+	case mcp.Silent:
+		return rpc.Transport{Reason: "the server did not answer the call"}
+	}
+}
+
+// Wire is the protocol as a transport of the hub's calls.
+type Wire {} implements ergoapi.Transport[Request, apiapi.Outcome, rpc.Transport]
+
+// Carry is carry.
+func Carry(w Wire, c Request, answer own func(c Request) apiapi.Outcome) apiapi.Outcome fails rpc.Transport { try carry(c, answer) }
+
+// Agrees: the protocol carries every call and every outcome the call
+// can have unchanged.
+law Agrees(r Request, g apiapi.Given) { ergoapi.Agrees[Request, apiapi.Outcome, rpc.Transport](Wire, r, apiapi.OutcomeOf(r, g)) }
+
+// RoundTrips reports whether Call reads what Arguments writes of r as r.
+func RoundTrips(r Request) bool {
+	let (name, arguments) = Arguments(r)
+	let back = Call(name, arguments) catch {
+	case mcp.ToolError, mcp.UnknownTool:
+		return false
+	}
+	back == r
+}
+
+// FitsSchema reports whether the arguments that ask for r fit the
+// schema their tool lists.
+func FitsSchema(r Request) bool {
+	let (name, arguments) = Arguments(r)
+	mcp.Conforms(Input(name), arguments)
+}
+
+// ArgumentsRoundTrip: Call reads what Arguments writes as the same Request.
+law ArgumentsRoundTrip(r Request) { RoundTrips(r) }
+
+// ArgumentsFitTheSchema: the arguments of every Request fit the schema
+// of their tool.
+law ArgumentsFitTheSchema(r Request) { FitsSchema(r) }

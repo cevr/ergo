@@ -1,0 +1,262 @@
+import github.com/cevr/ergo/modules/atlas/cutover
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/reconcile
+import github.com/cevr/ergo/modules/atlas/session
+import github.com/cevr/ergo/modules/atlas/subagent
+import github.com/cevr/ergo/modules/atlas/thread
+import github.com/cevr/ergo/modules/atlas/turn
+import option
+
+// HoldActionWake transitions a waiting pool hold to woken when RetryAtMs arrives.
+type HoldActionWake {}
+
+// HoldActionCancel cancels a waiting pool hold before its wake fires.
+type HoldActionCancel {}
+
+// HoldTransition identifies the lifecycle transition applied to a PoolHold.
+type HoldTransition = HoldActionWake | HoldActionCancel
+
+// CmdCreateThread initializes and persists a new Thread and optional parent BranchEdge.
+type CmdCreateThread {
+	Spec      thread.ThreadSpec,
+	EdgeLabel string,
+}
+
+// CmdAddBranchEdge records an explicit directed BranchEdge between two existing threads.
+type CmdAddBranchEdge {
+	Branch BranchEdge,
+}
+
+// CmdSwitchDriver switches a thread's Meta or Direct driver between turns.
+type CmdSwitchDriver {
+	ThreadID handle.ThreadID,
+	Spec     thread.DriverSwitchSpec,
+}
+
+// CmdEnqueuePrompt appends a follow-up prompt to a thread's FIFO prompt queue.
+type CmdEnqueuePrompt {
+	ThreadID handle.ThreadID,
+	Prompt   thread.QueuedPrompt,
+}
+
+// CmdDequeuePrompt pops the head queued prompt from an idle thread.
+type CmdDequeuePrompt {
+	TargetThreadID handle.ThreadID,
+}
+
+// CmdStartTurn allocates/reuses a live session and dispatches one active turn on a thread.
+type CmdStartTurn {
+	ThreadID handle.ThreadID,
+	TurnID   turn.TurnID,
+}
+
+// CmdStepTurn advances an active turn on a thread using turn.StepThreadTurn.
+type CmdStepTurn {
+	ThreadID handle.ThreadID,
+	Action   turn.TurnAction,
+}
+
+// CmdArchiveThread marks an idle thread archived and releases any attached live session.
+type CmdArchiveThread {
+	ID handle.ThreadID,
+}
+
+// CmdInitSubagentTree initializes a bounded subagent execution tree rooted at RootID.
+type CmdInitSubagentTree {
+	RootID handle.ThreadID,
+	Bounds subagent.TreeBounds,
+}
+
+// CmdSpawnSubagent spawns a bounded child node under ParentID in a subagent tree.
+type CmdSpawnSubagent {
+	RootID   handle.ThreadID,
+	ParentID handle.ThreadID,
+	ChildID  handle.ThreadID,
+	Role     subagent.AgentRole,
+}
+
+// CmdSubagentControlHandle opens an unsettled handle strictly inside CallerID's subtree.
+type CmdSubagentControlHandle {
+	RootID   handle.ThreadID,
+	CallerID handle.ThreadID,
+	TargetID handle.ThreadID,
+	HandleID handle.HandleID,
+}
+
+// CmdSubagentSettleHandle settles one handle on NodeID and wakes it if unblocked.
+type CmdSubagentSettleHandle {
+	RootID   handle.ThreadID,
+	NodeID   handle.ThreadID,
+	HandleID handle.HandleID,
+}
+
+// CmdSubagentHandBack finalizes a subagent child node hand-back once unblocked.
+type CmdSubagentHandBack {
+	RootID handle.ThreadID,
+	NodeID handle.ThreadID,
+}
+
+// CmdOpenHandle opens a DELIVERS handle under its sole deliverer and optional subagent node.
+type CmdOpenHandle {
+	Spec         handle.OpenHandleSpec,
+	SubagentRoot option.Option[handle.ThreadID],
+	NodeID       option.Option[handle.ThreadID],
+}
+
+// CmdMarkHandleHanded marks an open KindCall handle as DispHanded with zero wake letters.
+type CmdMarkHandleHanded {
+	CallID    handle.HandleID,
+	SpawnedID handle.HandleID,
+}
+
+// CmdSettleHandle settles an open DELIVERS handle once and optionally emits its WakeRecord.
+type CmdSettleHandle {
+	ID           handle.HandleID,
+	Disposition  handle.Disposition,
+	Summary      string,
+	SubagentRoot option.Option[handle.ThreadID],
+	NodeID       option.Option[handle.ThreadID],
+}
+
+// CmdRetireOwnerCalls retires all open KindCall handles owned by DeadOwner as DispLost.
+type CmdRetireOwnerCalls {
+	DeadOwner handle.OwnerID,
+}
+
+// CmdRecordWake inserts a WakeRecord keyed by DeliveryID if not already recorded differently.
+type CmdRecordWake {
+	Wake reconcile.WakeRecord,
+}
+
+// CmdMarkWakeDelivered marks DeliveryID delivered at most once across restarts.
+type CmdMarkWakeDelivered {
+	WakeDeliveryID string,
+}
+
+// CmdOpenPoolHold creates a waiting quota PoolHold keyed by HoldKey with HoldWakeDeliveryID.
+type CmdOpenPoolHold {
+	HoldKey        string,
+	ThreadID       handle.ThreadID,
+	AccountID      session.AccountID,
+	RetryAtMs      int64,
+	ParentNotified bool,
+}
+
+// CmdTransitionHold wakes a due PoolHold or cancels a waiting PoolHold.
+type CmdTransitionHold {
+	HoldKey string,
+	Action  HoldTransition,
+}
+
+// CmdAskUserAsync creates a persistent ask_user_async question, host handle, and RequestState.
+type CmdAskUserAsync {
+	ID         turn.RequestID,
+	ThreadID   handle.ThreadID,
+	HandleID   handle.HandleID,
+	Owner      handle.OwnerID,
+	Session    handle.SessionID,
+	Header     string,
+	Prompt     string,
+	Assumption string,
+	Options    []string,
+	TargetRole subagent.AgentRole,
+}
+
+// CmdAnswerAsyncQuestion answers an open ask_user_async question once and records its wake.
+type CmdAnswerAsyncQuestion {
+	ID     turn.RequestID,
+	Answer string,
+	By     turn.Responder,
+}
+
+// CmdWithdrawAsyncQuestion withdraws an open ask_user_async question and cancels its handle silently.
+type CmdWithdrawAsyncQuestion {
+	ID turn.RequestID,
+}
+
+// CmdUpsertPoolAccount stores measured quota windows and unsettled starts on a PoolAccount.
+type CmdUpsertPoolAccount {
+	Pool PoolAccount,
+}
+
+// CmdAdjustPoolInflight atomically adjusts unsettled dispatch starts on an AccountID.
+type CmdAdjustPoolInflight {
+	AccountID session.AccountID,
+	Delta     int,
+}
+
+// CmdClaimResetDispatch claims single-winner dispatch rights for one exhausted quota reset period.
+type CmdClaimResetDispatch {
+	AccountID  session.AccountID,
+	WindowKind LimitWindowKind,
+	PeriodKey  string,
+	ClaimedBy  string,
+}
+
+// CmdSetOwnerPush creates or updates a time-boxed OwnerPush capacity reserve.
+type CmdSetOwnerPush {
+	Reserve OwnerPush,
+}
+
+// CmdStepLimitRecovery validates and advances a persisted turn.LimitState.
+type CmdStepLimitRecovery {
+	Key    turn.LimitRecoveryKey,
+	Action turn.LimitAction,
+}
+
+// CmdSaveKernelSnapshot persists a bounded serializable kernel binding snapshot for one session.
+type CmdSaveKernelSnapshot {
+	SessionID     handle.SessionID,
+	ThreadID      handle.ThreadID,
+	RootThreadID  handle.ThreadID,
+	BindingsJSON  string,
+	SnapshotBytes int,
+	LostNotice    string,
+}
+
+// CmdRecordKernelCut appends one cut.calls / cut.maps audit journal and updates hourly root share usage.
+type CmdRecordKernelCut {
+	CutID        string,
+	SessionID    handle.SessionID,
+	ThreadID     handle.ThreadID,
+	RootThreadID handle.ThreadID,
+	CallsJSON    string,
+	MapsJSON     string,
+	StartedAtMs  int64,
+	EndedAtMs    int64,
+	Reason       string,
+}
+
+// CmdAcquireLease acquires or CAS-advances a fenced server ownership lease.
+type CmdAcquireLease {
+	LeaseID       string,
+	Owner         handle.OwnerID,
+	ExpectedEpoch int,
+}
+
+// CmdStepLeaseCutover steps an ownership lease through M14 live cutover and updates fencing tokens.
+type CmdStepLeaseCutover {
+	LeaseID  string,
+	NewOwner option.Option[handle.OwnerID],
+	Action   cutover.CutoverAction,
+}
+
+// CmdApplyBootReconcile executes deterministic startup reconciliation across handles, wakes, turns, requests, and subagents.
+type CmdApplyBootReconcile {
+	RootID                     option.Option[handle.ThreadID],
+	BootingOwner               handle.OwnerID,
+	LiveForeignOwners          []handle.OwnerID,
+	PendingRequestsSurviveBoot bool,
+}
+
+// Command is the closed union of store commands validated by Decide and executed atomically.
+type Command = CmdCreateThread | CmdAddBranchEdge | CmdSwitchDriver | CmdEnqueuePrompt | CmdDequeuePrompt | CmdStartTurn | CmdStepTurn | CmdArchiveThread | CmdInitSubagentTree | CmdSpawnSubagent | CmdSubagentControlHandle | CmdSubagentSettleHandle | CmdSubagentHandBack | CmdOpenHandle | CmdMarkHandleHanded | CmdSettleHandle | CmdRetireOwnerCalls | CmdRecordWake | CmdMarkWakeDelivered | CmdOpenPoolHold | CmdTransitionHold | CmdAskUserAsync | CmdAnswerAsyncQuestion | CmdWithdrawAsyncQuestion | CmdUpsertPoolAccount | CmdAdjustPoolInflight | CmdClaimResetDispatch | CmdSetOwnerPush | CmdStepLimitRecovery | CmdSaveKernelSnapshot | CmdRecordKernelCut | CmdAcquireLease | CmdStepLeaseCutover | CmdApplyBootReconcile
+
+// Envelope wraps one Command with its idempotent CommandID, actor, timestamp, and optional lease fence.
+type Envelope {
+	ID         CommandID,
+	Actor      string,
+	AtMs       int64,
+	LeaseFence option.Option[LeaseFenceCheck],
+	Command    Command,
+}

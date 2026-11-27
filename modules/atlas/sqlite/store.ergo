@@ -1,0 +1,472 @@
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/memory
+import github.com/cevr/ergo/modules/atlas/subagent
+import github.com/cevr/ergo/modules/sqlite/sqlite
+import go os
+import option
+import sql
+import sync
+
+// Store is a transactional SQLite provider of memory.Store executing Decide -> Commit -> Act in one BEGIN IMMEDIATE transaction.
+type Store {
+	db  option.Option[sqlite.DB],
+	err string,
+} implements memory.Store
+
+// WALStore is a file-backed WAL SQLite provider of memory.Store used to run contract laws over real WAL files.
+type WALStore {
+	db  option.Option[sqlite.DB],
+	err string,
+} implements memory.Store
+
+func mapSQLOpenErr(prefix string, err sql.Failure) memory.StoreFailed {
+	memory.StoreFailed{Reason: prefix + " " + sqlErrMsg(err)}
+}
+
+// Open opens or initializes a file-backed WAL SQLite Atlas Store at path enforcing CurrentSchemaVersion.
+func Open(path string) Store fails memory.StoreFailed needs go.Foreign {
+	let db = sqlite.Open(path) catch {
+	case sql.Unique as e:
+		return mapSQLOpenErr("open", e)
+	case sql.Serialization as e:
+		return mapSQLOpenErr("open", e)
+	case sql.Deadlock as e:
+		return mapSQLOpenErr("open", e)
+	case sql.Timeout as e:
+		return mapSQLOpenErr("open", e)
+	case sql.Closed as e:
+		return mapSQLOpenErr("open", e)
+	case sql.Other as e:
+		return mapSQLOpenErr("open", e)
+	}
+	try initStore(db)
+}
+
+// OpenMemory opens a private in-memory SQLite Atlas Store.
+func OpenMemory() Store fails memory.StoreFailed needs go.Foreign {
+	try Open(":memory:")
+}
+
+// NewStore opens an in-memory SQLite Store for native contract-law runs.
+func NewStore() Store needs go.Foreign {
+	OpenMemory() catch {
+	case memory.StoreFailed as e:
+		Store{db: option.None, err: e.Reason}
+	}
+}
+
+// NewWALStore opens a fresh file-backed WAL SQLite Store for native contract-law runs.
+func NewWALStore() WALStore needs go.Foreign {
+	let st = openLawFileWAL() catch {
+	case memory.StoreFailed as e:
+		Store{db: option.None, err: e.Reason}
+	}
+	WALStore{db: st.db, err: st.err}
+}
+
+// Close closes the underlying SQLite connection pool of Store.
+func Close(s Store) fails memory.StoreFailed needs go.Foreign {
+	let db = try openDB(s.db, s.err)
+	db.Close() catch {
+	case sql.Closed as e:
+		return mapSQLOpenErr("close", e)
+	case sql.Other as e:
+		return mapSQLOpenErr("close", e)
+	}
+}
+
+// CloseWAL closes the underlying SQLite connection pool of WALStore.
+func CloseWAL(w WALStore) fails memory.StoreFailed needs go.Foreign {
+	let db = try openDB(w.db, w.err)
+	db.Close() catch {
+	case sql.Closed as e:
+		return mapSQLOpenErr("close", e)
+	case sql.Other as e:
+		return mapSQLOpenErr("close", e)
+	}
+}
+
+func openDB(opt option.Option[sqlite.DB], err string) sqlite.DB fails memory.StoreFailed {
+	match opt {
+	case option.Some[sqlite.DB] as d:
+		d.Value
+	case option.None:
+		memory.StoreFailed{Reason: err}
+	}
+}
+
+func closeIgnoring(db sqlite.DB) needs go.Foreign {
+	db.Close() catch {
+	case sql.Closed, sql.Other:
+	}
+}
+
+func initStore(db sqlite.DB) Store fails memory.StoreFailed needs go.Foreign {
+	let _ = with context { sql.DB: db } {
+		sqlite.WriteTransaction() {
+			try initSchema()
+			true
+		}
+	} catch {
+	case memory.StoreFailed as e:
+		closeIgnoring(db)
+		return e
+	case sql.Unique as e:
+		closeIgnoring(db)
+		return mapSQLOpenErr("init", e)
+	case sql.Serialization as e:
+		closeIgnoring(db)
+		return mapSQLOpenErr("init", e)
+	case sql.Deadlock as e:
+		closeIgnoring(db)
+		return mapSQLOpenErr("init", e)
+	case sql.Timeout as e:
+		closeIgnoring(db)
+		return mapSQLOpenErr("init", e)
+	case sql.Closed as e:
+		closeIgnoring(db)
+		return mapSQLOpenErr("init", e)
+	case sql.Other as e:
+		closeIgnoring(db)
+		return mapSQLOpenErr("init", e)
+	}
+	Store{db: option.Some[sqlite.DB]{Value: db}, err: ""}
+}
+
+func decideForTx(state memory.State, env memory.Envelope) []memory.Event fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr {
+	memory.Decide(state, env) catch {
+	case memory.NotFound as e:
+		return e
+	case memory.AlreadyExists as e:
+		return e
+	case memory.InvalidTransition as e:
+		return e
+	case memory.CommandReused as e:
+		return e
+	case memory.InvalidInput as e:
+		return e
+	case memory.LeaseFenced as e:
+		return e
+	case memory.ThreadDomainErr as e:
+		return e
+	case memory.SubagentDomainErr as e:
+		return e
+	case memory.HandleDomainErr as e:
+		return e
+	case memory.LimitDomainErr as e:
+		return e
+	case memory.RequestDomainErr as e:
+		return e
+	case memory.CutoverDomainErr as e:
+		return e
+	}
+}
+
+func lastSeqTx() int fails memory.StoreFailed needs sql.Tx {
+	let rows = try queryTx("SELECT COALESCE(MAX(seq), 0) FROM events", []sql.Value{})
+	if rows.Len() == 0 {
+		return 0
+	}
+	try intAt(rows[0], 0)
+}
+
+func executeTx(env memory.Envelope) memory.ExecuteResult fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed needs sql.Tx {
+	let payloadJSON = encodeWire(env.Command)
+	let digest = commandDigest(payloadJSON)
+	let seenRows = try queryTx(
+		"SELECT payload_digest, payload_json FROM commands WHERE command_id = ?",
+		[]sql.Value{sql.Text{S: string(env.ID)}},
+	)
+	if seenRows.Len() > 0 {
+		let storedDigest = try textAt(seenRows[0], 0)
+		let storedJSON = try textAt(seenRows[0], 1)
+		if storedDigest == digest && storedJSON == payloadJSON {
+			let curSeq = try lastSeqTx()
+			return memory.ExecuteResult{Seq: curSeq, Events: []memory.Event{}, Duplicate: true}
+		}
+		return memory.CommandReused{ID: env.ID}
+	}
+	let state = try loadScopeTx(env)
+	let events = try decideForTx(state, env)
+	let mut seq = try lastSeqTx()
+	for _, ev in events {
+		seq = seq + 1
+		let _ = try execTx(
+			"INSERT INTO events (seq, command_id, payload_digest, event_json) VALUES (?, ?, ?, ?)",
+			[]sql.Value{
+				sql.Int{N: int64(seq)},
+				sql.Text{S: string(env.ID)},
+				sql.Text{S: digest},
+				sql.Text{S: encodeWire(ev)},
+			},
+		)
+		try applyEventSQL(ev, seq)
+	}
+	memory.ExecuteResult{Seq: seq, Events: events, Duplicate: events.Len() == 0}
+}
+
+func executeOn(opt option.Option[sqlite.DB], err string, env memory.Envelope) memory.ExecuteResult fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed needs go.Foreign {
+	let db = try openDB(opt, err)
+	with context { sql.DB: db } {
+		sqlite.WriteTransaction() {
+			try executeTx(env)
+		}
+	} catch {
+	case memory.NotFound as e:
+		return e
+	case memory.AlreadyExists as e:
+		return e
+	case memory.InvalidTransition as e:
+		return e
+	case memory.CommandReused as e:
+		return e
+	case memory.InvalidInput as e:
+		return e
+	case memory.LeaseFenced as e:
+		return e
+	case memory.ThreadDomainErr as e:
+		return e
+	case memory.SubagentDomainErr as e:
+		return e
+	case memory.HandleDomainErr as e:
+		return e
+	case memory.LimitDomainErr as e:
+		return e
+	case memory.RequestDomainErr as e:
+		return e
+	case memory.CutoverDomainErr as e:
+		return e
+	case memory.StoreFailed as e:
+		return e
+	case sql.Unique as e:
+		return mapSQLOpenErr("tx", e)
+	case sql.Serialization as e:
+		return mapSQLOpenErr("tx", e)
+	case sql.Deadlock as e:
+		return mapSQLOpenErr("tx", e)
+	case sql.Timeout as e:
+		return mapSQLOpenErr("tx", e)
+	case sql.Closed as e:
+		return mapSQLOpenErr("tx", e)
+	case sql.Other as e:
+		return mapSQLOpenErr("tx", e)
+	}
+}
+
+func readOn[T](opt option.Option[sqlite.DB], err string, body func() T fails memory.StoreFailed needs sql.Tx) T fails memory.StoreFailed needs go.Foreign {
+	let db = try openDB(opt, err)
+	with context { sql.DB: sqlite.ReadOnly(db) } {
+		sql.Transaction() {
+			try body()
+		}
+	} catch {
+	case memory.StoreFailed as e:
+		return e
+	case sql.Unique as e:
+		return mapSQLOpenErr("read", e)
+	case sql.Serialization as e:
+		return mapSQLOpenErr("read", e)
+	case sql.Deadlock as e:
+		return mapSQLOpenErr("read", e)
+	case sql.Timeout as e:
+		return mapSQLOpenErr("read", e)
+	case sql.Closed as e:
+		return mapSQLOpenErr("read", e)
+	case sql.Other as e:
+		return mapSQLOpenErr("read", e)
+	}
+}
+
+// Execute validates and commits one Envelope atomically on Store inside BEGIN IMMEDIATE.
+func Execute(s Store, env memory.Envelope) memory.ExecuteResult fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed needs go.Foreign {
+	try executeOn(s.db, s.err, env)
+}
+
+// Execute validates and commits one Envelope atomically on WALStore inside BEGIN IMMEDIATE.
+func Execute(w WALStore, env memory.Envelope) memory.ExecuteResult fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed needs go.Foreign {
+	try executeOn(w.db, w.err, env)
+}
+
+// Snapshot reads the complete projected State from Store in one deferred read transaction.
+func Snapshot(s Store) memory.State fails memory.StoreFailed needs go.Foreign {
+	try readOn(s.db, s.err, func() memory.State fails memory.StoreFailed needs sql.Tx { try loadStateTx() })
+}
+
+// Snapshot reads the complete projected State from WALStore in one deferred read transaction.
+func Snapshot(w WALStore) memory.State fails memory.StoreFailed needs go.Foreign {
+	try readOn(w.db, w.err, func() memory.State fails memory.StoreFailed needs sql.Tx { try loadStateTx() })
+}
+
+// Events reads all persisted StoredEvents with Seq > fromSeq from Store.
+func Events(s Store, fromSeq int) []memory.StoredEvent fails memory.StoreFailed needs go.Foreign {
+	try readOn(s.db, s.err, func() []memory.StoredEvent fails memory.StoreFailed needs sql.Tx { try queryEventsTx(fromSeq) })
+}
+
+// Events reads all persisted StoredEvents with Seq > fromSeq from WALStore.
+func Events(w WALStore, fromSeq int) []memory.StoredEvent fails memory.StoreFailed needs go.Foreign {
+	try readOn(w.db, w.err, func() []memory.StoredEvent fails memory.StoreFailed needs sql.Tx { try queryEventsTx(fromSeq) })
+}
+
+// GetThreadView queries one projected Thread, its BranchEdges, and its FIFO PromptQueue from Store.
+func GetThreadView(s Store, id handle.ThreadID) option.Option[memory.ThreadView] fails memory.StoreFailed needs go.Foreign {
+	try readOn(s.db, s.err, func() option.Option[memory.ThreadView] fails memory.StoreFailed needs sql.Tx { try queryThreadViewTx(id) })
+}
+
+// GetThreadView queries one projected Thread, its BranchEdges, and its FIFO PromptQueue from WALStore.
+func GetThreadView(w WALStore, id handle.ThreadID) option.Option[memory.ThreadView] fails memory.StoreFailed needs go.Foreign {
+	try readOn(w.db, w.err, func() option.Option[memory.ThreadView] fails memory.StoreFailed needs sql.Tx { try queryThreadViewTx(id) })
+}
+
+// GetSubagentTree queries one bounded subagent Tree from Store.
+func GetSubagentTree(s Store, rootID handle.ThreadID) option.Option[subagent.Tree] fails memory.StoreFailed needs go.Foreign {
+	try readOn(s.db, s.err, func() option.Option[subagent.Tree] fails memory.StoreFailed needs sql.Tx { try querySubagentTreeTx(rootID) })
+}
+
+// GetSubagentTree queries one bounded subagent Tree from WALStore.
+func GetSubagentTree(w WALStore, rootID handle.ThreadID) option.Option[subagent.Tree] fails memory.StoreFailed needs go.Foreign {
+	try readOn(w.db, w.err, func() option.Option[subagent.Tree] fails memory.StoreFailed needs sql.Tx { try querySubagentTreeTx(rootID) })
+}
+
+// GetHandleView queries filtered DELIVERS handles, wakes, and pool holds from Store.
+func GetHandleView(s Store, filter memory.HandleFilter) memory.HandleView fails memory.StoreFailed needs go.Foreign {
+	try readOn(s.db, s.err, func() memory.HandleView fails memory.StoreFailed needs sql.Tx { try queryHandleViewTx(filter) })
+}
+
+// GetHandleView queries filtered DELIVERS handles, wakes, and pool holds from WALStore.
+func GetHandleView(w WALStore, filter memory.HandleFilter) memory.HandleView fails memory.StoreFailed needs go.Foreign {
+	try readOn(w.db, w.err, func() memory.HandleView fails memory.StoreFailed needs sql.Tx { try queryHandleViewTx(filter) })
+}
+
+// GetQuestions queries persisted ask_user_async entries from Store.
+func GetQuestions(s Store, filter memory.QuestionFilter) []memory.AsyncQuestion fails memory.StoreFailed needs go.Foreign {
+	try readOn(s.db, s.err, func() []memory.AsyncQuestion fails memory.StoreFailed needs sql.Tx { try queryQuestionsTx(filter) })
+}
+
+// GetQuestions queries persisted ask_user_async entries from WALStore.
+func GetQuestions(w WALStore, filter memory.QuestionFilter) []memory.AsyncQuestion fails memory.StoreFailed needs go.Foreign {
+	try readOn(w.db, w.err, func() []memory.AsyncQuestion fails memory.StoreFailed needs sql.Tx { try queryQuestionsTx(filter) })
+}
+
+// GetPoolView queries pool windows, unsettled starts, claims, pushes, and holds from Store.
+func GetPoolView(s Store, nowMs int64) memory.PoolView fails memory.StoreFailed needs go.Foreign {
+	try readOn(s.db, s.err, func() memory.PoolView fails memory.StoreFailed needs sql.Tx { try queryPoolViewTx(nowMs) })
+}
+
+// GetPoolView queries pool windows, unsettled starts, claims, pushes, and holds from WALStore.
+func GetPoolView(w WALStore, nowMs int64) memory.PoolView fails memory.StoreFailed needs go.Foreign {
+	try readOn(w.db, w.err, func() memory.PoolView fails memory.StoreFailed needs sql.Tx { try queryPoolViewTx(nowMs) })
+}
+
+// GetKernelView queries kernel snapshots, journals, root usages, limits, and requests from Store.
+func GetKernelView(s Store, sessionID handle.SessionID) memory.KernelView fails memory.StoreFailed needs go.Foreign {
+	try readOn(s.db, s.err, func() memory.KernelView fails memory.StoreFailed needs sql.Tx { try queryKernelViewTx(sessionID) })
+}
+
+// GetKernelView queries kernel snapshots, journals, root usages, limits, and requests from WALStore.
+func GetKernelView(w WALStore, sessionID handle.SessionID) memory.KernelView fails memory.StoreFailed needs go.Foreign {
+	try readOn(w.db, w.err, func() memory.KernelView fails memory.StoreFailed needs sql.Tx { try queryKernelViewTx(sessionID) })
+}
+
+// GetLeaseAndBoot queries leases, open call owners, and BootSnapshot from Store.
+func GetLeaseAndBoot(s Store, query memory.BootQuery) memory.BootLeaseView fails memory.StoreFailed needs go.Foreign {
+	try readOn(s.db, s.err, func() memory.BootLeaseView fails memory.StoreFailed needs sql.Tx { try queryLeaseAndBootTx(query) })
+}
+
+// GetLeaseAndBoot queries leases, open call owners, and BootSnapshot from WALStore.
+func GetLeaseAndBoot(w WALStore, query memory.BootQuery) memory.BootLeaseView fails memory.StoreFailed needs go.Foreign {
+	try readOn(w.db, w.err, func() memory.BootLeaseView fails memory.StoreFailed needs sql.Tx { try queryLeaseAndBootTx(query) })
+}
+
+let lawWALDir = sync.NewRef("")
+let prevLawDB = sync.NewRef[option.Option[Store]](option.None)
+
+func cleanFile(dir string, name string) needs go.Foreign {
+	let root = os.OpenRoot(dir) catch {
+	case go.Error:
+		return
+	}
+	root.Remove(name) catch {
+	case go.Error:
+	}
+	root.Close() catch {
+	case go.Error:
+	}
+}
+
+func freshWALDir() string fails memory.StoreFailed needs go.Foreign {
+	let existing = lawWALDir.Get()
+	if existing != "" {
+		return existing
+	}
+	let dir = os.MkdirTemp("", "atlas-sqlite-wal-*") catch {
+	case go.Error as e:
+		return memory.StoreFailed{Reason: "mkdirtemp: " + e.Text}
+	}
+	lawWALDir.Set(dir)
+	dir
+}
+
+func resetStoreData(st Store) Store fails memory.StoreFailed needs go.Foreign {
+	let db = try openDB(st.db, st.err)
+	let _ = with context { sql.DB: db } {
+		sqlite.WriteTransaction() {
+			let stmts = []string{
+				"DELETE FROM leases",
+				"DELETE FROM kernel_root_usage",
+				"DELETE FROM kernel_journals",
+				"DELETE FROM kernel_snapshots",
+				"DELETE FROM limit_states",
+				"DELETE FROM pool_pushes",
+				"DELETE FROM pool_resets",
+				"DELETE FROM pool_accounts",
+				"DELETE FROM requests",
+				"DELETE FROM questions",
+				"DELETE FROM holds",
+				"DELETE FROM wakes",
+				"DELETE FROM handles",
+				"DELETE FROM subagent_nodes",
+				"DELETE FROM subagent_trees",
+				"DELETE FROM prompt_queue",
+				"DELETE FROM thread_edges",
+				"DELETE FROM threads",
+				"DELETE FROM events",
+				"DELETE FROM commands",
+			}
+			for _, stmt in stmts {
+				let _ = try execTx(stmt, []sql.Value{})
+			}
+			true
+		}
+	} catch {
+	case memory.StoreFailed as e:
+		return e
+	case sql.Unique as e:
+		return mapSQLOpenErr("reset", e)
+	case sql.Serialization as e:
+		return mapSQLOpenErr("reset", e)
+	case sql.Deadlock as e:
+		return mapSQLOpenErr("reset", e)
+	case sql.Timeout as e:
+		return mapSQLOpenErr("reset", e)
+	case sql.Closed as e:
+		return mapSQLOpenErr("reset", e)
+	case sql.Other as e:
+		return mapSQLOpenErr("reset", e)
+	}
+	st
+}
+
+func openLawFileWAL() Store fails memory.StoreFailed needs go.Foreign {
+	match prevLawDB.Get() {
+	case option.Some[Store] as existing:
+		return try resetStoreData(existing.Value)
+	case option.None:
+	}
+	let dir = try freshWALDir()
+	cleanFile(dir, "law.db")
+	cleanFile(dir, "law.db-wal")
+	cleanFile(dir, "law.db-shm")
+	let st = try Open(dir + "/law.db")
+	prevLawDB.Set(option.Some[Store]{Value: st})
+	st
+}

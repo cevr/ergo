@@ -1,0 +1,2 @@
+ATLAS_NOW=1764145200000
+ATLAS_HOST_STATIC={"status":{"cores":16,"load":{"one":2.5,"five":1.75,"fifteen":1.25,"running":3,"entities":240},"memory":{"totalBytes":17179869184,"availableBytes":10737418240,"freeBytes":4294967296,"usedBytes":6442450944},"volumes":[{"path":"/","totalBytes":107374182400,"freeBytes":53687091200,"availableBytes":42949672960,"usedBytes":53687091200},{"path":"/workspaces","totalBytes":214748364800,"freeBytes":107374182400,"availableBytes":85899345920,"usedBytes":107374182400}]}}

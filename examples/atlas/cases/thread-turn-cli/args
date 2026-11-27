@@ -1,0 +1,13 @@
+--store
+:memory:
+--json
+thread-create
+-command-id=cli-tc-1
+-actor=root
+-at-ms=1764145200000
+-thread-id=th-cli-1
+-driver=claude-meta
+-permission-mode=auto_edit
+-instance=inst-1
+-config-dir=/var/atlas/c1
+-model=sonnet

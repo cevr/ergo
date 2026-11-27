@@ -1,0 +1,297 @@
+import github.com/cevr/ergo/modules/atlas/api
+import github.com/cevr/ergo/modules/atlas/api/apicli
+import github.com/cevr/ergo/modules/atlas/api/apimcp
+import github.com/cevr/ergo/modules/atlas/api/apirpc
+import github.com/cevr/ergo/modules/atlas/memory
+import http
+import json
+import mcp
+import mcp/httpmcp
+import rand
+import rpc
+import strconv
+import strings
+import sync
+
+// BindRefused refuses binding the HTTP listener on wildcard, LAN, or public IP addresses.
+type BindRefused {
+	Addr   string,
+	Reason string,
+}
+
+func splitAddrHostPort(addr string) (string, string) fails BindRefused {
+	let trimmed = strings.TrimSpace(addr)
+	if trimmed == "" {
+		return BindRefused{Addr: addr, Reason: "bind address must not be empty"}
+	}
+	if strings.HasPrefix(trimmed, "[") {
+		let close = strings.Index(trimmed, "]")
+		if close <= 1 || close+1 >= trimmed.Len() || trimmed[close+1] != byte(':') {
+			return BindRefused{Addr: addr, Reason: "bracketed IPv6 address must have form [host]:port"}
+		}
+		return (strings.Slice(trimmed, 1, close), strings.Slice(trimmed, close+2, trimmed.Len()))
+	}
+	let colon = strings.LastIndex(trimmed, ":")
+	if colon <= 0 {
+		return BindRefused{Addr: addr, Reason: "bind address must have form host:port"}
+	}
+	let host = strings.Slice(trimmed, 0, colon)
+	let port = strings.Slice(trimmed, colon+1, trimmed.Len())
+	if strings.Contains(host, ":") {
+		return BindRefused{Addr: addr, Reason: "IPv6 host must be bracketed as [host]:port"}
+	}
+	(host, port)
+}
+
+func isValidPort(port string) bool {
+	if port == "" {
+		return false
+	}
+	let n = strconv.Atoi(port) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return false
+	}
+	n >= 0 && n <= 65535
+}
+
+func isAllowedBindHost(host string) bool {
+	if strings.EqualFold(host, "localhost") || host == "::1" || strings.HasPrefix(host, "127.") {
+		return true
+	}
+	let parts = strings.Split(host, ".")
+	if parts.Len() != 4 {
+		return false
+	}
+	let o0 = strconv.Atoi(parts[0]) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return false
+	}
+	let o1 = strconv.Atoi(parts[1]) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return false
+	}
+	o0 == 100 && o1 >= 64 && o1 <= 127
+}
+
+// ValidateBindAddr permits only loopback (127.0.0.0/8, ::1, localhost) or Tailscale CGNAT (100.64.0.0/10) binds.
+func ValidateBindAddr(addr string) fails BindRefused {
+	let (host, port) = try splitAddrHostPort(addr)
+	if !isValidPort(port) {
+		return BindRefused{Addr: addr, Reason: "invalid TCP port in bind address"}
+	}
+	if !isAllowedBindHost(host) {
+		return BindRefused{Addr: addr, Reason: "refusing non-loopback/non-tailnet bind host '\(host)'"}
+	}
+}
+
+// AtlasServer bundles Service, per-thread /mcp auth, stateful HTTP SSE sessions, and non-spawning wellness state.
+type AtlasServer {
+	Service  api.Service,
+	Auth     api.McpAuthStore,
+	Cap      api.HostCapacity,
+	Policy   api.WellnessPolicy,
+	Sessions httpmcp.Sessions,
+	Monitor  sync.Ref[api.WellnessMonitor],
+	Now      func() int64,
+}
+
+// ServerConfig groups non-store dependencies for constructing an AtlasServer.
+type ServerConfig {
+	Cap    api.HostCapacity,
+	Auth   api.McpAuthStore,
+	Policy api.WellnessPolicy,
+	Rng    rand.Secure,
+}
+
+// NewAtlasServer constructs an AtlasServer over store, cfg, and monotonic/test clock nowFn.
+func NewAtlasServer(store memory.Store, cfg ServerConfig, nowFn own func() int64) AtlasServer {
+	let svc = api.NewServiceWithPolicy(store, cfg.Cap, cfg.Auth, cfg.Policy)
+	AtlasServer{
+		Service:  svc,
+		Auth:     cfg.Auth,
+		Cap:      cfg.Cap,
+		Policy:   cfg.Policy,
+		Sessions: httpmcp.NewSessions(cfg.Rng),
+		Monitor:  sync.NewRef[api.WellnessMonitor](api.NewWellnessMonitor(cfg.Policy)),
+		Now:      nowFn,
+	}
+}
+
+type bodyOutcome = bodyText{text string} | bodyFailed{resp http.Response}
+
+func jsonBodyResponse(status int, body string) http.Response {
+	http.Response{
+		Status: status,
+		Header: []http.Field{http.Field{Name: "Content-Type", Value: "application/json"}},
+		Body:   body,
+	}
+}
+
+func readJSONBodyText(req http.Request) bodyOutcome {
+	match req.Body {
+	case http.Buffered as b:
+		bodyText{text: b.Text}
+	case http.BodyTooLarge:
+		bodyFailed{resp: jsonBodyResponse(413, "{\"error\":\"request body too large\"}")}
+	case http.BodyReadFailed as rf:
+		bodyFailed{resp: jsonBodyResponse(400, "{\"error\":\"\(rf.Reason)\"}")}
+	}
+}
+
+// ResourcesOf exposes read and subscription MCP resources for wellness, threads, and pool status.
+func ResourcesOf(srv AtlasServer) mcp.ResourceSet {
+	let items = []mcp.Resource{
+		mcp.Resource{
+			URI:         "atlas://wellness",
+			Name:        "wellness",
+			Description: "Non-spawning Atlas node wellness and store consistency report",
+			MIMEType:    "application/json",
+		},
+		mcp.Resource{
+			URI:         "atlas://threads",
+			Name:        "threads",
+			Description: "Active Atlas threads",
+			MIMEType:    "application/json",
+		},
+		mcp.Resource{
+			URI:         "atlas://pool",
+			Name:        "pool",
+			Description: "Account pool utilization and due holds",
+			MIMEType:    "application/json",
+		},
+	}
+	mcp.StaticResources(items, func(uri string) []mcp.ResourceContents fails mcp.ResourceNotFound | mcp.ResourceError {
+		match uri {
+		case "atlas://wellness":
+			let rep = api.EvaluateWellness(api.StoreOf(srv.Service), srv.Cap, srv.Policy, srv.Now())
+			let txt = json.Encode(json.Codec[api.WellnessReport]{MaxBytes: 0, MaxDepth: 0}, rep)
+			[]mcp.ResourceContents{mcp.TextContents(uri, "application/json", txt)}
+		case "atlas://threads":
+			let threads = srv.Service.ThreadList(api.ThreadListInput{IncludeArchived: true, Limit: json.Absent, Offset: json.Absent}) catch {
+			case memory.InvalidInput as e:
+				return mcp.ResourceError{Message: e.Reason}
+			case memory.StoreFailed as e:
+				return mcp.ResourceError{Message: e.Reason}
+			}
+			let txt = json.Encode(json.Codec[api.ThreadListOutput]{MaxBytes: 0, MaxDepth: 0}, threads)
+			[]mcp.ResourceContents{mcp.TextContents(uri, "application/json", txt)}
+		case "atlas://pool":
+			let pv = srv.Service.PoolView(api.PoolViewInput{NowMs: srv.Now()}) catch {
+			case memory.InvalidInput as e:
+				return mcp.ResourceError{Message: e.Reason}
+			case memory.StoreFailed as e:
+				return mcp.ResourceError{Message: e.Reason}
+			}
+			let txt = json.Encode(json.Codec[api.PoolViewOutput]{MaxBytes: 0, MaxDepth: 0}, pv)
+			[]mcp.ResourceContents{mcp.TextContents(uri, "application/json", txt)}
+		case _:
+			mcp.ResourceNotFound{URI: uri}
+		}
+	})
+}
+
+// BuildMcpServer constructs an authenticated D12/D13-scoped MCP FullServer for caller.
+func BuildMcpServer(srv AtlasServer, caller api.AuthenticatedCaller) mcp.FullServer {
+	let baseTools = with context { api.Api: srv.Service } { apimcp.Tools() }
+	let guarded = api.GuardMcpTools(baseTools, caller, api.StoreOf(srv.Service))
+	mcp.WithResources(mcp.Server{Name: "atlas", Version: "1.0", Tools: guarded}, ResourcesOf(srv))
+}
+
+// TickWellness steps the non-spawning periodic WellnessMonitor if due and notifies MCP resource subscribers on state change.
+func TickWellness(srv AtlasServer) api.WellnessReport {
+	let nowMs = srv.Now()
+	let store = api.StoreOf(srv.Service)
+	let mut notifyChanged = false
+	let mut report = api.EvaluateWellness(store, srv.Cap, srv.Policy, nowMs)
+	let curMon = srv.Monitor.Get()
+	if api.IsWellnessTickDue(curMon, nowMs) {
+		let (nextMon, rep) = api.StepWellnessTick(curMon, store, srv.Cap, nowMs)
+		srv.Monitor.Set(nextMon)
+		report = rep
+		notifyChanged = nextMon.EffectiveStatus != curMon.EffectiveStatus || !rep.Healthy
+	}
+	if notifyChanged {
+		let _ = httpmcp.Notify(srv.Sessions, mcp.ResourceUpdated("atlas://wellness"))
+	}
+	report
+}
+
+func handleWellnessHTTP(srv AtlasServer) http.Response {
+	let rep = api.EvaluateWellness(api.StoreOf(srv.Service), srv.Cap, srv.Policy, srv.Now())
+	let status = if rep.Status == "unhealthy" { 503 } else { 200 }
+	let body = json.Encode(json.Codec[api.WellnessReport]{MaxBytes: 0, MaxDepth: 0}, rep)
+	jsonBodyResponse(status, body)
+}
+
+func handleCapacityHTTP(srv AtlasServer) http.Response {
+	let rep = srv.Service.HostCapacityGet(api.HostCapacityInput{Volumes: srv.Policy.Volumes}) catch {
+	case memory.InvalidInput as e:
+		return jsonBodyResponse(400, "{\"error\":\"\(e.Reason)\"}")
+	case api.HostCapacityFailed as e:
+		return jsonBodyResponse(503, "{\"error\":\"\(e.Reason)\"}")
+	}
+	jsonBodyResponse(200, json.Encode(json.Codec[api.HostCapacityReport]{MaxBytes: 0, MaxDepth: 0}, rep))
+}
+
+func handleRpcHTTP(srv AtlasServer, req http.Request) http.Response {
+	let op = strings.TrimSpace(strings.Slice(req.Path, 5, req.Path.Len()))
+	if op == "" {
+		return jsonBodyResponse(400, "{\"error\":\"missing /rpc/<Operation> path segment\"}")
+	}
+	let payload = match readJSONBodyText(req) {
+	case bodyText as ok:
+		ok.text
+	case bodyFailed as bad:
+		return bad.resp
+	}
+	let res = with context { api.Api: srv.Service } {
+		apirpc.Handle(op, payload)
+	} catch {
+	case rpc.Failed as f:
+		return jsonBodyResponse(422, f.Text)
+	}
+	jsonBodyResponse(200, res)
+}
+
+func isMcpRoutePath(path string) bool {
+	if path == "/mcp" {
+		return true
+	}
+	if strings.HasPrefix(path, "/threads/") && strings.HasSuffix(path, "/mcp") {
+		let inner = strings.Slice(path, 9, path.Len()-4)
+		return inner != "" && !strings.Contains(inner, "/")
+	}
+	false
+}
+
+// HandleHTTP serves /healthz, /wellness, /host/capacity, /rpc/<Op>, and authenticated /mcp & /threads/<id>/mcp endpoints.
+func HandleHTTP(srv AtlasServer, req http.Request) http.Response needs http.Streaming {
+	if (req.Path == "/healthz" || req.Path == "/wellness") && req.Method == "GET" {
+		return handleWellnessHTTP(srv)
+	}
+	if req.Path == "/host/capacity" && req.Method == "GET" {
+		return handleCapacityHTTP(srv)
+	}
+	if strings.HasPrefix(req.Path, "/rpc/") && req.Method == "POST" {
+		return handleRpcHTTP(srv, req)
+	}
+	if isMcpRoutePath(req.Path) {
+		let opts = httpmcp.Options{
+			AllowedOrigins: []string{},
+			MaxBodyBytes:   1048576,
+			Sessions:       httpmcp.Stateful{Store: srv.Sessions},
+		}
+		let ep = api.NewMcpEndpoint(srv.Auth, api.StoreOf(srv.Service), opts, srv.Now, func(caller api.AuthenticatedCaller) mcp.FullServer {
+			BuildMcpServer(srv, caller)
+		})
+		return httpmcp.Handle(ep, req)
+	}
+	jsonBodyResponse(404, "{\"error\":\"not found\"}")
+}
+
+// RunCLI dispatches one generated CLI invocation against srv.Service.
+func RunCLI(srv AtlasServer, args []string) apicli.Output {
+	with context { api.Api: srv.Service } {
+		apicli.Run(args, apicli.Defaults())
+	}
+}
