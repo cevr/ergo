@@ -229,8 +229,7 @@ func (b *irBuilder) checkAssert(s syntax.Stmt, expr syntax.Expr, helper string) 
 		irNo("assert outside the test build")
 	}
 	p := b.pos(s, s.Pos())
-	i, _, _, _ := l.at(expr, expr.Pos())
-	text := &irExpr{K: "const", Pos: p, T: "string", V: l.srcs[i].text[expr.Pos():expr.End()]}
+	text := &irExpr{K: "const", Pos: p, T: "string", V: l.nodeText(expr)}
 	var pre []*irStmt
 	var cond *irExpr
 	if x, lt, rt, shown := l.assertShown(expr); shown {

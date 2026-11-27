@@ -812,8 +812,7 @@ func (fc *funcCtx) checkAssertStmt(s syntax.Stmt, expr syntax.Expr, helper strin
 	if fc.l.tests == nil {
 		ice(s, "an assert reached the run build, which lowers no test or law body")
 	}
-	i, _, _, _ := fc.l.at(expr, expr.Pos())
-	text := strconv.Quote(fc.l.srcs[i].text[expr.Pos():expr.End()])
+	text := strconv.Quote(fc.l.nodeText(expr))
 	var cond string
 	if x, lt, rt, ok := fc.l.assertShown(expr); ok {
 		// A try that starts the assert covers the whole comparison: its

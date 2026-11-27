@@ -914,6 +914,35 @@ func main() {
 	use(Mine)
 }
 `,
+	"fs.Scans": `import fs
+import time
+
+type Mine {} implements fs.Scans
+
+func ReadFile(_ Mine, path string) string fails fs.NotFound | fs.Denied | fs.Failed { "" }
+func ReadDir(_ Mine, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { []string{} }
+func Stat(_ Mine, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed {
+	fs.Info{Name: path, Size: 0, Dir: false, Perm: 0}
+}
+
+func Lstat(_ Mine, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed {
+	fs.Info{Name: path, Size: 0, Dir: false, Perm: 0}
+}
+
+func ReadEntry(_ Mine, path string) fs.Entry fails fs.NotFound | fs.Denied | fs.Failed {
+	fs.Entry{Kind: fs.FileEntry, Size: 0, AllocatedBytes: 0, ModTime: time.Unix(0, 0), AccessTime: time.Unix(0, 0), Nlink: 1, ID: fs.NewFileID(1, 1)}
+}
+
+func ReadDirEntries(_ Mine, path string) []fs.DirChild fails fs.NotFound | fs.Denied | fs.Failed {
+	[]fs.DirChild{}
+}
+
+func use(f fs.Scans) { _ = f.ReadDirEntries("a") catch { case fs.NotFound, fs.Denied, fs.Failed: []fs.DirChild{} } }
+
+func main() {
+	use(Mine)
+}
+`,
 	"fs.Files": `import fs
 
 type Mine {} implements fs.Files
@@ -2067,6 +2096,7 @@ var openStd = map[string]bool{
 	"fs/mapped.Maps":    true, // open: a program may provide its own store of mapped files (CAP-FILE), as fs.Files and fs.Writes are open
 	"signal.Stops":      true,
 	"fs.Entries":        true,
+	"fs.Scans":          true,
 	"fs.Files":          true,
 	"fs.Writes":         true,
 	"fs.Root":           true,

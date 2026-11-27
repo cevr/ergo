@@ -34999,7 +34999,7 @@ func fs__Bits(a fs__Access) int {
 	case 5:
 		return int(7)
 	default:
-		panic("ergo: defect: no case of the match at std/fs/fs.ergo:120:2 matched")
+		panic("ergo: defect: no case of the match at std/fs/fs.ergo:133:2 matched")
 	}
 }
 
