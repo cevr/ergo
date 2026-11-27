@@ -108,7 +108,8 @@ func PosAt(b mut Builder, p Pos) uint32 {
 
 // RowPos is the position stored on expression or statement row id.
 func RowPos(b Builder, id uint32) Pos {
-	Pos{File: b.fn.Body.File[id-1], Line: b.fn.Body.Line[id-1], Col: b.fn.Body.Col[id-1]}
+	let fi = b.file.Funcs.Len() - 1
+	Pos{File: b.file.Funcs[fi].Body.File[id-1], Line: b.file.Funcs[fi].Body.Line[id-1], Col: b.file.Funcs[fi].Body.Col[id-1]}
 }
 
 // List is the slot word of a list: the offset in the extra pool of its
