@@ -421,7 +421,9 @@ func renameLawsFiles(res *Result, files []*syntax.File, edits map[*syntax.File]*
 					ok = rank == 3 && isUpper(name) || rank == 4
 				case *syntax.LawDecl:
 				case *syntax.TestDecl:
-					name, ok = "tests", rank == 5
+					if !testsFileName(f.Name) {
+						name, ok = "tests", rank == 5
+					}
 				default:
 					name, ok = declName(d), rank == 4
 				}

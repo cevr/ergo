@@ -153,6 +153,15 @@
       "to": "\t\t_ = stays\n\t\tmain := mainSubject(item.name, subjects)",
       "rule": "A law or test already in a file declaring one of its subjects stays put.",
       "killers": ["internal/sketch/lawfix:TestPlanMultiSubjectAndAmbiguityGuard"]
+    },
+    {
+      "name": "colocate-fix-renames-suffixed-test-file",
+      "origin": "colocate tests and laws",
+      "file": "internal/sketch/lawfix/lawfix.go",
+      "from": "\t\t\t\tcase *syntax.TestDecl:\n\t\t\t\t\tif !testsFileName(f.Name) {\n\t\t\t\t\t\tname, ok = \"tests\", rank == 5\n\t\t\t\t\t}",
+      "to": "\t\t\t\tcase *syntax.TestDecl:\n\t\t\t\t\tname, ok = \"tests\", rank == 5",
+      "rule": "An existing test file left holding only unplaced tests keeps its name (preserving platform suffixes such as *_linux_test.ergo).",
+      "killers": ["internal/sketch/lawfix:TestSuffixedTestFileLeftWithUnplacedTestIsNotRenamed"]
     }
   ]
 }

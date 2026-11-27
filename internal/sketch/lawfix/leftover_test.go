@@ -157,3 +157,42 @@ func TestLawsAndTestsFilesWithAllPlacedAreDeleted(t *testing.T) {
 		}
 	}
 }
+
+// TestSuffixedTestFileLeftWithUnplacedTestIsNotRenamed verifies that an
+// existing *_linux_test.ergo file holding only an unplaced test keeps its
+// filename and is not collapsed to tests.ergo.
+func TestSuffixedTestFileLeftWithUnplacedTestIsNotRenamed(t *testing.T) {
+	srcs := map[string]string{
+		"route.ergo":             "func Route() int { 1 }\n",
+		"client_linux_test.ergo": "test RouteWorks {\n\tassert Route() == 1\n}\n\ntest PingLinux {\n\tassert 1 == 1\n}\n",
+	}
+	pkg, files, _ := checkSources(t, srcs)
+	res, err := Plan(pkg, files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Renamed) > 0 || len(res.Deleted) > 0 {
+		t.Fatalf("unexpected rename/delete: renamed=%v deleted=%v", res.Renamed, res.Deleted)
+	}
+	out := map[string]string{}
+	for n, s := range srcs {
+		out[n] = s
+	}
+	for n, s := range res.Files {
+		out[n] = s
+	}
+	if _, ok := out["tests.ergo"]; ok {
+		t.Fatalf("unexpected tests.ergo created:\n%s", dump(out))
+	}
+	if _, ok := out["client_linux_test.ergo"]; !ok {
+		t.Fatalf("client_linux_test.ergo went missing:\n%s", dump(out))
+	}
+	_, after, ds := checkSources(t, out)
+	if len(ds) > 0 {
+		t.Fatalf("fixed package has diagnostics: %v\n%s", ds, dump(out))
+	}
+	now := declsByFile(after)
+	if now["RouteWorks"] != "route.ergo" || now["PingLinux"] != "client_linux_test.ergo" {
+		t.Fatalf("unexpected placement: %v", now)
+	}
+}
