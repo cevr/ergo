@@ -1322,13 +1322,17 @@ test MathToUintptrFailsOnlyOutside(f float64) {
 }
 
 func signalOf(p int) signal.Stop {
-	let c = (p%3+3)%3
+	let c = (p%5+5)%5
 	if c == 0 {
 		signal.Interrupt
 	} else if c == 1 {
 		signal.Terminate
-	} else {
+	} else if c == 2 {
 		signal.Hangup
+	} else if c == 3 {
+		signal.User1
+	} else {
+		signal.User2
 	}
 }
 
@@ -1400,6 +1404,9 @@ test SignalStopEndsBody(pick int) {
 test SignalStatusIsTheShells(pick int) {
 	let k = signalOf(pick)
 	let s = int(signal.StatusOf(k))
+	let p = os.Current()
+	let linux = p.OS == "linux" || p.OS == "android"
+	let mips = p.Arch == "mips" || p.Arch == "mips64" || p.Arch == "mips64le" || p.Arch == "mipsle"
 	let want = match k {
 	case signal.Interrupt:
 		130
@@ -1407,6 +1414,26 @@ test SignalStatusIsTheShells(pick int) {
 		143
 	case signal.Hangup:
 		129
+	case signal.User1:
+		if linux {
+			if mips {
+				144
+			} else {
+				138
+			}
+		} else {
+			158
+		}
+	case signal.User2:
+		if linux {
+			if mips {
+				145
+			} else {
+				140
+			}
+		} else {
+			159
+		}
 	}
 	assert s == want
 	assert !(1 <= s && s <= 125)
@@ -1544,11 +1571,11 @@ var stdLawsStatements = map[string]string{
 	"fstest ScratchIsRemoved":              `ScratchIsRemoved(name string) { if name == "" || strings.Contains(name, "/") || name == "." || name == ".." { return true } let m = NewMemory() let made = func() string fails fs.NotFound | fs.Denied | fs.Failed { let s = try fs.NewScratch(m, m, ".", "t") try m.WriteFile(filepath.Join([]string{s.Path, name}), "x") s.Path } let path = try made() let _ = m.Lstat(path) catch { case fs.NotFound: return true case fs.Denied, fs.Failed: return false } false }`,
 	"filepath AbsFromIsAbsolute":           `AbsFromIsAbsolute(dir string, path string) { let d = "/" + dir IsAbs(AbsFrom(d, path)) && (!IsAbs(path) || AbsFrom(d, path) == Clean(path)) }`,
 	"filepath MatchItself":                 `MatchItself(name string) { if strings.Contains(name, "*") || strings.Contains(name, "?") || strings.Contains(name, "[") || strings.Contains(name, "\\") { return true } try Match(name, name) }`,
-	"signal StatusIsTheShells":             `StatusIsTheShells(pick int) { let k = stopOf((pick%3+3)%3 + 1) let s = int(StatusOf(k)) s == 128 + hostNumber(codeOf(k)) && !(1 <= s && s <= 125) }`,
-	"signal RaisedInOrder":                 `RaisedInOrder(picks []int) { let mut raised = []Stop{} for p in picks { raised = raised.Append(stopOf((p%3+3)%3 + 1)) } let s = NewScript(raised) for k in raised { if s.Next() != k { return false } } s.Poll() == None }`,
-	"signal PollTakesOnce":                 `PollTakesOnce(pick int) { let k = stopOf((pick%3+3)%3 + 1) let s = NewScript([]Stop{k}) s.Poll() == Some[Stop]{Value: k} && s.Poll() == None }`,
+	"signal StatusIsTheShells":             `StatusIsTheShells(pick int) { let k = stopOf((pick%5+5)%5 + 1) let s = int(StatusOf(k)) s == 128 + hostNumber(codeOf(k)) && !(1 <= s && s <= 125) }`,
+	"signal RaisedInOrder":                 `RaisedInOrder(picks []int) { let mut raised = []Stop{} for p in picks { raised = raised.Append(stopOf((p%5+5)%5 + 1)) } let s = NewScript(raised) for k in raised { if s.Next() != k { return false } } s.Poll() == option.None }`,
+	"signal PollTakesOnce":                 `PollTakesOnce(pick int) { let k = stopOf((pick%5+5)%5 + 1) let s = NewScript([]Stop{k}) s.Poll() == option.Some[Stop]{Value: k} && s.Poll() == option.None }`,
 	"signal QuietRunsBody":                 `QuietRunsBody(n int) { let got = UntilStop(NewScript([]Stop{}), func() int { n }) catch { case Stopped: return false } got == n }`,
-	"signal StopEndsBody":                  `StopEndsBody(pick int) { let k = stopOf((pick%3+3)%3 + 1) let cleaned = sync.NewRef[int](0) let started = queue.New[int](1) let never = queue.New[int](0) let _ = UntilStop(afterStart{started: started, k: k}, func() int { scope.OnExit() { cleaned.Update(func(v int) int { v + 1 }) } started.Push(1) catch { case queue.Closed: } never.Pop() catch { case queue.Closed: 0 } }) catch { case Stopped as st: return st.Kind == k && cleaned.Get() == 1 } false }`,
+	"signal StopEndsBody":                  `StopEndsBody(pick int) { let k = stopOf((pick%5+5)%5 + 1) let cleaned = sync.NewRef[int](0) let started = queue.New[int](1) let never = queue.New[int](0) let _ = UntilStop(afterStart{started: started, k: k}, func() int { scope.OnExit() { cleaned.Update(func(v int) int { v + 1 }) } started.Push(1) catch { case queue.Closed: } never.Pop() catch { case queue.Closed: 0 } }) catch { case Stopped as st: return st.Kind == k && cleaned.Get() == 1 } false }`,
 	"api ExitKeepsTheCode":                 `ExitKeepsTheCode(o Output) { let want = if o.Code >= 1 && o.Code <= 125 || o.Code >= 129 && o.Code <= 192 { o.Code } else if o.Code == 0 { 0 } else { 1 } ExitOf(o) catch { case os.Exit as e: return int(e.Code) == want && want != 0 } want == 0 }`,
 	"api KebabRoundTrips":                  `KebabRoundTrips(words []string) { let mut name = "" let mut parts = []string{} for w in words { let low = word(w) parts = parts.Append(low) name = name + strings.ToUpper(low[0:1]) + low[1:] } let k = Kebab(name) k == strings.Join(parts, "-") && Kebab(k) == k }`,
 	"api AgreesSeesTheLoss":                `AgreesSeesTheLoss(c string, o int) { Agrees(echo, c, o) && !Agrees(dropping, c+"!", o) }`,
