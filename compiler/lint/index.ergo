@@ -1,0 +1,629 @@
+import compiler/syntax
+import dense
+import option
+import slices
+import strings
+
+// FlagInTestLaw marks nodes appearing inside a test or law declaration.
+let FlagInTestLaw = uint8(1)
+
+// FlagInLoop marks nodes appearing inside a for or range loop.
+let FlagInLoop = uint8(2)
+
+// FlagInTypeDecl marks nodes appearing inside a type declaration.
+let FlagInTypeDecl = uint8(4)
+
+// FlagInFuncBody marks block statements directly inside function bodies.
+let FlagInFuncBody = uint8(8)
+
+// Span32 holds a half-open byte offset range using unsigned 32-bit positions.
+type Span32 {
+	// Start is the inclusive start byte offset.
+	Start uint32,
+	// End is the exclusive end byte offset.
+	End uint32,
+}
+
+// DeclRange records the slice ranges in FileIndex belonging to one top-level declaration.
+type DeclRange {
+	// Node is the syntax row index of the top-level declaration.
+	Node uint32,
+	// Kind is the syntax node kind of the top-level declaration.
+	Kind uint8,
+	// IdentStart is the first index in FileIndex.Idents inside this declaration.
+	IdentStart uint32,
+	// IdentEnd is the exclusive end index in FileIndex.Idents inside this declaration.
+	IdentEnd uint32,
+	// CallStart is the first index in FileIndex.Calls inside this declaration.
+	CallStart uint32,
+	// CallEnd is the exclusive end index in FileIndex.Calls inside this declaration.
+	CallEnd uint32,
+	// SelStart is the first index in FileIndex.Selectors inside this declaration.
+	SelStart uint32,
+	// SelEnd is the exclusive end index in FileIndex.Selectors inside this declaration.
+	SelEnd uint32,
+	// LitStart is the first index in FileIndex.Lits inside this declaration.
+	LitStart uint32,
+	// LitEnd is the exclusive end index in FileIndex.Lits inside this declaration.
+	LitEnd uint32,
+}
+
+// FileIndex holds flat unsigned-32-bit SoA indices built in one pass over a syntax.Tree.
+type FileIndex {
+	// Lines is the precomputed byte line-start table for the source.
+	Lines syntax.Lines,
+	// LineCount is the physical line count matching Go syntax.File.LineCount.
+	LineCount int,
+	// FirstPos is the earliest declaration, comment, or EOF offset of the file.
+	FirstPos int,
+	// FirstDeclPos is the earliest declaration offset or EOF when no declaration exists.
+	FirstDeclPos int,
+	// Generated reports whether a Go generated-file header precedes all declarations.
+	Generated bool,
+	// TestFile reports whether the file holds tests, laws, or law-support contexts only.
+	TestFile bool,
+	// BodySpans holds sorted, merged open intervals of function, test, law, and closure bodies.
+	BodySpans []Span32,
+	// Decls holds per-declaration index ranges for top-level declarations.
+	Decls []DeclRange,
+	// Idents lists all KIdent row indices in walk order.
+	Idents []uint32,
+	// Calls lists all KCallExpr row indices in walk order.
+	Calls []uint32,
+	// CallFlags stores FlagInTestLaw and FlagInLoop bits aligned with Calls.
+	CallFlags []uint8,
+	// Selectors lists all KSelectorExpr row indices.
+	Selectors []uint32,
+	// DeclStmts lists all KDeclStmt row indices.
+	DeclStmts []uint32,
+	// Switches lists all KSwitchStmt, KTypeSwitchStmt, and KCatchExpr row indices.
+	Switches []uint32,
+	// Assigns lists all KAssignStmt row indices.
+	Assigns []uint32,
+	// Binaries lists all KBinaryExpr row indices.
+	Binaries []uint32,
+	// BinFlags stores scope flags aligned with Binaries.
+	BinFlags []uint8,
+	// Fields lists all KField row indices.
+	Fields []uint32,
+	// Catches lists all KCatchExpr row indices.
+	Catches []uint32,
+	// FuncLits lists all KFuncLit row indices.
+	FuncLits []uint32,
+	// Lits lists all KCompositeLit row indices.
+	Lits []uint32,
+	// DocGroups marks comment group indices attached as documentation comments.
+	DocGroups []bool,
+}
+
+// NodeText returns the source substring covered by node id.
+func NodeText(p syntax.Parsed, id dense.ID[syntax.Node]) string {
+	let src = syntax.SourceOf(p)
+	let at = syntax.NodePos(p, id)
+	let end = syntax.NodeEnd(p, id)
+	if at < 0 || end < at || end > src.Len() {
+		return ""
+	}
+	src[at:end]
+}
+
+// Unparen strips enclosing ParenExpr wrappers from node id.
+func Unparen(t syntax.Tree, id dense.ID[syntax.Node]) dense.ID[syntax.Node] {
+	let mut cur = id
+	for syntax.KindOf(t, cur) == syntax.KParenExpr {
+		cur = syntax.ParenExprOf(t, cur).X
+	}
+	cur
+}
+
+// LineCountOf computes the physical line count for src matching syntax.File.LineCount.
+func LineCountOf(src string, lines syntax.Lines) int {
+	if src.Len() == 0 {
+		return 0
+	}
+	let n = syntax.NumLines(lines)
+	if src[src.Len()-1] == '\n' { n - 1 } else { n }
+}
+
+// InBody reports whether pos lies strictly inside any function, test, law, or closure body.
+func InBody(fi FileIndex, pos uint32) bool {
+	let mut lo = 0
+	let mut hi = fi.BodySpans.Len()
+	for lo < hi {
+		let mid = (lo + hi) / 2
+		if fi.BodySpans[mid].Start < pos {
+			lo = mid + 1
+		} else {
+			hi = mid
+		}
+	}
+	lo > 0 && pos < fi.BodySpans[lo-1].End
+}
+
+// LineBounds returns the byte start and exclusive end (before newline) of the line containing pos.
+func LineBounds(src string, pos int) (int, int) {
+	let mut s = pos
+	if s > src.Len() {
+		s = src.Len()
+	}
+	if s < 0 {
+		s = 0
+	}
+	let mut start = s
+	for start > 0 && src[start-1] != '\n' {
+		start -= 1
+	}
+	let mut end = s
+	for end < src.Len() && src[end] != '\n' {
+		end += 1
+	}
+	(start, end)
+}
+
+// IsEntryFile reports whether rel names a cmd/NAME/main.ergo entry file or single-file input.
+func IsEntryFile(rel string) bool {
+	if rel == "" {
+		return true
+	}
+	let clean = CleanSlashPath(rel)
+	if !strings.HasPrefix(clean, "cmd/") || !strings.HasSuffix(clean, "/main.ergo") {
+		return false
+	}
+	let mid = clean[4 : clean.Len()-10]
+	mid.Len() > 0 && !strings.Contains(mid, "/")
+}
+
+func isGeneratedComment(txt string) bool {
+		strings.HasPrefix(txt, "// Code generated ") &&
+		strings.HasSuffix(txt, " DO NOT EDIT.") &&
+		!strings.Contains(txt, "\n")
+}
+
+func firstCommentPos(p syntax.Parsed) int {
+	if syntax.NumGroups(p) == 0 {
+		return -1
+	}
+	syntax.GroupPos(p, 0)
+}
+
+func detectGeneratedExact(p syntax.Parsed, firstDeclPos int, hasDecls bool) bool {
+	let cmts = syntax.CommentsOf(p)
+	let n = syntax.NumComments(cmts)
+	let src = syntax.SourceOf(p)
+	for i in 0..n {
+		let c = syntax.CommentAt(cmts, i)
+		let cs = syntax.CommentStart(cmts, c)
+		let ce = syntax.CommentEnd(cmts, c)
+		if hasDecls && ce > firstDeclPos {
+			return false
+		}
+		if isGeneratedComment(src[cs:ce]) {
+			return true
+		}
+	}
+	false
+}
+
+func mergeSpans(raw []Span32) []Span32 {
+	if raw.Len() <= 1 {
+		return raw
+	}
+	let sorted = slices.SortFunc(raw, func(a Span32, b Span32) int {
+		if a.Start < b.Start {
+			return -1
+		}
+		if a.Start > b.Start {
+			return 1
+		}
+		if a.End < b.End {
+			return -1
+		}
+		if a.End > b.End {
+			return 1
+		}
+		0
+	})
+	let mut out = []Span32{sorted[0]}
+	for i in 1..sorted.Len() {
+		let s = sorted[i]
+		let lastIdx = out.Len() - 1
+		if s.Start < out[lastIdx].End {
+			if s.End > out[lastIdx].End {
+				out[lastIdx].End = s.End
+			}
+			continue
+		}
+		out = out.Append(s)
+	}
+	out
+}
+
+func markDocGroup(docs mut []bool, g int) {
+	if g >= 0 && g < (*docs).Len() {
+		(*docs)[g] = true
+	}
+}
+
+func collectDocGroup(p syntax.Parsed, id dense.ID[syntax.Node], docs mut []bool) {
+	let k = syntax.KindOf(p.Tree, id)
+	if k == syntax.KImportDecl {
+		markDocGroup(docs, syntax.ImportDeclOf(p.Tree, id).Doc)
+	} else if k == syntax.KVarDecl {
+		markDocGroup(docs, syntax.VarDeclOf(p.Tree, id).Doc)
+	} else if k == syntax.KTypeDecl {
+		markDocGroup(docs, syntax.TypeDeclOf(p.Tree, id).Doc)
+	} else if k == syntax.KFuncDecl {
+		markDocGroup(docs, syntax.FuncDeclOf(p.Tree, id).Doc)
+	} else if k == syntax.KContextDecl {
+		markDocGroup(docs, syntax.ContextDeclOf(p.Tree, id).Doc)
+	} else if k == syntax.KTestDecl {
+		markDocGroup(docs, syntax.TestDeclOf(p.Tree, id).Doc)
+	} else if k == syntax.KLawDecl {
+		markDocGroup(docs, syntax.LawDeclOf(p.Tree, id).Doc)
+	} else if k == syntax.KContextEntry {
+		markDocGroup(docs, syntax.ContextEntryOf(p.Tree, id).Doc)
+	} else if k == syntax.KField {
+		markDocGroup(docs, syntax.FieldOf(p.Tree, id).Doc)
+	} else if k == syntax.KMachineEntry {
+		markDocGroup(docs, syntax.MachineEntryOf(p.Tree, id).Doc)
+	}
+}
+
+func bodySpanNode(p syntax.Parsed, id dense.ID[syntax.Node], k uint8, bodies mut []Span32) {
+	if k == syntax.KFuncDecl {
+		match dense.Unpack(syntax.FuncDeclOf(p.Tree, id).Body) {
+		case option.Some{Value: b}:
+			*bodies = (*bodies).Append(Span32{Start: uint32(syntax.NodePos(p, b)), End: uint32(syntax.NodeEnd(p, b))})
+		case option.None:
+		}
+	} else if k == syntax.KTestDecl {
+		match dense.Unpack(syntax.TestDeclOf(p.Tree, id).Body) {
+		case option.Some{Value: b}:
+			*bodies = (*bodies).Append(Span32{Start: uint32(syntax.NodePos(p, b)), End: uint32(syntax.NodeEnd(p, b))})
+		case option.None:
+		}
+	} else if k == syntax.KLawDecl {
+		match dense.Unpack(syntax.LawDeclOf(p.Tree, id).Body) {
+		case option.Some{Value: b}:
+			*bodies = (*bodies).Append(Span32{Start: uint32(syntax.NodePos(p, b)), End: uint32(syntax.NodeEnd(p, b))})
+		case option.None:
+		}
+	} else if k == syntax.KFuncLit {
+		let b = syntax.FuncLitOf(p.Tree, id).Body
+		*bodies = (*bodies).Append(Span32{Start: uint32(syntax.NodePos(p, b)), End: uint32(syntax.NodeEnd(p, b))})
+	}
+}
+
+func isLowerStart(s string) bool {
+	if s.Len() == 0 {
+		return false
+	}
+	let c = s[0]
+	if c < 0x80 {
+		return (ByteMask(c)&ByteLower) != 0 || c == '_'
+	}
+	true
+}
+
+func collectContextLets(p syntax.Parsed, node uint32, used mut Map[string, bool]) {
+	let mut stack = []uint32{node}
+	let mut children = []uint32{}
+	for stack.Len() > 0 {
+		let top = stack[stack.Len()-1]
+		stack = stack[:stack.Len()-1]
+		let id = syntax.NodeAt(p.Tree, int(top))
+		if syntax.KindOf(p.Tree, id) == syntax.KIdent {
+			(*used)[NodeText(p, id)] = true
+			continue
+		}
+		children = syntax.Children(p.Tree, id, children[:0])
+		let mut i = children.Len() - 1
+		for i >= 0 {
+			stack = stack.Append(children[i])
+			i -= 1
+		}
+	}
+}
+
+func hasDerivedRefinementLaw(p syntax.Parsed, declNodes []uint32) bool {
+	let t = p.Tree
+	for dn in declNodes {
+		let id = syntax.NodeAt(t, int(dn))
+		if syntax.KindOf(t, id) != syntax.KTypeDecl {
+			continue
+		}
+		let td = syntax.TypeDeclOf(t, id)
+		if dense.Unpack(td.Where) == option.None {
+			continue
+		}
+		let isRecordOrIface = match dense.Unpack(td.Spec) {
+		case option.Some{Value: sp}:
+			let sk = syntax.KindOf(t, sp)
+			sk == syntax.KStructType || sk == syntax.KInterfaceType || sk == syntax.KMachineType
+		case option.None:
+			false
+		}
+		if !isRecordOrIface {
+			return true
+		}
+	}
+	false
+}
+
+func checkLawTestFile(p syntax.Parsed, declNodes []uint32) bool {
+	for dn in declNodes {
+		let id = syntax.NodeAt(p.Tree, int(dn))
+		let k = syntax.KindOf(p.Tree, id)
+		if k == syntax.KTestDecl || k == syntax.KLawDecl {
+			return true
+		}
+	}
+	if hasDerivedRefinementLaw(p, declNodes) {
+		return true
+	}
+	let mut contexts = []uint32{}
+	let mut letVals = Map[string, uint32]{}
+	for dn in declNodes {
+		let id = syntax.NodeAt(p.Tree, int(dn))
+		let k = syntax.KindOf(p.Tree, id)
+		if k == syntax.KImportDecl {
+			continue
+		}
+		if k == syntax.KContextDecl {
+			let cd = syntax.ContextDeclOf(p.Tree, id)
+			if !isLowerStart(NodeText(p, cd.Name)) {
+				return false
+			}
+			contexts = contexts.Append(dn)
+			continue
+		}
+		if k == syntax.KVarDecl {
+			let vd = syntax.VarDeclOf(p.Tree, id)
+			if vd.Mut >= 0 {
+				return false
+			}
+			let vs = syntax.VarSpecOf(p.Tree, vd.Spec)
+			if syntax.Len(vs.Names) != 1 {
+				return false
+			}
+			let name = NodeText(p, syntax.Item(p.Tree, vs.Names, 0))
+			if !isLowerStart(name) {
+				return false
+			}
+			match dense.Unpack(vs.Value) {
+			case option.Some{Value: val}:
+				letVals[name] = uint32(dense.Index(val))
+			case option.None:
+				return false
+			}
+			continue
+		}
+		return false
+	}
+	if contexts.Len() == 0 {
+		return false
+	}
+	let mut used = Map[string, bool]{}
+	for c in contexts {
+		collectContextLets(p, c, &used)
+	}
+	let mut queue = []string{}
+	for k, _ in used {
+		queue = queue.Append(k)
+	}
+	for queue.Len() > 0 {
+		let k = queue[queue.Len()-1]
+		queue = queue[:queue.Len()-1]
+		match letVals.Get(k) {
+		case option.Some{Value: vn}:
+			let mut nextUsed = Map[string, bool]{}
+			collectContextLets(p, vn, &nextUsed)
+			for nk, _ in nextUsed {
+				match used.Get(nk) {
+				case option.Some:
+				case option.None:
+					used[nk] = true
+					queue = queue.Append(nk)
+				}
+			}
+		case option.None:
+		}
+	}
+	for name, _ in letVals {
+		match used.Get(name) {
+		case option.Some:
+		case option.None:
+			return false
+		}
+	}
+	true
+}
+
+type walkItem {
+	node  uint32,
+	flags uint8,
+}
+
+func recordNode(fi mut FileIndex, p syntax.Parsed, item walkItem, bodies mut []Span32) {
+	let id = syntax.NodeAt(p.Tree, int(item.node))
+	let k = syntax.KindOf(p.Tree, id)
+	collectDocGroup(p, id, &fi.DocGroups)
+	let mask = NodeIdxMask(k)
+	if mask != uint8(0) {
+		if (mask & NodeIdxIdent) != 0 {
+			fi.Idents = fi.Idents.Append(item.node)
+		} else if (mask & NodeIdxCall) != 0 {
+			fi.Calls = fi.Calls.Append(item.node)
+			fi.CallFlags = fi.CallFlags.Append(item.flags)
+		} else if (mask & NodeIdxSelector) != 0 {
+			fi.Selectors = fi.Selectors.Append(item.node)
+		} else if (mask & NodeIdxDeclStmt) != 0 {
+			fi.DeclStmts = fi.DeclStmts.Append(item.node)
+		} else if (mask & NodeIdxAssign) != 0 {
+			fi.Assigns = fi.Assigns.Append(item.node)
+		} else if (mask & NodeIdxBinary) != 0 {
+			fi.Binaries = fi.Binaries.Append(item.node)
+			fi.BinFlags = fi.BinFlags.Append(item.flags)
+		} else if (mask & NodeIdxField) != 0 {
+			fi.Fields = fi.Fields.Append(item.node)
+		}
+		if (mask & NodeIdxSwitch) != 0 {
+			fi.Switches = fi.Switches.Append(item.node)
+			if k == syntax.KCatchExpr {
+				fi.Catches = fi.Catches.Append(item.node)
+			}
+		}
+	}
+	let role = NodeRoleMask(k)
+	if (role & NodeRoleFuncLit) != 0 {
+		fi.FuncLits = fi.FuncLits.Append(item.node)
+	}
+	if k == syntax.KCompositeLit {
+		fi.Lits = fi.Lits.Append(item.node)
+	}
+	bodySpanNode(p, id, k, bodies)
+}
+
+func childFlags(k uint8, curFlags uint8) uint8 {
+	let role = NodeRoleMask(k)
+	let mut next = curFlags
+	if (role & NodeRoleTestLaw) != 0 {
+		next = next | FlagInTestLaw
+	}
+	if (role & NodeRoleLoop) != 0 {
+		next = next | FlagInLoop
+	}
+	if k == syntax.KTypeDecl {
+		next = next | FlagInTypeDecl
+	}
+	next
+}
+
+// BuildFileIndex builds a flat unsigned-32-bit FileIndex in one iterative pass over parsed source.
+func BuildFileIndex(p syntax.Parsed) FileIndex {
+	let src = syntax.SourceOf(p)
+	let lines = syntax.LinesOf(src)
+	let lineCount = LineCountOf(src, lines)
+	let ng = syntax.NumGroups(p)
+	let mut fi = FileIndex{
+		Lines:        lines,
+		LineCount:    lineCount,
+		FirstPos:     0,
+		FirstDeclPos: 0,
+		Generated:    false,
+		TestFile:     false,
+		BodySpans:    []Span32{},
+		Decls:        []DeclRange{},
+		Idents:       []uint32{},
+		Calls:        []uint32{},
+		CallFlags:    []uint8{},
+		Selectors:    []uint32{},
+		DeclStmts:    []uint32{},
+		Switches:     []uint32{},
+		Assigns:      []uint32{},
+		Binaries:     []uint32{},
+		BinFlags:     []uint8{},
+		Fields:       []uint32{},
+		Catches:      []uint32{},
+		FuncLits:     []uint32{},
+		Lits:         []uint32{},
+		DocGroups:    slices.Repeat([]bool{false}, ng),
+	}
+	if p.Failed || syntax.NumNodes(p.Tree) == 0 {
+		fi.FirstPos = src.Len()
+		fi.FirstDeclPos = src.Len()
+		return fi
+	}
+	let root = syntax.Root(p.Tree)
+	let f = syntax.FileOf(p.Tree, root)
+	let eofPos = if f.EOF >= 0 { syntax.TokPos(p, f.EOF) } else { src.Len() }
+	let nd = syntax.Len(f.Decls)
+	let mut firstDeclPos = eofPos
+	let mut declNodes = slices.WithCapacity[uint32](nd)
+	for i in 0..nd {
+		let did = syntax.Item(p.Tree, f.Decls, i)
+		declNodes = declNodes.Append(uint32(dense.Index(did)))
+		if i == 0 {
+			firstDeclPos = syntax.NodePos(p, did)
+		}
+	}
+	let c0 = firstCommentPos(p)
+	let firstPos = if c0 >= 0 && c0 < firstDeclPos { c0 } else { firstDeclPos }
+	fi.FirstDeclPos = firstDeclPos
+	fi.FirstPos = firstPos
+	fi.Generated = detectGeneratedExact(p, firstDeclPos, nd > 0)
+	fi.TestFile = checkLawTestFile(p, declNodes)
+	let mut bodies = []Span32{}
+	let mut stack = slices.WithCapacity[walkItem](64)
+	let mut children = slices.WithCapacity[uint32](16)
+	for dn in declNodes {
+		let did = syntax.NodeAt(p.Tree, int(dn))
+		let dk = syntax.KindOf(p.Tree, did)
+		let identStart = uint32(fi.Idents.Len())
+		let callStart = uint32(fi.Calls.Len())
+		let selStart = uint32(fi.Selectors.Len())
+		let litStart = uint32(fi.Lits.Len())
+		stack = stack.Append(walkItem{node: dn, flags: uint8(0)})
+		for stack.Len() > 0 {
+			let item = stack[stack.Len()-1]
+			stack = stack[:stack.Len()-1]
+			let id = syntax.NodeAt(p.Tree, int(item.node))
+			let k = syntax.KindOf(p.Tree, id)
+			recordNode(&fi, p, item, &bodies)
+			let nf = childFlags(k, item.flags)
+			children = syntax.Children(p.Tree, id, children[:0])
+			let mut j = children.Len() - 1
+			for j >= 0 {
+				stack = stack.Append(walkItem{node: children[j], flags: nf})
+				j -= 1
+			}
+		}
+		fi.Decls = fi.Decls.Append(DeclRange{
+			Node:       dn,
+			Kind:       dk,
+			IdentStart: identStart,
+			IdentEnd:   uint32(fi.Idents.Len()),
+			CallStart:  callStart,
+			CallEnd:    uint32(fi.Calls.Len()),
+			SelStart:   selStart,
+			SelEnd:     uint32(fi.Selectors.Len()),
+			LitStart:   litStart,
+			LitEnd:     uint32(fi.Lits.Len()),
+		})
+	}
+	fi.BodySpans = mergeSpans(bodies)
+	fi
+}
+
+law IndexBodySpansAreSortedAndDisjoint(src string) {
+	let p = syntax.Parse(src)
+	if p.Failed {
+		return true
+	}
+	let fi = BuildFileIndex(p)
+	let mut ok = fi.FirstPos <= src.Len()
+	for i in 1..fi.BodySpans.Len() {
+		ok = ok && fi.BodySpans[i-1].End <= fi.BodySpans[i].Start
+	}
+	ok
+}
+
+test FileIndexCapturesNodesAndLines {
+	let src = "// Code generated by foo DO NOT EDIT.\n\nfunc Foo(x int) int {\n\tlet y = x + 1\n\treturn bar(y)\n}\n"
+	let p = syntax.Parse(src)
+	assert !p.Failed
+	let fi = BuildFileIndex(p)
+	assert fi.LineCount == 6
+	assert fi.Generated
+	assert !fi.TestFile
+	assert fi.Decls.Len() == 1
+	assert fi.Calls.Len() == 1
+	assert fi.DeclStmts.Len() == 1
+	assert fi.Binaries.Len() == 1
+	assert InBody(fi, uint32(65))
+	assert !InBody(fi, uint32(10))
+	let refP = syntax.Parse("type Code int where Code > 0\n")
+	assert !refP.Failed && BuildFileIndex(refP).TestFile
+	let recP = syntax.Parse("type Box { V int } where Box.V > 0\n")
+	assert !recP.Failed && !BuildFileIndex(recP).TestFile
+}

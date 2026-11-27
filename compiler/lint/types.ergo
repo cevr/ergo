@@ -1,0 +1,406 @@
+import cmp
+import compiler/check/bind
+import compiler/check/load
+import compiler/syntax
+import option
+import slices
+
+// NoID is the sentinel unsigned 32-bit index for an absent dense row.
+let NoID = uint32(4294967295)
+
+// CodeRunner is the diagnostic code for a lint-runner failure.
+let CodeRunner = "L000"
+
+// CodeSuppression is the diagnostic code for an invalid or unused suppression directive.
+let CodeSuppression = "L001"
+
+// DirectiveWord introduces a suppression comment on the line above a finding.
+let DirectiveWord = "ergo-lint-disable-next-line"
+
+// ConfigVersion is the supported schema version of ergo.lint.json.
+let ConfigVersion = 1
+
+// ConfigFile is the default configuration filename beside ergo.mod.
+let ConfigFile = "ergo.lint.json"
+
+// MaxConfigBytes is the byte cap for a configuration document.
+let MaxConfigBytes = 1048576
+
+// SeverityOff disables a rule.
+let SeverityOff = uint8(0)
+
+// SeverityHint marks an advisory finding.
+let SeverityHint = uint8(1)
+
+// SeverityInformation marks an informational finding.
+let SeverityInformation = uint8(2)
+
+// SeverityWarning marks a warning finding.
+let SeverityWarning = uint8(3)
+
+// SeverityError marks a policy-failing error finding.
+let SeverityError = uint8(4)
+
+// Recommended names the default base preset.
+let Recommended = "recommended"
+
+// Justifiers names the preset for legal code that requires a justification.
+let Justifiers = "justifiers"
+
+// Strict names the preset for complexity, dead code, and anti-slop rules.
+let Strict = "strict"
+
+// Layout names the preset for Go layout and deep-module rules.
+let Layout = "layout"
+
+// Advisory names the preset for advisory comment hints.
+let Advisory = "advisory"
+
+// Speed names the preset for performance hints.
+let Speed = "speed"
+
+// Change names the preset for diff-scoped change rules.
+let Change = "change"
+
+// StatusOff marks a rule turned off by configuration.
+let StatusOff = "off"
+
+// StatusCompleted marks a rule that evaluated cleanly.
+let StatusCompleted = "completed"
+
+// StatusFailed marks a rule whose execution failed.
+let StatusFailed = "failed"
+
+// StatusNotEvaluated marks an enabled rule skipped for missing inputs.
+let StatusNotEvaluated = "not-evaluated"
+
+// ReasonUnchecked explains a rule or suppression skipped on unchecked source.
+let ReasonUnchecked = "unchecked-source"
+
+// ReasonRuleOff explains a suppression targeting a disabled rule.
+let ReasonRuleOff = "rule-off"
+
+// ReasonFactsUnavailable explains a rule or suppression lacking checker facts.
+let ReasonFactsUnavailable = "facts-unavailable"
+
+// ReasonPackNotSelected explains a suppression naming an unselected pack.
+let ReasonPackNotSelected = "pack-not-selected"
+
+// SuppressionApplied records a directive that matched at least one finding.
+let SuppressionApplied = "applied"
+
+// SuppressionUnused records a directive whose covered line had no matching finding.
+let SuppressionUnused = "unused"
+
+// SuppressionNotEvaluated records a directive whose rule was not evaluated.
+let SuppressionNotEvaluated = "not-evaluated"
+
+// PrecisionBar is the minimum published precision in hundredths for the default preset.
+let PrecisionBar = 80
+
+// PrecisionCap is the maximum published precision in hundredths.
+let PrecisionCap = 95
+
+// SeverityName returns the wire name for a severity rank.
+func SeverityName(sev uint8) string {
+	if sev == SeverityOff {
+		return "off"
+	}
+	if sev == SeverityHint {
+		return "hint"
+	}
+	if sev == SeverityInformation {
+		return "information"
+	}
+	if sev == SeverityWarning {
+		return "warning"
+	}
+	if sev == SeverityError {
+		return "error"
+	}
+	"off"
+}
+
+// ParseSeverity parses a configuration severity string.
+func ParseSeverity(word string) uint8 fails BadConfig {
+	if word == "off" {
+		return SeverityOff
+	}
+	if word == "hint" {
+		return SeverityHint
+	}
+	if word == "information" {
+		return SeverityInformation
+	}
+	if word == "warning" {
+		return SeverityWarning
+	}
+	if word == "error" {
+		return SeverityError
+	}
+	BadConfig{Message: "unknown lint severity \(word)"}
+}
+
+// BadConfig is a typed failure returned when a configuration document or setting is invalid.
+type BadConfig {
+	// Message describes what failed validation.
+	Message string,
+}
+
+// Fix is an exact source replacement offered by a rule with safe auto-fixes.
+type Fix {
+	// Rule names the rule producing the fix.
+	Rule string,
+	// InsertAt is the byte offset where the replacement begins.
+	InsertAt int,
+	// Replace is the byte length replaced at InsertAt.
+	Replace int,
+	// Text is the replacement string.
+	Text string,
+}
+
+// Related points to another source location relevant to a finding.
+type Related {
+	// Message explains the related location's role.
+	Message string,
+	// File is the module-relative file path.
+	File string,
+	// Offset is the zero-based byte offset.
+	Offset int,
+	// Length is the byte span length.
+	Length int,
+	// Line is the one-based line number.
+	Line int,
+	// Column is the one-based column number.
+	Column int,
+}
+
+// Finding is a single diagnostic emitted by the linter.
+type Finding {
+	// Code is the stable rule or runner code such as L172.
+	Code string,
+	// Rule is the kebab-case rule name.
+	Rule string,
+	// Severity is the effective severity rank.
+	Severity uint8,
+	// Message explains the finding.
+	Message string,
+	// Instead states the recommended action.
+	Instead string,
+	// File is the module-relative path where the finding stands.
+	File string,
+	// Offset is the zero-based byte offset of the finding span.
+	Offset int,
+	// Length is the byte length of the finding span.
+	Length int,
+	// Line is the one-based start line.
+	Line int,
+	// Column is the one-based start column.
+	Column int,
+	// Precision holds the published precision in hundredths when HasPrecision is true.
+	Precision int,
+	// HasPrecision reports whether Precision is known for this rule.
+	HasPrecision bool,
+	// HasFix reports whether Fix carries an actionable edit.
+	HasFix bool,
+	// Fix holds the replacement edit when HasFix is true.
+	Fix Fix,
+	// Related lists auxiliary source locations referenced by the finding.
+	Related []Related,
+}
+
+// RuleStatus summarizes one rule's status in a lint run.
+type RuleStatus {
+	// Rule is the kebab-case rule name.
+	Rule string,
+	// Code is the rule code.
+	Code string,
+	// Severity is the configured severity name.
+	Severity string,
+	// Status is off, completed, failed, or not-evaluated.
+	Status string,
+	// Reason names why a rule was not evaluated when applicable.
+	Reason string,
+}
+
+// Suppression records the outcome of one suppression directive.
+type Suppression {
+	// Rule is the rule named in the directive.
+	Rule string,
+	// Status is applied, unused, or not-evaluated.
+	Status string,
+	// Reason explains why a directive was not evaluated when applicable.
+	Reason string,
+	// File is the module-relative file containing the directive.
+	File string,
+	// Offset is the zero-based byte offset of the directive comment.
+	Offset int,
+	// Length is the byte length of the directive comment.
+	Length int,
+	// Line is the one-based directive line.
+	Line int,
+	// Column is the one-based directive column.
+	Column int,
+	// Covered is the one-based line number guarded by the directive.
+	Covered int,
+}
+
+// Result is the complete output of linting an Input.
+type Result {
+	// Checked reports whether the input passed type checking.
+	Checked bool,
+	// Complete reports whether every enabled rule ran without error.
+	Complete bool,
+	// Findings holds all unsuppressed findings sorted canonically.
+	Findings []Finding,
+	// Rules holds the evaluation status of every built-in rule.
+	Rules []RuleStatus,
+	// Suppressions holds the status of every valid suppression directive.
+	Suppressions []Suppression,
+}
+
+// PolicyPassed reports whether the run passed under normal or strict severity policy.
+func PolicyPassed(r Result, strict bool) bool {
+	if !r.Checked || !r.Complete {
+		return false
+	}
+	for f in r.Findings {
+		if f.Severity == SeverityError {
+			return false
+		}
+		if strict && f.Severity == SeverityWarning {
+			return false
+		}
+	}
+	true
+}
+
+// FileInput describes one source file in a linted package.
+type FileInput {
+	// Rel is the path relative to the module root with forward slashes.
+	Rel string,
+	// Src is the full UTF-8 source text.
+	Src string,
+	// Parsed is the self-hosted syntax tree and token stream for Src.
+	Parsed syntax.Parsed,
+}
+
+// UnitInput describes one package in a lint run.
+type UnitInput {
+	// Module is the owning module path from ergo.mod.
+	Module string,
+	// Path is the package import path.
+	Path string,
+	// Dir is the filesystem directory of the package.
+	Dir string,
+	// Name is the package name.
+	Name string,
+	// Dependency marks required modules loaded only as evidence.
+	Dependency bool,
+	// HasEntry marks packages containing a main entry point.
+	HasEntry bool,
+	// Files holds the parsed source files of the package in canonical order.
+	Files []FileInput,
+	// BindFiles holds bind inputs aligned with Files when checked.
+	BindFiles []bind.File,
+	// Typed holds the type-checked package tables when available.
+	Typed option.Option[load.Typed],
+}
+
+// Input holds all packages and check status for one lint run.
+type Input {
+	// Checked reports whether the program passed compilation and checking.
+	Checked bool,
+	// Closed reports whether the run includes a main entry package.
+	Closed bool,
+	// ModuleDirs maps module names to their root directories when known.
+	ModuleDirs Map[string, string],
+	// Glossaries maps resolved relative or absolute paths to GLOSSARY.md text.
+	Glossaries Map[string, string],
+	// Units lists dependency units followed by subject units.
+	Units []UnitInput,
+}
+
+// CompareFinding defines the canonical diagnostic ordering by file, offset, length, code, and message.
+func CompareFinding(a Finding, b Finding) int {
+	let fc = cmp.Compare(a.File, b.File)
+	if fc != 0 {
+		return fc
+	}
+	if a.Offset != b.Offset {
+		return a.Offset - b.Offset
+	}
+	if a.Length != b.Length {
+		return a.Length - b.Length
+	}
+	let cc = cmp.Compare(a.Code, b.Code)
+	if cc != 0 {
+		return cc
+	}
+	cmp.Compare(a.Message, b.Message)
+}
+
+// SortFindings sorts findings in canonical diagnostic order.
+func SortFindings(fs []Finding) []Finding {
+	slices.SortStableFunc(fs, CompareFinding)
+}
+
+law SeverityRoundTrips(n int) {
+	let s = uint8((n%5 + 5) % 5)
+	let name = SeverityName(s)
+	let parsed = ParseSeverity(name) catch {
+	case _:
+		return false
+	}
+	parsed == s
+}
+
+// EmptyFix returns an empty Fix value.
+func EmptyFix() Fix {
+	Fix{Rule: "", InsertAt: 0, Replace: 0, Text: ""}
+}
+
+// EmptyFinding returns a zeroed Finding template.
+func EmptyFinding() Finding {
+	Finding{
+		Code:         "",
+		Rule:         "",
+		Severity:     SeverityOff,
+		Message:      "",
+		Instead:      "",
+		File:         "",
+		Offset:       0,
+		Length:       0,
+		Line:         0,
+		Column:       0,
+		Precision:    0,
+		HasPrecision: false,
+		HasFix:       false,
+		Fix:          EmptyFix(),
+		Related:      []Related{},
+	}
+}
+
+test PolicyRejectsErrorAndStrictWarning {
+	let base = EmptyFinding()
+	let okRes = Result{
+		Checked:  true,
+		Complete: true,
+		Findings: []Finding{
+			Finding{..base, Severity: SeverityHint, File: "a.ergo"},
+			Finding{..base, Severity: SeverityWarning, File: "b.ergo"},
+		},
+		Rules:        []RuleStatus{},
+		Suppressions: []Suppression{},
+	}
+	assert PolicyPassed(okRes, false)
+	assert !PolicyPassed(okRes, true)
+	let errRes = Result{
+		Checked:      true,
+		Complete:     true,
+		Findings:     []Finding{Finding{..base, Severity: SeverityError, File: "a.ergo"}},
+		Rules:        []RuleStatus{},
+		Suppressions: []Suppression{},
+	}
+	assert !PolicyPassed(errRes, false)
+}

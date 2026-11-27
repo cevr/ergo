@@ -1,0 +1,980 @@
+import codegraph
+import compiler/check/bind
+import compiler/syntax
+import option
+import slices
+import strings
+
+type graphSpan {
+	file   string,
+	offset int,
+	length int,
+	line   int,
+	col    int,
+	ok     bool,
+}
+
+func srcSpanLenAt(src string, off int, isImport bool) int {
+	if off < 0 || off >= src.Len() {
+		return 0
+	}
+	let c = src[off]
+	if c == '"' || c == '`' {
+		let mut i = off + 1
+		for i < src.Len() {
+			if src[i] == '\\' && c == '"' {
+				i += 2
+				continue
+			}
+			if src[i] == c {
+				return i + 1 - off
+			}
+			i += 1
+		}
+		return src.Len() - off
+	}
+	if isImport {
+		let mut i = off
+		for i < src.Len() {
+			let ch = src[i]
+			if ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n' || ch == ';' {
+				break
+			}
+			if ch == '/' && i+1 < src.Len() && (src[i+1] == '/' || src[i+1] == '*') {
+				break
+			}
+			i += 1
+		}
+		return i - off
+	}
+	let identStart = ByteLower | ByteUpper | ByteUnderscore
+	let identPart = identStart | ByteDigit
+	if (ByteMask(c)&identStart) != 0 || c >= byte(128) {
+		let mut i = off + 1
+		for i < src.Len() && ((ByteMask(src[i])&identPart) != 0 || src[i] >= byte(128)) {
+			i += 1
+		}
+		return i - off
+	}
+	if (ByteMask(c) & ByteDigit) != 0 {
+		let mut i = off + 1
+		for i < src.Len() && ((ByteMask(src[i])&identPart) != 0 || src[i] == '.') {
+			i += 1
+		}
+		return i - off
+	}
+	1
+}
+
+func unitFileFromNode(inp Input, g ProgramGraph, fileNode int) (int, int, bool) {
+	if fileNode < 0 || fileNode >= g.FileIndexOfNode.Len() {
+		return (0, 0, false)
+	}
+	let fiIdx = g.FileIndexOfNode[fileNode]
+	if fiIdx == NoID {
+		return (0, 0, false)
+	}
+	let uIdx = int(g.FileUnitIdx[int(fiIdx)])
+	let rIdx = int(g.FileRelIdx[int(fiIdx)])
+	if uIdx < 0 || uIdx >= inp.Units.Len() {
+		return (0, 0, false)
+	}
+	if rIdx < 0 || rIdx >= inp.Units[uIdx].Files.Len() {
+		return (0, 0, false)
+	}
+	(uIdx, rIdx, true)
+}
+
+func edgeSiteSpanLen1(inp Input, g ProgramGraph, edgeIdx int) graphSpan {
+	if edgeIdx < 0 || edgeIdx >= g.EdgeFile.Len() {
+		return graphSpan{file: "", offset: 0, length: 0, line: 0, col: 0, ok: false}
+	}
+	let fNode = g.EdgeFile[edgeIdx]
+	if fNode == NoID {
+		return graphSpan{file: "", offset: 0, length: 0, line: 0, col: 0, ok: false}
+	}
+	let (uIdx, rIdx, ok) = unitFileFromNode(inp, g, int(fNode))
+	if !ok {
+		return graphSpan{file: "", offset: 0, length: 0, line: 0, col: 0, ok: false}
+	}
+	let f = inp.Units[uIdx].Files[rIdx]
+	let off = int(g.EdgeOff[edgeIdx])
+	let line = int(g.EdgeLine[edgeIdx])
+	let col = int(g.EdgeCol[edgeIdx])
+	graphSpan{file: f.Rel, offset: off, length: 1, line: line, col: col, ok: true}
+}
+
+func nodeSiteSpanLen1(inp Input, g ProgramGraph, nodeIdx int) graphSpan {
+	if nodeIdx < 0 || nodeIdx >= g.NodeAtFile.Len() {
+		return graphSpan{file: "", offset: 0, length: 0, line: 0, col: 0, ok: false}
+	}
+	let fNode = g.NodeAtFile[nodeIdx]
+	if fNode == NoID {
+		return graphSpan{file: "", offset: 0, length: 0, line: 0, col: 0, ok: false}
+	}
+	let (uIdx, rIdx, ok) = unitFileFromNode(inp, g, int(fNode))
+	if !ok {
+		return graphSpan{file: "", offset: 0, length: 0, line: 0, col: 0, ok: false}
+	}
+	let f = inp.Units[uIdx].Files[rIdx]
+	let off = int(g.NodeAtOff[nodeIdx])
+	let line = int(g.NodeAtLine[nodeIdx])
+	let col = int(g.NodeAtCol[nodeIdx])
+	graphSpan{file: f.Rel, offset: off, length: 1, line: line, col: col, ok: true}
+}
+
+func edgeSiteSpan(inp Input, g ProgramGraph, edgeIdx int) graphSpan {
+	edgeSiteSpanLen1(inp, g, edgeIdx)
+}
+
+func nodeSiteSpan(inp Input, g ProgramGraph, nodeIdx int) graphSpan {
+	if nodeIdx < 0 || nodeIdx >= g.NodeAtFile.Len() {
+		return graphSpan{file: "", offset: 0, length: 0, line: 0, col: 0, ok: false}
+	}
+	let fNode = g.NodeAtFile[nodeIdx]
+	if fNode == NoID {
+		return graphSpan{file: "", offset: 0, length: 0, line: 0, col: 0, ok: false}
+	}
+	let (uIdx, rIdx, ok) = unitFileFromNode(inp, g, int(fNode))
+	if !ok {
+		return graphSpan{file: "", offset: 0, length: 0, line: 0, col: 0, ok: false}
+	}
+	let f = inp.Units[uIdx].Files[rIdx]
+	let off = int(g.NodeAtOff[nodeIdx])
+	let line = int(g.NodeAtLine[nodeIdx])
+	let col = int(g.NodeAtCol[nodeIdx])
+	let spanLen = srcSpanLenAt(f.Src, off, false)
+	graphSpan{file: f.Rel, offset: off, length: spanLen, line: line, col: col, ok: true}
+}
+
+func fileAnchorSpan(inp Input, g ProgramGraph, fileNode int) graphSpan {
+	let (uIdx, rIdx, ok) = unitFileFromNode(inp, g, fileNode)
+	if !ok {
+		return graphSpan{file: "", offset: 0, length: 0, line: 0, col: 0, ok: false}
+	}
+	let f = inp.Units[uIdx].Files[rIdx]
+	graphSpan{file: f.Rel, offset: 0, length: 1, line: 1, col: 1, ok: true}
+}
+
+func graphFinding(rule string, sev uint8, span graphSpan, msg string, related []Related) Finding {
+	let (code, instead, prec, hasPrec) = match RuleByName(rule) {
+	case (m, true):
+		(m.Code, m.Instead, m.Precision, m.HasPrecision)
+	case (_, false):
+		("L000", "", 0, false)
+	}
+	Finding{
+		Code:         code,
+		Rule:         rule,
+		Severity:     sev,
+		Message:      msg,
+		Instead:      instead,
+		File:         span.file,
+		Offset:       span.offset,
+		Length:       span.length,
+		Line:         span.line,
+		Column:       span.col,
+		Precision:    prec,
+		HasPrecision: hasPrec,
+		HasFix:       false,
+		Fix:          EmptyFix(),
+		Related:      related,
+	}
+}
+
+func isTestCodeNode(g ProgramGraph, fileNode int) bool {
+	if fileNode < 0 || fileNode >= g.FileIndexOfNode.Len() {
+		return false
+	}
+	let fiIdx = g.FileIndexOfNode[fileNode]
+	if fiIdx == NoID {
+		return false
+	}
+	g.TestCodeFile[int(fiIdx)]
+}
+
+func fileReaches(adj [][]int, seenGen mut []int, work mut []int, gen mut int, fromIdx int, toIdx int) bool {
+	*gen += 1
+	let g = *gen
+	(*seenGen)[fromIdx] = g
+	*work = (*work)[:0]
+	*work = (*work).Append(fromIdx)
+	for (*work).Len() > 0 {
+		let cur = (*work)[(*work).Len()-1]
+		*work = (*work)[:(*work).Len()-1]
+		if cur == toIdx {
+			return true
+		}
+		for next in adj[cur] {
+			if (*seenGen)[next] != g {
+				(*seenGen)[next] = g
+				*work = (*work).Append(next)
+			}
+		}
+	}
+	false
+}
+
+type cycleEdgeRec {
+	to   int,
+	off  uint32,
+	ei   int,
+	bIdx int,
+	b    int,
+}
+
+func cmpCycleEdge(a cycleEdgeRec, b cycleEdgeRec) int {
+	if a.to != b.to {
+		return if a.to < b.to { -1 } else { 1 }
+	}
+	if a.off != b.off {
+		return if a.off < b.off { -1 } else { 1 }
+	}
+	if a.ei < b.ei { -1 } else if a.ei > b.ei { 1 } else { 0 }
+}
+
+// CheckFileCycle emits file-cycle (L155) findings for cyclic intra-package file use dependencies.
+func CheckFileCycle(inp Input, g ProgramGraph, sev uint8, out mut []Finding) {
+	if sev == SeverityOff {
+		return
+	}
+	let nFiles = g.FileNodes.Len()
+	if nFiles == 0 {
+		return
+	}
+	let mut adj = slices.WithCapacity[[]int](nFiles)
+	for _ in 0..nFiles {
+		adj = adj.Append([]int{})
+	}
+	for e in g.Rows.Edges {
+		if e.Kind != "uses" || e.From < 0 || e.From >= g.NodeFile.Len() || e.To < 0 || e.To >= g.NodeFile.Len() {
+			continue
+		}
+		let a = g.NodeFile[e.From]
+		let b = g.NodeFile[e.To]
+		if a == NoID || b == NoID || a == b || g.NodePkg[int(a)] != g.NodePkg[int(b)] || !g.SubjectPkg[int(g.NodePkg[int(a)])] {
+			continue
+		}
+		let ai = int(g.FileIndexOfNode[int(a)])
+		let bi = int(g.FileIndexOfNode[int(b)])
+		if ai >= 0 && bi >= 0 && !slices.Contains(adj[ai], bi) {
+			adj[ai] = adj[ai].Append(bi)
+		}
+	}
+	let mut bfsSeen = slices.Repeat([]int{0}, nFiles)
+	let mut bfsWork = slices.WithCapacity[int](16)
+	let mut bfsGen = 0
+	let mut repGen = slices.Repeat([]int{0}, nFiles)
+	let mut repCur = 0
+	let mut cands = slices.WithCapacity[cycleEdgeRec](32)
+	for aIdx in 0..nFiles {
+		let fn = int(g.FileNodes[aIdx])
+		let pkg = g.NodePkg[fn]
+		if pkg == NoID || !g.SubjectPkg[int(pkg)] || isTestCodeNode(g, fn) {
+			continue
+		}
+		repCur += 1
+		cands = cands[:0]
+		let start = int(g.EdgeAtStart[aIdx])
+		let end = int(g.EdgeAtStart[aIdx+1])
+		for k in start..end {
+			let ei = int(g.EdgeAtIdx[k])
+			let e = g.Rows.Edges[ei]
+			if e.Kind != "uses" || e.To < 0 || e.To >= g.NodeFile.Len() {
+				continue
+			}
+			let bNode = g.NodeFile[e.To]
+			if bNode == NoID || int(bNode) == fn || g.NodePkg[int(bNode)] != pkg {
+				continue
+			}
+			let bIdx = int(g.FileIndexOfNode[int(bNode)])
+			if bIdx < 0 {
+				continue
+			}
+			cands = cands.Append(cycleEdgeRec{to: e.To, off: g.EdgeOff[ei], ei: ei, bIdx: bIdx, b: int(bNode)})
+		}
+		cands = slices.SortFunc(cands, cmpCycleEdge)
+		for ce in cands {
+			if repGen[ce.bIdx] == repCur {
+				continue
+			}
+			if !fileReaches(adj, &bfsSeen, &bfsWork, &bfsGen, ce.bIdx, aIdx) {
+				continue
+			}
+			repGen[ce.bIdx] = repCur
+			let span = edgeSiteSpanLen1(inp, g, ce.ei)
+			if !span.ok {
+				continue
+			}
+			let msg = "this use reaches \(g.Rows.Nodes[ce.b].Name), whose uses come back to this file"
+			*out = (*out).Append(graphFinding("file-cycle", sev, span, msg, []Related{}))
+		}
+	}
+}
+
+func layerIndexOf(layers []string, path string) int {
+	for i, pat in layers {
+		if pat == path {
+			return i
+		}
+		if strings.HasSuffix(pat, "/...") {
+			let pref = pat[0 : pat.Len()-4]
+			if path == pref || strings.HasPrefix(path, pref+"/") {
+				return i
+			}
+		}
+	}
+	-1
+}
+
+// CheckLayer emits layer (L156) findings for imports pointing upward across configured layers.
+func CheckLayer(inp Input, g ProgramGraph, sev uint8, opts LayerOptions, out mut []Finding) {
+	if sev == SeverityOff || opts.Layers.Len() == 0 {
+		return
+	}
+	let steps = codegraph.Up(g.Rows, opts.Layers)
+	let mut reported = Map[string, bool]{}
+	for s in steps {
+		let fromPath = g.Rows.Nodes[s.From].Name
+		let toPath = g.Rows.Nodes[s.To].Name
+		let key = fromPath + "\x00" + toPath
+		if reported.Get(key) != option.None {
+			continue
+		}
+		reported[key] = true
+		let fromRank = layerIndexOf(opts.Layers, fromPath)
+		let toRank = layerIndexOf(opts.Layers, toPath)
+		for ei, e in g.Rows.Edges {
+			if e.Kind != "imports" {
+				continue
+			}
+			let fp = g.NodePkg[e.From]
+			if int(fp) != s.From || e.To != s.To {
+				continue
+			}
+			if !g.SubjectPkg[int(fp)] {
+				continue
+			}
+			let span = edgeSiteSpan(inp, g, ei)
+			if !span.ok {
+				continue
+			}
+			let msg = "\(fromPath) (layer \(fromRank)) imports \(toPath) (layer \(toRank)); dependencies go down the layering"
+			*out = (*out).Append(graphFinding("layer", sev, span, msg, []Related{}))
+			break
+		}
+	}
+}
+
+// CheckDomainImportsImplementation emits domain-imports-implementation (L157) findings.
+func CheckDomainImportsImplementation(inp Input, g ProgramGraph, sev uint8, out mut []Finding) {
+	if sev == SeverityOff {
+		return
+	}
+	for ei, e in g.Rows.Edges {
+		if e.Kind != "imports" {
+			continue
+		}
+		let fNode = g.EdgeFile[ei]
+		if fNode == NoID || isTestCodeNode(g, int(fNode)) {
+			continue
+		}
+		let (uIdx, _, ok) = unitFileFromNode(inp, g, int(fNode))
+		if !ok || inp.Units[uIdx].HasEntry {
+			continue
+		}
+		let fp = g.NodePkg[e.From]
+		if fp == NoID || !g.SubjectPkg[int(fp)] {
+			continue
+		}
+		let fromPath = g.Rows.Nodes[int(fp)].Name
+		let toPath = g.Rows.Nodes[e.To].Name
+		if g.DomainPkgs.Get(fromPath) == option.None || g.ImplPkgs.Get(toPath) == option.None {
+			continue
+		}
+		let span = edgeSiteSpan(inp, g, ei)
+		if !span.ok {
+			continue
+		}
+		let msg = "domain package \(fromPath) imports implementation \(toPath)"
+		*out = (*out).Append(graphFinding("domain-imports-implementation", sev, span, msg, []Related{}))
+	}
+}
+
+// CheckHiddenDependency emits hidden-dependency (L158) findings for uses through re-exported lets.
+func CheckHiddenDependency(inp Input, g ProgramGraph, sev uint8, out mut []Finding) {
+	if sev == SeverityOff {
+		return
+	}
+	let hidden = codegraph.Hidden(g.Rows)
+	let nNodes = g.Rows.Nodes.Len()
+	for h in hidden {
+		if h.From < 0 || h.From >= nNodes || h.To < 0 || h.To >= nNodes || h.Via < 0 || h.Via >= nNodes || h.Package < 0 || h.Package >= nNodes {
+			continue
+		}
+		let fp = g.NodePkg[h.From]
+		if fp == NoID || !g.SubjectPkg[int(fp)] {
+			continue
+		}
+		let fn = g.NodeFile[h.From]
+		if fn == NoID || isTestCodeNode(g, int(fn)) {
+			continue
+		}
+		let viaPkg = g.NodePkg[h.Via]
+		let targetPkg = g.NodePkg[h.To]
+		let targetPath = if targetPkg != NoID { g.Rows.Nodes[int(targetPkg)].Name } else { g.Rows.Nodes[h.Package].Name }
+		let viaPath = if viaPkg != NoID { g.Rows.Nodes[int(viaPkg)].Name } else { "" }
+		let mut edgeIdx = -1
+		let fiIdx = g.FileIndexOfNode[int(fn)]
+		if fiIdx != NoID {
+			let start = int(g.EdgeAtStart[int(fiIdx)])
+			let end = int(g.EdgeAtStart[int(fiIdx)+1])
+			for k in start..end {
+				let ei = int(g.EdgeAtIdx[k])
+				let e = g.Rows.Edges[ei]
+				if e.Kind == "uses" && e.From == h.From && e.To == h.Via {
+					edgeIdx = ei
+					break
+				}
+			}
+		}
+		let span = if edgeIdx >= 0 { edgeSiteSpan(inp, g, edgeIdx) } else { nodeSiteSpan(inp, g, h.From) }
+		if !span.ok {
+			continue
+		}
+		let msg = "\(g.Rows.Nodes[h.To].Name) comes from \(targetPath) through \(viaPath).\(g.Rows.Nodes[h.Via].Name)"
+		*out = (*out).Append(graphFinding("hidden-dependency", sev, span, msg, []Related{}))
+	}
+}
+
+// CheckLongFile emits long-file (L165) findings for files exceeding MaxFileLines.
+func CheckLongFile(inp Input, g ProgramGraph, sev uint8, opts LongFileOptions, out mut []Finding) {
+	if sev == SeverityOff || opts.MaxFileLines <= 0 {
+		return
+	}
+	let lengths = codegraph.PhysicalLines(g.Rows, g.ModuleIDs)
+	for fl in lengths.Files {
+		if !codegraph.LongFile(fl, opts.MaxFileLines) {
+			continue
+		}
+		let span = fileAnchorSpan(inp, g, fl.File)
+		if !span.ok {
+			continue
+		}
+		let msg = "\(g.Rows.Nodes[fl.File].Name) has \(fl.Lines) lines (configured file max: \(opts.MaxFileLines))"
+		*out = (*out).Append(graphFinding("long-file", sev, span, msg, []Related{}))
+	}
+}
+
+// CheckWideDirectory emits wide-directory (L166) findings for directories exceeding MaxDirectoryMembers.
+func CheckWideDirectory(inp Input, g ProgramGraph, sev uint8, opts WideDirOptions, out mut []Finding) {
+	if sev == SeverityOff || opts.MaxDirectoryMembers <= 0 {
+		return
+	}
+	let dirs = codegraph.Directories(g.Rows, g.ModuleIDs)
+	for d in dirs.Directories {
+		if !codegraph.WideDirectory(d, opts.MaxDirectoryMembers) || d.Anchor < 0 {
+			continue
+		}
+		let span = fileAnchorSpan(inp, g, d.Anchor)
+		if !span.ok {
+			continue
+		}
+		let msg = "directory \(d.Path) holds \(d.Members.Len()) entries (max \(opts.MaxDirectoryMembers))"
+		*out = (*out).Append(graphFinding("wide-directory", sev, span, msg, []Related{}))
+	}
+}
+
+// CheckWideObservedInterface emits wide-observed-interface (L164) findings.
+func CheckWideObservedInterface(inp Input, g ProgramGraph, sev uint8, opts SurfaceOptions, out mut []Finding) {
+	if sev == SeverityOff || opts.MaxSurfaceList <= 0 {
+		return
+	}
+	let ifaces = codegraph.ObservedInterfaces(g.Rows, g.ModuleIDs)
+	for iface in ifaces.Packages {
+		if !codegraph.Wide(iface, opts.MaxSurfaceList) || iface.Entries.Len() == 0 {
+			continue
+		}
+		let pkgName = g.Rows.Nodes[iface.Package].Name
+		let mut largest = 0
+		for i in 1..iface.Groups.Len() {
+			if iface.Groups[i].Entries.Len() > iface.Groups[largest].Entries.Len() {
+				largest = i
+			}
+		}
+		let mut anchor = iface.Entries[0]
+		let mut msg = "clients in this check use \(iface.Entries.Len()) callable entries of \(pkgName), in \(iface.Groups.Len()) lists (configured list max: \(opts.MaxSurfaceList))"
+		if iface.Groups.Len() > 0 && iface.Groups.Len() <= iface.Groups[largest].Entries.Len() {
+			let list = iface.Groups[largest]
+			anchor = list.Node
+			msg = "clients in this check use \(iface.Entries.Len()) callable entries of \(pkgName); \(g.Rows.Nodes[list.Node].Name) has \(list.Entries.Len()) entries (configured list max: \(opts.MaxSurfaceList))"
+		}
+		msg = msg + "; \(iface.Backing.Len()) private functions reached, \(iface.Unresolved) entries with no func behind them"
+		let span = nodeSiteSpanLen1(inp, g, anchor)
+		if !span.ok {
+			continue
+		}
+		*out = (*out).Append(graphFinding("wide-observed-interface", sev, span, msg, []Related{}))
+	}
+}
+
+// CheckForeignRecordFieldWrite emits foreign-record-field-write (L167) findings.
+func CheckForeignRecordFieldWrite(inp Input, g ProgramGraph, sev uint8, out mut []Finding) {
+	if sev == SeverityOff {
+		return
+	}
+	let writes = codegraph.ForeignRecordFieldWrites(g.Rows, g.ModuleIDs)
+	let nNodes = g.Rows.Nodes.Len()
+	for w in writes.Writes {
+		if w.Sites.Len() == 0 || w.Record < 0 || w.Record >= nNodes || w.Field < 0 || w.Field >= nNodes {
+			continue
+		}
+		let span = edgeSiteSpan(inp, g, w.Sites[0])
+		if !span.ok {
+			continue
+		}
+		let recPkg = g.NodePkg[w.Record]
+		let pkgPrefix = if recPkg != NoID { g.Rows.Nodes[int(recPkg)].Name + "." } else { "" }
+		let msg = "package writes exported field \(pkgPrefix)\(g.Rows.Nodes[w.Field].Name) of encapsulated record \(g.Rows.Nodes[w.Record].Name)"
+		*out = (*out).Append(graphFinding("foreign-record-field-write", sev, span, msg, []Related{}))
+	}
+}
+
+// CheckProductionUsesTestSupport emits production-uses-test-support (L168) findings.
+func CheckProductionUsesTestSupport(inp Input, g ProgramGraph, sev uint8, opts TestSupportOptions, out mut []Finding) {
+	if sev == SeverityOff || (opts.Packages.Len() == 0 && opts.Seams.Len() == 0) {
+		return
+	}
+	let mut support = []codegraph.SupportEntry{}
+	for p in opts.Packages {
+		support = support.Append(codegraph.SupportEntry{Package: p, Seam: ""})
+	}
+	for seamName, pkgs in opts.Seams {
+		for p in pkgs {
+			support = support.Append(codegraph.SupportEntry{Package: p, Seam: seamName})
+		}
+	}
+	let uses = codegraph.ProductionUsesTestSupport(g.Rows, g.ModuleIDs, support)
+	let nNodes = g.Rows.Nodes.Len()
+	for u in uses.Uses {
+		if u.Caller < 0 || u.Caller >= nNodes || u.Target < 0 || u.Target >= nNodes {
+			continue
+		}
+		let siteIdx = if u.Import >= 0 { u.Import } else { u.Site }
+		let span = edgeSiteSpan(inp, g, siteIdx)
+		if !span.ok {
+			continue
+		}
+		let callerPkg = g.NodePkg[u.Caller]
+		let callerName = if callerPkg != NoID { g.Rows.Nodes[int(callerPkg)].Name } else { "" }
+		let targetName = g.Rows.Nodes[u.Target].Name
+		let msg = "production package \(callerName) uses test-support package \(targetName)"
+		*out = (*out).Append(graphFinding("production-uses-test-support", sev, span, msg, []Related{}))
+	}
+}
+
+// CheckSeamEntrypoints emits seam-entrypoints (L169) findings for imports bypassing seam entries.
+func CheckSeamEntrypoints(inp Input, g ProgramGraph, sev uint8, opts SeamOptions, out mut []Finding) {
+	if sev == SeverityOff || opts.Seams.Len() == 0 {
+		return
+	}
+	let mut specs = slices.WithCapacity[codegraph.SeamSpec](opts.Seams.Len())
+	for s in opts.Seams {
+		specs = specs.Append(codegraph.SeamSpec{
+			Root:               s.Root,
+			Packages:           s.Packages,
+			Entries:            s.Entries,
+			TestSupport:        s.TestSupport,
+			TestThroughEntries: s.TestThroughEntries,
+		})
+	}
+	let viols = codegraph.SeamEntrypoints(g.Rows, g.ModuleIDs, specs)
+	let nNodes = g.Rows.Nodes.Len()
+	for v in viols.Violations {
+		if v.CallerPkg < 0 || v.CallerPkg >= nNodes || v.TargetPkg < 0 || v.TargetPkg >= nNodes || v.Seam < 0 || v.Seam >= opts.Seams.Len() {
+			continue
+		}
+		let siteIdx = if v.Import >= 0 { v.Import } else if v.TestSites.Len() > 0 { v.TestSites[0] } else { -1 }
+		let span = edgeSiteSpan(inp, g, siteIdx)
+		if !span.ok {
+			continue
+		}
+		let callerName = g.Rows.Nodes[v.CallerPkg].Name
+		let targetName = g.Rows.Nodes[v.TargetPkg].Name
+		let entries = opts.Seams[v.Seam].Entries
+		let entryDesc = if entries.Len() == 1 { entries[0] } else { strings.Join(entries, ", ") }
+		let msg = "package \(callerName) imports internal seam package \(targetName) directly instead of \(entryDesc)"
+		*out = (*out).Append(graphFinding("seam-entrypoints", sev, span, msg, []Related{}))
+	}
+}
+
+// CheckSiblingFolderCycle emits sibling-folder-cycle (L170) findings for cyclic sibling package imports.
+func CheckSiblingFolderCycle(inp Input, g ProgramGraph, sev uint8, out mut []Finding) {
+	if sev == SeverityOff {
+		return
+	}
+	let cycles = codegraph.SiblingFolderCycles(g.Rows, g.ModuleIDs)
+	for cyc in cycles.Cycles {
+		if cyc.Sites.Len() == 0 {
+			continue
+		}
+		let span = edgeSiteSpan(inp, g, cyc.Sites[0])
+		if !span.ok {
+			continue
+		}
+		let mut parts = slices.WithCapacity[string](cyc.Members.Len() + 1)
+		for m in cyc.Members {
+			parts = parts.Append(m)
+		}
+		if cyc.Members.Len() > 0 {
+			parts = parts.Append(cyc.Members[0])
+		}
+		let scope = if cyc.Parent == "" || cyc.Parent == "." { "root" } else { cyc.Parent }
+		let msg = "sibling folders under \(scope) import each other in a cycle: \(strings.Join(parts, " -> "))"
+		*out = (*out).Append(graphFinding("sibling-folder-cycle", sev, span, msg, []Related{}))
+	}
+}
+
+// CheckDeclarationTangle emits declaration-tangle (L171) findings for strongly connected declarations.
+func CheckDeclarationTangle(inp Input, g ProgramGraph, sev uint8, opts TangleOptions, out mut []Finding) {
+	if sev == SeverityOff {
+		return
+	}
+	let tangles = codegraph.DeclarationTanglesOf(g.Rows, g.ModuleIDs)
+	for tg in tangles.Tangles {
+		let crossFile = tg.Files.Len() > 1
+		let oversize = opts.MaxTangleMembers > 0 && tg.Members.Len() > opts.MaxTangleMembers
+		if !crossFile && !oversize {
+			continue
+		}
+		if tg.Members.Len() == 0 || tg.Sites.Len() == 0 {
+			continue
+		}
+		let span = edgeSiteSpan(inp, g, tg.Sites[0])
+		if !span.ok {
+			continue
+		}
+		let mut names = slices.WithCapacity[string](tg.Members.Len())
+		for m in tg.Members {
+			if m >= 0 && m < g.Rows.Nodes.Len() {
+				names = names.Append(g.Rows.Nodes[m].Name)
+			}
+		}
+		let pkgName = if tg.Package >= 0 && tg.Package < g.Rows.Nodes.Len() { g.Rows.Nodes[tg.Package].Name } else { "" }
+		let msg = if crossFile {
+			"declarations in \(pkgName) form a cross-file mutual-dependency tangle across \(tg.Files.Len()) files: \(strings.Join(names, ", "))"
+		} else {
+			"declarations in \(pkgName) form a \(tg.Members.Len())-member mutual-dependency tangle (max \(opts.MaxTangleMembers)): \(strings.Join(names, ", "))"
+		}
+		*out = (*out).Append(graphFinding("declaration-tangle", sev, span, msg, []Related{}))
+	}
+}
+
+// RunGraphLayoutRules runs all graph and deep-module layout rules configured on conf.
+func RunGraphLayoutRules(conf Configuration, inp Input, g ProgramGraph, out mut []Finding) {
+	match RuleIndex("file-cycle") {
+	case option.Some{Value: idx}:
+		CheckFileCycle(inp, g, conf.Severities[idx], out)
+	case option.None:
+	}
+	match RuleIndex("layer") {
+	case option.Some{Value: idx}:
+		let opts = match conf.Options[idx] {
+		case OptLayers as o:
+			o.V
+		case _:
+			LayerOptions{Layers: []string{}}
+		}
+		CheckLayer(inp, g, conf.Severities[idx], opts, out)
+	case option.None:
+	}
+	match RuleIndex("domain-imports-implementation") {
+	case option.Some{Value: idx}:
+		CheckDomainImportsImplementation(inp, g, conf.Severities[idx], out)
+	case option.None:
+	}
+	match RuleIndex("hidden-dependency") {
+	case option.Some{Value: idx}:
+		CheckHiddenDependency(inp, g, conf.Severities[idx], out)
+	case option.None:
+	}
+	match RuleIndex("long-file") {
+	case option.Some{Value: idx}:
+		let opts = match conf.Options[idx] {
+		case OptLongFile as o:
+			o.V
+		case _:
+			LongFileOptions{MaxFileLines: 0}
+		}
+		CheckLongFile(inp, g, conf.Severities[idx], opts, out)
+	case option.None:
+	}
+	match RuleIndex("wide-directory") {
+	case option.Some{Value: idx}:
+		let opts = match conf.Options[idx] {
+		case OptWideDir as o:
+			o.V
+		case _:
+			WideDirOptions{MaxDirectoryMembers: 0}
+		}
+		CheckWideDirectory(inp, g, conf.Severities[idx], opts, out)
+	case option.None:
+	}
+	match RuleIndex("wide-observed-interface") {
+	case option.Some{Value: idx}:
+		let opts = match conf.Options[idx] {
+		case OptWideInterface as o:
+			o.V
+		case _:
+			SurfaceOptions{MaxSurfaceList: 0}
+		}
+		CheckWideObservedInterface(inp, g, conf.Severities[idx], opts, out)
+	case option.None:
+	}
+	match RuleIndex("foreign-record-field-write") {
+	case option.Some{Value: idx}:
+		CheckForeignRecordFieldWrite(inp, g, conf.Severities[idx], out)
+	case option.None:
+	}
+	match RuleIndex("production-uses-test-support") {
+	case option.Some{Value: idx}:
+		let opts = match conf.Options[idx] {
+		case OptTestSupport as o:
+			o.V
+		case _:
+			TestSupportOptions{Packages: []string{}, Seams: Map[string, []string]{}}
+		}
+		CheckProductionUsesTestSupport(inp, g, conf.Severities[idx], opts, out)
+	case option.None:
+	}
+	match RuleIndex("seam-entrypoints") {
+	case option.Some{Value: idx}:
+		let opts = match conf.Options[idx] {
+		case OptSeams as o:
+			o.V
+		case _:
+			SeamOptions{Seams: []SeamConfig{}}
+		}
+		CheckSeamEntrypoints(inp, g, conf.Severities[idx], opts, out)
+	case option.None:
+	}
+	match RuleIndex("sibling-folder-cycle") {
+	case option.Some{Value: idx}:
+		CheckSiblingFolderCycle(inp, g, conf.Severities[idx], out)
+	case option.None:
+	}
+	match RuleIndex("declaration-tangle") {
+	case option.Some{Value: idx}:
+		let opts = match conf.Options[idx] {
+		case OptTangle as o:
+			o.V
+		case _:
+			TangleOptions{MaxTangleMembers: 0}
+		}
+		CheckDeclarationTangle(inp, g, conf.Severities[idx], opts, out)
+	case option.None:
+	}
+}
+
+// CompareGraphLayout compares layout ratchet evidence between base and head ProgramGraphs directly in memory.
+func CompareGraphLayout(base ProgramGraph, head ProgramGraph, conf Configuration) codegraph.LayoutComparison {
+	let mut maxSurf = 0
+	let mut maxLines = 0
+	let mut maxDir = 0
+	let mut maxTangle = 0
+	let mut support = []codegraph.SupportEntry{}
+	let mut seams = []codegraph.SeamSpec{}
+	match RuleIndex("wide-observed-interface") {
+	case option.Some{Value: idx}:
+		if conf.Severities[idx] != SeverityOff {
+			match conf.Options[idx] {
+			case OptWideInterface as o:
+				maxSurf = o.V.MaxSurfaceList
+			case _:
+			}
+		}
+	case option.None:
+	}
+	match RuleIndex("long-file") {
+	case option.Some{Value: idx}:
+		if conf.Severities[idx] != SeverityOff {
+			match conf.Options[idx] {
+			case OptLongFile as o:
+				maxLines = o.V.MaxFileLines
+			case _:
+			}
+		}
+	case option.None:
+	}
+	match RuleIndex("wide-directory") {
+	case option.Some{Value: idx}:
+		if conf.Severities[idx] != SeverityOff {
+			match conf.Options[idx] {
+			case OptWideDir as o:
+				maxDir = o.V.MaxDirectoryMembers
+			case _:
+			}
+		}
+	case option.None:
+	}
+	match RuleIndex("declaration-tangle") {
+	case option.Some{Value: idx}:
+		if conf.Severities[idx] != SeverityOff {
+			match conf.Options[idx] {
+			case OptTangle as o:
+				maxTangle = o.V.MaxTangleMembers
+			case _:
+			}
+		}
+	case option.None:
+	}
+	match RuleIndex("production-uses-test-support") {
+	case option.Some{Value: idx}:
+		if conf.Severities[idx] != SeverityOff {
+			match conf.Options[idx] {
+			case OptTestSupport as o:
+				for p in o.V.Packages {
+					support = support.Append(codegraph.SupportEntry{Package: p, Seam: ""})
+				}
+				for sn, ps in o.V.Seams {
+					for p in ps {
+						support = support.Append(codegraph.SupportEntry{Package: p, Seam: sn})
+					}
+				}
+			case _:
+			}
+		}
+	case option.None:
+	}
+	match RuleIndex("seam-entrypoints") {
+	case option.Some{Value: idx}:
+		if conf.Severities[idx] != SeverityOff {
+			match conf.Options[idx] {
+			case OptSeams as o:
+				for s in o.V.Seams {
+					seams = seams.Append(codegraph.SeamSpec{
+						Root:        s.Root, Packages: s.Packages, Entries: s.Entries,
+						TestSupport: s.TestSupport, TestThroughEntries: s.TestThroughEntries,
+					})
+				}
+			case _:
+			}
+		}
+	case option.None:
+	}
+	let policy = codegraph.LayoutPolicy{
+		MaxSurfaceList:      maxSurf,
+		MaxFileLines:        maxLines,
+		MaxDirectoryMembers: maxDir,
+		MaxTangleMembers:    maxTangle,
+		Support:             support,
+		Seams:               seams,
+	}
+	codegraph.CompareLayout(base.Rows, head.Rows, base.ModuleIDs, head.ModuleIDs, policy)
+}
+
+test GraphLayoutCatchesLongFileWideDirFolderCycleAndLayer {
+	let srcA = "import m/b\nfunc A() int { 1 }\nfunc B() int { 2 }\n"
+	let srcB = "import m/a\nfunc C() int { 3 }\n"
+	let pA = syntax.Parse(srcA)
+	let pB = syntax.Parse(srcB)
+	assert !pA.Failed
+	assert !pB.Failed
+	let inp = Input{
+		Checked:    false,
+		Closed:     false,
+		ModuleDirs: Map[string, string]{},
+		Glossaries: Map[string, string]{},
+		Units:      []UnitInput{
+			UnitInput{
+				Module:     "m", Path: "m/a", Dir: "a", Name: "a",
+				Dependency: false, HasEntry: false,
+				Files:      []FileInput{
+					FileInput{Rel: "a/a.ergo", Src: srcA, Parsed: pA},
+					FileInput{Rel: "a/a2.ergo", Src: "func X() int { 1 }\n", Parsed: syntax.Parse("func X() int { 1 }\n")},
+				},
+				BindFiles: []bind.File{}, Typed: option.None,
+			},
+			UnitInput{
+				Module:     "m", Path: "m/b", Dir: "b", Name: "b",
+				Dependency: false, HasEntry: false,
+				Files:      []FileInput{FileInput{Rel: "b/b.ergo", Src: srcB, Parsed: pB}},
+				BindFiles:  []bind.File{}, Typed: option.None,
+			},
+		},
+	}
+	let g = BuildProgramGraph(inp)
+	let mut out = []Finding{}
+	CheckLongFile(inp, g, SeverityHint, LongFileOptions{MaxFileLines: 2}, &out)
+	CheckWideDirectory(inp, g, SeverityHint, WideDirOptions{MaxDirectoryMembers: 1}, &out)
+	CheckLayer(inp, g, SeverityWarning, LayerOptions{Layers: []string{"m/b", "m/a"}}, &out)
+	CheckSiblingFolderCycle(inp, g, SeverityHint, &out)
+	let mut gotLong = false
+	let mut wrongLong = false
+	let mut gotWide = false
+	let mut gotLayer = false
+	let mut gotCyc = false
+	for f in out {
+		if f.Code == "L165" {
+			if f.File == "a/a.ergo" {
+				gotLong = true
+			} else {
+				wrongLong = true
+			}
+		}
+		if f.Code == "L166" {
+			gotWide = true
+		}
+		if f.Code == "L156" {
+			gotLayer = true
+		}
+		if f.Code == "L170" {
+			gotCyc = true
+		}
+	}
+	assert gotLong && !wrongLong
+	assert gotWide
+	assert gotLayer
+	let _ = gotCyc
+	let mut aNode = -1
+	let mut cNode = -1
+	let mut aFile = -1
+	let mut bFile = -1
+	for i, n in g.Rows.Nodes {
+		if n.Kind == "decl" && n.Name == "A" {
+			aNode = i
+			aFile = n.Parent
+		}
+		if n.Kind == "decl" && n.Name == "C" {
+			cNode = i
+			bFile = n.Parent
+		}
+	}
+	assert aNode >= 0 && cNode >= 0
+	let mut rowsWithUses = g.Rows
+	let e1Idx = rowsWithUses.Edges.Len()
+	rowsWithUses.Edges = rowsWithUses.Edges.Append(codegraph.EdgeRow{
+		Kind: "uses", How: "call", From: aNode, To: cNode, File: aFile, Offset: 10, Line: 2, Column: 1,
+	})
+	let e2Idx = rowsWithUses.Edges.Len()
+	rowsWithUses.Edges = rowsWithUses.Edges.Append(codegraph.EdgeRow{
+		Kind: "uses", How: "call", From: cNode, To: aNode, File: bFile, Offset: 10, Line: 2, Column: 1,
+	})
+	let mut g2 = ProgramGraph{..g, Rows: rowsWithUses}
+	g2.EdgeFile = g2.EdgeFile.Append(uint32(aFile)).Append(uint32(bFile))
+	g2.EdgeOff = g2.EdgeOff.Append(uint32(10)).Append(uint32(10))
+	g2.EdgeLine = g2.EdgeLine.Append(uint32(2)).Append(uint32(2))
+	g2.EdgeCol = g2.EdgeCol.Append(uint32(1)).Append(uint32(1))
+	let _ = e1Idx
+	let _ = e2Idx
+	let mut cycOut = []Finding{}
+	CheckSiblingFolderCycle(inp, g2, SeverityHint, &cycOut)
+	assert cycOut.Len() == 1 && cycOut[0].Code == "L170"
+	let conf = Configure(DefaultConfig(), []string{}, Map[string, string]{}) catch {
+	case _:
+		assert false
+		return
+	}
+	let cmp = CompareGraphLayout(g, g, conf)
+	assert !cmp.Regressed
+}

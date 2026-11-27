@@ -1,0 +1,1093 @@
+import option
+import slices
+import strconv
+import strings
+import utf8
+
+// PackSelection identifies an external lint rule pack manifest.
+type PackSelection {
+	// Manifest is the path to the rule pack manifest JSON file.
+	Manifest string,
+}
+
+// Setting configures one rule's severity and optional rule-specific options.
+type Setting {
+	// Severity is the configured severity rank when HasSeverity is true.
+	Severity uint8,
+	// HasSeverity reports whether an explicit severity was provided.
+	HasSeverity bool,
+	// HasOptions reports whether an options object was provided.
+	HasOptions bool,
+	// Options holds the parsed JSON object when HasOptions is true.
+	Options JVal,
+}
+
+// Config is the parsed representation of an ergo.lint.json configuration file.
+type Config {
+	// Version is the configuration schema version.
+	Version int,
+	// Packs holds selected rule pack manifests.
+	Packs []PackSelection,
+	// Extends lists additional preset names to apply after recommended.
+	Extends []string,
+	// Rules holds per-rule settings keyed by rule name.
+	Rules Map[string, Setting],
+	// Dir is the directory holding the configuration document.
+	Dir string,
+}
+
+// DefaultConfig returns the default version-1 lint configuration.
+func DefaultConfig() Config {
+	Config{
+		Version: ConfigVersion,
+		Packs:   []PackSelection{},
+		Extends: []string{},
+		Rules:   Map[string, Setting]{},
+		Dir:     "",
+	}
+}
+
+// AvoidTerm holds an avoided glossary term and its preferred domain term.
+type AvoidTerm {
+	// Avoid is the discouraged phrase text.
+	Avoid string,
+	// Words holds the lowercase split words of Avoid.
+	Words []string,
+	// Use is the preferred domain term from the glossary.
+	Use string,
+}
+
+// WordOptions configures banned-words rules and glossary loading.
+type WordOptions {
+	// Words lists discouraged identifier word tokens.
+	Words []string,
+	// Verbs lists discouraged bare top-level function verbs.
+	Verbs []string,
+	// Glossary is the path to a GLOSSARY.md file relative to Dir.
+	Glossary string,
+	// Avoid holds parsed AvoidTerm entries loaded from Glossary.
+	Avoid []AvoidTerm,
+}
+
+// SuffixOptions configures concept-file-names kind suffixes.
+type SuffixOptions {
+	// Suffixes lists banned filename kind suffixes.
+	Suffixes []string,
+}
+
+// FunctionOptions configures with-at-entry function exemptions.
+type FunctionOptions {
+	// Functions lists DIR.Name functions permitted to pick implementations.
+	Functions []string,
+}
+
+// OwnerOptions configures capability-outside-owner package ownership.
+type OwnerOptions {
+	// Owners maps printed capability type names to owning package directories.
+	Owners Map[string, []string],
+}
+
+// LayerOptions configures allowed top-down import layering patterns.
+type LayerOptions {
+	// Layers lists package patterns from top-most to bottom-most layer.
+	Layers []string,
+}
+
+// LongFileOptions configures the long-file line budget.
+type LongFileOptions {
+	// MaxFileLines is the physical line cap, or 0 for inactive.
+	MaxFileLines int,
+}
+
+// WideDirOptions configures the wide-directory member budget.
+type WideDirOptions {
+	// MaxDirectoryMembers is the immediate file/subdir cap, or 0 for inactive.
+	MaxDirectoryMembers int,
+}
+
+// SurfaceOptions configures the wide-observed-interface entry budget.
+type SurfaceOptions {
+	// MaxSurfaceList is the maximum observed entry list width, or 0 for inactive.
+	MaxSurfaceList int,
+}
+
+// TangleOptions configures declaration-tangle SCC size limits.
+type TangleOptions {
+	// MaxTangleMembers is the component member cap, or 0 for cross-file tangles only.
+	MaxTangleMembers int,
+}
+
+// TestSupportOptions configures production-uses-test-support boundaries.
+type TestSupportOptions {
+	// Packages lists designated test-support package paths.
+	Packages []string,
+	// Seams maps seam names to package lists sharing test support.
+	Seams Map[string, []string],
+}
+
+// SeamConfig defines one logical seam boundary and its entry points.
+type SeamConfig {
+	// Root names the module-relative root prefix of the seam area.
+	Root string,
+	// Packages explicitly lists packages belonging to the seam area.
+	Packages []string,
+	// Entries lists permitted entry packages for outside imports.
+	Entries []string,
+	// TestSupport lists test-support packages within the seam area.
+	TestSupport []string,
+	// TestThroughEntries applies seam entry checks to tests inside the seam.
+	TestThroughEntries bool,
+}
+
+// SeamOptions configures seam-entrypoints boundaries.
+type SeamOptions {
+	// Seams holds configured logical seam specifications.
+	Seams []SeamConfig,
+}
+
+// RuleOptions is the closed union of parsed per-rule option values.
+type RuleOptions =
+	| OptNone{}
+	| OptMax{V MaxOptions}
+	| OptWords{V WordOptions}
+	| OptSuffixes{V SuffixOptions}
+	| OptFunctions{V FunctionOptions}
+	| OptOwners{V OwnerOptions}
+	| OptLayers{V LayerOptions}
+	| OptFileNameCase{V FileNameCaseOptions}
+	| OptLongFile{V LongFileOptions}
+	| OptWideDir{V WideDirOptions}
+	| OptWideInterface{V SurfaceOptions}
+	| OptTangle{V TangleOptions}
+	| OptTestSupport{V TestSupportOptions}
+	| OptSeams{V SeamOptions}
+
+// Configuration holds resolved effective severities and options for all 71 rules.
+type Configuration {
+	// Severities maps dense rule index to active severity rank.
+	Severities []uint8,
+	// Options maps dense rule index to decoded RuleOptions.
+	Options []RuleOptions,
+	// FileNameCaseOpts holds active file-name-case options when configured.
+	FileNameCaseOpts FileNameCaseOptions,
+	// FileNameCaseActive reports whether file-name-case has an active case style.
+	FileNameCaseActive bool,
+}
+
+// DefaultGenericVerbs returns the default banned bare function verbs.
+func DefaultGenericVerbs() []string {
+	[]string{"handle", "process", "manage", "do", "perform", "execute", "run", "compute"}
+}
+
+func jsonInt(v JVal, ctx string) int fails BadConfig {
+	match v {
+	case JNum as n:
+		if strings.Contains(n.Raw, ".") || strings.Contains(n.Raw, "e") || strings.Contains(n.Raw, "E") {
+			return BadConfig{Message: "\(ctx): expected integer, got \(n.Raw)"}
+		}
+		let parsed = strconv.Atoi(n.Raw) catch {
+		case _:
+			return BadConfig{Message: "\(ctx): invalid integer \(n.Raw)"}
+		}
+		parsed
+	case _:
+		BadConfig{Message: "\(ctx): expected integer"}
+	}
+}
+
+func jsonFloat(v JVal, ctx string) float64 fails BadConfig {
+	match v {
+	case JNum as n:
+		let parsed = strconv.ParseFloat(n.Raw) catch {
+		case _:
+			return BadConfig{Message: "\(ctx): invalid number \(n.Raw)"}
+		}
+		parsed
+	case _:
+		BadConfig{Message: "\(ctx): expected number"}
+	}
+}
+
+func jsonString(v JVal, ctx string) string fails BadConfig {
+	match v {
+	case JStr as s:
+		s.V
+	case _:
+		BadConfig{Message: "\(ctx): expected string"}
+	}
+}
+
+func jsonBool(v JVal, ctx string) bool fails BadConfig {
+	match v {
+	case JBool as b:
+		b.V
+	case _:
+		BadConfig{Message: "\(ctx): expected boolean"}
+	}
+}
+
+func jsonStringSlice(v JVal, ctx string) []string fails BadConfig {
+	match v {
+	case JNull:
+		[]string{}
+	case JArr as a:
+		let mut out = slices.WithCapacity[string](a.Items.Len())
+		for item in a.Items {
+			out = out.Append(try jsonString(item, ctx))
+		}
+		out
+	case _:
+		BadConfig{Message: "\(ctx): expected string array"}
+	}
+}
+
+func jsonStringMapSlice(v JVal, ctx string) Map[string, []string] fails BadConfig {
+	let mut out = Map[string, []string]{}
+	match v {
+	case JNull:
+		out
+	case JObj as obj:
+		for m in obj.Members {
+			out[m.Key] = try jsonStringSlice(m.Value, ctx)
+		}
+		out
+	case _:
+		BadConfig{Message: "\(ctx): expected string-slice object"}
+	}
+}
+
+func parsePackSelection(v JVal) PackSelection fails BadConfig {
+	let obj = match v {
+	case JObj as o:
+		o
+	case _:
+		return BadConfig{Message: "pack entry must be an object"}
+	}
+	let mut manifest = ""
+	for m in obj.Members {
+		if m.Key == "manifest" {
+			manifest = try jsonString(m.Value, "manifest")
+		} else if m.Key == "env" {
+			continue
+		} else {
+			return BadConfig{Message: "unknown field \(strconv.Quote(m.Key)) in pack selection"}
+		}
+	}
+	if manifest == "" {
+		return BadConfig{Message: "a selected pack needs a manifest path"}
+	}
+	PackSelection{Manifest: manifest}
+}
+
+func parsePacks(v JVal) []PackSelection fails BadConfig {
+	match v {
+	case JNull:
+		[]PackSelection{}
+	case JArr as a:
+		let mut out = []PackSelection{}
+		for item in a.Items {
+			out = out.Append(try parsePackSelection(item))
+		}
+		out
+	case _:
+		BadConfig{Message: "packs must be an array"}
+	}
+}
+
+func parseRuleSetting(v JVal) Setting fails BadConfig {
+	let empty = Setting{Severity: SeverityOff, HasSeverity: false, HasOptions: false, Options: JNull}
+	match v {
+	case JStr as s:
+		let sev = try ParseSeverity(s.V)
+		return Setting{..empty, Severity: sev, HasSeverity: true}
+	case JObj as obj:
+		let mut sev = SeverityOff
+		let mut hasSev = false
+		let mut hasOpts = false
+		let mut opts JVal = JNull
+		for m in obj.Members {
+			if m.Key == "severity" {
+				match m.Value {
+				case JStr as ws:
+					sev = try ParseSeverity(ws.V)
+					hasSev = true
+				case _:
+					return BadConfig{Message: "a rule severity is a string; omit it to keep the default"}
+				}
+			} else if m.Key == "options" {
+				match m.Value {
+				case JNull:
+				case JObj as om:
+					if om.Members.Len() > 0 {
+						hasOpts = true
+						opts = m.Value
+					}
+				case _:
+					return BadConfig{Message: "a rule setting is a severity or {\"severity\", \"options\"}"}
+				}
+			} else {
+				return BadConfig{Message: "a rule setting is a severity or {\"severity\", \"options\"}: unknown field \(strconv.Quote(m.Key))"}
+			}
+		}
+		Setting{Severity: sev, HasSeverity: hasSev, HasOptions: hasOpts, Options: opts}
+	case _:
+		BadConfig{Message: "a rule setting is a severity or {\"severity\", \"options\"}"}
+	}
+}
+
+func parseRuleMap(v JVal) Map[string, Setting] fails BadConfig {
+	let mut out = Map[string, Setting]{}
+	match v {
+	case JNull:
+		out
+	case JObj as obj:
+		for m in obj.Members {
+			out[m.Key] = try parseRuleSetting(m.Value)
+		}
+		out
+	case _:
+		BadConfig{Message: "rules must be an object"}
+	}
+}
+
+// ParseConfig strictly decodes an ergo.lint.json configuration document.
+func ParseConfig(data string) Config fails BadConfig {
+	if data.Len() > MaxConfigBytes {
+		return BadConfig{Message: "\(ConfigFile) exceeds \(MaxConfigBytes) bytes"}
+	}
+	let root = ParseStrictJSON(data) catch {
+	case BadConfig as e:
+		return BadConfig{Message: "invalid \(ConfigFile): \(e.Message)"}
+	}
+	let obj = match root {
+	case JObj as o:
+		o
+	case _:
+		return BadConfig{Message: "invalid \(ConfigFile): top level must be a JSON object"}
+	}
+	let mut hasVersion = false
+	let mut version = 0
+	let mut packs = []PackSelection{}
+	let mut extends = []string{}
+	let mut rules = Map[string, Setting]{}
+	for m in obj.Members {
+		if m.Key == "version" {
+			match m.Value {
+			case JNull:
+			case _:
+				version = parseJSONVersion(m.Value) catch {
+				case BadConfig as e:
+					return BadConfig{Message: "invalid \(ConfigFile): \(e.Message)"}
+				}
+				hasVersion = true
+			}
+		} else if m.Key == "packs" {
+			packs = parsePacks(m.Value) catch {
+			case BadConfig as e:
+				return BadConfig{Message: "invalid \(ConfigFile): \(e.Message)"}
+			}
+		} else if m.Key == "extends" {
+			extends = jsonStringSlice(m.Value, "extends") catch {
+			case BadConfig as e:
+				return BadConfig{Message: "invalid \(ConfigFile): \(e.Message)"}
+			}
+		} else if m.Key == "rules" {
+			rules = parseRuleMap(m.Value) catch {
+			case BadConfig as e:
+				return BadConfig{Message: "invalid \(ConfigFile): \(e.Message)"}
+			}
+		} else {
+			return BadConfig{Message: "invalid \(ConfigFile): unknown field \(strconv.Quote(m.Key))"}
+		}
+	}
+	if !hasVersion {
+		return BadConfig{Message: "invalid \(ConfigFile): version is required"}
+	}
+	Config{Version: version, Packs: packs, Extends: extends, Rules: rules, Dir: ""}
+}
+
+func parseJSONVersion(v JVal) int fails BadConfig {
+	try jsonInt(v, "version")
+}
+
+// NameWords splits a declared identifier into lowercase words at underscores, digits, and case changes.
+func NameWords(name string) []string {
+	if isASCIIOnly(name) {
+		return nameWordsASCII(name)
+	}
+	let rs = decodeRunes(name)
+	let mut words = []string{}
+	let mut start = 0
+	for i, r in rs {
+		if r == '_' || utf8.IsDigit(r) {
+			if i > start {
+				flushUnicodeWord(&words, rs, start, i)
+			}
+			start = i + 1
+		} else if i > start && utf8.IsUpper(r) && (isLowerRune(rs[i-1]) || (i+1 < rs.Len() && isLowerRune(rs[i+1]) && utf8.IsUpper(rs[i-1]))) {
+			flushUnicodeWord(&words, rs, start, i)
+			start = i
+		}
+	}
+	if rs.Len() > start {
+		flushUnicodeWord(&words, rs, start, rs.Len())
+	}
+	words
+}
+
+func nameWordsASCII(name string) []string {
+	let mut words = []string{}
+	let mut start = 0
+	for i in 0..name.Len() {
+		let c = name[i]
+		let m = ByteMask(c)
+		if c == '_' || (m&ByteDigit) != 0 {
+			if i > start {
+				words = words.Append(asciiLowerRange(name, start, i))
+			}
+			start = i + 1
+		} else if i > start && (m&ByteUpper) != 0 {
+			let pm = ByteMask(name[i-1])
+			let prevLow = (pm & ByteLower) != 0
+			let acrEnd = i+1 < name.Len() && (ByteMask(name[i+1])&ByteLower) != 0 && (pm&ByteUpper) != 0
+			if prevLow || acrEnd {
+				words = words.Append(asciiLowerRange(name, start, i))
+				start = i
+			}
+		}
+	}
+	if name.Len() > start {
+		words = words.Append(asciiLowerRange(name, start, name.Len()))
+	}
+	words
+}
+
+// BannedWord returns the first matching banned word in name, compared case-insensitively.
+func BannedWord(name string, words []string) (string, bool) {
+	for w in NameWords(name) {
+		for b in words {
+			if strings.EqualFold(w, b) {
+				return (b, true)
+			}
+		}
+	}
+	("", false)
+}
+
+// BareVerb reports whether name consists of a single word listed in verbs.
+func BareVerb(name string, verbs []string) bool {
+	let words = NameWords(name)
+	if words.Len() != 1 {
+		return false
+	}
+	for v in verbs {
+		if strings.EqualFold(words[0], v) {
+			return true
+		}
+	}
+	false
+}
+
+// ParseGlossary extracts avoided terms from a domain GLOSSARY.md document.
+func ParseGlossary(text string) []AvoidTerm {
+	let mut out = []AvoidTerm{}
+	let mut use = ""
+	for raw in strings.Split(text, "\n") {
+		let line = strings.TrimSpace(raw)
+		if strings.HasPrefix(line, "**") {
+			match strings.Cut(line[2:], "**") {
+			case option.Some{Value: h}:
+				use = strings.TrimSpace(h.Before)
+			case option.None:
+			}
+			continue
+		}
+		if !strings.HasPrefix(line, "_Avoid_:") {
+			continue
+		}
+		let rest = line[8:]
+		for part in strings.Split(rest, ",") {
+			let a = strings.TrimRight(strings.TrimSpace(part), ".")
+			let mut words = []string{}
+			for f in strings.Fields(a) {
+				for nw in NameWords(f) {
+					words = words.Append(nw)
+				}
+			}
+			if words.Len() > 0 {
+				out = out.Append(AvoidTerm{Avoid: a, Words: words, Use: use})
+			}
+		}
+	}
+	out
+}
+
+// AvoidedTerm returns the first AvoidTerm whose words appear consecutively in name.
+func AvoidedTerm(name string, terms []AvoidTerm) (AvoidTerm, bool) {
+	let words = NameWords(name)
+	for t in terms {
+		let n = t.Words.Len()
+		if n == 0 || n > words.Len() {
+			continue
+		}
+		for i in 0..(words.Len() - n + 1) {
+			let mut eq = true
+			for j in 0..n {
+				if words[i+j] != t.Words[j] {
+					eq = false
+					break
+				}
+			}
+			if eq {
+				return (t, true)
+			}
+		}
+	}
+	(AvoidTerm{Avoid: "", Words: []string{}, Use: ""}, false)
+}
+
+func defaultCapVal(name string) float64 {
+	if name == "cognitive-complexity" || name == "cyclomatic-complexity" {
+		return 21.0
+	}
+	if name == "halstead-difficulty" {
+		return 79.0
+	}
+	if name == "long-parameter-list" {
+		return 5.0
+	}
+	if name == "large-value-copy" {
+		return 256.0
+	}
+	0.0
+}
+
+func membersOf(v JVal) []JMember fails BadConfig {
+	match v {
+	case JNull:
+		[]JMember{}
+	case JObj as o:
+		o.Members
+	case _:
+		BadConfig{Message: "options must be a JSON object"}
+	}
+}
+
+func decodeMaxOptions(name string, v JVal) RuleOptions fails BadConfig {
+	let mut maxV = defaultCapVal(name)
+	for m in try membersOf(v) {
+		if m.Key == "max" {
+			maxV = try jsonFloat(m.Value, "max")
+		} else {
+			return BadConfig{Message: "unknown option \(strconv.Quote(m.Key)) for \(name)"}
+		}
+	}
+	if maxV < 0.0 {
+		return BadConfig{Message: "max is \(FormatMetric(maxV)); it is 0 or more"}
+	}
+	OptMax{V: MaxOptions{Max: maxV}}
+}
+
+func decodeWordOptions(v JVal) RuleOptions fails BadConfig {
+	let mut words = []string{"shape"}
+	let mut verbs = DefaultGenericVerbs()
+	let mut glossary = ""
+	for m in try membersOf(v) {
+		if m.Key == "words" {
+			words = try jsonStringSlice(m.Value, "words")
+		} else if m.Key == "verbs" {
+			verbs = try jsonStringSlice(m.Value, "verbs")
+		} else if m.Key == "glossary" {
+			glossary = try jsonString(m.Value, "glossary")
+		} else {
+			return BadConfig{Message: "unknown option \(strconv.Quote(m.Key)) for banned-words"}
+		}
+	}
+	OptWords{V: WordOptions{Words: words, Verbs: verbs, Glossary: glossary, Avoid: []AvoidTerm{}}}
+}
+
+func decodeSuffixOptions(v JVal) RuleOptions fails BadConfig {
+	let mut suf = DefaultConceptSuffixes()
+	for m in try membersOf(v) {
+		if m.Key == "suffixes" {
+			suf = try jsonStringSlice(m.Value, "suffixes")
+		} else {
+			return BadConfig{Message: "unknown option \(strconv.Quote(m.Key)) for concept-file-names"}
+		}
+	}
+	OptSuffixes{V: SuffixOptions{Suffixes: suf}}
+}
+
+func decodeFunctionOptions(v JVal) RuleOptions fails BadConfig {
+	let mut funcs = []string{}
+	for m in try membersOf(v) {
+		if m.Key == "functions" {
+			funcs = try jsonStringSlice(m.Value, "functions")
+		} else {
+			return BadConfig{Message: "unknown option \(strconv.Quote(m.Key)) for with-at-entry"}
+		}
+	}
+	OptFunctions{V: FunctionOptions{Functions: funcs}}
+}
+
+func decodeOwnerOptions(v JVal) RuleOptions fails BadConfig {
+	let mut owners = Map[string, []string]{}
+	for m in try membersOf(v) {
+		if m.Key == "owners" {
+			owners = try jsonStringMapSlice(m.Value, "owners")
+		} else {
+			return BadConfig{Message: "unknown option \(strconv.Quote(m.Key)) for capability-outside-owner"}
+		}
+	}
+	OptOwners{V: OwnerOptions{Owners: owners}}
+}
+
+func decodeLayerOptions(v JVal) RuleOptions fails BadConfig {
+	let mut layers = []string{}
+	for m in try membersOf(v) {
+		if m.Key == "layers" {
+			layers = try jsonStringSlice(m.Value, "layers")
+		} else {
+			return BadConfig{Message: "unknown option \(strconv.Quote(m.Key)) for layer"}
+		}
+	}
+	OptLayers{V: LayerOptions{Layers: layers}}
+}
+
+func decodeFileNameCaseOptions(v JVal) RuleOptions fails BadConfig {
+	let mut style = ""
+	let mut dirs = false
+	for m in try membersOf(v) {
+		if m.Key == "case" {
+			style = try jsonString(m.Value, "case")
+		} else if m.Key == "dirs" {
+			dirs = try jsonBool(m.Value, "dirs")
+		} else {
+			return BadConfig{Message: "unknown option \(strconv.Quote(m.Key)) for file-name-case"}
+		}
+	}
+	let o = FileNameCaseOptions{Case: style, Dirs: dirs}
+	try ValidateFileNameCaseOptions(o)
+	OptFileNameCase{V: o}
+}
+
+func decodeLongFileOptions(v JVal) RuleOptions fails BadConfig {
+	let mut maxLines = 0
+	for m in try membersOf(v) {
+		if m.Key == "maxFileLines" {
+			maxLines = try jsonInt(m.Value, "maxFileLines")
+		} else {
+			return BadConfig{Message: "unknown option \(strconv.Quote(m.Key)) for long-file"}
+		}
+	}
+	if maxLines < 0 {
+		return BadConfig{Message: "maxFileLines is \(maxLines); it is a positive number of lines, or absent for no finding"}
+	}
+	OptLongFile{V: LongFileOptions{MaxFileLines: maxLines}}
+}
+
+func decodeWideDirOptions(v JVal) RuleOptions fails BadConfig {
+	let mut maxMembers = 0
+	for m in try membersOf(v) {
+		if m.Key == "maxDirectoryMembers" {
+			maxMembers = try jsonInt(m.Value, "maxDirectoryMembers")
+		} else {
+			return BadConfig{Message: "unknown option \(strconv.Quote(m.Key)) for wide-directory"}
+		}
+	}
+	if maxMembers < 0 {
+		return BadConfig{Message: "maxDirectoryMembers is \(maxMembers); it is a positive number of entries, or absent for no finding"}
+	}
+	OptWideDir{V: WideDirOptions{MaxDirectoryMembers: maxMembers}}
+}
+
+func decodeWideInterfaceOptions(v JVal) RuleOptions fails BadConfig {
+	let mut maxSurf = 0
+	for m in try membersOf(v) {
+		if m.Key == "maxSurfaceList" {
+			maxSurf = try jsonInt(m.Value, "maxSurfaceList")
+		} else {
+			return BadConfig{Message: "unknown option \(strconv.Quote(m.Key)) for wide-observed-interface"}
+		}
+	}
+	if maxSurf < 0 {
+		return BadConfig{Message: "maxSurfaceList is \(maxSurf); it is a positive number of entries, or absent for no finding"}
+	}
+	OptWideInterface{V: SurfaceOptions{MaxSurfaceList: maxSurf}}
+}
+
+func decodeTangleOptions(v JVal) RuleOptions fails BadConfig {
+	let mut maxT = 0
+	for m in try membersOf(v) {
+		if m.Key == "maxTangleMembers" {
+			maxT = try jsonInt(m.Value, "maxTangleMembers")
+		} else {
+			return BadConfig{Message: "unknown option \(strconv.Quote(m.Key)) for declaration-tangle"}
+		}
+	}
+	if maxT < 0 {
+		return BadConfig{Message: "maxTangleMembers is \(maxT); it is a positive number of declarations, or absent for cross-file tangles only"}
+	}
+	OptTangle{V: TangleOptions{MaxTangleMembers: maxT}}
+}
+
+func decodeTestSupportOptions(v JVal) RuleOptions fails BadConfig {
+	let mut pkgs = []string{}
+	let mut seams = Map[string, []string]{}
+	for m in try membersOf(v) {
+		if m.Key == "packages" {
+			pkgs = try jsonStringSlice(m.Value, "packages")
+		} else if m.Key == "seams" {
+			seams = try jsonStringMapSlice(m.Value, "seams")
+		} else {
+			return BadConfig{Message: "unknown option \(strconv.Quote(m.Key)) for production-uses-test-support"}
+		}
+	}
+	for p in pkgs {
+		if p == "" {
+			return BadConfig{Message: "packages holds an empty package path"}
+		}
+	}
+	for sn, spkgs in seams {
+		if sn == "" {
+			return BadConfig{Message: "seams holds an empty seam name"}
+		}
+		for p in spkgs {
+			if p == "" {
+				return BadConfig{Message: "seams[\(strconv.Quote(sn))] holds an empty package path"}
+			}
+		}
+	}
+	OptTestSupport{V: TestSupportOptions{Packages: pkgs, Seams: seams}}
+}
+
+func inSeamAreaPkg(pkg string, s SeamConfig) bool {
+	if slices.Contains(s.Packages, pkg) {
+		return true
+	}
+	s.Root != "" && (pkg == s.Root || strings.HasPrefix(pkg, s.Root+"/"))
+}
+
+func decodeOneSeam(i int, v JVal) SeamConfig fails BadConfig {
+	let obj = match v {
+	case JObj as o:
+		o
+	case _:
+		return BadConfig{Message: "seams[\(i)] must be an object"}
+	}
+	let mut s = SeamConfig{Root: "", Packages: []string{}, Entries: []string{}, TestSupport: []string{}, TestThroughEntries: false}
+	for m in obj.Members {
+		if m.Key == "root" {
+			s.Root = try jsonString(m.Value, "root")
+		} else if m.Key == "packages" {
+			s.Packages = try jsonStringSlice(m.Value, "packages")
+		} else if m.Key == "entries" {
+			s.Entries = try jsonStringSlice(m.Value, "entries")
+		} else if m.Key == "testSupport" {
+			s.TestSupport = try jsonStringSlice(m.Value, "testSupport")
+		} else if m.Key == "testThroughEntries" {
+			s.TestThroughEntries = try jsonBool(m.Value, "testThroughEntries")
+		} else {
+			return BadConfig{Message: "unknown field \(strconv.Quote(m.Key)) in seams[\(i)]"}
+		}
+	}
+	if s.Root == "" && s.Packages.Len() == 0 {
+		return BadConfig{Message: "seams[\(i)] needs root or packages"}
+	}
+	for p in s.Packages {
+		if p == "" {
+			return BadConfig{Message: "seams[\(i)].packages holds an empty package path"}
+		}
+	}
+	if s.Entries.Len() == 0 {
+		return BadConfig{Message: "seams[\(i)] needs at least one entry package"}
+	}
+	for e in s.Entries {
+		if e == "" {
+			return BadConfig{Message: "seams[\(i)].entries holds an empty package path"}
+		}
+		if !inSeamAreaPkg(e, s) {
+			return BadConfig{Message: "seams[\(i)]: entry \(strconv.Quote(e)) is outside the seam area"}
+		}
+	}
+	for ts in s.TestSupport {
+		if ts == "" {
+			return BadConfig{Message: "seams[\(i)].testSupport holds an empty package path"}
+		}
+		if !inSeamAreaPkg(ts, s) {
+			return BadConfig{Message: "seams[\(i)]: testSupport \(strconv.Quote(ts)) is outside the seam area"}
+		}
+	}
+	s
+}
+
+func decodeSeamOptions(v JVal) RuleOptions fails BadConfig {
+	let mut seams = []SeamConfig{}
+	for m in try membersOf(v) {
+		if m.Key == "seams" {
+			match m.Value {
+			case JNull:
+			case JArr as a:
+				for i, item in a.Items {
+					seams = seams.Append(try decodeOneSeam(i, item))
+				}
+			case _:
+				return BadConfig{Message: "seams must be an array"}
+			}
+		} else {
+			return BadConfig{Message: "unknown option \(strconv.Quote(m.Key)) for seam-entrypoints"}
+		}
+	}
+	OptSeams{V: SeamOptions{Seams: seams}}
+}
+
+func decodeRuleOptions(name string, v JVal) RuleOptions fails BadConfig {
+	if name == "cognitive-complexity" || name == "cyclomatic-complexity" || name == "halstead-difficulty" || name == "long-parameter-list" || name == "large-value-copy" {
+		return try decodeMaxOptions(name, v)
+	}
+	if name == "banned-words" {
+		return try decodeWordOptions(v)
+	}
+	if name == "concept-file-names" {
+		return try decodeSuffixOptions(v)
+	}
+	if name == "with-at-entry" {
+		return try decodeFunctionOptions(v)
+	}
+	if name == "capability-outside-owner" {
+		return try decodeOwnerOptions(v)
+	}
+	if name == "layer" {
+		return try decodeLayerOptions(v)
+	}
+	if name == "file-name-case" {
+		return try decodeFileNameCaseOptions(v)
+	}
+	if name == "long-file" {
+		return try decodeLongFileOptions(v)
+	}
+	if name == "wide-directory" {
+		return try decodeWideDirOptions(v)
+	}
+	if name == "wide-observed-interface" {
+		return try decodeWideInterfaceOptions(v)
+	}
+	if name == "declaration-tangle" {
+		return try decodeTangleOptions(v)
+	}
+	if name == "production-uses-test-support" {
+		return try decodeTestSupportOptions(v)
+	}
+	if name == "seam-entrypoints" {
+		return try decodeSeamOptions(v)
+	}
+	OptNone
+}
+
+func applySetting(sevs mut []uint8, opts mut []RuleOptions, name string, s Setting) fails BadConfig {
+	let idx = match RuleIndex(name) {
+	case option.Some{Value: i}:
+		i
+	case option.None:
+		return BadConfig{Message: "unknown rule \(name)"}
+	}
+	let meta = allRulesList[idx]
+	if s.HasOptions {
+		if !meta.HasOptions {
+			return BadConfig{Message: "rule \(name) takes no options"}
+		}
+		(*opts)[idx] = decodeRuleOptions(name, s.Options) catch {
+		case BadConfig as e:
+			return BadConfig{Message: "rule \(name): invalid options: \(e.Message)"}
+		}
+	}
+	if s.HasSeverity {
+		(*sevs)[idx] = s.Severity
+	} else if (*sevs)[idx] == SeverityOff {
+		(*sevs)[idx] = meta.Default
+	}
+}
+
+func defaultRuleOption(meta RuleMeta) RuleOptions {
+	if !meta.HasOptions {
+		return OptNone
+	}
+	decodeRuleOptions(meta.Name, JNull) catch {
+	case _:
+		OptNone
+	}
+}
+
+func validateTopPresetAndRuleNames(doc Config, presets []string) fails BadConfig {
+	if doc.Version != ConfigVersion {
+		return BadConfig{Message: "lint configuration version \(doc.Version) is not supported; write \"version\": \(ConfigVersion)"}
+	}
+	if doc.Packs.Len() > 0 {
+		return BadConfig{Message: "the configuration selects rule packs that were not loaded"}
+	}
+	for p in doc.Extends {
+		if strings.Contains(p, "/") {
+			return BadConfig{Message: "preset \(p) names no selected rule pack"}
+		}
+	}
+	for p in presets {
+		if strings.Contains(p, "/") {
+			return BadConfig{Message: "preset \(p) names no selected rule pack"}
+		}
+	}
+	for name, _ in doc.Rules {
+		if strings.Contains(name, "/") {
+			return BadConfig{Message: "lint rule \(name) names no selected rule pack"}
+		}
+	}
+}
+
+// Configure resolves effective severities and validated options over BuiltinRules.
+func Configure(doc Config, presets []string, glossaries Map[string, string]) Configuration fails BadConfig {
+	try validateTopPresetAndRuleNames(doc, presets)
+	let n = allRulesList.Len()
+	let mut sevs = slices.Repeat([]uint8{SeverityOff}, n)
+	let mut opts = slices.WithCapacity[RuleOptions](n)
+	for meta in allRulesList {
+		opts = opts.Append(defaultRuleOption(meta))
+	}
+	let emptySet = Setting{Severity: SeverityOff, HasSeverity: false, HasOptions: false, Options: JNull}
+	let mut layers = []string{Recommended}
+	for e in doc.Extends {
+		layers = layers.Append(e)
+	}
+	for p in presets {
+		layers = layers.Append(p)
+	}
+	let mut seenPresets = Map[string, bool]{}
+	for layerName in layers {
+		let (pRules, ok) = PresetRuleNames(layerName)
+		if !ok {
+			return BadConfig{Message: "unknown preset \(layerName)"}
+		}
+		match seenPresets.Get(layerName) {
+		case option.Some:
+			return BadConfig{Message: "preset \(layerName) is applied twice"}
+		case option.None:
+			seenPresets[layerName] = true
+		}
+		for rn in pRules {
+			try applySetting(&sevs, &opts, rn, emptySet)
+		}
+	}
+	let mut ruleNames = []string{}
+	for k, _ in doc.Rules {
+		ruleNames = ruleNames.Append(k)
+	}
+	let sortedNames = slices.Sort(ruleNames)
+	for name in sortedNames {
+		if IsReservedRuleName(name) {
+			return BadConfig{Message: "\(name) is the runner's and has a fixed severity"}
+		}
+		match doc.Rules.Get(name) {
+		case option.Some{Value: s}:
+			try applySetting(&sevs, &opts, name, s)
+		case option.None:
+		}
+	}
+	match RuleIndex("banned-words") {
+	case option.Some{Value: bi}:
+		if sevs[bi] != SeverityOff {
+			match opts[bi] {
+			case OptWords as w:
+				if w.V.Glossary != "" {
+					let path = if strings.HasPrefix(w.V.Glossary, "/") || doc.Dir == "" {
+						w.V.Glossary
+					} else {
+						CleanSlashPath(doc.Dir + "/" + w.V.Glossary)
+					}
+					match glossaries.Get(path) {
+					case option.Some{Value: gText}:
+						opts[bi] = OptWords{V: WordOptions{..w.V, Avoid: ParseGlossary(gText)}}
+					case option.None:
+						return BadConfig{Message: "rule banned-words: glossary \(path) not found"}
+					}
+				}
+			case _:
+			}
+		}
+	case option.None:
+	}
+	let mut fnCase = FileNameCaseOptions{Case: "", Dirs: false}
+	let mut fnActive = false
+	match RuleIndex("file-name-case") {
+	case option.Some{Value: fi}:
+		if sevs[fi] != SeverityOff {
+			match opts[fi] {
+			case OptFileNameCase as fnc:
+				if fnc.V.Case != "" {
+					fnCase = fnc.V
+					fnActive = true
+				}
+			case _:
+			}
+		}
+	case option.None:
+	}
+	Configuration{
+		Severities:         sevs,
+		Options:            opts,
+		FileNameCaseOpts:   fnCase,
+		FileNameCaseActive: fnActive,
+	}
+}
+
+// ConfigStatuses returns the initial RuleStatus slice for every rule in Configuration.
+func ConfigStatuses(c Configuration) []RuleStatus {
+	let mut out = slices.WithCapacity[RuleStatus](allRulesList.Len())
+	for i, meta in allRulesList {
+		let sev = c.Severities[i]
+		let st = if sev == SeverityOff { StatusOff } else { StatusNotEvaluated }
+		out = out.Append(RuleStatus{
+			Rule:     meta.Name,
+			Code:     meta.Code,
+			Severity: SeverityName(sev),
+			Status:   st,
+			Reason:   "",
+		})
+	}
+	out
+}
+
+test ConfigParsingAndLayering {
+	let cfg = ParseConfig(`{"version":1,"extends":["layout"],"rules":{"file-name-case":{"severity":"error","options":{"case":"snake_case","dirs":true}},"long-file":{"options":{"maxFileLines":500}}}}`) catch {
+	case _:
+		assert false
+		return
+	}
+	let emptyG = Map[string, string]{}
+	let conf = Configure(cfg, []string{"strict"}, emptyG) catch {
+	case _:
+		assert false
+		return
+	}
+	assert conf.FileNameCaseActive
+	assert conf.FileNameCaseOpts.Case == CaseSnake
+	assert conf.FileNameCaseOpts.Dirs
+	match RuleIndex("long-file") {
+	case option.Some{Value: i}:
+		assert conf.Severities[i] == SeverityHint
+		match conf.Options[i] {
+		case OptLongFile as lf:
+			assert lf.V.MaxFileLines == 500
+		case _:
+			assert false
+		}
+	case option.None:
+		assert false
+	}
+	let mut dupFailed = false
+	let dupPreset = Configure(cfg, []string{"layout"}, emptyG) catch {
+	case BadConfig as e:
+		dupFailed = true
+		assert strings.Contains(e.Message, "applied twice")
+		Configuration{Severities: []uint8{}, Options: []RuleOptions{}, FileNameCaseOpts: FileNameCaseOptions{Case: "", Dirs: false}, FileNameCaseActive: false}
+	}
+	assert dupFailed
+	let _ = dupPreset
+}

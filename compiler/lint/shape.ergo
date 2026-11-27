@@ -1,0 +1,1722 @@
+import compiler/check/bind
+import compiler/check/infer
+import compiler/check/load
+import compiler/check/store
+import compiler/syntax
+import dense
+import option
+import slices
+import strings
+
+type shapeBuf {
+	parts []string,
+}
+
+func sbWrite(b mut shapeBuf, s string) {
+	b.parts = b.parts.Append(s)
+}
+
+func sbString(b shapeBuf) string {
+	strings.Join(b.parts, "")
+}
+
+type shapeCtx {
+	p           syntax.Parsed,
+	hasTyped    bool,
+	fIdx        int,
+	u           bind.Uses,
+	ps          bind.Parents,
+	typeParamPN []bool,
+	free        bool,
+	gen         int,
+	nextLoc     int,
+	untypedDefs Map[string, int],
+}
+
+func markLocalDefs(t syntax.Tree, node dense.ID[syntax.Node], isDef mut []bool) {
+	let mut stack = []uint32{uint32(dense.Index(node))}
+	let mut kids = []uint32{}
+	for stack.Len() > 0 {
+		let curIdx = stack[stack.Len()-1]
+		stack = stack[:stack.Len()-1]
+		let cur = syntax.NodeAt(t, int(curIdx))
+		let k = syntax.KindOf(t, cur)
+		if k == syntax.KVarSpec {
+			let vs = syntax.VarSpecOf(t, cur)
+			for i in 0..syntax.Len(vs.Names) {
+				(*isDef)[dense.Index(syntax.Item(t, vs.Names, i))] = true
+			}
+		} else if k == syntax.KField {
+			let fd = syntax.FieldOf(t, cur)
+			for i in 0..syntax.Len(fd.Names) {
+				(*isDef)[dense.Index(syntax.Item(t, fd.Names, i))] = true
+			}
+		} else if k == syntax.KAsPattern {
+			let ap = syntax.AsPatternOf(t, cur)
+			(*isDef)[dense.Index(ap.Name)] = true
+		} else if k == syntax.KRangeStmt {
+			let rs = syntax.RangeStmtOf(t, cur)
+			match dense.Unpack(rs.Key) {
+			case option.Some{Value: kn}:
+				if syntax.KindOf(t, kn) == syntax.KIdent {
+					(*isDef)[dense.Index(kn)] = true
+				}
+			case option.None:
+			}
+			if syntax.KindOf(t, rs.Value) == syntax.KIdent {
+				(*isDef)[dense.Index(rs.Value)] = true
+			}
+		}
+		kids = syntax.Children(t, cur, kids[:0])
+		let mut j = kids.Len() - 1
+		for j >= 0 {
+			stack = stack.Append(kids[j])
+			j -= 1
+		}
+	}
+}
+
+func shapeIdent(
+	ctx mut shapeCtx,
+	b mut shapeBuf,
+	localGen mut []int,
+	localOrd mut []int,
+	isDef []bool,
+	id dense.ID[syntax.Node],
+) {
+	let idx = dense.Index(id)
+	let name = NodeText(ctx.p, id)
+	if !ctx.hasTyped {
+		if idx >= 0 && idx < isDef.Len() && isDef[idx] {
+			let ord = (*ctx).nextLoc
+			(*ctx).nextLoc += 1
+			(*ctx).untypedDefs[name] = ord
+			sbWrite(b, "(def \(ord))")
+			return
+		}
+		match (*ctx).untypedDefs.Get(name) {
+		case option.Some{Value: ord}:
+			sbWrite(b, "(local \(ord))")
+		case option.None:
+			sbWrite(b, "(name \"\(name)\")")
+		}
+		return
+	}
+	let pn = bind.PNodeOf(ctx.ps, ctx.fIdx, id)
+	let pi = dense.Index(pn)
+	if idx >= 0 && idx < isDef.Len() && isDef[idx] && pi >= 0 && pi < (*localGen).Len() {
+		if (*localGen)[pi] != (*ctx).gen {
+			(*localGen)[pi] = (*ctx).gen
+			(*localOrd)[pi] = (*ctx).nextLoc
+			(*ctx).nextLoc += 1
+		}
+		sbWrite(b, "(def \((*localOrd)[pi]))")
+		return
+	}
+	match bind.ResolutionOf(ctx.u, ctx.ps, pn) {
+	case bind.Declared as dec:
+		let di = dense.Index(dec.At)
+		if di >= 0 && di < ctx.typeParamPN.Len() && ctx.typeParamPN[di] {
+			sbWrite(b, "(obj tp:\(dense.Index(pn)))")
+			return
+		}
+		if di >= 0 && di < (*localGen).Len() {
+			if (*localGen)[di] == (*ctx).gen {
+				sbWrite(b, "(local \((*localOrd)[di]))")
+				return
+			}
+			if ctx.free {
+				(*localGen)[di] = (*ctx).gen
+				(*localOrd)[di] = (*ctx).nextLoc
+				(*ctx).nextLoc += 1
+				sbWrite(b, "(local \((*localOrd)[di]))")
+				return
+			}
+		}
+		sbWrite(b, "(obj d:\(di))")
+	case bind.Imported as im:
+		sbWrite(b, "(obj i:\(im.Ref.Import):\(im.Ref.Decl))")
+	case bind.Outside:
+		sbWrite(b, "(obj x:\(name))")
+	case bind.NotUse:
+		sbWrite(b, "(name \"\(name)\")")
+	}
+}
+
+func shapeOptNode(
+	ctx mut shapeCtx,
+	b mut shapeBuf,
+	localGen mut []int,
+	localOrd mut []int,
+	isDef []bool,
+	opt dense.Opt[syntax.Node],
+) {
+	match dense.Unpack(opt) {
+	case option.Some{Value: n}:
+		sbWrite(b, " ")
+		shapeNode(ctx, b, localGen, localOrd, isDef, n)
+	case option.None:
+	}
+}
+
+func shapeChildNode(
+	ctx mut shapeCtx,
+	b mut shapeBuf,
+	localGen mut []int,
+	localOrd mut []int,
+	isDef []bool,
+	n dense.ID[syntax.Node],
+) {
+	sbWrite(b, " ")
+	shapeNode(ctx, b, localGen, localOrd, isDef, n)
+}
+
+func shapeListNodes(
+	ctx mut shapeCtx,
+	b mut shapeBuf,
+	localGen mut []int,
+	localOrd mut []int,
+	isDef []bool,
+	lst syntax.List,
+) {
+	let t = ctx.p.Tree
+	for i in 0..syntax.Len(lst) {
+		shapeChildNode(ctx, b, localGen, localOrd, isDef, syntax.Item(t, lst, i))
+	}
+}
+
+func shapeNode(
+	ctx mut shapeCtx,
+	b mut shapeBuf,
+	localGen mut []int,
+	localOrd mut []int,
+	isDef []bool,
+	n dense.ID[syntax.Node],
+) {
+	let t = ctx.p.Tree
+	let k = syntax.KindOf(t, n)
+	if k == syntax.KIdent {
+		shapeIdent(ctx, b, localGen, localOrd, isDef, n)
+		return
+	}
+	if k == syntax.KBasicLit {
+		let bl = syntax.BasicLitOf(t, n)
+		let tk = syntax.TokKind(ctx.p, bl.Tok)
+		sbWrite(b, "(lit \(tk) \(NodeText(ctx.p, n)))")
+		return
+	}
+	if k == syntax.KBinaryExpr {
+		let be = syntax.BinaryExprOf(t, n)
+		sbWrite(b, "(BinaryExpr Op=\(syntax.TokText(ctx.p, be.Op))")
+		shapeChildNode(ctx, b, localGen, localOrd, isDef, be.X)
+		shapeChildNode(ctx, b, localGen, localOrd, isDef, be.Y)
+		sbWrite(b, ")")
+		return
+	}
+	if k == syntax.KUnaryExpr {
+		let ue = syntax.UnaryExprOf(t, n)
+		sbWrite(b, "(UnaryExpr Op=\(syntax.TokText(ctx.p, ue.Op))")
+		shapeChildNode(ctx, b, localGen, localOrd, isDef, ue.X)
+		sbWrite(b, ")")
+		return
+	}
+	if k == syntax.KCallExpr {
+		let ce = syntax.CallExprOf(t, n)
+		sbWrite(b, "(CallExpr TrailingFunc=\(ce.TrailingFunc)")
+		shapeChildNode(ctx, b, localGen, localOrd, isDef, ce.Fun)
+		shapeListNodes(ctx, b, localGen, localOrd, isDef, ce.Args)
+		shapeOptNode(ctx, b, localGen, localOrd, isDef, ce.Trailing)
+		sbWrite(b, ")")
+		return
+	}
+	if k == syntax.KSelectorExpr {
+		let se = syntax.SelectorExprOf(t, n)
+		sbWrite(b, "(SelectorExpr")
+		shapeChildNode(ctx, b, localGen, localOrd, isDef, se.X)
+		sbWrite(b, " ")
+		shapeIdent(ctx, b, localGen, localOrd, isDef, se.Sel)
+		sbWrite(b, ")")
+		return
+	}
+	if k == syntax.KIndexExpr {
+		let ie = syntax.IndexExprOf(t, n)
+		sbWrite(b, "(IndexExpr")
+		shapeChildNode(ctx, b, localGen, localOrd, isDef, ie.X)
+		shapeListNodes(ctx, b, localGen, localOrd, isDef, ie.Indices)
+		sbWrite(b, ")")
+		return
+	}
+	if k == syntax.KSliceExpr {
+		let se = syntax.SliceExprOf(t, n)
+		sbWrite(b, "(SliceExpr Slice3=\(se.Slice3)")
+		shapeChildNode(ctx, b, localGen, localOrd, isDef, se.X)
+		shapeOptNode(ctx, b, localGen, localOrd, isDef, se.Low)
+		shapeOptNode(ctx, b, localGen, localOrd, isDef, se.High)
+		shapeOptNode(ctx, b, localGen, localOrd, isDef, se.Max)
+		sbWrite(b, ")")
+		return
+	}
+	if k == syntax.KParenExpr {
+		let pe = syntax.ParenExprOf(t, n)
+		sbWrite(b, "(ParenExpr")
+		shapeChildNode(ctx, b, localGen, localOrd, isDef, pe.X)
+		sbWrite(b, ")")
+		return
+	}
+	if k == syntax.KStarExpr {
+		let se = syntax.StarExprOf(t, n)
+		sbWrite(b, "(StarExpr")
+		shapeChildNode(ctx, b, localGen, localOrd, isDef, se.X)
+		sbWrite(b, ")")
+		return
+	}
+	if k == syntax.KTryExpr {
+		let te = syntax.TryExprOf(t, n)
+		sbWrite(b, "(TryExpr")
+		shapeChildNode(ctx, b, localGen, localOrd, isDef, te.X)
+		sbWrite(b, ")")
+		return
+	}
+	if k == syntax.KCompositeLit {
+		let cl = syntax.CompositeLitOf(t, n)
+		sbWrite(b, "(CompositeLit")
+		shapeOptNode(ctx, b, localGen, localOrd, isDef, cl.Type)
+		shapeOptNode(ctx, b, localGen, localOrd, isDef, cl.Base)
+		shapeListNodes(ctx, b, localGen, localOrd, isDef, cl.Elts)
+		sbWrite(b, ")")
+		return
+	}
+	if k == syntax.KKeyValueExpr {
+		let kv = syntax.KeyValueExprOf(t, n)
+		sbWrite(b, "(KeyValueExpr")
+		shapeChildNode(ctx, b, localGen, localOrd, isDef, kv.Key)
+		shapeChildNode(ctx, b, localGen, localOrd, isDef, kv.Value)
+		sbWrite(b, ")")
+		return
+	}
+	if k == syntax.KFuncLit {
+		let fl = syntax.FuncLitOf(t, n)
+		sbWrite(b, "(FuncLit")
+		shapeChildNode(ctx, b, localGen, localOrd, isDef, fl.Type)
+		shapeChildNode(ctx, b, localGen, localOrd, isDef, fl.Body)
+		sbWrite(b, ")")
+		return
+	}
+	if k == syntax.KCatchExpr {
+		let ce = syntax.CatchExprOf(t, n)
+		sbWrite(b, "(CatchExpr")
+		shapeChildNode(ctx, b, localGen, localOrd, isDef, ce.X)
+		shapeListNodes(ctx, b, localGen, localOrd, isDef, ce.Arms)
+		sbWrite(b, ")")
+		return
+	}
+	if k == syntax.KCatchArm {
+		let ca = syntax.CatchArmOf(t, n)
+		sbWrite(b, "(CatchArm")
+		shapeListNodes(ctx, b, localGen, localOrd, isDef, ca.Types)
+		shapeListNodes(ctx, b, localGen, localOrd, isDef, ca.Body)
+		sbWrite(b, ")")
+		return
+	}
+	if k == syntax.KExprStmt {
+		let es = syntax.ExprStmtOf(t, n)
+		sbWrite(b, "(ExprStmt")
+		shapeChildNode(ctx, b, localGen, localOrd, isDef, es.X)
+		sbWrite(b, ")")
+		return
+	}
+	if k == syntax.KAssignStmt {
+		let asgn = syntax.AssignStmtOf(t, n)
+		sbWrite(b, "(AssignStmt Tok=\(syntax.TokText(ctx.p, asgn.Tok))")
+		shapeChildNode(ctx, b, localGen, localOrd, isDef, asgn.Lhs)
+		shapeChildNode(ctx, b, localGen, localOrd, isDef, asgn.Rhs)
+		sbWrite(b, ")")
+		return
+	}
+	if k == syntax.KDeclStmt {
+		let ds = syntax.DeclStmtOf(t, n)
+		sbWrite(b, "(DeclStmt")
+		shapeChildNode(ctx, b, localGen, localOrd, isDef, ds.Decl)
+		sbWrite(b, ")")
+		return
+	}
+	if k == syntax.KReturnStmt {
+		let rs = syntax.ReturnStmtOf(t, n)
+		sbWrite(b, "(ReturnStmt")
+		shapeOptNode(ctx, b, localGen, localOrd, isDef, rs.Result)
+		sbWrite(b, ")")
+		return
+	}
+	if k == syntax.KBranchStmt {
+		let bs = syntax.BranchStmtOf(t, n)
+		sbWrite(b, "(BranchStmt Tok=\(syntax.TokText(ctx.p, bs.Tok)))")
+		return
+	}
+	if k == syntax.KBlockStmt {
+		let bs = syntax.BlockStmtOf(t, n)
+		sbWrite(b, "(BlockStmt")
+		shapeListNodes(ctx, b, localGen, localOrd, isDef, bs.List)
+		sbWrite(b, ")")
+		return
+	}
+	if k == syntax.KIfStmt {
+		let ifs = syntax.IfStmtOf(t, n)
+		sbWrite(b, "(IfStmt")
+		shapeChildNode(ctx, b, localGen, localOrd, isDef, ifs.Cond)
+		shapeChildNode(ctx, b, localGen, localOrd, isDef, ifs.Body)
+		shapeOptNode(ctx, b, localGen, localOrd, isDef, ifs.Else)
+		sbWrite(b, ")")
+		return
+	}
+	if k == syntax.KSwitchStmt {
+		let sw = syntax.SwitchStmtOf(t, n)
+		sbWrite(b, "(SwitchStmt")
+		shapeChildNode(ctx, b, localGen, localOrd, isDef, sw.Tag)
+		shapeListNodes(ctx, b, localGen, localOrd, isDef, sw.Clauses)
+		sbWrite(b, ")")
+		return
+	}
+	if k == syntax.KTypeSwitchStmt {
+		let ts = syntax.TypeSwitchStmtOf(t, n)
+		sbWrite(b, "(TypeSwitchStmt")
+		shapeChildNode(ctx, b, localGen, localOrd, isDef, ts.Subject)
+		shapeListNodes(ctx, b, localGen, localOrd, isDef, ts.Clauses)
+		sbWrite(b, ")")
+		return
+	}
+	if k == syntax.KCaseClause {
+		let cc = syntax.CaseClauseOf(t, n)
+		sbWrite(b, "(CaseClause")
+		shapeListNodes(ctx, b, localGen, localOrd, isDef, cc.List)
+		shapeListNodes(ctx, b, localGen, localOrd, isDef, cc.Body)
+		sbWrite(b, ")")
+		return
+	}
+	if k == syntax.KForStmt {
+		let fs = syntax.ForStmtOf(t, n)
+		sbWrite(b, "(ForStmt")
+		shapeOptNode(ctx, b, localGen, localOrd, isDef, fs.Cond)
+		shapeChildNode(ctx, b, localGen, localOrd, isDef, fs.Body)
+		sbWrite(b, ")")
+		return
+	}
+	if k == syntax.KRangeStmt {
+		let rs = syntax.RangeStmtOf(t, n)
+		sbWrite(b, "(RangeStmt Tok=\(syntax.TokText(ctx.p, rs.Range))")
+		shapeOptNode(ctx, b, localGen, localOrd, isDef, rs.Key)
+		shapeChildNode(ctx, b, localGen, localOrd, isDef, rs.Value)
+		shapeChildNode(ctx, b, localGen, localOrd, isDef, rs.X)
+		shapeChildNode(ctx, b, localGen, localOrd, isDef, rs.Body)
+		sbWrite(b, ")")
+		return
+	}
+	if k == syntax.KAssertStmt {
+		let ast = syntax.AssertStmtOf(t, n)
+		sbWrite(b, "(AssertStmt")
+		shapeChildNode(ctx, b, localGen, localOrd, isDef, ast.X)
+		sbWrite(b, ")")
+		return
+	}
+	if k == syntax.KDieStmt {
+		let ds = syntax.DieStmtOf(t, n)
+		sbWrite(b, "(DieStmt")
+		shapeChildNode(ctx, b, localGen, localOrd, isDef, ds.X)
+		sbWrite(b, ")")
+		return
+	}
+	if k == syntax.KAlwaysStmt {
+		let al = syntax.AlwaysStmtOf(t, n)
+		sbWrite(b, "(AlwaysStmt")
+		shapeChildNode(ctx, b, localGen, localOrd, isDef, al.X)
+		sbWrite(b, ")")
+		return
+	}
+	if k == syntax.KSometimesStmt {
+		let ss = syntax.SometimesStmtOf(t, n)
+		sbWrite(b, "(SometimesStmt")
+		shapeChildNode(ctx, b, localGen, localOrd, isDef, ss.X)
+		sbWrite(b, ")")
+		return
+	}
+	if k == syntax.KSkipStmt {
+		let ss = syntax.SkipStmtOf(t, n)
+		let reason = if ss.Reason >= 0 { syntax.TokText(ctx.p, ss.Reason) } else { "" }
+		sbWrite(b, "(SkipStmt Reason=\(reason))")
+		return
+	}
+	if k == syntax.KVarDecl {
+		let vd = syntax.VarDeclOf(t, n)
+		sbWrite(b, "(VarDecl")
+		shapeOptNode(ctx, b, localGen, localOrd, isDef, vd.Extern)
+		shapeChildNode(ctx, b, localGen, localOrd, isDef, vd.Spec)
+		sbWrite(b, ")")
+		return
+	}
+	if k == syntax.KVarSpec {
+		let vs = syntax.VarSpecOf(t, n)
+		sbWrite(b, "(VarSpec")
+		shapeListNodes(ctx, b, localGen, localOrd, isDef, vs.Names)
+		shapeOptNode(ctx, b, localGen, localOrd, isDef, vs.Pattern)
+		shapeOptNode(ctx, b, localGen, localOrd, isDef, vs.Type)
+		shapeOptNode(ctx, b, localGen, localOrd, isDef, vs.Value)
+		sbWrite(b, ")")
+		return
+	}
+	if k == syntax.KTupleExpr {
+		let te = syntax.TupleExprOf(t, n)
+		sbWrite(b, "(TupleExpr")
+		shapeListNodes(ctx, b, localGen, localOrd, isDef, te.Elts)
+		sbWrite(b, ")")
+		return
+	}
+	if k == syntax.KInterpolatedString {
+		let is = syntax.InterpolatedStringOf(t, n)
+		sbWrite(b, "(InterpolatedString")
+		shapeListNodes(ctx, b, localGen, localOrd, isDef, is.Parts)
+		sbWrite(b, ")")
+		return
+	}
+	if k == syntax.KAsPattern {
+		let ap = syntax.AsPatternOf(t, n)
+		sbWrite(b, "(AsPattern")
+		shapeChildNode(ctx, b, localGen, localOrd, isDef, ap.X)
+		sbWrite(b, " ")
+		shapeIdent(ctx, b, localGen, localOrd, isDef, ap.Name)
+		sbWrite(b, ")")
+		return
+	}
+	if k == syntax.KOrPattern {
+		let op = syntax.OrPatternOf(t, n)
+		sbWrite(b, "(OrPattern")
+		shapeListNodes(ctx, b, localGen, localOrd, isDef, op.Alts)
+		sbWrite(b, ")")
+		return
+	}
+	if k == syntax.KArrayType {
+		let at = syntax.ArrayTypeOf(t, n)
+		let ltxt = if at.Len >= 0 { syntax.TokText(ctx.p, at.Len) } else { "" }
+		sbWrite(b, "(ArrayType Len=\(ltxt)")
+		shapeChildNode(ctx, b, localGen, localOrd, isDef, at.Elt)
+		sbWrite(b, ")")
+		return
+	}
+	if k == syntax.KMapType {
+		let mt = syntax.MapTypeOf(t, n)
+		sbWrite(b, "(MapType")
+		shapeChildNode(ctx, b, localGen, localOrd, isDef, mt.Key)
+		shapeChildNode(ctx, b, localGen, localOrd, isDef, mt.Value)
+		shapeOptNode(ctx, b, localGen, localOrd, isDef, mt.Hashing)
+		sbWrite(b, ")")
+		return
+	}
+	if k == syntax.KFuncType {
+		let ft = syntax.FuncTypeOf(t, n)
+		sbWrite(b, "(FuncType Entry=\(ft.Entry >= 0) Defects=\(ft.Defects >= 0)")
+		shapeOptNode(ctx, b, localGen, localOrd, isDef, ft.TypeParams)
+		shapeChildNode(ctx, b, localGen, localOrd, isDef, ft.Params)
+		shapeOptNode(ctx, b, localGen, localOrd, isDef, ft.Results)
+		shapeOptNode(ctx, b, localGen, localOrd, isDef, ft.Needs)
+		shapeOptNode(ctx, b, localGen, localOrd, isDef, ft.Takes)
+		shapeListNodes(ctx, b, localGen, localOrd, isDef, ft.Facts)
+		sbWrite(b, ")")
+		return
+	}
+	if k == syntax.KFieldList {
+		let fl = syntax.FieldListOf(t, n)
+		sbWrite(b, "(FieldList")
+		shapeListNodes(ctx, b, localGen, localOrd, isDef, fl.List)
+		sbWrite(b, ")")
+		return
+	}
+	if k == syntax.KField {
+		let fd = syntax.FieldOf(t, n)
+		sbWrite(b, "(Field Include=\(fd.Dots >= 0) Pure=\(fd.PurePos >= 0)")
+		shapeListNodes(ctx, b, localGen, localOrd, isDef, fd.Names)
+		shapeOptNode(ctx, b, localGen, localOrd, isDef, fd.Type)
+		shapeOptNode(ctx, b, localGen, localOrd, isDef, fd.Key)
+		shapeOptNode(ctx, b, localGen, localOrd, isDef, fd.Where)
+		sbWrite(b, ")")
+		return
+	}
+	if k == syntax.KContextLit {
+		let cl = syntax.ContextLitOf(t, n)
+		sbWrite(b, "(ContextLit")
+		shapeOptNode(ctx, b, localGen, localOrd, isDef, cl.Provides)
+		shapeOptNode(ctx, b, localGen, localOrd, isDef, cl.Fails)
+		shapeOptNode(ctx, b, localGen, localOrd, isDef, cl.Needs)
+		shapeChildNode(ctx, b, localGen, localOrd, isDef, cl.Body)
+		sbWrite(b, ")")
+		return
+	}
+	if k == syntax.KContextBody {
+		let cb = syntax.ContextBodyOf(t, n)
+		sbWrite(b, "(ContextBody")
+		shapeListNodes(ctx, b, localGen, localOrd, isDef, cb.Entries)
+		sbWrite(b, ")")
+		return
+	}
+	if k == syntax.KContextEntry {
+		let ce = syntax.ContextEntryOf(t, n)
+		sbWrite(b, "(ContextEntry Replace=\(ce.Replace >= 0)")
+		shapeChildNode(ctx, b, localGen, localOrd, isDef, ce.Key)
+		shapeListNodes(ctx, b, localGen, localOrd, isDef, ce.Keys)
+		shapeOptNode(ctx, b, localGen, localOrd, isDef, ce.Value)
+		sbWrite(b, ")")
+		return
+	}
+	if k == syntax.KProvidesClause {
+		let pc = syntax.ProvidesClauseOf(t, n)
+		sbWrite(b, "(ProvidesClause")
+		shapeListNodes(ctx, b, localGen, localOrd, isDef, pc.Names)
+		sbWrite(b, ")")
+		return
+	}
+	if k == syntax.KNeedsClause {
+		let nc = syntax.NeedsClauseOf(t, n)
+		sbWrite(b, "(NeedsClause")
+		shapeListNodes(ctx, b, localGen, localOrd, isDef, nc.Names)
+		sbWrite(b, ")")
+		return
+	}
+	if k == syntax.KErrorRow {
+		let er = syntax.ErrorRowOf(t, n)
+		sbWrite(b, "(ErrorRow")
+		shapeListNodes(ctx, b, localGen, localOrd, isDef, er.Types)
+		sbWrite(b, ")")
+		return
+	}
+	if k == syntax.KTakesClause {
+		sbWrite(b, "(TakesClause)")
+		return
+	}
+	if k == syntax.KFactClause {
+		let fc = syntax.FactClauseOf(t, n)
+		sbWrite(b, "(FactClause Kind=\(fc.Kind)")
+		shapeChildNode(ctx, b, localGen, localOrd, isDef, fc.Cond)
+		shapeOptNode(ctx, b, localGen, localOrd, isDef, fc.When)
+		sbWrite(b, ")")
+		return
+	}
+	let mut children = []uint32{}
+	children = syntax.Children(t, n, children[:0])
+	sbWrite(b, "(k:\(int(k))")
+	for c in children {
+		shapeChildNode(ctx, b, localGen, localOrd, isDef, syntax.NodeAt(t, int(c)))
+	}
+	sbWrite(b, ")")
+}
+
+// ShapeOfNodes computes a canonical structural signature for nodes with normalized local binders.
+func ShapeOfNodes(
+	p syntax.Parsed,
+	hasTyped bool,
+	fIdx int,
+	u bind.Uses,
+	ps bind.Parents,
+	free bool,
+	nodes []dense.ID[syntax.Node],
+	localGen mut []int,
+	localOrd mut []int,
+	gen mut int,
+	isDef mut []bool,
+) string {
+	ShapeOfNodesTyped(p, hasTyped, fIdx, u, ps, []bool{}, free, nodes, localGen, localOrd, gen, isDef)
+}
+
+func ShapeOfNodesTyped(
+	p syntax.Parsed,
+	hasTyped bool,
+	fIdx int,
+	u bind.Uses,
+	ps bind.Parents,
+	typeParamPN []bool,
+	free bool,
+	nodes []dense.ID[syntax.Node],
+	localGen mut []int,
+	localOrd mut []int,
+	gen mut int,
+	isDef mut []bool,
+) string {
+	*gen += 1
+	let mut ctx = shapeCtx{
+		p:           p,
+		hasTyped:    hasTyped,
+		fIdx:        fIdx,
+		u:           u,
+		ps:          ps,
+		typeParamPN: typeParamPN,
+		free:        free,
+		gen:         *gen,
+		nextLoc:     0,
+		untypedDefs: Map[string, int]{},
+	}
+	for n in nodes {
+		markLocalDefs(p.Tree, n, isDef)
+	}
+	let mut buf = shapeBuf{parts: []string{}}
+	for n in nodes {
+		shapeNode(&ctx, &buf, localGen, localOrd, *isDef, n)
+		sbWrite(&buf, ";")
+	}
+	sbString(buf)
+}
+
+type shapeFirstLoc {
+	name string,
+	file string,
+	off  int,
+	len  int,
+	line int,
+	col  int,
+}
+
+func shapeFinding(rule string, sev uint8, file string, fi FileIndex, off int, spanLen int, msg string, related []Related) Finding {
+	let pos = syntax.PositionOf(fi.Lines, off)
+	let (code, instead, prec, hasPrec) = match RuleByName(rule) {
+	case (m, true):
+		(m.Code, m.Instead, m.Precision, m.HasPrecision)
+	case (_, false):
+		("L000", "", 0, false)
+	}
+	Finding{
+		Code:         code,
+		Rule:         rule,
+		Severity:     sev,
+		Message:      msg,
+		Instead:      instead,
+		File:         file,
+		Offset:       off,
+		Length:       spanLen,
+		Line:         pos.Line,
+		Column:       pos.Column,
+		Precision:    prec,
+		HasPrecision: hasPrec,
+		HasFix:       false,
+		Fix:          EmptyFix(),
+		Related:      related,
+	}
+}
+
+// CheckDuplicateTests emits duplicate-test (L117) findings for tests with identical canonical bodies.
+func CheckDuplicateTests(inp Input, g ProgramGraph, sev uint8, out mut []Finding) {
+	if sev == SeverityOff {
+		return
+	}
+	for uIdx, u in inp.Units {
+		if u.Dependency {
+			continue
+		}
+		let (hasTyped, ps, uses, pTotal) = match u.Typed {
+		case option.Some{Value: td}:
+			(true, td.K.Ps, td.K.U, bind.Written(td.K.Ps) + 1)
+		case option.None:
+			(false, bind.BuildParents([]bind.File{}), bind.NoUses(), 1)
+		}
+		let mut localGen = slices.Repeat([]int{0}, pTotal)
+		let mut localOrd = slices.Repeat([]int{0}, pTotal)
+		let mut gen = 0
+		let mut seen = Map[string, shapeFirstLoc]{}
+		for fIdx, f in u.Files {
+			let fi = g.FileIndexes[uIdx][fIdx]
+			if f.Parsed.Failed {
+				continue
+			}
+			let t = f.Parsed.Tree
+			let mut isDef = slices.Repeat([]bool{false}, syntax.NumNodes(t))
+			if !hasTyped && syntax.NumNodes(t) > localGen.Len() {
+				localGen = slices.Repeat([]int{0}, syntax.NumNodes(t))
+				localOrd = slices.Repeat([]int{0}, syntax.NumNodes(t))
+			}
+			for dr in fi.Decls {
+				if dr.Kind != syntax.KTestDecl {
+					continue
+				}
+				let td = syntax.TestDeclOf(t, syntax.NodeAt(t, int(dr.Node)))
+				let bodyNode = match dense.Unpack(td.Body) {
+				case option.Some{Value: bn}:
+					bn
+				case option.None:
+					continue
+				}
+				let mut nodes = []dense.ID[syntax.Node]{}
+				match dense.Unpack(td.Params) {
+				case option.Some{Value: pn}:
+					nodes = nodes.Append(pn)
+				case option.None:
+				}
+				nodes = nodes.Append(bodyNode)
+				let key = ShapeOfNodes(f.Parsed, hasTyped, fIdx, uses, ps, false, nodes, &localGen, &localOrd, &gen, &isDef)
+				let tname = NodeText(f.Parsed, td.Name)
+				let off = syntax.NodePos(f.Parsed, td.Name)
+				let spanLen = tname.Len()
+				match seen.Get(key) {
+				case option.Some{Value: prev}:
+					let msg = "test \(tname) has the same body as test \(prev.name)"
+					let rel = []Related{Related{
+						Message: "identical test body here",
+						File:    prev.file,
+						Offset:  prev.off,
+						Length:  prev.len,
+						Line:    prev.line,
+						Column:  prev.col,
+					}}
+					*out = (*out).Append(shapeFinding("duplicate-test", sev, f.Rel, fi, off, spanLen, msg, rel))
+				case option.None:
+					let pos = syntax.PositionOf(fi.Lines, off)
+					seen[key] = shapeFirstLoc{name: tname, file: f.Rel, off: off, len: spanLen, line: pos.Line, col: pos.Column}
+				}
+			}
+		}
+	}
+}
+
+func stmtComplexityCount(t syntax.Tree, body dense.ID[syntax.Node]) int {
+	let mut count = 0
+	let mut stack = []uint32{uint32(dense.Index(body))}
+	let mut kids = []uint32{}
+	for stack.Len() > 0 {
+		let curIdx = stack[stack.Len()-1]
+		stack = stack[:stack.Len()-1]
+		count += 1
+		kids = syntax.Children(t, syntax.NodeAt(t, int(curIdx)), kids[:0])
+		for c in kids {
+			stack = stack.Append(c)
+		}
+	}
+	count
+}
+
+type unionShapeDecl {
+	rel  string,
+	name string,
+	key  string,
+	fi   FileIndex,
+	off  int,
+	len  int,
+}
+
+func cmpUnionShapeDecl(a unionShapeDecl, b unionShapeDecl) int {
+	if a.rel < b.rel {
+		return -1
+	}
+	if a.rel > b.rel {
+		return 1
+	}
+	if a.name < b.name {
+		return -1
+	}
+	if a.name > b.name {
+		return 1
+	}
+	0
+}
+
+func unionVariantKey(typed load.Typed, uPath string, t dense.ID[store.TKey]) string {
+	let s = typed.S
+	let k = store.KindOfType(s, t)
+	if k == store.KNamed {
+		let idx = store.ArgOf(s, t)
+		let nm = if idx >= 0 { store.TypeNameText(s, idx) } else { "" }
+		return "N(\(uPath).\(nm))"
+	}
+	if k == store.KForeign {
+		let idx = store.ArgOf(s, t)
+		if idx >= 0 && idx < typed.K.Foreign.Len() {
+			let fr = typed.K.Foreign[idx]
+			return "F(\(fr.Path).\(fr.Name))"
+		}
+		return "F(\(idx))"
+	}
+	if k == store.KInstance {
+		let o = store.OriginOfType(s, t)
+		let head = if int(o.Import) == store.ForeignBit {
+			let di = int(o.Decl)
+			if di >= 0 && di < typed.K.Foreign.Len() {
+				let fr = typed.K.Foreign[di]
+				"\(fr.Path).\(fr.Name)"
+			} else {
+				"foreign:\(di)"
+			}
+		} else if o.Import == uint32(0) {
+			let di = int(o.Decl)
+			let nm = if di >= 0 && di < store.NumDecls(s) { store.DeclText(s, di) } else { "" }
+			"\(uPath).\(nm)"
+		} else if int(o.Import) <= typed.K.Ifaces.Len() {
+			let dep = typed.K.Ifaces[int(o.Import)-1]
+			let di = int(o.Decl)
+			let nm = if di >= 0 && di < dep.Decls.Len() { dep.Decls[di].Name } else { "" }
+			"\(dep.Path).\(nm)"
+		} else {
+			"imp:\(o.Import):\(o.Decl)"
+		}
+		let ops = store.OperandsOf(s, t)
+		let mut parts = []string{}
+		for op in ops {
+			parts = parts.Append(unionVariantKey(typed, uPath, op))
+		}
+		return "I(\(head);" + strings.Join(parts, ",") + ")"
+	}
+	if k == store.KPointer {
+		let ops = store.OperandsOf(s, t)
+		return if ops.Len() > 0 { "*" + unionVariantKey(typed, uPath, ops[0]) } else { "*" }
+	}
+	if k == store.KSlice {
+		let ops = store.OperandsOf(s, t)
+		return if ops.Len() > 0 { "[]" + unionVariantKey(typed, uPath, ops[0]) } else { "[]" }
+	}
+	if k == store.KMap {
+		let ops = store.OperandsOf(s, t)
+		return if ops.Len() >= 2 { "Map[\(unionVariantKey(typed, uPath, ops[0])),\(unionVariantKey(typed, uPath, ops[1]))]" } else { "Map" }
+	}
+	if k == store.KTuple {
+		let ops = store.OperandsOf(s, t)
+		let mut parts = []string{}
+		for op in ops {
+			parts = parts.Append(unionVariantKey(typed, uPath, op))
+		}
+		return "(" + strings.Join(parts, ",") + ")"
+	}
+	store.Canon(s, []store.Frozen{}, t)
+}
+
+// CheckDuplicateShape emits duplicate-shape (L118) findings for non-generic unions sharing identical variants.
+func CheckDuplicateShape(inp Input, g ProgramGraph, sev uint8, out mut []Finding) {
+	if sev == SeverityOff {
+		return
+	}
+	let mut all = []unionShapeDecl{}
+	for uIdx, u in inp.Units {
+		if u.Dependency {
+			continue
+		}
+		let typed = match u.Typed {
+		case option.Some{Value: td}:
+			td
+		case option.None:
+			continue
+		}
+		let uPath = unitPkgPath(u)
+		for fIdx, f in u.Files {
+			if f.Parsed.Failed {
+				continue
+			}
+			let t = f.Parsed.Tree
+			let fi = g.FileIndexes[uIdx][fIdx]
+			for dr in fi.Decls {
+				if dr.Kind != syntax.KTypeDecl {
+					continue
+				}
+				let td = syntax.TypeDeclOf(t, syntax.NodeAt(t, int(dr.Node)))
+				if dense.Unpack(td.TypeParams) != option.None || dense.Unpack(td.Extern) != option.None {
+					continue
+				}
+				let sp = match dense.Unpack(td.Spec) {
+				case option.Some{Value: spNode}:
+					spNode
+				case option.None:
+					continue
+				}
+				if syntax.KindOf(t, sp) != syntax.KInterfaceType {
+					continue
+				}
+				let it = syntax.InterfaceTypeOf(t, sp)
+				let ms = syntax.Len(it.Members)
+				if !(ms >= 2 || (ms == 1 && syntax.KindOf(t, syntax.Item(t, it.Members, 0)) == syntax.KVariantSpec)) {
+					continue
+				}
+				let tname = NodeText(f.Parsed, td.Name)
+				let declID = match store.Lookup(typed.S, tname) {
+				case option.Some{Value: d}:
+					d
+				case option.None:
+					continue
+				}
+				let mut sMut = typed.S
+				let nt = store.TNamed(&sMut, declID)
+				let vs = infer.VariantsOf(&sMut, typed.K.Unions, nt)
+				if vs.Len() == 0 {
+					continue
+				}
+				let mut vkeys = slices.WithCapacity[string](vs.Len())
+				for v in vs {
+					vkeys = vkeys.Append(unionVariantKey(typed, uPath, v))
+				}
+				vkeys = slices.Sort(vkeys)
+				let key = strings.Join(vkeys, "\x00")
+				all = all.Append(unionShapeDecl{
+					rel:  f.Rel,
+					name: tname,
+					key:  key,
+					fi:   fi,
+					off:  syntax.NodePos(f.Parsed, td.Name),
+					len:  tname.Len(),
+				})
+			}
+		}
+	}
+	all = slices.SortStableFunc(all, cmpUnionShapeDecl)
+	let mut kept = Map[string, unionShapeDecl]{}
+	for rec in all {
+		match kept.Get(rec.key) {
+		case option.Some{Value: first}:
+			let where = if first.rel != rec.rel { " in \(first.rel)" } else { "" }
+			let msg = "\(rec.name) has the variants of \(first.name)\(where)"
+			*out = (*out).Append(shapeFinding("duplicate-shape", sev, rec.rel, rec.fi, rec.off, rec.len, msg, []Related{}))
+		case option.None:
+			kept[rec.key] = rec
+		}
+	}
+}
+
+type identArmRec {
+	off     int,
+	spanLen int,
+	line    int,
+	col     int,
+	patText string,
+}
+
+func patternsTextOf(p syntax.Parsed, pats syntax.List) string {
+	let n = syntax.Len(pats)
+	if n == 0 {
+		return "_"
+	}
+	let src = syntax.SourceOf(p)
+	let t = p.Tree
+	let mut out = ""
+	for i in 0..n {
+		if i > 0 {
+			out = out + ", "
+		}
+		let e = syntax.Item(t, pats, i)
+		let ps = syntax.NodePos(p, e)
+		let pe = syntax.NodeEnd(p, e)
+		if ps >= 0 && pe >= ps && pe <= src.Len() {
+			out = out + src[ps:pe]
+		} else {
+			out = out + NodeText(p, e)
+		}
+	}
+	out
+}
+
+func checkSwitchIdenticalArms(
+	p syntax.Parsed,
+	hasTyped bool,
+	fIdx int,
+	uses bind.Uses,
+	ps bind.Parents,
+	typeParamPN []bool,
+	fRel string,
+	fi FileIndex,
+	sev uint8,
+	armRecs []identArmRec,
+	armBodies [][]dense.ID[syntax.Node],
+	localGen mut []int,
+	localOrd mut []int,
+	gen mut int,
+	isDef mut []bool,
+	out mut []Finding,
+) {
+	if armRecs.Len() < 2 {
+		return
+	}
+	let mut order = []string{}
+	let mut groups = Map[string, []identArmRec]{}
+	for ai, ar in armRecs {
+		let key = ShapeOfNodesTyped(p, hasTyped, fIdx, uses, ps, typeParamPN, false, armBodies[ai], localGen, localOrd, gen, isDef)
+		match groups.Get(key) {
+		case option.Some{Value: lst}:
+			groups[key] = lst.Append(ar)
+		case option.None:
+			order = order.Append(key)
+			groups[key] = []identArmRec{ar}
+		}
+	}
+	for shapeKey in order {
+		let g = match groups.Get(shapeKey) {
+		case option.Some{Value: lst}:
+			lst
+		case option.None:
+			[]identArmRec{}
+		}
+		if g.Len() < 2 {
+			continue
+		}
+		let mut names = slices.WithCapacity[string](g.Len())
+		for a in g {
+			names = names.Append(a.patText)
+		}
+		names = slices.Sort(names)
+		let list = strings.Join(names, " and ")
+		let target = g[1]
+		let first = g[0]
+		let rel = []Related{Related{
+			Message: "identical arm here",
+			File:    fRel,
+			Offset:  first.off,
+			Length:  first.spanLen,
+			Line:    first.line,
+			Column:  first.col,
+		}}
+		*out = (*out).Append(shapeFinding("identical-arms", sev, fRel, fi, target.off, target.spanLen, "the arms for \(list) do the same", rel))
+	}
+}
+
+// CheckIdenticalArms emits identical-arms (L119) findings when two switch, match, or catch arms share one body.
+func markTypeParamListPNs(t syntax.Tree, ps bind.Parents, fIdx int, flOpt dense.Opt[syntax.Node], typeParamPN mut []bool) {
+	let flNode = match dense.Unpack(flOpt) {
+	case option.Some{Value: n}:
+		n
+	case option.None:
+		return
+	}
+	if syntax.KindOf(t, flNode) != syntax.KFieldList {
+		return
+	}
+	let fl = syntax.FieldListOf(t, flNode)
+	for j in 0..syntax.Len(fl.List) {
+		let fldNode = syntax.Item(t, fl.List, j)
+		if syntax.KindOf(t, fldNode) != syntax.KField {
+			continue
+		}
+		let fld = syntax.FieldOf(t, fldNode)
+		for ni in 0..syntax.Len(fld.Names) {
+			let nId = syntax.Item(t, fld.Names, ni)
+			let pi = dense.Index(bind.PNodeOf(ps, fIdx, nId))
+			if pi >= 0 && pi < (*typeParamPN).Len() {
+				(*typeParamPN)[pi] = true
+			}
+		}
+	}
+}
+
+func CheckIdenticalArms(inp Input, g ProgramGraph, sev uint8, out mut []Finding) {
+	if sev == SeverityOff {
+		return
+	}
+	for uIdx, u in inp.Units {
+		if u.Dependency {
+			continue
+		}
+		let (hasTyped, ps, uses, pTotal) = match u.Typed {
+		case option.Some{Value: td}:
+			(true, td.K.Ps, td.K.U, bind.Written(td.K.Ps) + 1)
+		case option.None:
+			(false, bind.BuildParents([]bind.File{}), bind.NoUses(), 1)
+		}
+		let mut typeParamPN = []bool{}
+		if hasTyped {
+			typeParamPN = slices.Repeat([]bool{false}, pTotal)
+			for fIdx, f in u.Files {
+				if f.Parsed.Failed {
+					continue
+				}
+				let t = f.Parsed.Tree
+				let nNodes = syntax.NumNodes(t)
+				for ni in 0..nNodes {
+					let node = syntax.NodeAt(t, ni)
+					let nk = syntax.KindOf(t, node)
+					if nk == syntax.KTypeDecl {
+						markTypeParamListPNs(t, ps, fIdx, syntax.TypeDeclOf(t, node).TypeParams, &typeParamPN)
+					} else if nk == syntax.KFuncDecl {
+						markTypeParamListPNs(t, ps, fIdx, syntax.FuncDeclOf(t, node).TypeParams, &typeParamPN)
+					} else if nk == syntax.KFuncType {
+						markTypeParamListPNs(t, ps, fIdx, syntax.FuncTypeOf(t, node).TypeParams, &typeParamPN)
+					}
+				}
+			}
+		}
+		let mut localGen = slices.Repeat([]int{0}, pTotal)
+		let mut localOrd = slices.Repeat([]int{0}, pTotal)
+		let mut gen = 0
+		for fIdx, f in u.Files {
+			let fi = g.FileIndexes[uIdx][fIdx]
+			if f.Parsed.Failed {
+				continue
+			}
+			let t = f.Parsed.Tree
+			let mut isDef = slices.Repeat([]bool{false}, syntax.NumNodes(t))
+			if !hasTyped && syntax.NumNodes(t) > localGen.Len() {
+				localGen = slices.Repeat([]int{0}, syntax.NumNodes(t))
+				localOrd = slices.Repeat([]int{0}, syntax.NumNodes(t))
+			}
+			for swRow in fi.Switches {
+				let swNode = syntax.NodeAt(t, int(swRow))
+				let swKind = syntax.KindOf(t, swNode)
+				let mut armRecs = []identArmRec{}
+				let mut armBodies = [][]dense.ID[syntax.Node]{}
+				if swKind == syntax.KSwitchStmt || swKind == syntax.KTypeSwitchStmt {
+					let clauses = if swKind == syntax.KSwitchStmt {
+						syntax.SwitchStmtOf(t, swNode).Clauses
+					} else {
+						syntax.TypeSwitchStmtOf(t, swNode).Clauses
+					}
+					for ci in 0..syntax.Len(clauses) {
+						let cNode = syntax.Item(t, clauses, ci)
+						if syntax.KindOf(t, cNode) != syntax.KCaseClause {
+							continue
+						}
+						let cc = syntax.CaseClauseOf(t, cNode)
+						let nStmts = syntax.Len(cc.Body)
+						let mut bodyNodes = slices.WithCapacity[dense.ID[syntax.Node]](nStmts)
+						for si in 0..nStmts {
+							bodyNodes = bodyNodes.Append(syntax.Item(t, cc.Body, si))
+						}
+						let off = syntax.TokPos(f.Parsed, cc.Case)
+						let endOff = syntax.TokEnd(f.Parsed, cc.Colon)
+						let spanLen = if endOff >= off { endOff - off } else { 1 }
+						let pos = syntax.PositionOf(fi.Lines, off)
+						armRecs = armRecs.Append(identArmRec{
+							off:     off,
+							spanLen: spanLen,
+							line:    pos.Line,
+							col:     pos.Column,
+							patText: patternsTextOf(f.Parsed, cc.List),
+						})
+						armBodies = armBodies.Append(bodyNodes)
+					}
+				} else if swKind == syntax.KCatchExpr {
+					let ce = syntax.CatchExprOf(t, swNode)
+					for ai in 0..syntax.Len(ce.Arms) {
+						let aNode = syntax.Item(t, ce.Arms, ai)
+						if syntax.KindOf(t, aNode) != syntax.KCatchArm {
+							continue
+						}
+						let arm = syntax.CatchArmOf(t, aNode)
+						let nStmts = syntax.Len(arm.Body)
+						let mut bodyNodes = slices.WithCapacity[dense.ID[syntax.Node]](nStmts)
+						for si in 0..nStmts {
+							bodyNodes = bodyNodes.Append(syntax.Item(t, arm.Body, si))
+						}
+						let off = syntax.TokPos(f.Parsed, arm.Case)
+						let endOff = syntax.TokEnd(f.Parsed, arm.Colon)
+						let spanLen = if endOff >= off { endOff - off } else { 1 }
+						let pos = syntax.PositionOf(fi.Lines, off)
+						armRecs = armRecs.Append(identArmRec{
+							off:     off,
+							spanLen: spanLen,
+							line:    pos.Line,
+							col:     pos.Column,
+							patText: patternsTextOf(f.Parsed, arm.Types),
+						})
+						armBodies = armBodies.Append(bodyNodes)
+					}
+				}
+				checkSwitchIdenticalArms(f.Parsed, hasTyped, fIdx, uses, ps, typeParamPN, f.Rel, fi, sev, armRecs, armBodies, &localGen, &localOrd, &gen, &isDef, out)
+			}
+		}
+	}
+}
+
+func isExportedShapeName(name string) bool {
+	if name.Len() == 0 {
+		return false
+	}
+	let c = name[0]
+	c >= 'A' && c <= 'Z'
+}
+
+type variantRec {
+	unionName string,
+	varName   string,
+	uIdx      int,
+	pkgPath   string,
+	fileRel   string,
+	fi        FileIndex,
+	off       int,
+	spanLen   int,
+	exported  bool,
+	declPN    int,
+	built     bool,
+}
+
+func markCasePatternSubtree(t syntax.Tree, node dense.ID[syntax.Node], inPattern mut []bool) {
+	let mut stack = []uint32{uint32(dense.Index(node))}
+	let mut kids = []uint32{}
+	for stack.Len() > 0 {
+		let cur = stack[stack.Len()-1]
+		stack = stack[:stack.Len()-1]
+		(*inPattern)[int(cur)] = true
+		kids = syntax.Children(t, syntax.NodeAt(t, int(cur)), kids[:0])
+		for c in kids {
+			stack = stack.Append(c)
+		}
+	}
+}
+
+// CheckUnbuiltVariant emits unbuilt-variant (L120) findings for union variants never constructed.
+func ownerOfTKey(td load.Typed, uPath string, imps []string, tk dense.ID[store.TKey]) (string, string) {
+	let k = store.KindOfType(td.S, tk)
+	if k == store.KNamed {
+		let idx = store.ArgOf(td.S, tk)
+		let dn = if idx >= 0 { store.TypeNameText(td.S, idx) } else { "" }
+		return (uPath, dn)
+	}
+	if k == store.KForeign {
+		let idx = store.ArgOf(td.S, tk)
+		if idx >= 0 && idx < td.K.Foreign.Len() {
+			let fr = td.K.Foreign[idx]
+			return (fr.Path, fr.Name)
+		}
+		return ("", "")
+	}
+	if k == store.KInstance {
+		let xref = store.OriginOfType(td.S, tk)
+		if int(xref.Import) == store.ForeignBit {
+			let di = int(xref.Decl)
+			if di >= 0 && di < td.K.Foreign.Len() {
+				let fr = td.K.Foreign[di]
+				return (fr.Path, fr.Name)
+			}
+			return ("", "")
+		}
+		if xref.Import == uint32(0) {
+			let di = int(xref.Decl)
+			let dn = if di >= 0 && di < store.NumDecls(td.S) { store.DeclText(td.S, di) } else { "" }
+			return (uPath, dn)
+		}
+		if int(xref.Import) > 0 && int(xref.Import) <= td.K.Ifaces.Len() {
+			let dep = td.K.Ifaces[int(xref.Import)-1]
+			let di = int(xref.Decl)
+			let dn = if di >= 0 && di < dep.Decls.Len() { dep.Decls[di].Name } else { "" }
+			return (dep.Path, dn)
+		}
+		if int(xref.Import) > 0 && int(xref.Import) <= imps.Len() {
+			let tp = imps[int(xref.Import)-1]
+			let mut dn = ""
+			for dep in td.K.Deps {
+				if store.PathOf(dep.S) == tp && int(xref.Decl) >= 0 && int(xref.Decl) < store.NumDecls(dep.S) {
+					dn = store.DeclText(dep.S, int(xref.Decl))
+				}
+			}
+			return (tp, dn)
+		}
+	}
+	("", "")
+}
+
+func markVariantTKeyBuilt(
+	inp Input,
+	unitByPkg Map[string, int],
+	uIdx int,
+	td load.Typed,
+	uPath string,
+	imps []string,
+	varKeyMap Map[string, int],
+	variants mut []variantRec,
+	visited mut Map[int, bool],
+	tk dense.ID[store.TKey],
+	expandUnions bool,
+	depth int,
+) {
+	if depth > 16 {
+		return
+	}
+	let tid = dense.Index(tk)
+	let expBit = if expandUnions { 1 } else { 0 }
+	let vkey = (uIdx*2+expBit)*134217728 + tid
+	if (*visited).Get(vkey) != option.None {
+		return
+	}
+	(*visited)[vkey] = true
+	let k = store.KindOfType(td.S, tk)
+	let (ownerPath, ownerName) = ownerOfTKey(td, uPath, imps, tk)
+	if ownerPath != "" && ownerName != "" {
+		match varKeyMap.Get(ownerPath + "\x00" + ownerName) {
+		case option.Some{Value: vIdx}:
+			(*variants)[vIdx].built = true
+		case option.None:
+		}
+	}
+	if expandUnions {
+		let mut sMut = td.S
+		let mut anyVar = false
+		for vt in infer.VariantsOf(&sMut, td.K.Unions, tk) {
+			anyVar = true
+			markVariantTKeyBuilt(inp, unitByPkg, uIdx, td, uPath, imps, varKeyMap, variants, visited, vt, true, depth+1)
+		}
+		if !anyVar && k == store.KInstance {
+			let xref = store.OriginOfType(td.S, tk)
+			if int(xref.Import) > 0 && int(xref.Import) <= td.K.Ifaces.Len() {
+				let dep = td.K.Ifaces[int(xref.Import)-1]
+				let di = int(xref.Decl)
+				if di >= 0 && di < dep.Decls.Len() {
+					let dpShort = stdShortPath(dep.Path)
+					for vi in dep.Decls[di].Variants {
+						if vi >= 0 && vi < dep.Decls.Len() {
+							let vn = dep.Decls[vi].Name
+							match varKeyMap.Get(dep.Path + "\x00" + vn) {
+							case option.Some{Value: vIdx}:
+								(*variants)[vIdx].built = true
+							case option.None:
+								if dpShort != "" {
+									match varKeyMap.Get(dpShort + "\x00" + vn) {
+									case option.Some{Value: vIdx}:
+										(*variants)[vIdx].built = true
+									case option.None:
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		if (k == store.KNamed || k == store.KInstance) && ownerPath != "" && ownerName != "" {
+			if ownerPath == uPath {
+				for rec in td.K.Recs {
+					if rec.Name == ownerName {
+						for fld in rec.Fields {
+							markVariantTKeyBuilt(inp, unitByPkg, uIdx, td, uPath, imps, varKeyMap, variants, visited, fld.T, true, depth+1)
+						}
+						break
+					}
+				}
+			} else {
+				match unitByPkg.Get(ownerPath) {
+				case option.Some{Value: ouIdx}:
+					match inp.Units[ouIdx].Typed {
+					case option.Some{Value: otd}:
+						let oPath = unitPkgPath(inp.Units[ouIdx])
+						let oImps = store.ImportPaths(otd.S)
+						for rec in otd.K.Recs {
+							if rec.Name == ownerName {
+								for fld in rec.Fields {
+									markVariantTKeyBuilt(inp, unitByPkg, ouIdx, otd, oPath, oImps, varKeyMap, variants, visited, fld.T, true, depth+1)
+								}
+								break
+							}
+						}
+					case option.None:
+					}
+				case option.None:
+				}
+			}
+		}
+	}
+	if k == store.KArray {
+		let ops = store.OperandsOf(td.S, tk)
+		if ops.Len() > 0 {
+			markVariantTKeyBuilt(inp, unitByPkg, uIdx, td, uPath, imps, varKeyMap, variants, visited, ops[0], expandUnions, depth+1)
+		}
+		return
+	}
+	if k == store.KPointer || k == store.KOwn || k == store.KSlice || k == store.KMap || k == store.KTuple || k == store.KSig || k == store.KInstance || k == store.KReapplied || k == store.KRow {
+		for op in store.OperandsOf(td.S, tk) {
+			markVariantTKeyBuilt(inp, unitByPkg, uIdx, td, uPath, imps, varKeyMap, variants, visited, op, expandUnions, depth+1)
+		}
+	}
+}
+
+func CheckUnbuiltVariant(inp Input, g ProgramGraph, sev uint8, out mut []Finding) {
+	if sev == SeverityOff {
+		return
+	}
+	let mut unitByPkg = Map[string, int]{}
+	for uIdx, u in inp.Units {
+		let up = unitPkgPath(u)
+		if up != "" {
+			unitByPkg[up] = uIdx
+			let short = stdShortPath(up)
+			if short != "" {
+				unitByPkg[short] = uIdx
+			}
+		}
+	}
+	let mut visited = Map[int, bool]{}
+	let mut variants = []variantRec{}
+	let mut varKeyMap = Map[string, int]{}
+	let mut pnodeVar = slices.WithCapacity[[]int](inp.Units.Len())
+	for _ in 0..inp.Units.Len() {
+		pnodeVar = pnodeVar.Append([]int{})
+	}
+	for uIdx, u in inp.Units {
+		let uPath = unitPkgPath(u)
+		match u.Typed {
+		case option.Some{Value: td}:
+			pnodeVar[uIdx] = slices.Repeat([]int{-1}, bind.Written(td.K.Ps)+1)
+		case option.None:
+			pnodeVar[uIdx] = []int{}
+		}
+		if u.Dependency {
+			continue
+		}
+		for fIdx, f in u.Files {
+			let fi = g.FileIndexes[uIdx][fIdx]
+			if f.Parsed.Failed {
+				continue
+			}
+			let t = f.Parsed.Tree
+			for dr in fi.Decls {
+				if dr.Kind != syntax.KTypeDecl {
+					continue
+				}
+				let td = syntax.TypeDeclOf(t, syntax.NodeAt(t, int(dr.Node)))
+				let uname = NodeText(f.Parsed, td.Name)
+				let specID = match dense.Unpack(td.Spec) {
+				case option.Some{Value: sp}:
+					sp
+				case option.None:
+					continue
+				}
+				if syntax.KindOf(t, specID) != syntax.KInterfaceType {
+					continue
+				}
+				let it = syntax.InterfaceTypeOf(t, specID)
+				let mut vSpecs = []syntax.VariantSpec{}
+				for mi in 0..syntax.Len(it.Members) {
+					let mNode = syntax.Item(t, it.Members, mi)
+					if syntax.KindOf(t, mNode) == syntax.KVariantSpec {
+						vSpecs = vSpecs.Append(syntax.VariantSpecOf(t, mNode))
+					}
+				}
+				if vSpecs.Len() == 0 {
+					continue
+				}
+				let tdTyped = match u.Typed {
+				case option.Some{Value: tdd}:
+					tdd
+				case option.None:
+					continue
+				}
+				for vs in vSpecs {
+					let vname = NodeText(f.Parsed, vs.Name)
+					let pn = bind.PNodeOf(tdTyped.K.Ps, fIdx, vs.Name)
+					let pi = dense.Index(pn)
+					let vIdx = variants.Len()
+					let off = syntax.NodePos(f.Parsed, vs.Name)
+					let rec = variantRec{
+						unionName: uname,
+						varName:   vname,
+						uIdx:      uIdx,
+						pkgPath:   uPath,
+						fileRel:   f.Rel,
+						fi:        fi,
+						off:       off,
+						spanLen:   vname.Len(),
+						exported:  isExportedShapeName(uname) && isExportedShapeName(vname),
+						declPN:    pi,
+						built:     false,
+					}
+					variants = variants.Append(rec)
+					varKeyMap[uPath+"\x00"+vname] = vIdx
+					let short = stdShortPath(uPath)
+					if short != "" {
+						varKeyMap[short+"\x00"+vname] = vIdx
+					}
+					if pi >= 0 && pi < pnodeVar[uIdx].Len() {
+						pnodeVar[uIdx][pi] = vIdx
+					}
+				}
+			}
+		}
+	}
+	if variants.Len() == 0 {
+		return
+	}
+	for uIdx, u in inp.Units {
+		let td = match u.Typed {
+		case option.Some{Value: tdd}:
+			tdd
+		case option.None:
+			continue
+		}
+		let uPath = unitPkgPath(u)
+		let imps = store.ImportPaths(td.S)
+		let mut pnodeTypes = slices.Repeat([]dense.Opt[store.TKey]{dense.NoID[store.TKey]()}, bind.Written(td.K.Ps)+1)
+		for ent in td.T.Entries {
+			let pi = dense.Index(ent.At)
+			if pi >= 0 && pi < pnodeTypes.Len() {
+				pnodeTypes[pi] = dense.OptOf(ent.T)
+			}
+		}
+		for fIdx, f in u.Files {
+			if f.Parsed.Failed {
+				continue
+			}
+			let t = f.Parsed.Tree
+			let fi = g.FileIndexes[uIdx][fIdx]
+			let mut inPattern = slices.Repeat([]bool{false}, syntax.NumNodes(t))
+			for ni in 0..syntax.NumNodes(t) {
+				let cur = syntax.NodeAt(t, ni)
+				let ck = syntax.KindOf(t, cur)
+				if ck == syntax.KField || ck == syntax.KFuncType {
+					markCasePatternSubtree(t, cur, &inPattern)
+				} else if ck == syntax.KTypeDecl {
+					let tdc = syntax.TypeDeclOf(t, cur)
+					markCasePatternSubtree(t, tdc.Name, &inPattern)
+					match dense.Unpack(tdc.TypeParams) {
+					case option.Some{Value: tp}:
+						markCasePatternSubtree(t, tp, &inPattern)
+					case option.None:
+					}
+					match dense.Unpack(tdc.Spec) {
+					case option.Some{Value: sp}:
+						if syntax.KindOf(t, sp) == syntax.KInterfaceType {
+							let it = syntax.InterfaceTypeOf(t, sp)
+							for mi in 0..syntax.Len(it.Members) {
+								let mNode = syntax.Item(t, it.Members, mi)
+								if syntax.KindOf(t, mNode) != syntax.KLawDecl {
+									markCasePatternSubtree(t, mNode, &inPattern)
+								}
+							}
+						} else {
+							markCasePatternSubtree(t, sp, &inPattern)
+						}
+					case option.None:
+					}
+				} else if ck == syntax.KVarSpec {
+					match dense.Unpack(syntax.VarSpecOf(t, cur).Type) {
+					case option.Some{Value: vt}:
+						markCasePatternSubtree(t, vt, &inPattern)
+					case option.None:
+					}
+				} else if ck == syntax.KCompositeLit {
+					match dense.Unpack(syntax.CompositeLitOf(t, cur).Type) {
+					case option.Some{Value: ct}:
+						markCasePatternSubtree(t, ct, &inPattern)
+					case option.None:
+					}
+				} else if ck == syntax.KSwitchStmt {
+					let sw = syntax.SwitchStmtOf(t, cur)
+					for ci in 0..syntax.Len(sw.Clauses) {
+						let cNode = syntax.Item(t, sw.Clauses, ci)
+						if syntax.KindOf(t, cNode) == syntax.KCaseClause {
+							let cc = syntax.CaseClauseOf(t, cNode)
+							for li in 0..syntax.Len(cc.List) {
+								markCasePatternSubtree(t, syntax.Item(t, cc.List, li), &inPattern)
+							}
+						}
+					}
+				} else if ck == syntax.KTypeSwitchStmt {
+					let ts = syntax.TypeSwitchStmtOf(t, cur)
+					for ci in 0..syntax.Len(ts.Clauses) {
+						let cNode = syntax.Item(t, ts.Clauses, ci)
+						if syntax.KindOf(t, cNode) == syntax.KCaseClause {
+							let cc = syntax.CaseClauseOf(t, cNode)
+							for li in 0..syntax.Len(cc.List) {
+								markCasePatternSubtree(t, syntax.Item(t, cc.List, li), &inPattern)
+							}
+						}
+					}
+				} else if ck == syntax.KCatchExpr {
+					let ce = syntax.CatchExprOf(t, cur)
+					for ai in 0..syntax.Len(ce.Arms) {
+						let aNode = syntax.Item(t, ce.Arms, ai)
+						if syntax.KindOf(t, aNode) == syntax.KCatchArm {
+							let ca = syntax.CatchArmOf(t, aNode)
+							for ti in 0..syntax.Len(ca.Types) {
+								markCasePatternSubtree(t, syntax.Item(t, ca.Types, ti), &inPattern)
+							}
+						}
+					}
+				}
+			}
+			for litRow in fi.Lits {
+				if inPattern[int(litRow)] {
+					continue
+				}
+				let litNode = syntax.NodeAt(t, int(litRow))
+				let pn = bind.PNodeOf(td.K.Ps, fIdx, litNode)
+				let pi = dense.Index(pn)
+				if pi < 0 || pi >= pnodeTypes.Len() {
+					continue
+				}
+				match dense.Unpack(pnodeTypes[pi]) {
+				case option.Some{Value: tk}:
+					markVariantTKeyBuilt(inp, unitByPkg, uIdx, td, uPath, imps, varKeyMap, &variants, &visited, tk, false, 0)
+				case option.None:
+				}
+			}
+			for idRow in fi.Idents {
+				if inPattern[int(idRow)] {
+					continue
+				}
+				let idNode = syntax.NodeAt(t, int(idRow))
+				let pn = bind.PNodeOf(td.K.Ps, fIdx, idNode)
+				match bind.ResolutionOf(td.K.U, td.K.Ps, pn) {
+				case bind.Declared as dec:
+					let di = dense.Index(dec.At)
+					if di != dense.Index(pn) && di >= 0 && di < pnodeVar[uIdx].Len() && pnodeVar[uIdx][di] >= 0 {
+						variants[pnodeVar[uIdx][di]].built = true
+					}
+				case bind.Imported as im:
+					if im.Ref.Import > uint32(0) && int(im.Ref.Import) <= imps.Len() {
+						let tp = imps[int(im.Ref.Import)-1]
+						let dn = NodeText(f.Parsed, idNode)
+						match varKeyMap.Get(tp + "\x00" + dn) {
+						case option.Some{Value: vIdx}:
+							variants[vIdx].built = true
+						case option.None:
+						}
+					}
+				case _:
+				}
+			}
+		}
+		for fn in td.K.Fns {
+			if fn.File < 0 || fn.File >= td.K.Parsed.Len() || td.K.Parsed[fn.File].Failed || !validTreeNode(td.K.Parsed[fn.File], fn.Decl) {
+				continue
+			}
+			let dk = syntax.KindOf(td.K.Parsed[fn.File].Tree, fn.Decl)
+			if dk == syntax.KTestDecl || dk == syntax.KLawDecl {
+				let ops = store.OperandsOf(td.S, fn.Sig)
+				let nParam = if ops.Len() > 3 { ops.Len() - 3 } else { 0 }
+				for oi in 0..nParam {
+					markVariantTKeyBuilt(inp, unitByPkg, uIdx, td, uPath, imps, varKeyMap, &variants, &visited, ops[oi], true, 0)
+				}
+			}
+		}
+		for inst in td.T.Insts {
+			for argT in inst.Args {
+				markVariantTKeyBuilt(inp, unitByPkg, uIdx, td, uPath, imps, varKeyMap, &variants, &visited, argT, true, 0)
+			}
+		}
+	}
+	let isClosed = inp.Closed || (inp.Units.Len() > 0 && inp.Units[inp.Units.Len()-1].HasEntry)
+	for v in variants {
+		if v.built {
+			continue
+		}
+		if v.exported && !isClosed {
+			continue
+		}
+		let msg = "variant \(v.varName) of union \(v.unionName) is never built"
+		*out = (*out).Append(shapeFinding("unbuilt-variant", sev, v.fileRel, v.fi, v.off, v.spanLen, msg, []Related{}))
+	}
+}
+
+test IdenticalArmsAndDuplicateUnionTests {
+	let src = "func f(x int) int {\n\tmatch x {\n\tcase 1:\n\t\treturn 10\n\tcase 2:\n\t\treturn 10\n\tcase _:\n\t\treturn 0\n\t}\n}\n\ntest FirstTest {\n\tlet a = 1 + 2\n\tassert a == 3\n}\n\ntest SecondTest {\n\tlet b = 1 + 2\n\tassert b == 3\n}\n"
+	let p = syntax.Parse(src)
+	assert !p.Failed
+	let inp = Input{
+		Checked:    false,
+		Closed:     false,
+		ModuleDirs: Map[string, string]{},
+		Glossaries: Map[string, string]{},
+		Units:      []UnitInput{UnitInput{
+			Module:     "m", Path: "m/p", Dir: "p", Name: "p",
+			Dependency: false, HasEntry: false,
+			Files:      []FileInput{FileInput{Rel: "p/a.ergo", Src: src, Parsed: p}},
+			BindFiles:  []bind.File{}, Typed: option.None,
+		}},
+	}
+	let g = BuildProgramGraph(inp)
+	let mut out = []Finding{}
+	CheckIdenticalArms(inp, g, SeverityWarning, &out)
+	CheckDuplicateTests(inp, g, SeverityWarning, &out)
+	let mut gotArm = false
+	let mut gotTest = false
+	for f in out {
+		if f.Code == "L119" {
+			gotArm = true
+		}
+		if f.Code == "L117" {
+			gotTest = true
+		}
+	}
+	assert gotArm
+	assert gotTest
+}

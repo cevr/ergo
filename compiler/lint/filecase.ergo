@@ -1,0 +1,511 @@
+import slices
+import strings
+import utf8
+
+// CaseSnake selects snake_case filenames and folders.
+let CaseSnake = "snake_case"
+
+// CaseKebab selects kebab-case filenames and folders.
+let CaseKebab = "kebab-case"
+
+// CaseCamel selects camelCase filenames and folders.
+let CaseCamel = "camelCase"
+
+// CasePascal selects PascalCase filenames and folders.
+let CasePascal = "PascalCase"
+
+// CaseFlat selects flatcase filenames and folders.
+let CaseFlat = "flatcase"
+
+// FileNameCaseOptions configures the file-name-case rule.
+type FileNameCaseOptions {
+	// Case selects the expected naming style, or empty to keep the rule inactive.
+	Case string,
+	// Dirs enforces the same case style on non-exempt folder segments.
+	Dirs bool,
+}
+
+// ValidateFileNameCaseOptions verifies that FileNameCaseOptions selects a known case style.
+func ValidateFileNameCaseOptions(o FileNameCaseOptions) fails BadConfig {
+	if o.Case == "" {
+		if o.Dirs {
+			return BadConfig{Message: "dirs option requires case to be configured"}
+		}
+		return
+	}
+	if o.Case == CaseSnake || o.Case == CaseKebab || o.Case == CaseCamel || o.Case == CasePascal || o.Case == CaseFlat {
+		return
+	}
+	BadConfig{Message: "unknown case \"\(o.Case)\": must be one of \(CaseSnake), \(CaseKebab), \(CaseCamel), \(CasePascal), \(CaseFlat)"}
+}
+
+// CleanSlashPath normalizes forward-slash relative paths lexically.
+func CleanSlashPath(p string) string {
+	if p == "" {
+		return "."
+	}
+	let rooted = p[0] == '/'
+	let mut stack = []string{}
+	for seg in strings.Split(p, "/") {
+		if seg == "" || seg == "." {
+			continue
+		}
+		if seg == ".." {
+			if stack.Len() > 0 && stack[stack.Len()-1] != ".." {
+				stack = stack[:stack.Len()-1]
+			} else if !rooted {
+				stack = stack.Append("..")
+			}
+		} else {
+			stack = stack.Append(seg)
+		}
+	}
+	if stack.Len() == 0 {
+		return if rooted { "/" } else { "." }
+	}
+	let joined = strings.Join(stack, "/")
+	if rooted { "/" + joined } else { joined }
+}
+
+// SlashBase returns the final slash-separated path element.
+func SlashBase(p string) string {
+	if p == "" {
+		return "."
+	}
+	let mut end = p.Len()
+	for end > 1 && p[end-1] == '/' {
+		end -= 1
+	}
+	let trimmed = p[:end]
+	if trimmed == "/" {
+		return "/"
+	}
+	let i = strings.LastIndex(trimmed, "/")
+	if i < 0 { trimmed } else { trimmed[i+1:] }
+}
+
+// SlashDir returns all but the final slash-separated path element.
+func SlashDir(p string) string {
+	let i = strings.LastIndex(p, "/")
+	if i < 0 {
+		return "."
+	}
+	if i == 0 {
+		return "/"
+	}
+	CleanSlashPath(p[:i])
+}
+
+func isLowerRune(r rune) bool {
+	if r < 0x80 {
+		return (ByteMask(byte(r)) & ByteLower) != 0
+	}
+	utf8.IsLetter(r) && !utf8.IsUpper(r)
+}
+
+func isASCIIOnly(s string) bool {
+	for i in 0..s.Len() {
+		if s[i] >= 0x80 {
+			return false
+		}
+	}
+	true
+}
+
+func asciiLowerRange(s string, from int, to int) string {
+	let mut allLower = true
+	for i in from..to {
+		if (ByteMask(s[i]) & ByteUpper) != 0 {
+			allLower = false
+			break
+		}
+	}
+	if allLower {
+		return s[from:to]
+	}
+	let mut b = strings.NewBuilder()
+	b.Grow(to - from)
+	for i in from..to {
+		let c = s[i]
+		if (ByteMask(c) & ByteUpper) != 0 {
+			b.WriteByte(c + ('a' - 'A'))
+		} else {
+			b.WriteByte(c)
+		}
+	}
+	b.String()
+}
+
+func splitCaseASCII(s string) []string {
+	let mut words = []string{}
+	let mut start = -1
+	for i in 0..s.Len() {
+		let c = s[i]
+		let m = ByteMask(c)
+		if (m & (ByteLower | ByteUpper | ByteDigit)) == 0 {
+			if start >= 0 {
+				words = words.Append(asciiLowerRange(s, start, i))
+				start = -1
+			}
+			continue
+		}
+		if start < 0 {
+			start = i
+			continue
+		}
+		if (m & ByteUpper) != 0 {
+			let pm = ByteMask(s[i-1])
+			let afterLowerOrDigit = (pm & (ByteLower | ByteDigit)) != 0
+			let acronymEnd = (pm&ByteUpper) != 0 && i+1 < s.Len() && (ByteMask(s[i+1])&ByteLower) != 0
+			if afterLowerOrDigit || acronymEnd {
+				words = words.Append(asciiLowerRange(s, start, i))
+				start = i
+			}
+		}
+	}
+	if start >= 0 {
+		words = words.Append(asciiLowerRange(s, start, s.Len()))
+	}
+	words
+}
+
+func decodeRunes(s string) []rune {
+	let mut rs = []rune{}
+	let mut i = 0
+	for i < s.Len() {
+		let d = utf8.DecodeRuneInString(s[i:])
+		rs = rs.Append(d.Rune)
+		if d.Size <= 0 {
+			break
+		}
+		i = i + d.Size
+	}
+	rs
+}
+
+func flushUnicodeWord(words mut []string, rs []rune, from int, to int) {
+	if to <= from {
+		return
+	}
+	let mut b = strings.NewBuilder()
+	for j in from..to {
+		b.WriteString(strings.ToLower(utf8.RuneText(rs[j])))
+	}
+	*words = (*words).Append(b.String())
+}
+
+// SplitCaseWords splits a filename or folder identifier into lowercase words.
+func SplitCaseWords(s string) []string {
+	if isASCIIOnly(s) {
+		return splitCaseASCII(s)
+	}
+	let rs = decodeRunes(s)
+	let mut words = []string{}
+	let mut start = -1
+	for i, r in rs {
+		if !utf8.IsLetter(r) && !utf8.IsDigit(r) {
+			if start >= 0 {
+				flushUnicodeWord(&words, rs, start, i)
+				start = -1
+			}
+			continue
+		}
+		if start < 0 {
+			start = i
+			continue
+		}
+		if utf8.IsUpper(r) {
+			let prev = rs[i-1]
+			let acronymEnd = utf8.IsUpper(prev) && i+1 < rs.Len() && isLowerRune(rs[i+1])
+			if isLowerRune(prev) || utf8.IsDigit(prev) || acronymEnd {
+				flushUnicodeWord(&words, rs, start, i)
+				start = i
+			}
+		}
+	}
+	if start >= 0 {
+		flushUnicodeWord(&words, rs, start, rs.Len())
+	}
+	words
+}
+
+func titleWord(w string) string {
+	if w == "" {
+		return ""
+	}
+	let d = utf8.DecodeRuneInString(w)
+	let head = strings.ToUpper(utf8.RuneText(d.Rune))
+	let tail = if d.Size < w.Len() { strings.ToLower(w[d.Size:]) } else { "" }
+	head + tail
+}
+
+// FormatCaseWords formats lowercase words into the requested naming style.
+func FormatCaseWords(words []string, style string) string {
+	if words.Len() == 0 {
+		return ""
+	}
+	if style == CaseSnake {
+		return strings.Join(words, "_")
+	}
+	if style == CaseKebab {
+		return strings.Join(words, "-")
+	}
+	if style == CaseFlat {
+		return strings.Join(words, "")
+	}
+	if style == CaseCamel {
+		let mut b = strings.NewBuilder()
+		b.WriteString(strings.ToLower(words[0]))
+		for i in 1..words.Len() {
+			b.WriteString(titleWord(words[i]))
+		}
+		return b.String()
+	}
+	if style == CasePascal {
+		let mut b = strings.NewBuilder()
+		for w in words {
+			b.WriteString(titleWord(w))
+		}
+		return b.String()
+	}
+	""
+}
+
+let recognizedFileSuffixes = []string{
+	"_tests", "_test", "_laws", "_law", "_gen",
+	"_linux", "_darwin", "_windows", "_freebsd", "_openbsd",
+	"_netbsd", "_dragonfly", "_solaris", "_plan9", "_aix",
+	"_android", "_ios", "_js", "_wasip1", "_unix", "_other",
+	"_amd64", "_arm64", "_386", "_arm", "_wasm",
+	"_ppc64le", "_ppc64", "_mips64le", "_mips64", "_mipsle", "_mips",
+	"_riscv64", "_s390x", "_loong64",
+}
+
+// FileStem holds the split result of an Ergo file basename.
+type FileStem {
+	// Stem is the modifiable prefix before preserved suffixes.
+	Stem string,
+	// Preserved holds canonical compound suffixes such as _linux_test.
+	Preserved string,
+	// Valid reports whether the basename follows an active Ergo file form.
+	Valid bool,
+}
+
+// SplitErgoFileName splits an Ergo basename into its stem and preserved suffixes.
+func SplitErgoFileName(base string) FileStem {
+	if base == "" || strings.HasPrefix(base, ".") || strings.HasPrefix(base, "_") || !strings.HasSuffix(base, ".ergo") {
+		return FileStem{Stem: "", Preserved: "", Valid: false}
+	}
+	let raw = strings.TrimSuffix(base, ".ergo")
+	if raw == "" {
+		return FileStem{Stem: "", Preserved: "", Valid: false}
+	}
+	let mut rem = raw
+	let mut suffixes = []string{}
+	for {
+		let lowerRem = strings.ToLower(rem)
+		let mut matched = ""
+		for suf in recognizedFileSuffixes {
+			if strings.HasSuffix(lowerRem, suf) && rem.Len() > suf.Len() {
+				let cand = rem[:rem.Len()-suf.Len()]
+				if SplitCaseWords(cand).Len() > 0 {
+					matched = suf
+					rem = cand
+					break
+				}
+			}
+		}
+		if matched == "" {
+			break
+		}
+		suffixes = suffixes.Append(matched)
+	}
+	if SplitCaseWords(rem).Len() == 0 {
+		return FileStem{Stem: "", Preserved: "", Valid: false}
+	}
+	let mut b = strings.NewBuilder()
+	let mut i = suffixes.Len() - 1
+	for i >= 0 {
+		b.WriteString(suffixes[i])
+		i -= 1
+	}
+	FileStem{Stem: rem, Preserved: b.String(), Valid: true}
+}
+
+// NormalizeErgoFileName formats an Ergo basename into style while keeping recognized suffixes.
+func NormalizeErgoFileName(base string, style string) (string, bool) {
+	let sp = SplitErgoFileName(base)
+	if !sp.Valid {
+		return ("", false)
+	}
+	let words = SplitCaseWords(sp.Stem)
+	if words.Len() == 0 {
+		return ("", false)
+	}
+	let formatted = FormatCaseWords(words, style)
+	if formatted == "" {
+		return ("", false)
+	}
+	(formatted + sp.Preserved + ".ergo", true)
+}
+
+func skipDirSegment(seg string) bool {
+	seg == "testdata" || seg == "node_modules" || seg == "vendor" || seg == "ergo.bind" || seg == "gostd"
+}
+
+// NormalizeDirSegment formats a directory segment into style unless exempt.
+func NormalizeDirSegment(seg string, style string) (string, bool) {
+	if seg == "" || seg == "." || seg == ".." || strings.HasPrefix(seg, ".") || strings.HasPrefix(seg, "_") || skipDirSegment(seg) {
+		return (seg, false)
+	}
+	let words = SplitCaseWords(seg)
+	if words.Len() == 0 {
+		return (seg, false)
+	}
+	let formatted = FormatCaseWords(words, style)
+	if formatted == "" {
+		return (seg, false)
+	}
+	(formatted, true)
+}
+
+// NormalizedPath holds expected path components for a module-relative file path.
+type NormalizedPath {
+	// Rel is the expected normalized module-relative path.
+	Rel string,
+	// Dir is the expected normalized folder path.
+	Dir string,
+	// Base is the expected normalized basename.
+	Base string,
+	// Valid reports whether the path is subject to normalization.
+	Valid bool,
+}
+
+// NormalizeRelPath computes expected normalized components for a module-relative file path.
+func NormalizeRelPath(rel string, opts FileNameCaseOptions) NormalizedPath {
+	if rel == "" || opts.Case == "" {
+		return NormalizedPath{Rel: "", Dir: "", Base: "", Valid: false}
+	}
+	let clean = CleanSlashPath(rel)
+	if clean == "." || strings.HasPrefix(clean, ".") {
+		return NormalizedPath{Rel: "", Dir: "", Base: "", Valid: false}
+	}
+	let base = SlashBase(clean)
+	let (wantBase, ok) = NormalizeErgoFileName(base, opts.Case)
+	if !ok {
+		return NormalizedPath{Rel: "", Dir: "", Base: "", Valid: false}
+	}
+	let dir = SlashDir(clean)
+	let mut wantDir = dir
+	if opts.Dirs && dir != "." {
+		let mut segs = strings.Split(dir, "/")
+		for i, seg in segs {
+			let (next, norm) = NormalizeDirSegment(seg, opts.Case)
+			if norm {
+				segs[i] = next
+			}
+		}
+		wantDir = strings.Join(segs, "/")
+	}
+	let wantRel = if wantDir == "." { wantBase } else { wantDir + "/" + wantBase }
+	NormalizedPath{Rel: wantRel, Dir: wantDir, Base: wantBase, Valid: true}
+}
+
+func dirAnchorFile(units []UnitInput, dir string, opts FileNameCaseOptions) (string, bool) {
+	let mut cleanFiles = []string{}
+	for u in units {
+		if u.Dependency {
+			continue
+		}
+		for f in u.Files {
+			if f.Rel == "" {
+				continue
+			}
+			let c = CleanSlashPath(f.Rel)
+			if SlashDir(c) != dir {
+				continue
+			}
+			let base = SlashBase(c)
+			let (wb, ok) = NormalizeErgoFileName(base, opts.Case)
+			if ok && wb == base {
+				cleanFiles = cleanFiles.Append(c)
+			}
+		}
+	}
+	if cleanFiles.Len() == 0 {
+		return ("", false)
+	}
+	let sorted = slices.Sort(cleanFiles)
+	(sorted[0], true)
+}
+
+// CheckFileNameCase checks one file against file-name-case options and returns message and remedy.
+func CheckFileNameCase(units []UnitInput, rel string, opts FileNameCaseOptions) (string, string, bool) {
+	if opts.Case == "" || rel == "" {
+		return ("", "", false)
+	}
+	let clean = CleanSlashPath(rel)
+	let np = NormalizeRelPath(clean, opts)
+	if !np.Valid || np.Rel == clean {
+		return ("", "", false)
+	}
+	let base = SlashBase(clean)
+	let dir = SlashDir(clean)
+	let style = opts.Case
+	if np.Base != base {
+		if np.Dir == dir {
+			return ("file name \"\(base)\" does not match \(style)", "rename to \"\(np.Base)\"", true)
+		}
+		return ("path \"\(clean)\" does not match \(style)", "rename to \"\(np.Rel)\"", true)
+	}
+	let (anchor, hasAnchor) = dirAnchorFile(units, dir, opts)
+	if hasAnchor && clean != anchor {
+		return ("", "", false)
+	}
+	("directory \"\(dir)\" does not match \(style)", "rename directory to \"\(np.Dir)\"", true)
+}
+
+// DefaultConceptSuffixes returns the default list of banned file kind suffixes.
+func DefaultConceptSuffixes() []string {
+	[]string{
+		"service", "layer", "live", "repository", "repo", "handler", "controller", "impl", "adapter",
+		"aggregate", "command", "event", "policy", "projection", "saga", "view", "schema", "model",
+		"types", "utils", "helpers",
+	}
+}
+
+// KindSuffix returns the matching banned kind suffix from a file path if present.
+func KindSuffix(rel string, suffixes []string) (string, bool) {
+	let stem = strings.TrimSuffix(SlashBase(rel), ".ergo")
+	let cut = strings.LastIndexAny(stem, "_.")
+	if cut <= 0 {
+		return ("", false)
+	}
+	let kind = stem[cut+1:]
+	for s in suffixes {
+		if strings.EqualFold(kind, s) {
+			return (s, true)
+		}
+	}
+	("", false)
+}
+
+law CaseWordsPreserveNonEmptyASCII(s string) {
+	let sp = SplitErgoFileName(s + ".ergo")
+	!sp.Valid || SplitCaseWords(sp.Stem).Len() > 0
+}
+
+test FileCaseAndConceptSuffixMatchGo {
+	assert strings.Join(SplitCaseWords("HTTPClient"), "_") == "http_client"
+	assert strings.Join(SplitCaseWords("JSON2SQL"), "_") == "json2_sql"
+	let (n1, ok1) = NormalizeErgoFileName("HTTPClient_linux_test.ergo", CaseSnake)
+	assert ok1 && n1 == "http_client_linux_test.ergo"
+	let (n2, ok2) = NormalizeErgoFileName("my_file.ergo", CasePascal)
+	assert ok2 && n2 == "MyFile.ergo"
+	let (k1, h1) = KindSuffix("pkg/user_service.ergo", DefaultConceptSuffixes())
+	assert h1 && k1 == "service"
+	let (_, h2) = KindSuffix("pkg/service.ergo", DefaultConceptSuffixes())
+	assert !h2
+	let (_, h3) = KindSuffix("pkg/_service.ergo", DefaultConceptSuffixes())
+	assert !h3
+}
