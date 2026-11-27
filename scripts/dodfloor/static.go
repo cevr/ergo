@@ -42,6 +42,13 @@ var scalarInt64Payloads = map[string]bool{
 	"compiler/testexec/verdict.ergo:VerdictStore.DurationMs":        true,
 	"compiler/testexec/verdict.ergo:PackageOutcome.DurationMs":      true,
 	"compiler/testexec/verdict.ergo:VerdictSummary.TotalDurationMs": true,
+	"compiler/build/cache.ergo:Lease.ExpiresUnix":                   true,
+	"compiler/build/cache.ergo:WarmRecord.CreatedUnix":              true,
+	"compiler/build/slot.ergo:SlotPool.HeldSince":                   true,
+	"compiler/build/store_cap.ergo:DirItem.Size":                    true,
+	"compiler/build/store_cap.ergo:StoreStat.Size":                  true,
+	"compiler/build/store_cap.ergo:memState.NowSec":                 true,
+	"compiler/build/trim.ergo:TrimStamp.LastRunUnix":                true,
 }
 
 func isFloorOwnedFile(rel string) bool {
