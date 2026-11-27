@@ -1,0 +1,165 @@
+import github.com/cevr/ergo/modules/atlas/adapter
+import github.com/cevr/ergo/modules/atlas/cutover
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/session
+import github.com/cevr/ergo/modules/atlas/subagent
+import github.com/cevr/ergo/modules/atlas/thread
+import github.com/cevr/ergo/modules/atlas/turn
+import option
+
+func absMod(v int, m int) int {
+	let r = v % m
+	if r < 0 { r + m } else { r }
+}
+
+func makeThreadSpec(tid string, parent option.Option[handle.ThreadID], driver adapter.DriverKind, origin thread.LinkOrigin) thread.ThreadSpec {
+	thread.ThreadSpec{
+		ID:                 handle.ThreadID(tid),
+		ParentThreadID:     parent,
+		Driver:             driver,
+		AgyDirectSupported: false,
+		RequestedMode:      adapter.ModeAutoEdit,
+		Instance:           adapter.InstanceID("inst-1"),
+		ConfigDir:          "/cfg/" + tid,
+		SharedHome:         option.None,
+		Model:              adapter.ModelID("gpt-5"),
+		LinkOrigin:         origin,
+	}
+}
+
+func ownerOne() handle.OwnerID {
+	handle.OwnerID{ServerID: "srv-a", Location: "loc-1", Epoch: 1}
+}
+
+func ownerTwo() handle.OwnerID {
+	handle.OwnerID{ServerID: "srv-b", Location: "loc-1", Epoch: 2}
+}
+
+func scriptedThreadOrSubagentCmd(slot int, prefix string) Command {
+	let rootTID = handle.ThreadID("\(prefix)-root")
+	let childTID = handle.ThreadID("\(prefix)-child")
+	let sessID = handle.SessionID("sess")
+	let callHID = handle.HandleID("\(prefix)-call-1")
+	let subHID = handle.HandleID("\(prefix)-sub-1")
+	match slot {
+	case 0:
+		CmdAcquireLease{LeaseID: "\(prefix)-lease", Owner: ownerOne(), ExpectedEpoch: 0}
+	case 1:
+		CmdCreateThread{Spec: makeThreadSpec(string(rootTID), option.None, adapter.ClaudeMeta, thread.OriginLocal), EdgeLabel: "root"}
+	case 2:
+		CmdCreateThread{Spec: makeThreadSpec(string(childTID), option.Some[handle.ThreadID]{Value: rootTID}, adapter.CodexDirect, thread.OriginSubagentChild{ParentID: rootTID}), EdgeLabel: "spawn"}
+	case 3:
+		CmdEnqueuePrompt{ThreadID: rootTID, Prompt: thread.QueuedPrompt{ID: "\(prefix)-p1", Body: "follow-up", RequestedMode: adapter.ModeAutoEdit}}
+	case 4:
+		CmdDequeuePrompt{TargetThreadID: rootTID}
+	case 5:
+		CmdStartTurn{ThreadID: rootTID, TurnID: turn.TurnID("\(prefix)-t1")}
+	case 6:
+		CmdStepTurn{ThreadID: rootTID, Action: turn.ActionReceiveDelta}
+	case 7:
+		CmdStepTurn{ThreadID: rootTID, Action: turn.ActionFinishTurn{Outcome: turn.OutcomeCompleted}}
+	case 8:
+		CmdSwitchDriver{
+			ThreadID: rootTID,
+			Spec:     thread.DriverSwitchSpec{
+				NextDriver: adapter.CodexDirect, AgyDirectSupported: false, RequestedMode: adapter.ModeAutoEdit,
+				Instance:   adapter.InstanceID("inst-2"), ConfigDir: "/cfg/direct", SharedHome: option.None,
+			},
+		}
+	case 9:
+		CmdInitSubagentTree{RootID: rootTID, Bounds: subagent.TreeBounds{MaxDepth: 3, MaxFanOut: 4, MaxBudget: 8}}
+	case 10:
+		CmdSpawnSubagent{RootID: rootTID, ParentID: rootTID, ChildID: childTID, Role: subagent.RoleImplementor}
+	case 11:
+		CmdOpenHandle{Spec: handle.OpenHandleSpec{ID: callHID, Kind: handle.KindCall, Owner: ownerOne(), Session: sessID, Summary: "call work"}, SubagentRoot: option.Some[handle.ThreadID]{Value: rootTID}, NodeID: option.Some[handle.ThreadID]{Value: childTID}}
+	case 12:
+		CmdSettleHandle{ID: callHID, Disposition: handle.DispSucceeded, Summary: "done", SubagentRoot: option.Some[handle.ThreadID]{Value: rootTID}, NodeID: option.Some[handle.ThreadID]{Value: childTID}}
+	case 13:
+		CmdSubagentHandBack{RootID: rootTID, NodeID: childTID}
+	case 14:
+		CmdOpenHandle{Spec: handle.OpenHandleSpec{ID: subHID, Kind: handle.KindCall, Owner: ownerOne(), Session: sessID, Summary: "hand call"}, SubagentRoot: option.None, NodeID: option.None}
+	case _:
+		CmdMarkHandleHanded{CallID: subHID, SpawnedID: handle.HandleID("\(prefix)-land-1")}
+	}
+}
+
+func scriptedRuntimeCmd(slot int, prefix string) Command {
+	let rootTID = handle.ThreadID("\(prefix)-root")
+	let childTID = handle.ThreadID("\(prefix)-child")
+	let sessID = handle.SessionID("sess")
+	let leaseID = "\(prefix)-lease"
+	let qID = turn.RequestID("\(prefix)-q-1")
+	let qHID = handle.HandleID("\(prefix)-qh-1")
+	let accID = session.AccountID("\(prefix)-acc-1")
+	let holdKey = "\(prefix)-hold-1"
+	match slot {
+	case 16:
+		CmdAskUserAsync{ID: qID, ThreadID: rootTID, HandleID: qHID, Owner: ownerOne(), Session: sessID, Header: "Confirm", Prompt: "Proceed with migration?", Assumption: "yes", Options: []string{"yes", "no"}, TargetRole: subagent.RoleRoot}
+	case 17:
+		CmdAnswerAsyncQuestion{ID: qID, Answer: "yes", By: turn.ResponderPrimary}
+	case 18:
+		CmdUpsertPoolAccount{Pool: PoolAccount{ID: accID, Provider: "codex", Priority: 1, Healthy: true, Window5hUsedPct: 40, Window5hResetMs: int64(2000000), Window7dUsedPct: 20, Window7dResetMs: int64(9000000), ModelWindows: []ModelWindowUsage{ModelWindowUsage{Model: "gpt-5", UsedPct: 35, ResetAtMs: int64(2000000)}}, InflightStarts: 1, LimitedUntilMs: int64(0), UpdatedAtMs: int64(1000)}}
+	case 19:
+		CmdAdjustPoolInflight{AccountID: accID, Delta: -1}
+	case 20:
+		CmdClaimResetDispatch{AccountID: accID, WindowKind: LimitWindow5h, PeriodKey: "p-1", ClaimedBy: "host-1"}
+	case 21:
+		CmdSetOwnerPush{Reserve: OwnerPush{PushID: "\(prefix)-push-1", Scope: PushAccount{Account: accID}, ExtraPct: 20, StartsAtMs: int64(1000), EndsAtMs: int64(500000), Cancelled: false, UpdatedMs: int64(1000)}}
+	case 22:
+		CmdOpenPoolHold{HoldKey: holdKey, ThreadID: rootTID, AccountID: accID, RetryAtMs: int64(5000), ParentNotified: true}
+	case 23:
+		CmdTransitionHold{HoldKey: holdKey, Action: HoldActionWake}
+	case 24:
+		CmdMarkWakeDelivered{WakeDeliveryID: handle.HoldWakeDeliveryID(rootTID, int64(5000))}
+	case 25:
+		CmdSaveKernelSnapshot{SessionID: sessID, ThreadID: rootTID, RootThreadID: rootTID, BindingsJSON: "{\"x\":42}", SnapshotBytes: 8, LostNotice: ""}
+	case 26:
+		CmdRecordKernelCut{CutID: "\(prefix)-cut-1", SessionID: sessID, ThreadID: rootTID, RootThreadID: rootTID, CallsJSON: "[\"fs.read\"]", MapsJSON: "[\"lines\"]", StartedAtMs: int64(1000), EndedAtMs: int64(2500), Reason: "complete"}
+	case 27:
+		CmdStepLimitRecovery{Key: turn.LimitRecoveryKey{ThreadID: string(rootTID), Kind: turn.LimitUsage, ResetAtMs: int64(5000)}, Action: turn.ActArmLimit{NowMs: int64(1000), AlreadyHandled: false}}
+	case 28:
+		CmdStepLeaseCutover{LeaseID: leaseID, NewOwner: option.None, Action: cutover.ActBeginQuiesce}
+	case 29:
+		CmdStepLeaseCutover{LeaseID: leaseID, NewOwner: option.None, Action: cutover.ActStageTransfer}
+	case 30:
+		CmdStepLeaseCutover{LeaseID: leaseID, NewOwner: option.Some[handle.OwnerID]{Value: ownerTwo()}, Action: cutover.ActCommitPersisted}
+	case 31:
+		CmdStepLeaseCutover{LeaseID: leaseID, NewOwner: option.None, Action: cutover.ActFinishOldDrain}
+	case 32:
+		CmdApplyBootReconcile{RootID: option.Some[handle.ThreadID]{Value: rootTID}, BootingOwner: ownerOne(), LiveForeignOwners: []handle.OwnerID{ownerTwo()}, PendingRequestsSurviveBoot: true}
+	case _:
+		CmdArchiveThread{ID: childTID}
+	}
+}
+
+func scriptedCommand(slot int, prefix string) Command {
+	if slot < 16 {
+		scriptedThreadOrSubagentCmd(slot, prefix)
+	} else {
+		scriptedRuntimeCmd(slot, prefix)
+	}
+}
+
+// ScriptStepCount returns the number of distinct deterministic scripted actions in ScriptedEnvelope.
+func ScriptStepCount() int {
+	34
+}
+
+// ScriptedEnvelope builds a deterministic Envelope indexed by step code for cross-backend laws.
+func ScriptedEnvelope(idx int, code int, prefix string) Envelope {
+	let slot = absMod(code, ScriptStepCount())
+	let cmdID = if absMod(code, 17) == 16 && idx > 0 {
+		CommandID("\(prefix)-cmd-\(idx - 1)")
+	} else {
+		CommandID("\(prefix)-cmd-\(idx)")
+	}
+	let cmd = scriptedCommand(slot, prefix)
+	let atMs = int64(10000) + int64(idx*100)
+	Envelope{
+		ID:         cmdID,
+		Actor:      "harness",
+		AtMs:       atMs,
+		LeaseFence: option.None,
+		Command:    cmd,
+	}
+}

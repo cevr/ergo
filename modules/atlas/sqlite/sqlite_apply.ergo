@@ -1,0 +1,511 @@
+import github.com/cevr/ergo/modules/atlas/adapter
+import github.com/cevr/ergo/modules/atlas/cutover
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/memory
+import github.com/cevr/ergo/modules/atlas/reconcile
+import github.com/cevr/ergo/modules/atlas/session
+import github.com/cevr/ergo/modules/atlas/subagent
+import github.com/cevr/ergo/modules/atlas/thread
+import github.com/cevr/ergo/modules/atlas/turn
+import option
+import sql
+
+func upsertThreadSQL(t thread.Thread, seq int) fails memory.StoreFailed needs sql.Tx {
+	let parentVal = match t.ParentThreadID {
+	case option.Some[handle.ThreadID] as p:
+		sql.Text{S: string(p.Value)}
+	case option.None:
+		sql.Null
+	}
+	let _ = try execTx(
+		"INSERT OR REPLACE INTO threads (thread_id, seq_order, parent_thread_id, archived, mode, driver, in_turn, thread_json) VALUES (?, COALESCE((SELECT seq_order FROM threads WHERE thread_id = ?), ?), ?, ?, ?, ?, ?, ?)",
+		[]sql.Value{
+			sql.Text{S: string(t.ID)},
+			sql.Text{S: string(t.ID)},
+			sql.Int{N: int64(seq)},
+			parentVal,
+			boolIntVal(t.Archived),
+			sql.Text{S: adapter.ExecutionPathName(t.Mode)},
+			sql.Text{S: adapter.DriverName(t.Driver)},
+			boolIntVal(thread.IsThreadInTurn(t)),
+			sql.Text{S: encodeWire(t)},
+		},
+	)
+	let _ = try execTx("DELETE FROM prompt_queue WHERE thread_id = ?", []sql.Value{sql.Text{S: string(t.ID)}})
+	for pos, p in t.PromptQueue {
+		let _ = try execTx(
+			"INSERT INTO prompt_queue (thread_id, pos, prompt_id, body, requested_mode, prompt_json) VALUES (?, ?, ?, ?, ?, ?)",
+			[]sql.Value{
+				sql.Text{S: string(t.ID)},
+				sql.Int{N: int64(pos)},
+				sql.Text{S: p.ID},
+				sql.Text{S: p.Body},
+				sql.Text{S: adapter.PermissionModeName(p.RequestedMode)},
+				sql.Text{S: encodeWire(p)},
+			},
+		)
+	}
+}
+
+func upsertEdgeSQL(e memory.BranchEdge, seq int) fails memory.StoreFailed needs sql.Tx {
+	let _ = try execTx(
+		"INSERT OR REPLACE INTO thread_edges (parent_thread_id, child_thread_id, kind, label, created_at_ms, seq_order) VALUES (?, ?, ?, ?, ?, COALESCE((SELECT seq_order FROM thread_edges WHERE parent_thread_id = ? AND child_thread_id = ?), ?))",
+		[]sql.Value{
+			sql.Text{S: string(e.ParentThreadID)},
+			sql.Text{S: string(e.ChildThreadID)},
+			sql.Text{S: memory.BranchKindName(e.Kind)},
+			sql.Text{S: e.Label},
+			sql.Int{N: e.CreatedAtMs},
+			sql.Text{S: string(e.ParentThreadID)},
+			sql.Text{S: string(e.ChildThreadID)},
+			sql.Int{N: int64(seq)},
+		},
+	)
+}
+
+func nodeStateName(st subagent.NodeState) string {
+	match st {
+	case subagent.NodeIdle:
+		"idle"
+	case subagent.NodeRunning:
+		"running"
+	case subagent.NodeParked:
+		"parked"
+	case subagent.NodeDone:
+		"done"
+	}
+}
+
+func upsertSubagentTreeSQL(snap memory.SubagentTreeSnapshot, seq int) fails memory.StoreFailed needs sql.Tx {
+	let _ = try execTx(
+		"INSERT OR REPLACE INTO subagent_trees (root_id, seq_order, budget_used, out_of_subtree_violation, bounds_json, order_json) VALUES (?, COALESCE((SELECT seq_order FROM subagent_trees WHERE root_id = ?), ?), ?, ?, ?, ?)",
+		[]sql.Value{
+			sql.Text{S: string(snap.RootID)},
+			sql.Text{S: string(snap.RootID)},
+			sql.Int{N: int64(seq)},
+			sql.Int{N: int64(snap.BudgetUsed)},
+			boolIntVal(snap.OutOfSubtreeViolation),
+			sql.Text{S: encodeWire(snap.Bounds)},
+			sql.Text{S: encodeWire(snap.Order)},
+		},
+	)
+	let _ = try execTx("DELETE FROM subagent_nodes WHERE root_id = ?", []sql.Value{sql.Text{S: string(snap.RootID)}})
+	for _, n in snap.Nodes {
+		let parentVal = match n.ParentThreadID {
+		case option.Some[handle.ThreadID] as p:
+			sql.Text{S: string(p.Value)}
+		case option.None:
+			sql.Null
+		}
+		let _ = try execTx(
+			"INSERT INTO subagent_nodes (root_id, thread_id, parent_thread_id, depth, state, hand_back_count, node_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
+			[]sql.Value{
+				sql.Text{S: string(snap.RootID)},
+				sql.Text{S: string(n.ThreadID)},
+				parentVal,
+				sql.Int{N: int64(n.Depth)},
+				sql.Text{S: nodeStateName(n.State)},
+				sql.Int{N: int64(n.HandBackCount)},
+				sql.Text{S: encodeWire(n)},
+			},
+		)
+	}
+}
+
+func upsertHandleSQL(h handle.WakeHandle, wakeCount int, seq int) fails memory.StoreFailed needs sql.Tx {
+	let _ = try execTx(
+		"INSERT OR REPLACE INTO handles (handle_id, seq_order, kind, deliverer, disposition, session_id, server_id, location, epoch, wake_emitted, wake_letter_count, handle_json) VALUES (?, COALESCE((SELECT seq_order FROM handles WHERE handle_id = ?), ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		[]sql.Value{
+			sql.Text{S: string(h.ID)},
+			sql.Text{S: string(h.ID)},
+			sql.Int{N: int64(seq)},
+			sql.Text{S: handle.HandleKindName(h.Kind)},
+			sql.Text{S: handle.DelivererName(h.Deliverer)},
+			sql.Text{S: handle.DispositionName(h.Disposition)},
+			sql.Text{S: string(h.Session)},
+			sql.Text{S: h.Owner.ServerID},
+			sql.Text{S: h.Owner.Location},
+			sql.Int{N: int64(h.Owner.Epoch)},
+			boolIntVal(h.WakeEmitted),
+			sql.Int{N: int64(wakeCount)},
+			sql.Text{S: encodeWire(h)},
+		},
+	)
+}
+
+func settleHandleSQL(id handle.HandleID, disp handle.Disposition, emitWake bool) fails memory.StoreFailed needs sql.Tx {
+	let rows = try queryTx(
+		"SELECT wake_letter_count, handle_json FROM handles WHERE handle_id = ?",
+		[]sql.Value{sql.Text{S: string(id)}},
+	)
+	if rows.Len() == 0 {
+		return
+	}
+	let count = try intAt(rows[0], 0)
+	let h = try decodeWakeHandle(try textAt(rows[0], 1))
+	if !handle.IsOpen(h.Disposition) {
+		return
+	}
+	let shouldEmit = emitWake && count == 0 && handle.EmitsRegistryWake(disp) && h.Deliverer == handle.DelivererRegistry
+	let nextCount = if shouldEmit { 1 } else { count }
+	let nextHandle = handle.WakeHandle{
+		..h,
+		Disposition: disp,
+		WakeEmitted: h.WakeEmitted || shouldEmit,
+	}
+	let _ = try execTx(
+		"UPDATE handles SET disposition = ?, wake_emitted = ?, wake_letter_count = ?, handle_json = ? WHERE handle_id = ?",
+		[]sql.Value{
+			sql.Text{S: handle.DispositionName(disp)},
+			boolIntVal(nextHandle.WakeEmitted),
+			sql.Int{N: int64(nextCount)},
+			sql.Text{S: encodeWire(nextHandle)},
+			sql.Text{S: string(id)},
+		},
+	)
+}
+
+func upsertWakeSQL(w reconcile.WakeRecord, seq int) fails memory.StoreFailed needs sql.Tx {
+	let _ = try execTx(
+		"INSERT OR REPLACE INTO wakes (delivery_id, seq_order, handle_id, delivered, payload_summary) VALUES (?, COALESCE((SELECT seq_order FROM wakes WHERE delivery_id = ?), ?), ?, ?, ?)",
+		[]sql.Value{
+			sql.Text{S: w.DeliveryID},
+			sql.Text{S: w.DeliveryID},
+			sql.Int{N: int64(seq)},
+			sql.Text{S: string(w.HandleID)},
+			boolIntVal(w.Delivered),
+			sql.Text{S: w.PayloadSummary},
+		},
+	)
+}
+
+func requestStatusName(st turn.RequestStatus) string {
+	match st {
+	case turn.RequestQueued:
+		"queued"
+	case turn.RequestDispatched:
+		"dispatched"
+	case turn.RequestAnswered:
+		"answered"
+	case turn.RequestDelivered:
+		"delivered"
+	case turn.RequestExpired:
+		"expired"
+	}
+}
+
+func upsertQuestionSQL(q memory.AsyncQuestion, r turn.RequestState, seq int) fails memory.StoreFailed needs sql.Tx {
+	let _ = try execTx(
+		"INSERT OR REPLACE INTO questions (question_id, seq_order, thread_id, handle_id, status, question_json) VALUES (?, COALESCE((SELECT seq_order FROM questions WHERE question_id = ?), ?), ?, ?, ?, ?)",
+		[]sql.Value{
+			sql.Text{S: string(q.ID)},
+			sql.Text{S: string(q.ID)},
+			sql.Int{N: int64(seq)},
+			sql.Text{S: string(q.ThreadID)},
+			sql.Text{S: string(q.HandleID)},
+			sql.Text{S: memory.QuestionStatusName(q.Status)},
+			sql.Text{S: encodeWire(q)},
+		},
+	)
+	let _ = try execTx(
+		"INSERT OR REPLACE INTO requests (request_id, seq_order, status, request_json) VALUES (?, COALESCE((SELECT seq_order FROM requests WHERE request_id = ?), ?), ?, ?)",
+		[]sql.Value{
+			sql.Text{S: string(r.ID)},
+			sql.Text{S: string(r.ID)},
+			sql.Int{N: int64(seq)},
+			sql.Text{S: requestStatusName(r.Status)},
+			sql.Text{S: encodeWire(r)},
+		},
+	)
+}
+
+func cutoverPhaseName(p cutover.CutoverPhase) string {
+	match p {
+	case cutover.CutoverOld:
+		"old"
+	case cutover.CutoverQuiesce:
+		"quiesce"
+	case cutover.CutoverTransfer:
+		"transfer"
+	case cutover.CutoverCommitted:
+		"committed"
+	case cutover.CutoverDone:
+		"done"
+	}
+}
+
+func leaseOwnerName(o cutover.LeaseOwner) string {
+	match o {
+	case cutover.OwnerNone:
+		"none"
+	case cutover.OwnerOld:
+		"old"
+	case cutover.OwnerNew:
+		"new"
+	case cutover.OwnerBoth:
+		"both"
+	}
+}
+
+func reconcileThreadRowSQL(cur thread.Thread, byID Map[turn.TurnID, turn.TurnState]) option.Option[thread.Thread] {
+	let curTurn = match cur.ActiveTurn {
+	case option.Some[turn.TurnState] as at:
+		at.Value
+	case option.None:
+		return option.None
+	}
+	let nextTurn = match byID.Get(curTurn.ID) {
+	case option.Some[turn.TurnState] as rt:
+		rt.Value
+	case option.None:
+		return option.None
+	}
+	if curTurn == nextTurn {
+		return option.None
+	}
+	let wasOpen = turn.IsTurnOpen(curTurn)
+	let nowOpen = turn.IsTurnOpen(nextTurn)
+	let inc = if wasOpen && !nowOpen { 1 } else { 0 }
+	let nextSess = if wasOpen && !nowOpen {
+		match cur.ActiveSession {
+		case option.Some[session.SessionRecord] as sr:
+			if sr.Value.Phase == session.SessionInTurn {
+				let ended = session.StepSession(sr.Value, session.ActEndTurn) catch {
+				case _:
+					sr.Value
+				}
+				option.Some[session.SessionRecord]{Value: ended}
+			} else {
+				cur.ActiveSession
+			}
+		case option.None:
+			cur.ActiveSession
+		}
+	} else {
+		cur.ActiveSession
+	}
+	let nextOutcome = match nextTurn.Outcome {
+	case option.Some[turn.TurnOutcome]:
+		nextTurn.Outcome
+	case option.None:
+		cur.LastTurnOutcome
+	}
+	option.Some[thread.Thread]{Value: thread.Thread{
+		..cur,
+		ActiveTurn:      option.Some[turn.TurnState]{Value: nextTurn},
+		ActiveSession:   nextSess,
+		LastTurnOutcome: nextOutcome,
+		TurnsCompleted:  cur.TurnsCompleted + inc,
+	}}
+}
+
+func applyBootTurnSQL(reconciledTurns []turn.TurnState, seq int) fails memory.StoreFailed needs sql.Tx {
+	let mut byID = Map[turn.TurnID, turn.TurnState]{}
+	for _, rt in reconciledTurns {
+		byID = byID.Put(rt.ID, rt)
+	}
+	let rows = try queryTx("SELECT thread_json FROM threads ORDER BY seq_order ASC", []sql.Value{})
+	for _, row in rows {
+		let cur = try decodeThread(try textAt(row, 0))
+		match reconcileThreadRowSQL(cur, byID) {
+		case option.Some[thread.Thread] as updated:
+			try upsertThreadSQL(updated.Value, seq)
+		case option.None:
+		}
+	}
+}
+
+func applyBootSQL(e memory.EvBootReconciled, seq int) fails memory.StoreFailed needs sql.Tx {
+	let mut lostSessions = Map[handle.SessionID, bool]{}
+	for _, hid in e.LostCallIDs {
+		let hRows = try queryTx("SELECT session_id FROM handles WHERE handle_id = ?", []sql.Value{sql.Text{S: string(hid)}})
+		if hRows.Len() > 0 {
+			let sid = handle.SessionID(try textAt(hRows[0], 0))
+			lostSessions = lostSessions.Put(sid, true)
+		}
+		try settleHandleSQL(hid, handle.DispLost, true)
+	}
+	for _, w in e.NextWakes {
+		try upsertWakeSQL(w, seq)
+	}
+	try applyBootTurnSQL(e.ReconciledTurns, seq)
+	for _, r in e.ReconciledRequests {
+		let _ = try execTx(
+			"INSERT OR REPLACE INTO requests (request_id, seq_order, status, request_json) VALUES (?, COALESCE((SELECT seq_order FROM requests WHERE request_id = ?), ?), ?, ?)",
+			[]sql.Value{
+				sql.Text{S: string(r.ID)},
+				sql.Text{S: string(r.ID)},
+				sql.Int{N: int64(seq)},
+				sql.Text{S: requestStatusName(r.Status)},
+				sql.Text{S: encodeWire(r)},
+			},
+		)
+	}
+	if e.LostNotice != "" {
+		let sRows = try queryTx("SELECT session_id, snapshot_json FROM kernel_snapshots ORDER BY seq_order ASC", []sql.Value{})
+		for _, row in sRows {
+			let sid = handle.SessionID(try textAt(row, 0))
+			match lostSessions.Get(sid) {
+			case option.Some[bool]:
+				let sn = try decodeKernelSnapshot(try textAt(row, 1))
+				let nextSn = memory.KernelSnapshot{..sn, LostNotice: e.LostNotice}
+				let _ = try execTx(
+					"UPDATE kernel_snapshots SET snapshot_json = ? WHERE session_id = ?",
+					[]sql.Value{sql.Text{S: encodeWire(nextSn)}, sql.Text{S: string(sid)}},
+				)
+			case option.None:
+			}
+		}
+	}
+	match e.SubagentTree {
+	case option.Some[memory.SubagentTreeSnapshot] as snap:
+		try upsertSubagentTreeSQL(snap.Value, seq)
+	case option.None:
+	}
+}
+
+func applyThreadAndHandleEventSQL(ev memory.Event, seq int) fails memory.StoreFailed needs sql.Tx {
+	match ev {
+	case memory.EvCommandAccepted as e:
+		let pJSON = encodeWire(e.Command)
+		let _ = try execTx(
+			"INSERT INTO commands (command_id, actor, at_ms, payload_json, payload_digest) VALUES (?, ?, ?, ?, ?)",
+			[]sql.Value{sql.Text{S: string(e.ID)}, sql.Text{S: e.Actor}, sql.Int{N: e.AtMs}, sql.Text{S: pJSON}, sql.Text{S: commandDigest(pJSON)}},
+		)
+	case memory.EvThreadUpserted as e:
+		try upsertThreadSQL(e.Thread, seq)
+		match e.NewEdge {
+		case option.Some[memory.BranchEdge] as edge:
+			try upsertEdgeSQL(edge.Value, seq)
+		case option.None:
+		}
+	case memory.EvBranchEdgeAdded as e:
+		try upsertEdgeSQL(e.Edge, seq)
+	case memory.EvSubagentTreeSaved as e:
+		try upsertSubagentTreeSQL(e.Snapshot, seq)
+	case memory.EvHandleOpened as e:
+		try upsertHandleSQL(e.Handle, 0, seq)
+	case memory.EvHandleHanded as e:
+		let rows = try queryTx("SELECT wake_letter_count, handle_json FROM handles WHERE handle_id = ?", []sql.Value{sql.Text{S: string(e.CallID)}})
+		if rows.Len() > 0 {
+			let cnt = try intAt(rows[0], 0)
+			let h = try decodeWakeHandle(try textAt(rows[0], 1))
+			let handed = handle.WakeHandle{..h, Disposition: handle.DispHanded, StartedID: option.Some[handle.HandleID]{Value: e.SpawnedID}, WakeEmitted: false}
+			try upsertHandleSQL(handed, cnt, seq)
+		}
+	case memory.EvHandleSettled as e:
+		try settleHandleSQL(e.ID, e.Disposition, e.EmitWake)
+	case memory.EvHandlesRetired as e:
+		for _, hid in e.RetiredIDs {
+			try settleHandleSQL(hid, handle.DispLost, true)
+		}
+	case memory.EvSessionHandlesCancelled as e:
+		let rows = try queryTx(
+			"SELECT handle_id FROM handles WHERE session_id = ? AND disposition = 'open' ORDER BY seq_order ASC",
+			[]sql.Value{sql.Text{S: string(e.Session)}},
+		)
+		for _, row in rows {
+			try settleHandleSQL(handle.HandleID(try textAt(row, 0)), handle.DispCancelled, false)
+		}
+	case _:
+	}
+}
+
+func applyRuntimeEventSQL(ev memory.Event, seq int) fails memory.StoreFailed needs sql.Tx {
+	match ev {
+	case memory.EvWakeUpserted as e:
+		try upsertWakeSQL(e.Record, seq)
+	case memory.EvWakeDelivered as e:
+		let _ = try execTx("UPDATE wakes SET delivered = 1 WHERE delivery_id = ?", []sql.Value{sql.Text{S: e.DeliveryID}})
+	case memory.EvHoldUpserted as e:
+		let h = e.Hold
+		let _ = try execTx(
+			"INSERT OR REPLACE INTO holds (hold_key, seq_order, thread_id, account_id, retry_at_ms, delivery_id, status, parent_notified, hold_json) VALUES (?, COALESCE((SELECT seq_order FROM holds WHERE hold_key = ?), ?), ?, ?, ?, ?, ?, ?, ?)",
+			[]sql.Value{
+				sql.Text{S: h.HoldKey}, sql.Text{S: h.HoldKey}, sql.Int{N: int64(seq)},
+				sql.Text{S: string(h.ThreadID)}, sql.Text{S: string(h.AccountID)}, sql.Int{N: h.RetryAtMs},
+				sql.Text{S: h.DeliveryID}, sql.Text{S: memory.HoldStatusName(h.Status)}, boolIntVal(h.ParentNotified), sql.Text{S: encodeWire(h)},
+			},
+		)
+	case memory.EvQuestionSaved as e:
+		try upsertQuestionSQL(e.Question, e.Request, seq)
+	case memory.EvPoolAccountSaved as e:
+		let a = e.Account
+		let _ = try execTx(
+			"INSERT OR REPLACE INTO pool_accounts (account_id, seq_order, provider, priority, healthy, inflight_starts, account_json) VALUES (?, COALESCE((SELECT seq_order FROM pool_accounts WHERE account_id = ?), ?), ?, ?, ?, ?, ?)",
+			[]sql.Value{
+				sql.Text{S: string(a.ID)}, sql.Text{S: string(a.ID)}, sql.Int{N: int64(seq)},
+				sql.Text{S: a.Provider}, sql.Int{N: int64(a.Priority)}, boolIntVal(a.Healthy), sql.Int{N: int64(a.InflightStarts)}, sql.Text{S: encodeWire(a)},
+			},
+		)
+	case memory.EvResetClaimed as e:
+		let c = e.Claim
+		let _ = try execTx(
+			"INSERT OR REPLACE INTO pool_resets (claim_key, seq_order, account_id, period_key, claimed_by, claimed_at_ms, claim_json) VALUES (?, COALESCE((SELECT seq_order FROM pool_resets WHERE claim_key = ?), ?), ?, ?, ?, ?, ?)",
+			[]sql.Value{
+				sql.Text{S: c.ClaimKey}, sql.Text{S: c.ClaimKey}, sql.Int{N: int64(seq)},
+				sql.Text{S: string(c.AccountID)}, sql.Text{S: c.PeriodKey}, sql.Text{S: c.ClaimedBy}, sql.Int{N: c.ClaimedAtMs}, sql.Text{S: encodeWire(c)},
+			},
+		)
+	case memory.EvOwnerPushSaved as e:
+		let p = e.Push
+		let _ = try execTx(
+			"INSERT OR REPLACE INTO pool_pushes (push_id, seq_order, starts_at_ms, ends_at_ms, cancelled, push_json) VALUES (?, COALESCE((SELECT seq_order FROM pool_pushes WHERE push_id = ?), ?), ?, ?, ?, ?)",
+			[]sql.Value{
+				sql.Text{S: p.PushID}, sql.Text{S: p.PushID}, sql.Int{N: int64(seq)},
+				sql.Int{N: p.StartsAtMs}, sql.Int{N: p.EndsAtMs}, boolIntVal(p.Cancelled), sql.Text{S: encodeWire(p)},
+			},
+		)
+	case memory.EvLimitSaved as e:
+		let _ = try execTx(
+			"INSERT OR REPLACE INTO limit_states (limit_key, seq_order, limit_json) VALUES (?, COALESCE((SELECT seq_order FROM limit_states WHERE limit_key = ?), ?), ?)",
+			[]sql.Value{sql.Text{S: e.LimitKey}, sql.Text{S: e.LimitKey}, sql.Int{N: int64(seq)}, sql.Text{S: encodeWire(e.Limit)}},
+		)
+	case memory.EvKernelSnapshotSaved as e:
+		let sn = e.Snapshot
+		let _ = try execTx(
+			"INSERT OR REPLACE INTO kernel_snapshots (session_id, seq_order, thread_id, root_thread_id, snapshot_seq, snapshot_bytes, updated_at_ms, snapshot_json) VALUES (?, COALESCE((SELECT seq_order FROM kernel_snapshots WHERE session_id = ?), ?), ?, ?, ?, ?, ?, ?)",
+			[]sql.Value{
+				sql.Text{S: string(sn.SessionID)}, sql.Text{S: string(sn.SessionID)}, sql.Int{N: int64(seq)},
+				sql.Text{S: string(sn.ThreadID)}, sql.Text{S: string(sn.RootThreadID)}, sql.Int{N: int64(sn.SnapshotSeq)}, sql.Int{N: int64(sn.SnapshotBytes)}, sql.Int{N: sn.UpdatedAtMs}, sql.Text{S: encodeWire(sn)},
+			},
+		)
+	case memory.EvKernelCutRecorded as e:
+		let j = e.Journal
+		let _ = try execTx(
+			"INSERT OR REPLACE INTO kernel_journals (cut_id, seq_order, session_id, thread_id, root_thread_id, started_at_ms, ended_at_ms, root_share_exceeded, journal_json) VALUES (?, COALESCE((SELECT seq_order FROM kernel_journals WHERE cut_id = ?), ?), ?, ?, ?, ?, ?, ?, ?)",
+			[]sql.Value{
+				sql.Text{S: j.CutID}, sql.Text{S: j.CutID}, sql.Int{N: int64(seq)},
+				sql.Text{S: string(j.SessionID)}, sql.Text{S: string(j.ThreadID)}, sql.Text{S: string(j.RootThreadID)},
+				sql.Int{N: j.StartedAtMs}, sql.Int{N: j.EndedAtMs}, boolIntVal(j.RootShareExceeded), sql.Text{S: encodeWire(j)},
+			},
+		)
+		let u = e.RootUsage
+		let _ = try execTx(
+			"INSERT OR REPLACE INTO kernel_root_usage (root_thread_id, seq_order, active_cell_ms, window_start_ms, last_updated_ms, flagged) VALUES (?, COALESCE((SELECT seq_order FROM kernel_root_usage WHERE root_thread_id = ?), ?), ?, ?, ?, ?)",
+			[]sql.Value{
+				sql.Text{S: string(u.RootThreadID)}, sql.Text{S: string(u.RootThreadID)}, sql.Int{N: int64(seq)},
+				sql.Int{N: u.ActiveCellMs}, sql.Int{N: u.WindowStartMs}, sql.Int{N: u.LastUpdatedMs}, boolIntVal(u.Flagged),
+			},
+		)
+	case memory.EvLeaseSaved as e:
+		let l = e.Lease
+		let _ = try execTx(
+			"INSERT OR REPLACE INTO leases (lease_id, seq_order, owner_server, owner_location, owner_epoch, fencing_token, cutover_phase, active_owner, commit_persisted, lease_json) VALUES (?, COALESCE((SELECT seq_order FROM leases WHERE lease_id = ?), ?), ?, ?, ?, ?, ?, ?, ?, ?)",
+			[]sql.Value{
+				sql.Text{S: l.LeaseID}, sql.Text{S: l.LeaseID}, sql.Int{N: int64(seq)},
+				sql.Text{S: l.Owner.ServerID}, sql.Text{S: l.Owner.Location}, sql.Int{N: int64(l.Epoch)},
+				sql.Int{N: l.FencingToken}, sql.Text{S: cutoverPhaseName(l.Phase)}, sql.Text{S: leaseOwnerName(l.ActiveOwner)},
+				boolIntVal(l.CommitPersisted), sql.Text{S: encodeWire(l)},
+			},
+		)
+	case memory.EvBootReconciled as e:
+		try applyBootSQL(e, seq)
+	case _:
+	}
+}
+
+func applyEventSQL(ev memory.Event, seq int) fails memory.StoreFailed needs sql.Tx {
+	try applyThreadAndHandleEventSQL(ev, seq)
+	try applyRuntimeEventSQL(ev, seq)
+}

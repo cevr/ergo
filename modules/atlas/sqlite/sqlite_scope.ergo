@@ -1,0 +1,373 @@
+import github.com/cevr/ergo/modules/atlas/cutover
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/memory
+import github.com/cevr/ergo/modules/atlas/reconcile
+import github.com/cevr/ergo/modules/atlas/subagent
+import github.com/cevr/ergo/modules/atlas/turn
+import option
+import sql
+
+func appendUniqueThreadID(order []handle.ThreadID, id handle.ThreadID) []handle.ThreadID {
+	for _, cur in order {
+		if cur == id {
+			return order
+		}
+	}
+	order.Append(id)
+}
+
+func appendUniqueString(order []string, id string) []string {
+	for _, cur in order {
+		if cur == id {
+			return order
+		}
+	}
+	order.Append(id)
+}
+
+func appendUniqueHandleID(order []handle.HandleID, id handle.HandleID) []handle.HandleID {
+	for _, cur in order {
+		if cur == id {
+			return order
+		}
+	}
+	order.Append(id)
+}
+
+func loadOneThreadScopeTx(s memory.State, id handle.ThreadID) memory.State fails memory.StoreFailed needs sql.Tx {
+	let rows = try queryTx("SELECT thread_json FROM threads WHERE thread_id = ?", []sql.Value{sql.Text{S: string(id)}})
+	if rows.Len() == 0 {
+		return s
+	}
+	let t = try decodeThread(try textAt(rows[0], 0))
+	memory.State{
+		..s,
+		Threads:     s.Threads.Put(id, t),
+		ThreadOrder: appendUniqueThreadID(s.ThreadOrder, id),
+	}
+}
+
+func loadOneTreeScopeTx(s memory.State, rootOpt option.Option[handle.ThreadID]) memory.State fails memory.StoreFailed needs sql.Tx {
+	let rootID = match rootOpt {
+	case option.None:
+		return s
+	case option.Some[handle.ThreadID] as r:
+		r.Value
+	}
+	match try querySubagentTreeTx(rootID) {
+	case option.None:
+		s
+	case option.Some[subagent.Tree] as tr:
+		memory.State{
+			..s,
+			Trees:     s.Trees.Put(rootID, tr.Value),
+			TreeOrder: appendUniqueThreadID(s.TreeOrder, rootID),
+		}
+	}
+}
+
+func loadOneWakeScopeTx(s memory.State, deliveryID string) memory.State fails memory.StoreFailed needs sql.Tx {
+	let rows = try queryTx(
+		"SELECT delivery_id, handle_id, delivered, payload_summary FROM wakes WHERE delivery_id = ?",
+		[]sql.Value{sql.Text{S: deliveryID}},
+	)
+	if rows.Len() == 0 {
+		return s
+	}
+	let wr = reconcile.WakeRecord{
+		DeliveryID:     try textAt(rows[0], 0),
+		HandleID:       handle.HandleID(try textAt(rows[0], 1)),
+		Delivered:      try boolAt(rows[0], 2),
+		PayloadSummary: try textAt(rows[0], 3),
+	}
+	memory.State{
+		..s,
+		Wakes:     s.Wakes.Put(deliveryID, wr),
+		WakeOrder: appendUniqueString(s.WakeOrder, deliveryID),
+	}
+}
+
+func loadOneHandleScopeTx(s memory.State, id handle.HandleID) memory.State fails memory.StoreFailed needs sql.Tx {
+	let hRows = try queryTx("SELECT wake_letter_count, handle_json FROM handles WHERE handle_id = ?", []sql.Value{sql.Text{S: string(id)}})
+	let s1 = if hRows.Len() == 0 {
+		s
+	} else {
+		let cnt = try intAt(hRows[0], 0)
+		let h = try decodeWakeHandle(try textAt(hRows[0], 1))
+		let nextLetters = if cnt > 0 { s.Registry.WakeLetters.Put(id, cnt) } else { s.Registry.WakeLetters }
+		memory.State{
+			..s,
+			Registry: handle.RegistryState{
+				Handles:     s.Registry.Handles.Put(id, h),
+				Order:       appendUniqueHandleID(s.Registry.Order, id),
+				WakeLetters: nextLetters,
+			},
+		}
+	}
+	try loadOneWakeScopeTx(s1, handle.WakeDeliveryID(id))
+}
+
+func loadOneLeaseScopeTx(s memory.State, leaseID string) memory.State fails memory.StoreFailed needs sql.Tx {
+	if leaseID == "" {
+		return s
+	}
+	let rows = try queryTx("SELECT lease_json FROM leases WHERE lease_id = ?", []sql.Value{sql.Text{S: leaseID}})
+	if rows.Len() == 0 {
+		return s
+	}
+	let lr = try decodeLeaseRecord(try textAt(rows[0], 0))
+	memory.State{
+		..s,
+		Leases:     s.Leases.Put(leaseID, lr),
+		LeaseOrder: appendUniqueString(s.LeaseOrder, leaseID),
+	}
+}
+
+func loadThreadCmdScopeTx(s memory.State, cmd memory.Command) memory.State fails memory.StoreFailed needs sql.Tx {
+	match cmd {
+	case memory.CmdCreateThread as c:
+		let s1 = try loadOneThreadScopeTx(s, c.Spec.ID)
+		match c.Spec.ParentThreadID {
+		case option.Some[handle.ThreadID] as pid:
+			try loadOneThreadScopeTx(s1, pid.Value)
+		case option.None:
+			s1
+		}
+	case memory.CmdAddBranchEdge as c:
+		let s1 = try loadOneThreadScopeTx(s, c.Branch.ParentThreadID)
+		let s2 = try loadOneThreadScopeTx(s1, c.Branch.ChildThreadID)
+		let eRows = try queryTx(
+			"SELECT parent_thread_id, child_thread_id, kind, label, created_at_ms FROM thread_edges WHERE parent_thread_id = ? AND child_thread_id = ?",
+			[]sql.Value{sql.Text{S: string(c.Branch.ParentThreadID)}, sql.Text{S: string(c.Branch.ChildThreadID)}},
+		)
+		let mut edges = s2.BranchEdges
+		for _, row in eRows {
+			let kindName = try textAt(row, 2)
+			let kind = match memory.ParseBranchKind(kindName) {
+			case option.Some[memory.BranchKind] as k:
+				k.Value
+			case option.None:
+				return memory.StoreFailed{Reason: "unknown branch kind: \(kindName)"}
+			}
+			edges = edges.Append(memory.BranchEdge{
+				ParentThreadID: handle.ThreadID(try textAt(row, 0)),
+				ChildThreadID:  handle.ThreadID(try textAt(row, 1)),
+				Kind:           kind,
+				Label:          try textAt(row, 3),
+				CreatedAtMs:    try int64At(row, 4),
+			})
+		}
+		memory.State{..s2, BranchEdges: edges}
+	case memory.CmdSwitchDriver as c:
+		try loadOneThreadScopeTx(s, c.ThreadID)
+	case memory.CmdEnqueuePrompt as c:
+		try loadOneThreadScopeTx(s, c.ThreadID)
+	case memory.CmdDequeuePrompt as c:
+		try loadOneThreadScopeTx(s, c.TargetThreadID)
+	case memory.CmdStartTurn as c:
+		try loadOneThreadScopeTx(s, c.ThreadID)
+	case memory.CmdStepTurn as c:
+		try loadOneThreadScopeTx(s, c.ThreadID)
+	case memory.CmdArchiveThread as c:
+		try loadOneThreadScopeTx(s, c.ID)
+	case _:
+		s
+	}
+}
+
+func loadSubagentHandleScopeTx(s memory.State, cmd memory.Command) memory.State fails memory.StoreFailed needs sql.Tx {
+	match cmd {
+	case memory.CmdInitSubagentTree as c:
+		try loadOneTreeScopeTx(s, option.Some[handle.ThreadID]{Value: c.RootID})
+	case memory.CmdSpawnSubagent as c:
+		try loadOneTreeScopeTx(s, option.Some[handle.ThreadID]{Value: c.RootID})
+	case memory.CmdSubagentControlHandle as c:
+		try loadOneTreeScopeTx(s, option.Some[handle.ThreadID]{Value: c.RootID})
+	case memory.CmdSubagentSettleHandle as c:
+		try loadOneTreeScopeTx(s, option.Some[handle.ThreadID]{Value: c.RootID})
+	case memory.CmdSubagentHandBack as c:
+		try loadOneTreeScopeTx(s, option.Some[handle.ThreadID]{Value: c.RootID})
+	case memory.CmdOpenHandle as c:
+		let s1 = try loadOneHandleScopeTx(s, c.Spec.ID)
+		try loadOneTreeScopeTx(s1, c.SubagentRoot)
+	case memory.CmdMarkHandleHanded as c:
+		try loadOneHandleScopeTx(s, c.CallID)
+	case memory.CmdSettleHandle as c:
+		let s1 = try loadOneHandleScopeTx(s, c.ID)
+		try loadOneTreeScopeTx(s1, c.SubagentRoot)
+	case memory.CmdRetireOwnerCalls as c:
+		let hRows = try queryTx(
+			"SELECT handle_id FROM handles WHERE server_id = ? AND location = ? AND epoch = ? ORDER BY seq_order ASC",
+			[]sql.Value{sql.Text{S: c.DeadOwner.ServerID}, sql.Text{S: c.DeadOwner.Location}, sql.Int{N: int64(c.DeadOwner.Epoch)}},
+		)
+		let mut cur = s
+		for _, row in hRows {
+			cur = try loadOneHandleScopeTx(cur, handle.HandleID(try textAt(row, 0)))
+		}
+		cur
+	case _:
+		s
+	}
+}
+
+func loadQuestionCmdScopeTx(s memory.State, qid turn.RequestID) memory.State fails memory.StoreFailed needs sql.Tx {
+	let qRows = try queryTx("SELECT question_json FROM questions WHERE question_id = ?", []sql.Value{sql.Text{S: string(qid)}})
+	let s1 = if qRows.Len() == 0 {
+		s
+	} else {
+		let q = try decodeQuestion(try textAt(qRows[0], 0))
+		let withQ = memory.State{
+			..s,
+			Questions:     s.Questions.Put(qid, q),
+			QuestionOrder: s.QuestionOrder.Append(qid),
+		}
+		try loadOneHandleScopeTx(withQ, q.HandleID)
+	}
+	let rRows = try queryTx("SELECT request_json FROM requests WHERE request_id = ?", []sql.Value{sql.Text{S: string(qid)}})
+	if rRows.Len() == 0 {
+		return s1
+	}
+	let r = try decodeRequest(try textAt(rRows[0], 0))
+	memory.State{..s1, Requests: s1.Requests.Put(qid, r), RequestOrder: s1.RequestOrder.Append(qid)}
+}
+
+func loadWakeAndQuestionScopeTx(s memory.State, cmd memory.Command) memory.State fails memory.StoreFailed needs sql.Tx {
+	match cmd {
+	case memory.CmdRecordWake as c:
+		try loadOneWakeScopeTx(s, c.Wake.DeliveryID)
+	case memory.CmdMarkWakeDelivered as c:
+		try loadOneWakeScopeTx(s, c.WakeDeliveryID)
+	case memory.CmdOpenPoolHold as c:
+		let rows = try queryTx("SELECT hold_json FROM holds WHERE hold_key = ?", []sql.Value{sql.Text{S: c.HoldKey}})
+		if rows.Len() == 0 { return s }
+		let ph = try decodePoolHold(try textAt(rows[0], 0))
+		memory.State{..s, Holds: s.Holds.Put(c.HoldKey, ph), HoldOrder: appendUniqueString(s.HoldOrder, c.HoldKey)}
+	case memory.CmdTransitionHold as c:
+		let rows = try queryTx("SELECT hold_json FROM holds WHERE hold_key = ?", []sql.Value{sql.Text{S: c.HoldKey}})
+		if rows.Len() == 0 { return s }
+		let ph = try decodePoolHold(try textAt(rows[0], 0))
+		let s1 = memory.State{..s, Holds: s.Holds.Put(c.HoldKey, ph), HoldOrder: appendUniqueString(s.HoldOrder, c.HoldKey)}
+		try loadOneWakeScopeTx(s1, ph.DeliveryID)
+	case memory.CmdAskUserAsync as c:
+		let s1 = try loadQuestionCmdScopeTx(s, c.ID)
+		try loadOneHandleScopeTx(s1, c.HandleID)
+	case memory.CmdAnswerAsyncQuestion as c:
+		try loadQuestionCmdScopeTx(s, c.ID)
+	case memory.CmdWithdrawAsyncQuestion as c:
+		try loadQuestionCmdScopeTx(s, c.ID)
+	case _:
+		s
+	}
+}
+
+func loadPoolAndLimitScopeTx(s memory.State, cmd memory.Command) memory.State fails memory.StoreFailed needs sql.Tx {
+	match cmd {
+	case memory.CmdUpsertPoolAccount as c:
+		let rows = try queryTx("SELECT account_json FROM pool_accounts WHERE account_id = ?", []sql.Value{sql.Text{S: string(c.Pool.ID)}})
+		if rows.Len() == 0 { return s }
+		let a = try decodePoolAccount(try textAt(rows[0], 0))
+		memory.State{..s, Accounts: s.Accounts.Put(a.ID, a), AccountOrder: s.AccountOrder.Append(a.ID)}
+	case memory.CmdAdjustPoolInflight as c:
+		let rows = try queryTx("SELECT account_json FROM pool_accounts WHERE account_id = ?", []sql.Value{sql.Text{S: string(c.AccountID)}})
+		if rows.Len() == 0 { return s }
+		let a = try decodePoolAccount(try textAt(rows[0], 0))
+		memory.State{..s, Accounts: s.Accounts.Put(a.ID, a), AccountOrder: s.AccountOrder.Append(a.ID)}
+	case memory.CmdClaimResetDispatch as c:
+		let ck = memory.FormatResetClaimKey(c.AccountID, c.WindowKind, c.PeriodKey)
+		let rows = try queryTx("SELECT claim_json FROM pool_resets WHERE claim_key = ?", []sql.Value{sql.Text{S: ck}})
+		if rows.Len() == 0 { return s }
+		let cl = try decodeResetClaim(try textAt(rows[0], 0))
+		memory.State{..s, ResetClaims: s.ResetClaims.Put(ck, cl), ClaimOrder: appendUniqueString(s.ClaimOrder, ck)}
+	case memory.CmdSetOwnerPush as c:
+		let rows = try queryTx("SELECT push_json FROM pool_pushes WHERE push_id = ?", []sql.Value{sql.Text{S: c.Reserve.PushID}})
+		if rows.Len() == 0 { return s }
+		let p = try decodeOwnerPush(try textAt(rows[0], 0))
+		memory.State{..s, Pushes: s.Pushes.Put(p.PushID, p), PushOrder: appendUniqueString(s.PushOrder, p.PushID)}
+	case memory.CmdStepLimitRecovery as c:
+		let lk = turn.FormatLimitRecoveryKey(c.Key)
+		let rows = try queryTx("SELECT limit_json FROM limit_states WHERE limit_key = ?", []sql.Value{sql.Text{S: lk}})
+		if rows.Len() == 0 { return s }
+		let ls = try decodeLimitState(try textAt(rows[0], 0))
+		memory.State{..s, Limits: s.Limits.Put(lk, ls), LimitOrder: appendUniqueString(s.LimitOrder, lk)}
+	case _:
+		s
+	}
+}
+
+func loadKernelLeaseBootScopeTx(s memory.State, cmd memory.Command) memory.State fails memory.StoreFailed needs sql.Tx {
+	match cmd {
+	case memory.CmdSaveKernelSnapshot as c:
+		let rows = try queryTx("SELECT snapshot_json FROM kernel_snapshots WHERE session_id = ?", []sql.Value{sql.Text{S: string(c.SessionID)}})
+		if rows.Len() == 0 { return s }
+		let sn = try decodeKernelSnapshot(try textAt(rows[0], 0))
+		memory.State{..s, Snapshots: s.Snapshots.Put(sn.SessionID, sn), SnapshotOrder: s.SnapshotOrder.Append(sn.SessionID)}
+	case memory.CmdRecordKernelCut as c:
+		let jRows = try queryTx("SELECT journal_json FROM kernel_journals WHERE cut_id = ?", []sql.Value{sql.Text{S: c.CutID}})
+		let s1 = if jRows.Len() == 0 {
+			s
+		} else {
+			let j = try decodeKernelJournal(try textAt(jRows[0], 0))
+			memory.State{..s, Journals: s.Journals.Put(c.CutID, j), JournalOrder: appendUniqueString(s.JournalOrder, c.CutID)}
+		}
+		let uRows = try queryTx(
+			"SELECT active_cell_ms, window_start_ms, last_updated_ms, flagged FROM kernel_root_usage WHERE root_thread_id = ?",
+			[]sql.Value{sql.Text{S: string(c.RootThreadID)}},
+		)
+		if uRows.Len() == 0 { return s1 }
+		let u = memory.KernelRootUsage{
+			RootThreadID:  c.RootThreadID,
+			ActiveCellMs:  try int64At(uRows[0], 0),
+			WindowStartMs: try int64At(uRows[0], 1),
+			LastUpdatedMs: try int64At(uRows[0], 2),
+			Flagged:       try boolAt(uRows[0], 3),
+		}
+		memory.State{..s1, RootUsages: s1.RootUsages.Put(c.RootThreadID, u), RootUsageOrd: appendUniqueThreadID(s1.RootUsageOrd, c.RootThreadID)}
+	case memory.CmdAcquireLease as c:
+		try loadOneLeaseScopeTx(s, c.LeaseID)
+	case memory.CmdStepLeaseCutover as c:
+		let s1 = try loadOneLeaseScopeTx(s, c.LeaseID)
+		match c.Action {
+		case cutover.ActDeliverH1Wake as dl:
+			try loadOneWakeScopeTx(s1, handle.WakeDeliveryID(dl.ID))
+		case _:
+			s1
+		}
+	case memory.CmdApplyBootReconcile as c:
+		let s1 = try loadRegistryAndWakesTx(s)
+		let tRows = try queryTx("SELECT thread_json FROM threads ORDER BY seq_order ASC", []sql.Value{})
+		let mut threads = s1.Threads
+		let mut threadOrder = s1.ThreadOrder
+		for _, row in tRows {
+			let t = try decodeThread(try textAt(row, 0))
+			threads = threads.Put(t.ID, t)
+			threadOrder = threadOrder.Append(t.ID)
+		}
+		let rRows = try queryTx("SELECT request_json FROM requests ORDER BY seq_order ASC", []sql.Value{})
+		let mut reqs = s1.Requests
+		let mut reqOrd = s1.RequestOrder
+		for _, row in rRows {
+			let r = try decodeRequest(try textAt(row, 0))
+			reqs = reqs.Put(r.ID, r)
+			reqOrd = reqOrd.Append(r.ID)
+		}
+		let s2 = memory.State{..s1, Threads: threads, ThreadOrder: threadOrder, Requests: reqs, RequestOrder: reqOrd}
+		try loadOneTreeScopeTx(s2, c.RootID)
+	case _:
+		s
+	}
+}
+
+func loadScopeTx(env memory.Envelope) memory.State fails memory.StoreFailed needs sql.Tx {
+	let base = memory.InitialState()
+	let s0 = match env.LeaseFence {
+	case option.Some[memory.LeaseFenceCheck] as f:
+		try loadOneLeaseScopeTx(base, f.Value.LeaseID)
+	case option.None:
+		base
+	}
+	let s1 = try loadThreadCmdScopeTx(s0, env.Command)
+	let s2 = try loadSubagentHandleScopeTx(s1, env.Command)
+	let s3 = try loadWakeAndQuestionScopeTx(s2, env.Command)
+	let s4 = try loadPoolAndLimitScopeTx(s3, env.Command)
+	try loadKernelLeaseBootScopeTx(s4, env.Command)
+}
