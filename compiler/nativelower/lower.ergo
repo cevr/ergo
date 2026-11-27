@@ -140,7 +140,36 @@ func slotWords(p nativeobj.Package, t int) int fails NotLowered {
 	if k == nativeobj.KString {
 		return 2
 	}
+	if k == nativeobj.KPtr {
+		let ek = p.Types[p.Types[t].Elem].Kind
+		if ek != nativeobj.KStruct && IntWidth(ek) == 0 && ek != nativeobj.KString {
+			return refuse("lower", "type ptr to "+kindName(ek), "pointers to this type are not lowered yet")
+		}
+		return 1
+	}
+	if k == nativeobj.KStruct {
+		let mut n = 0
+		for fd in p.Types[t].Fields {
+			n = n + try slotWords(p, fd.Type)
+		}
+		return n
+	}
 	refuse("lower", "type "+kindName(k), "slots of this type are not lowered yet")
+}
+
+func fieldWord(p nativeobj.Package, t int, field int) int fails NotLowered {
+	let mut n = 0
+	for i in 0..field {
+		n = n + try slotWords(p, p.Types[t].Fields[i].Type)
+	}
+	n
+}
+
+func copyWords(a mut objfmt.Amd64Asm, fr frame, dst int, dw int, src int, sw int, n int) {
+	for w in 0..n {
+		loadWord(a, fr, src, sw+w, rax)
+		storeWord(a, fr, dst, dw+w, rax)
+	}
 }
 
 func frameOf(p nativeobj.Package, f nativeobj.Func) frame fails NotLowered {
@@ -315,6 +344,9 @@ func emitCall(a mut objfmt.Amd64Asm, o mut objfmt.Object, c fnCtx, x nativeobj.C
 	}
 	let mut r = 0
 	for s in x.Args {
+		if c.p.Types[c.f.Slots[s]].Kind == nativeobj.KStruct && c.fr.words[s] > 2 {
+			return refuse("lower", "record arg in memory", "a record over 16 bytes passes in memory under SysV, which is not lowered yet")
+		}
 		for w in 0..c.fr.words[s] {
 			if r >= argRegs.Len() {
 				return refuse("lower", "Call stack args", "more than six argument words")
@@ -374,6 +406,60 @@ func emitOp(a mut objfmt.Amd64Asm, o mut objfmt.Object, c mut fnCtx, op nativeob
 		}
 	case nativeobj.Arith as x:
 		try emitArith(a, *c, x)
+	case nativeobj.RecordLit as x:
+		let t = c.f.Slots[x.Dst]
+		let mut at = 0
+		for vs in x.Vals {
+			let n = c.fr.words[vs]
+			copyWords(a, c.fr, x.Dst, at, vs, 0, n)
+			at = at + n
+		}
+		if at != c.fr.words[x.Dst] || x.Vals.Len() != c.p.Types[t].Fields.Len() {
+			return refuse("lower", "RecordLit", "record literal does not fill its fields")
+		}
+	case nativeobj.FieldGet as x:
+		let bt = c.f.Slots[x.Base]
+		let bk = c.p.Types[bt].Kind
+		if bk == nativeobj.KStruct {
+			copyWords(a, c.fr, x.Dst, 0, x.Base, try fieldWord(c.p, bt, x.Field), c.fr.words[x.Dst])
+		} else if bk == nativeobj.KPtr && c.p.Types[c.p.Types[bt].Elem].Kind == nativeobj.KStruct {
+			let fw = try fieldWord(c.p, c.p.Types[bt].Elem, x.Field)
+			loadWord(a, c.fr, x.Base, 0, rcx)
+			for w in 0..c.fr.words[x.Dst] {
+				objfmt.LoadMem(a, rax, rcx, 8*(fw+w))
+				storeWord(a, c.fr, x.Dst, w, rax)
+			}
+		} else {
+			return refuse("lower", "FieldGet through "+kindName(bk), "only a field of a record or record pointer is lowered")
+		}
+	case nativeobj.FieldSet as x:
+		let pt = c.f.Slots[x.Ptr]
+		let et = c.p.Types[pt].Elem
+		if c.p.Types[pt].Kind != nativeobj.KPtr || c.p.Types[et].Kind != nativeobj.KStruct {
+			return refuse("lower", "FieldSet", "only a field store through a record pointer is lowered")
+		}
+		let fw = try fieldWord(c.p, et, x.Field)
+		loadWord(a, c.fr, x.Ptr, 0, rcx)
+		for w in 0..c.fr.words[x.Val] {
+			loadWord(a, c.fr, x.Val, w, rax)
+			objfmt.StoreMem(a, rax, rcx, 8*(fw+w))
+		}
+	case nativeobj.AddrOf as x:
+		raw(a, []uint32{uint32(0x48), uint32(0x8D), uint32(0x85)})
+		objfmt.U32(&a.Code, uint32(-c.fr.off[x.Of]))
+		storeWord(a, c.fr, x.Dst, 0, rax)
+	case nativeobj.Load as x:
+		loadWord(a, c.fr, x.Ptr, 0, rcx)
+		for w in 0..c.fr.words[x.Dst] {
+			objfmt.LoadMem(a, rax, rcx, 8*w)
+			storeWord(a, c.fr, x.Dst, w, rax)
+		}
+	case nativeobj.Store as x:
+		loadWord(a, c.fr, x.Ptr, 0, rcx)
+		for w in 0..c.fr.words[x.Val] {
+			loadWord(a, c.fr, x.Val, w, rax)
+			objfmt.StoreMem(a, rax, rcx, 8*w)
+		}
 	case nativeobj.Convert as x:
 		let dk = slotKind(*c, x.Dst)
 		let sk = slotKind(*c, x.Src)
@@ -454,6 +540,9 @@ func lowerFunc(o mut objfmt.Object, p nativeobj.Package, f nativeobj.Func) fails
 	objfmt.Prologue(&a, uint32(fr.size))
 	let mut r = 0
 	for k in 0..f.Params.Len() {
+		if p.Types[f.Slots[k]].Kind == nativeobj.KStruct && fr.words[k] > 2 {
+			return refuse("lower", "record param in memory", "a record over 16 bytes passes in memory under SysV, which is not lowered yet")
+		}
 		for w in 0..fr.words[k] {
 			if r >= argRegs.Len() {
 				return refuse("lower", "params stack", "more than six parameter words")

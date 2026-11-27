@@ -140,6 +140,14 @@ func narrowSource(k int) string {
 	"func wrap(a int, b int) int {\n\tint(int8(a) * int8(3) + int8(b)) + int(uint8(b) * uint8(7) + uint8(a)) + int(int16(b * a)) + int(uint32(a * b) % uint32(1000))\n}\n\nfunc Main(argc int) int {\n\tlet a = argc * \(a)\n\tlet b = argc + \(b - 1)\n\twrap(a, b)\n}\n"
 }
 
+func recordSource(k int) string {
+	let a = (k*31)%1000 - 500
+	let b = (k*17)%97 + 1
+	let ops = []string{"+", "-", "*", "^"}
+	let o = pick(ops, k)
+	"type P { X int, Y int }\n\ntype R { A int, B int, C int }\n\nfunc mk(a int, b int) P {\n\tP{X: a \(o) b, Y: b - a}\n}\n\nfunc dot(p P, q P) int {\n\tp.X * q.X + p.Y * q.Y\n}\n\nfunc Main(argc int) int {\n\tlet a = argc * \(a)\n\tlet b = argc + \(b)\n\tlet p = mk(a, b)\n\tlet q = P{X: b, Y: a}\n\tlet r = R{A: p.X, B: q.Y, C: a - b}\n\tlet d = dot(p, q)\n\td - r.C * r.A + r.B\n}\n"
+}
+
 let seedBase = 0x5eed
 
 let seededCases = 16
@@ -150,6 +158,9 @@ func sourceFor(kind string, k int) string {
 	}
 	if kind == "control" {
 		return controlSource(k)
+	}
+	if kind == "record" {
+		return recordSource(k)
 	}
 	narrowSource(k)
 }
@@ -183,6 +194,15 @@ test NativeControlAgreesWithEval {
 	assert rep == ""
 }
 
+// NativeRecordsAgreeWithEval: on seeded programs, records by value (built,
+// read by field, passed to and returned from calls in registers) give
+// eval's result. It builds and runs a native executable: the claim is
+// about the machine code.
+test NativeRecordsAgreeWithEval {
+	let rep = with onExecHost { agreeAll("record", "NativeRecordsAgreeWithEval") }
+	assert rep == ""
+}
+
 // NativeHelloMatchesTheExampleCase runs examples/native-hello's pure package
 // as a native executable: its stdout, written through runtime/native's
 // ergo_write, is the case's expected.out, is eval's Main(), and the status
@@ -205,14 +225,14 @@ test NativeRefusesWhatItDoesNotLower {
 		assert n.Stage == "entry" && n.Kind == "main"
 		[]byte{}
 	}
-	let rec = "type P { X int, Y int }\n\nfunc Main(argc int) int {\n\tlet p = P{X: argc, Y: 2}\n\tp.X + p.Y\n}\n"
+	let rec = "func Main(argc int) int {\n\tlet xs = []int{argc, 2}\n\txs[0] + xs[1]\n}\n"
 	let mut refused = ""
 	let _ = Build("prog", "prog.ergo", rec) catch {
 	case NotLowered as n:
 		refused = n.Kind
 		[]byte{}
 	}
-	assert strings.HasPrefix(refused, "type struct") || refused == "RecordLit" || refused == "FieldGet"
+	assert refused == "type slice" || refused == "SliceLit" || refused == "Index"
 	let mut narrow = ""
 	let _ = Build("prog", "prog.ergo", narrowSource(seedBase)) catch {
 	case NotLowered as n:
