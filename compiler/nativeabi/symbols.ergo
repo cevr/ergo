@@ -1,0 +1,234 @@
+// SymGroupRC identifies Perceus reference-counting runtime symbols.
+let SymGroupRC = uint8(1)
+
+// SymGroupArena identifies scoped bump-arena runtime symbols.
+let SymGroupArena = uint8(2)
+
+// SymGroupActor identifies per-actor bounded heap and step-budget symbols.
+let SymGroupActor = uint8(3)
+
+// SymGroupDie identifies structured actor panic-unwinding symbols.
+let SymGroupDie = uint8(4)
+
+// ABITypeVoid represents C void return type.
+let ABITypeVoid = uint8(0)
+
+// ABITypePtr represents an opaque C pointer or function pointer.
+let ABITypePtr = uint8(1)
+
+// ABITypeBool represents C11 _Bool.
+let ABITypeBool = uint8(2)
+
+// ABITypeU32 represents C11 uint32_t.
+let ABITypeU32 = uint8(3)
+
+// ABITypeU64 represents C11 uint64_t.
+let ABITypeU64 = uint8(4)
+
+// ABITypeSize represents C11 size_t.
+let ABITypeSize = uint8(5)
+
+// ABITypeStr represents by-value ErgoStr.
+let ABITypeStr = uint8(6)
+
+// ABITypeArenaMark represents by-value ErgoArenaMark.
+let ABITypeArenaMark = uint8(7)
+
+// ABITypeActorLimits represents by-value ErgoActorLimits.
+let ABITypeActorLimits = uint8(8)
+
+// ABITypeCrashReport represents by-value ErgoCrashReport.
+let ABITypeCrashReport = uint8(9)
+
+// RuntimeSymbolTable stores all C runtime ABI symbol descriptors across flat SoA columns.
+type RuntimeSymbolTable {
+	// Names holds each C symbol identifier.
+	Names []string,
+	// Groups holds the subsystem tag (SymGroup*) for each symbol.
+	Groups []uint8,
+	// Returns holds the ABIType* code of each symbol's return value.
+	Returns []uint8,
+	// MayTrap reports whether calling the symbol may unwind via ergo_die.
+	MayTrap []bool,
+	// ParamStart holds the starting index into ParamTypes for each symbol.
+	ParamStart []uint32,
+	// ParamLen holds the parameter count for each symbol.
+	ParamLen []uint32,
+	// ParamTypes holds flattened ABIType* codes across all registered symbols.
+	ParamTypes []uint8,
+}
+
+type symbolSpec {
+	name    string,
+	group   uint8,
+	ret     uint8,
+	mayTrap bool,
+	params  []uint8,
+}
+
+func newSymbolTable() RuntimeSymbolTable {
+	RuntimeSymbolTable{
+		Names:      []string{},
+		Groups:     []uint8{},
+		Returns:    []uint8{},
+		MayTrap:    []bool{},
+		ParamStart: []uint32{},
+		ParamLen:   []uint32{},
+		ParamTypes: []uint8{},
+	}
+}
+
+func pushSymbol(t mut RuntimeSymbolTable, s symbolSpec) {
+	let start = uint32(t.ParamTypes.Len())
+	t.Names = t.Names.Append(s.name)
+	t.Groups = t.Groups.Append(s.group)
+	t.Returns = t.Returns.Append(s.ret)
+	t.MayTrap = t.MayTrap.Append(s.mayTrap)
+	t.ParamStart = t.ParamStart.Append(start)
+	t.ParamLen = t.ParamLen.Append(uint32(s.params.Len()))
+	for i in 0..s.params.Len() {
+		t.ParamTypes = t.ParamTypes.Append(s.params[i])
+	}
+}
+
+// ABITypeSizeBytes returns the LP64 byte width of kind, or 0 for ABITypeVoid.
+func ABITypeSizeBytes(kind uint8) uint32 {
+	if kind == ABITypePtr || kind == ABITypeU64 || kind == ABITypeSize {
+		return PtrSize
+	}
+	if kind == ABITypeBool {
+		return BoolSize
+	}
+	if kind == ABITypeU32 {
+		return U32Size
+	}
+	if kind == ABITypeStr || kind == ABITypeActorLimits {
+		return StrSize
+	}
+	if kind == ABITypeArenaMark || kind == ABITypeCrashReport {
+		return ArenaMarkSize
+	}
+	uint32(0)
+}
+
+// ABITypeAlignBytes returns the LP64 byte alignment of kind, or 1 for ABITypeVoid.
+func ABITypeAlignBytes(kind uint8) uint32 {
+	if kind == ABITypePtr || kind == ABITypeU64 || kind == ABITypeSize || kind == ABITypeStr || kind == ABITypeArenaMark || kind == ABITypeActorLimits || kind == ABITypeCrashReport {
+		return PtrAlign
+	}
+	if kind == ABITypeU32 {
+		return U32Align
+	}
+	uint32(1)
+}
+
+// BuiltinRuntimeSymbols returns the complete symbol table matching runtime/native/ergo_rt.h.
+func BuiltinRuntimeSymbols() RuntimeSymbolTable {
+	let mut t = newSymbolTable()
+	pushSymbol(&t, symbolSpec{name: "ergo_rc_alloc", group: SymGroupRC, ret: ABITypePtr, mayTrap: false, params: []uint8{ABITypeU32, ABITypeU32, ABITypeU32}})
+	pushSymbol(&t, symbolSpec{name: "ergo_rc_dup", group: SymGroupRC, ret: ABITypePtr, mayTrap: false, params: []uint8{ABITypePtr}})
+	pushSymbol(&t, symbolSpec{name: "ergo_rc_drop", group: SymGroupRC, ret: ABITypeVoid, mayTrap: false, params: []uint8{ABITypePtr, ABITypePtr}})
+	pushSymbol(&t, symbolSpec{name: "ergo_rc_is_unique", group: SymGroupRC, ret: ABITypeBool, mayTrap: false, params: []uint8{ABITypePtr}})
+	pushSymbol(&t, symbolSpec{name: "ergo_rc_count", group: SymGroupRC, ret: ABITypeU32, mayTrap: false, params: []uint8{ABITypePtr}})
+	pushSymbol(&t, symbolSpec{name: "ergo_rc_reuse_or_alloc", group: SymGroupRC, ret: ABITypePtr, mayTrap: false, params: []uint8{ABITypePtr, ABITypeU32, ABITypeU32, ABITypePtr}})
+	pushSymbol(&t, symbolSpec{name: "ergo_rc_type_tag", group: SymGroupRC, ret: ABITypeU32, mayTrap: false, params: []uint8{ABITypePtr}})
+	pushSymbol(&t, symbolSpec{name: "ergo_rc_payload_size", group: SymGroupRC, ret: ABITypeU32, mayTrap: false, params: []uint8{ABITypePtr}})
+	pushSymbol(&t, symbolSpec{name: "ergo_rc_capacity", group: SymGroupRC, ret: ABITypeU32, mayTrap: false, params: []uint8{ABITypePtr}})
+	pushSymbol(&t, symbolSpec{name: "ergo_rc_flags", group: SymGroupRC, ret: ABITypeU32, mayTrap: false, params: []uint8{ABITypePtr}})
+
+	pushSymbol(&t, symbolSpec{name: "ergo_arena_create", group: SymGroupArena, ret: ABITypePtr, mayTrap: false, params: []uint8{ABITypeSize}})
+	pushSymbol(&t, symbolSpec{name: "ergo_arena_alloc", group: SymGroupArena, ret: ABITypePtr, mayTrap: false, params: []uint8{ABITypePtr, ABITypeSize, ABITypeSize}})
+	pushSymbol(&t, symbolSpec{name: "ergo_arena_mark", group: SymGroupArena, ret: ABITypeArenaMark, mayTrap: false, params: []uint8{ABITypePtr}})
+	pushSymbol(&t, symbolSpec{name: "ergo_arena_reset", group: SymGroupArena, ret: ABITypeVoid, mayTrap: false, params: []uint8{ABITypePtr, ABITypeArenaMark}})
+	pushSymbol(&t, symbolSpec{name: "ergo_arena_destroy", group: SymGroupArena, ret: ABITypeVoid, mayTrap: false, params: []uint8{ABITypePtr}})
+	pushSymbol(&t, symbolSpec{name: "ergo_arena_used", group: SymGroupArena, ret: ABITypeSize, mayTrap: false, params: []uint8{ABITypePtr}})
+
+	pushSymbol(&t, symbolSpec{name: "ergo_actor_heap_init", group: SymGroupActor, ret: ABITypeVoid, mayTrap: false, params: []uint8{ABITypePtr, ABITypeSize}})
+	pushSymbol(&t, symbolSpec{name: "ergo_actor_heap_alloc", group: SymGroupActor, ret: ABITypePtr, mayTrap: false, params: []uint8{ABITypePtr, ABITypeSize, ABITypeSize, ABITypePtr}})
+	pushSymbol(&t, symbolSpec{name: "ergo_actor_heap_destroy", group: SymGroupActor, ret: ABITypeVoid, mayTrap: false, params: []uint8{ABITypePtr}})
+	pushSymbol(&t, symbolSpec{name: "ergo_actor_run_isolated", group: SymGroupActor, ret: ABITypeCrashReport, mayTrap: false, params: []uint8{ABITypePtr, ABITypePtr, ABITypeActorLimits, ABITypePtr, ABITypeSize}})
+	pushSymbol(&t, symbolSpec{name: "ergo_actor_step", group: SymGroupActor, ret: ABITypeVoid, mayTrap: true, params: []uint8{ABITypeU32}})
+	pushSymbol(&t, symbolSpec{name: "ergo_actor_alloc", group: SymGroupActor, ret: ABITypePtr, mayTrap: true, params: []uint8{ABITypeSize, ABITypeSize}})
+	pushSymbol(&t, symbolSpec{name: "ergo_actor_current_heap", group: SymGroupActor, ret: ABITypePtr, mayTrap: false, params: []uint8{}})
+	pushSymbol(&t, symbolSpec{name: "ergo_actor_steps_used", group: SymGroupActor, ret: ABITypeU64, mayTrap: false, params: []uint8{}})
+
+	pushSymbol(&t, symbolSpec{name: "ergo_die", group: SymGroupDie, ret: ABITypeVoid, mayTrap: true, params: []uint8{ABITypeU32, ABITypeStr}})
+	t
+}
+
+// FindSymbol returns the dense uint32 ID of name in tbl, or NoLayout if not registered.
+func FindSymbol(tbl RuntimeSymbolTable, name string) uint32 {
+	for i in 0..tbl.Names.Len() {
+		if tbl.Names[i] == name {
+			return uint32(i)
+		}
+	}
+	NoLayout
+}
+
+// SymbolParams returns the parameter ABIType* slice for symbol id in tbl.
+func SymbolParams(tbl RuntimeSymbolTable, id uint32) []uint8 {
+	if int(id) >= tbl.Names.Len() {
+		return []uint8{}
+	}
+	let start = int(tbl.ParamStart[int(id)])
+	let cnt = int(tbl.ParamLen[int(id)])
+	tbl.ParamTypes[start : start+cnt]
+}
+
+// RuntimeSymbolsMatchContract checks uniqueness, ABI type validity, and trap attributes across all runtime symbols.
+law RuntimeSymbolsMatchContract(idx uint8) {
+	let tbl = BuiltinRuntimeSymbols()
+	let n = tbl.Names.Len()
+	let i = int(idx) % n
+	let name = tbl.Names[i]
+	let ret = tbl.Returns[i]
+	let ps = SymbolParams(tbl, uint32(i))
+	let g = tbl.Groups[i]
+	let mut ok = n > 0 && tbl.Groups.Len() == n && tbl.Returns.Len() == n && tbl.MayTrap.Len() == n && tbl.ParamStart.Len() == n && tbl.ParamLen.Len() == n
+	ok = ok && name != "" && FindSymbol(tbl, name) == uint32(i)
+	ok = ok && ret <= ABITypeCrashReport && (ret == ABITypeVoid || ABITypeSizeBytes(ret) > uint32(0))
+	ok = ok && ps.Len() == int(tbl.ParamLen[i]) && SymbolParams(tbl, uint32(n)).Len() == 0
+	ok = ok && g >= SymGroupRC && g <= SymGroupDie
+	for k in 0..ps.Len() {
+		let pk = ps[k]
+		let wantAlign = if pk == ABITypeBool {
+			BoolAlign
+		} else if pk == ABITypeU32 {
+			U32Align
+		} else {
+			PtrAlign
+		}
+		ok = ok && pk != ABITypeVoid && pk <= ABITypeCrashReport && ABITypeSizeBytes(pk) > uint32(0) && ABITypeAlignBytes(pk) == wantAlign
+	}
+	let wantTrap = name == "ergo_die" || name == "ergo_actor_step" || name == "ergo_actor_alloc"
+	ok && tbl.MayTrap[i] == wantTrap && ABITypeSizeBytes(ABITypeVoid) == uint32(0) && ABITypeAlignBytes(ABITypeVoid) == uint32(1)
+}
+
+test BuiltinRuntimeSymbolsCoverEveryRuntimeEntry {
+	let tbl = BuiltinRuntimeSymbols()
+	let required = []string{
+		"ergo_rc_alloc", "ergo_rc_dup", "ergo_rc_drop", "ergo_rc_is_unique",
+		"ergo_rc_count", "ergo_rc_reuse_or_alloc", "ergo_rc_type_tag",
+		"ergo_rc_payload_size", "ergo_rc_capacity", "ergo_rc_flags",
+		"ergo_arena_create", "ergo_arena_alloc", "ergo_arena_mark",
+		"ergo_arena_reset", "ergo_arena_destroy", "ergo_arena_used",
+		"ergo_actor_heap_init", "ergo_actor_heap_alloc", "ergo_actor_heap_destroy",
+		"ergo_actor_run_isolated", "ergo_actor_step", "ergo_actor_alloc",
+		"ergo_actor_current_heap", "ergo_actor_steps_used", "ergo_die",
+	}
+	assert tbl.Names.Len() == required.Len()
+	for r in required {
+		assert FindSymbol(tbl, r) != NoLayout
+	}
+	let reuseID = FindSymbol(tbl, "ergo_rc_reuse_or_alloc")
+	assert SymbolParams(tbl, reuseID).Len() == 4
+	assert tbl.Returns[int(reuseID)] == ABITypePtr
+
+	let dieID = FindSymbol(tbl, "ergo_die")
+	let dieParams = SymbolParams(tbl, dieID)
+	assert dieParams.Len() == 2
+	assert dieParams[0] == ABITypeU32 && dieParams[1] == ABITypeStr
+	assert tbl.Returns[int(dieID)] == ABITypeVoid
+	assert tbl.MayTrap[int(dieID)]
+}
