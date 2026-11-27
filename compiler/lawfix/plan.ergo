@@ -1,0 +1,768 @@
+import compiler/format
+import compiler/syntax
+import filepath
+import fs
+import fstest
+import option
+import slices
+import strings
+
+// Move records one relocated law or test along with any bundled helper names.
+type Move {
+	Kind    string,
+	Law     string,
+	From    string,
+	To      string,
+	Helpers []string,
+}
+
+// PlanResult captures planned file edits, deleted files, renames, moves, helpers, and unplaced entries.
+type PlanResult {
+	FileNames    []string,
+	FileContents []string,
+	Deleted      []string,
+	Renamed      []string,
+	Moves        []Move,
+	Helpers      []string,
+	Unplaced     []string,
+}
+
+// PlanFailure indicates an unformattable or inconsistent post-move edit result.
+type PlanFailure { Message string }
+
+func isUpperStart(s string) bool {
+	s.Len() > 0 && s[0] >= byte(65) && s[0] <= byte(90)
+}
+
+func subjectWord(s string) string {
+	if s == "" {
+		return ""
+	}
+	if isUpperStart(s) {
+		return s
+	}
+	if s.Len() > 1 {
+		return strings.ToUpper(s[0:1]) + s[1:s.Len()]
+	}
+	""
+}
+
+// WordAt locates the first whole mixed-caps word occurrence of word inside name, or -1.
+func WordAt(name string, word string) int {
+	if !isUpperStart(word) {
+		return -1
+	}
+	let mut from = 0
+	for {
+		let idx = strings.Index(name[from:name.Len()], word)
+		if idx < 0 {
+			return -1
+		}
+		let at = from + idx
+		let end = at + word.Len()
+		if end == name.Len() {
+			return at
+		}
+		let next = name[end]
+		if (next >= byte(65) && next <= byte(90)) || next == byte(95) || (next >= byte(48) && next <= byte(57)) {
+			return at
+		}
+		from = at + 1
+	}
+}
+
+func mainSubject(declName string, subjects []LawSubject) LawSubject {
+	let mut best = subjects[0]
+	let mut bestAt = -1
+	for s in subjects {
+		let i = WordAt(declName, subjectWord(s.Name))
+		if i < 0 {
+			continue
+		}
+		if bestAt < 0 || i < bestAt || (i == bestAt && s.Name.Len() > best.Name.Len()) {
+			best = s
+			bestAt = i
+		}
+	}
+	best
+}
+
+func cutSpan(src string, from0 uint32, to0 uint32) (uint32, uint32) {
+	let mut from = int(from0)
+	let mut to = int(to0)
+	if from >= 2 && src[from-1] == byte(10) && src[from-2] == byte(10) {
+		from = from - 1
+	} else if to < src.Len() && src[to] == byte(10) {
+		to = to + 1
+	}
+	(uint32(from), uint32(to))
+}
+
+func formattedSrc(src string) bool {
+	let res = format.Source(src, 0) catch {
+	case format.SyntaxFailure, format.OutputLimit:
+		return false
+	}
+	res == src
+}
+
+type applyOp { at int, to int, text string, seq int }
+
+func applyFileEdits(src0 string, e FileEdit) string {
+	let mut cuts = []applyOp{}
+	for i in 0..e.CutFrom.Len() {
+		cuts = cuts.Append(applyOp{at: int(e.CutFrom[i]), to: int(e.CutTo[i]), text: "", seq: 0})
+	}
+	for i in 1..cuts.Len() {
+		let mut j = i
+		for j > 0 && cuts[j].at < cuts[j-1].at {
+			let tmp = cuts[j]
+			cuts[j] = cuts[j-1]
+			cuts[j-1] = tmp
+			j = j - 1
+		}
+	}
+	let mut merged = []applyOp{}
+	for c in cuts {
+		let n = merged.Len()
+		if n > 0 && c.at <= merged[n-1].to {
+			if c.to > merged[n-1].to {
+				merged[n-1] = applyOp{at: merged[n-1].at, to: c.to, text: "", seq: 0}
+			}
+			continue
+		}
+		merged = merged.Append(c)
+	}
+	if merged.Len() > 0 && merged[0].at == 0 {
+		let mut insertAtZero = false
+		for i in 0..e.InsertAt.Len() {
+			let ia = int(e.InsertAt[i])
+			if ia == 0 || (merged[0].at < ia && ia < merged[0].to) {
+				insertAtZero = true
+				break
+			}
+		}
+		if !insertAtZero {
+			let mut end = merged[0].to
+			for end < src0.Len() && src0[end] == byte(10) {
+				end = end + 1
+			}
+			merged[0] = applyOp{at: merged[0].at, to: end, text: "", seq: 0}
+		}
+	}
+	let mut ops = []applyOp{}
+	let maxInt = 1 << 30
+	for c in merged {
+		ops = ops.Append(applyOp{at: c.at, to: c.to, text: "", seq: maxInt})
+	}
+	for i in 0..e.InsertAt.Len() {
+		let mut ia = int(e.InsertAt[i])
+		for c in merged {
+			if c.at < ia && ia < c.to {
+				ia = c.at
+			}
+		}
+		ops = ops.Append(applyOp{at: ia, to: ia, text: e.InsertText[i], seq: e.InsertSeq[i]})
+	}
+	for i in 1..ops.Len() {
+		let mut j = i
+		for j > 0 {
+			let a = ops[j]
+			let b = ops[j-1]
+			let swap = (a.at > b.at) || (a.at == b.at && a.seq > b.seq)
+			if !swap {
+				break
+			}
+			ops[j] = b
+			ops[j-1] = a
+			j = j - 1
+		}
+	}
+	let mut src = src0
+	for o in ops {
+		src = src[0:o.at] + o.text + src[o.to:src.Len()]
+	}
+	src
+}
+
+type moveState {
+	edits   []FileEdit,
+	touched []bool,
+}
+
+func recordMovedSubtree(g LawGraph, after [][]uint32, anchor uint32, toFile int, ms mut moveState) {
+	for d in after[int(anchor)] {
+		let dIdx = int(d)
+		let srcFi = int(g.DeclFile[dIdx])
+		let (cf, ct) = cutSpan(g.Files[srcFi].Src, g.DeclFrom[dIdx], g.DeclTo[dIdx])
+		ms.edits[srcFi].CutFrom = ms.edits[srcFi].CutFrom.Append(cf)
+		ms.edits[srcFi].CutTo = ms.edits[srcFi].CutTo.Append(ct)
+		ms.edits[srcFi].MovedMask[dIdx] = true
+		ms.edits[toFile].Arrived = ms.edits[toFile].Arrived.Append(d)
+		ms.touched[srcFi] = true
+		ms.touched[toFile] = true
+		recordMovedSubtree(g, after, d, toFile, ms)
+	}
+}
+
+func emitMovedSubtree(g LawGraph, after [][]uint32, a uint32, rewrites []QualifierRewrite, allImps [][]ImpSpec, b mut strings.Builder) {
+	for d in after[int(a)] {
+		let dIdx = int(d)
+		let snippet = RewriteDeclImports(g, d, int(g.DeclFrom[dIdx]), int(g.DeclTo[dIdx]), rewrites, allImps)
+		b.WriteString("\n" + strings.TrimRight(snippet, "\n") + "\n")
+		emitMovedSubtree(g, after, d, rewrites, allImps, b)
+	}
+}
+
+// Plan computes all law, test, helper, leftover-test, and file-rename edits for g.
+func Plan(g LawGraph) PlanResult fails PlanFailure {
+	let nDecls = g.DeclKind.Len()
+	let nFiles = g.Files.Len()
+	let mut after = [][]uint32{}
+	let mut moving = MakeSlice[bool](nDecls)
+	let mut homeFile = MakeSlice[uint32](nDecls)
+	for i in 0..nDecls {
+		after = after.Append([]uint32{})
+		moving = moving.Append(false)
+		homeFile = homeFile.Append(g.DeclFile[i])
+	}
+	let put = func(anchor uint32, d uint32) {
+		after[int(anchor)] = after[int(anchor)].Append(d)
+		moving[int(d)] = true
+	}
+
+	let mut order = []uint32{}
+	for i in 0..nDecls {
+		if g.DeclKind[i] == KDMemberLaw || g.DeclKind[i] == KDMachineLaw {
+			continue
+		}
+		order = order.Append(uint32(i))
+	}
+
+	let mut topItems = []uint32{}
+	for d in order {
+		let k = g.DeclKind[int(d)]
+		if (k == KDLaw && !g.DeclPaired[int(d)]) || k == KDTest {
+			topItems = topItems.Append(d)
+		}
+	}
+
+	let mut moveList = []Move{}
+	let mut declMoveIdx = MakeSlice[int](nDecls)
+	for _ in 0..nDecls {
+		declMoveIdx = declMoveIdx.Append(-1)
+	}
+	let mut unplaced = []string{}
+
+	for d in topItems {
+		let idx = int(d)
+		let kindWord = if g.DeclKind[idx] == KDLaw { "law" } else { "test" }
+		let mut subjects = SubjectsOf(g, d, true)
+		if subjects.Len() == 0 {
+			subjects = SubjectsOf(g, d, false)
+		}
+		if subjects.Len() == 0 {
+			unplaced = unplaced.Append(kindWord + " " + g.DeclName[idx])
+			continue
+		}
+		let fromIdx = g.DeclFile[idx]
+		let mut stays = false
+		for s in subjects {
+			if s.FileIdx == fromIdx {
+				stays = true
+				break
+			}
+		}
+		let fromName = g.Files[int(fromIdx)].Name
+		let mut mv = Move{Kind: kindWord, Law: g.DeclName[idx], From: fromName, To: fromName, Helpers: []string{}}
+		if !stays {
+			let main = mainSubject(g.DeclName[idx], subjects)
+			put(main.Decl, d)
+			homeFile[idx] = main.FileIdx
+			mv.To = g.Files[int(main.FileIdx)].Name
+		}
+		declMoveIdx[idx] = moveList.Len()
+		moveList = moveList.Append(mv)
+	}
+
+	let mut helpers = []string{}
+	for h in LawHelpers(g) {
+		let hIdx = int(h.Decl)
+		let uIdx = int(h.User)
+		let destIdx = homeFile[uIdx]
+		let mut stays = false
+		for u in h.Users {
+			if homeFile[int(u)] == g.DeclFile[hIdx] {
+				stays = true
+				break
+			}
+		}
+		if stays {
+			continue
+		}
+		put(h.User, h.Decl)
+		let mvIdx = declMoveIdx[uIdx]
+		if mvIdx >= 0 {
+			moveList[mvIdx] = Move{..moveList[mvIdx], Helpers: moveList[mvIdx].Helpers.Append(g.DeclName[hIdx])}
+		} else {
+			helpers = helpers.Append("\(g.DeclName[hIdx]) beside \(g.DeclName[uIdx]) in \(g.Files[int(destIdx)].Name)")
+		}
+	}
+
+	for fi, f in g.Files {
+		if !LawsFileName(f.Name) {
+			continue
+		}
+		let mut tests = []uint32{}
+		let mut testNames = []string{}
+		let mut onlyTests = true
+		for d in order {
+			if int(g.DeclFile[int(d)]) != fi || moving[int(d)] {
+				continue
+			}
+			if g.DeclKind[int(d)] != KDTest {
+				onlyTests = false
+				break
+			}
+			tests = tests.Append(d)
+			testNames = testNames.Append(g.DeclName[int(d)])
+		}
+		if !onlyTests || tests.Len() == 0 {
+			continue
+		}
+		let targetTestsName = if filepath.Dir(f.Name) == "." { "tests.ergo" } else { filepath.Join([]string{filepath.Dir(f.Name), "tests.ergo"}) }
+		let mut hasAnchor = false
+		let mut anchor = uint32(0)
+		let mut targetFileName = ""
+		for gi, gf in g.Files {
+			if gi == fi || gf.Name != targetTestsName {
+				continue
+			}
+			for d in order {
+				if int(g.DeclFile[int(d)]) == gi && !moving[int(d)] {
+					hasAnchor = true
+					anchor = d
+					targetFileName = gf.Name
+				}
+			}
+		}
+		if !hasAnchor {
+			continue
+		}
+		for t in tests {
+			put(anchor, t)
+			anchor = t
+		}
+		helpers = helpers.Append("tests " + strings.Join(testNames, ", ") + " from " + f.Name + " to " + targetFileName)
+	}
+
+	let mut moves = []Move{}
+	for mv in moveList {
+		if mv.From != mv.To || mv.Helpers.Len() > 0 {
+			moves = moves.Append(mv)
+		}
+	}
+
+	let mut initEdits = []FileEdit{}
+	let mut initTouched = MakeSlice[bool](nFiles)
+	for fi in 0..nFiles {
+		initEdits = initEdits.Append(NewFileEdit(uint32(fi), nDecls))
+		initTouched = initTouched.Append(false)
+	}
+	let mut ms = moveState{edits: initEdits, touched: initTouched}
+	for anchor in order {
+		if !moving[int(anchor)] {
+			recordMovedSubtree(g, after, anchor, int(g.DeclFile[int(anchor)]), &ms)
+		}
+	}
+
+	let mut allImps = [][]ImpSpec{}
+	for f in g.Files {
+		allImps = allImps.Append(FileImports(f))
+	}
+	let mut deletedFlags = MakeSlice[bool](nFiles)
+	for _ in 0..nFiles {
+		deletedFlags = deletedFlags.Append(false)
+	}
+	let mut deleted = []string{}
+	let mut rewrites = []QualifierRewrite{}
+	for fi, f in g.Files {
+		if !ms.touched[fi] {
+			continue
+		}
+		let mut left = 0
+		for d in order {
+			if int(g.DeclFile[int(d)]) == fi && !ms.edits[fi].MovedMask[int(d)] {
+				left = left + 1
+			}
+		}
+		if left == 0 && ms.edits[fi].Arrived.Len() == 0 {
+			deletedFlags[fi] = true
+			deleted = deleted.Append(f.Name)
+			continue
+		}
+		let mut ed = ms.edits[fi]
+		for item in PlanImports(g, &ed, allImps) {
+			rewrites = rewrites.Append(item)
+		}
+		ms.edits[fi] = ed
+	}
+
+	let mut seq = 0
+	for anchor in order {
+		let aIdx = int(anchor)
+		if moving[aIdx] || after[aIdx].Len() == 0 {
+			continue
+		}
+		let toFi = int(g.DeclFile[aIdx])
+		let toSrc = g.Files[toFi].Src
+		let at = LineEndAt(toSrc, syntax.NodeEnd(g.Files[toFi].Parsed, g.DeclNode[aIdx]))
+		let mut b = strings.NewBuilder()
+		if at == toSrc.Len() && at > 0 && toSrc[at-1] != byte(10) {
+			b.WriteByte(byte(10))
+		}
+		emitMovedSubtree(g, after, anchor, rewrites, allImps, &b)
+		ms.edits[toFi].InsertAt = ms.edits[toFi].InsertAt.Append(uint32(at))
+		ms.edits[toFi].InsertText = ms.edits[toFi].InsertText.Append(b.String())
+		ms.edits[toFi].InsertSeq = ms.edits[toFi].InsertSeq.Append(seq)
+		seq = seq + 1
+	}
+
+	let mut resFiles = Map[string, string]{}
+	for fi, f in g.Files {
+		if !ms.touched[fi] || deletedFlags[fi] {
+			continue
+		}
+		let mut out = applyFileEdits(f.Src, ms.edits[fi])
+		if formattedSrc(f.Src) {
+			out = format.Source(out, 0) catch {
+			case format.SyntaxFailure as sf:
+				return PlanFailure{Message: "\(f.Name): the moved text does not format: \(sf.Message)\n\(out)"}
+			case format.OutputLimit:
+				return PlanFailure{Message: "\(f.Name): the moved text exceeds format limit"}
+			}
+		}
+		resFiles[f.Name] = out
+	}
+
+	let mut taken = Map[string, bool]{}
+	for f in g.Files {
+		taken[f.Name] = true
+	}
+	let mut goneNames = Map[string, bool]{}
+	for nm in deleted {
+		goneNames[nm] = true
+	}
+	let mut renamed = []string{}
+	for fi, f in g.Files {
+		let isGone = match goneNames.Get(f.Name) {
+		case option.Some{Value: v}:
+			v
+		case option.None:
+			false
+		}
+		let mut hasLawOrTest = false
+		for d in order {
+			if int(g.DeclFile[int(d)]) == fi && (g.DeclKind[int(d)] == KDLaw || g.DeclKind[int(d)] == KDTest) {
+				hasLawOrTest = true
+				break
+			}
+		}
+		if isGone || !(LawsFileName(f.Name) || (TestsFileName(f.Name) && hasLawOrTest)) {
+			continue
+		}
+		let mut leftDecls = []uint32{}
+		for d in order {
+			if int(g.DeclFile[int(d)]) == fi && !ms.edits[fi].MovedMask[int(d)] {
+				leftDecls = leftDecls.Append(d)
+			}
+		}
+		let mut concept = ""
+		for rank in 0..6 {
+			if concept != "" {
+				break
+			}
+			for d in leftDecls {
+				let dIdx = int(d)
+				let k = g.DeclKind[dIdx]
+				let nm = g.DeclName[dIdx]
+				let mut matchRank = false
+				let mut pickName = nm
+				if k == KDType {
+					if (rank == 0 && g.DeclMachine[dIdx]) || (rank == 1 && isUpperStart(nm)) || rank == 2 {
+						matchRank = true
+					}
+				} else if k == KDFunc {
+					if (rank == 3 && isUpperStart(nm)) || rank == 4 {
+						matchRank = true
+					}
+				} else if k == KDTest {
+					if rank == 5 && !TestsFileName(f.Name) {
+						pickName = "tests"
+						matchRank = true
+					}
+				} else if k != KDLaw {
+					if rank == 4 {
+						matchRank = true
+					}
+				}
+				if matchRank && pickName != "" {
+					concept = strings.ToLower(pickName)
+					break
+				}
+			}
+		}
+		if concept == "" {
+			continue
+		}
+		let toName = if filepath.Dir(f.Name) == "." { concept + ".ergo" } else { filepath.Join([]string{filepath.Dir(f.Name), concept + ".ergo"}) }
+		let alreadyTaken = match taken.Get(toName) {
+		case option.Some{Value: v}:
+			v
+		case option.None:
+			false
+		}
+		if alreadyTaken {
+			continue
+		}
+		taken[toName] = true
+		let body = match resFiles.Get(f.Name) {
+		case option.Some{Value: txt}:
+			txt
+		case option.None:
+			f.Src
+		}
+		let mut nextFiles = Map[string, string]{}
+		for fn, fc in resFiles {
+			if fn != f.Name {
+				nextFiles[fn] = fc
+			}
+		}
+		nextFiles[toName] = body
+		resFiles = nextFiles
+		deleted = deleted.Append(f.Name)
+		renamed = renamed.Append(f.Name + " -> " + toName)
+	}
+
+	deleted = slices.Sort(deleted)
+	let mut fileNames = []string{}
+	for fn, _ in resFiles {
+		fileNames = fileNames.Append(fn)
+	}
+	fileNames = slices.Sort(fileNames)
+	let mut fileContents = []string{}
+	for fn in fileNames {
+		match resFiles.Get(fn) {
+		case option.Some{Value: txt}:
+			fileContents = fileContents.Append(txt)
+		case option.None:
+		}
+	}
+	PlanResult{
+		FileNames:    fileNames,
+		FileContents: fileContents,
+		Deleted:      deleted,
+		Renamed:      renamed,
+		Moves:        moves,
+		Helpers:      helpers,
+		Unplaced:     unplaced,
+	}
+}
+
+// RunReport summarizes renames, moves, deletions, and unplaced entries from a Run pass.
+type RunReport {
+	Renames  []string,
+	Moves    []string,
+	Deleted  []string,
+	Unplaced []string,
+}
+
+// FormatReport renders RunReport in the canonical ergo fix line layout.
+func FormatReport(r RunReport) string {
+	let mut b = strings.NewBuilder()
+	for m in r.Renames {
+		b.WriteString(m + "\n")
+	}
+	for m in r.Moves {
+		b.WriteString(m + "\n")
+	}
+	for d in r.Deleted {
+		b.WriteString("deleted \(d): no declaration is left in it\n")
+	}
+	for u in r.Unplaced {
+		b.WriteString(u + "\n")
+	}
+	b.String()
+}
+
+// Run applies Unexport and Plan to each package directory, writing edits when write is true.
+func Run(pkgName string, dir string, write bool, unexport bool, externalRefs Map[string, bool]) RunReport fails PlanFailure needs fs.Files | fs.Writes {
+	let readPkgFiles = func() []SourceFile {
+		let entries = fs.Files.ReadDir(dir) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return []SourceFile{}
+		}
+		let mut fsList = []SourceFile{}
+		for name in entries {
+			if !strings.HasSuffix(name, ".ergo") || strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") {
+				continue
+			}
+			let p = filepath.Join([]string{dir, name})
+			let src = fs.Files.ReadFile(p) catch {
+			case fs.NotFound, fs.Denied, fs.Failed:
+				continue
+			}
+			fsList = fsList.Append(SourceFile{Name: name, Src: src, Parsed: syntax.Parse(src)})
+		}
+		fsList
+	}
+
+	let mut rep = RunReport{Renames: []string{}, Moves: []string{}, Deleted: []string{}, Unplaced: []string{}}
+	let files = readPkgFiles()
+	if files.Len() == 0 {
+		return rep
+	}
+	let mut g = BuildGraph(pkgName, files)
+	if unexport {
+		let mut cands = []uint32{}
+		for cid in ExportedLawHelpers(g) {
+			let nm = g.DeclName[int(cid)]
+			let ext = match externalRefs.Get(nm) {
+			case option.Some{Value: v}:
+				v
+			case option.None:
+				false
+			}
+			if !ext {
+				cands = cands.Append(cid)
+			}
+		}
+		if cands.Len() > 0 {
+			let (texts, renames) = Unexport(g, cands)
+			let mut changedCount = 0
+			for _, _ in texts {
+				changedCount = changedCount + 1
+			}
+			if changedCount > 0 {
+				if !write {
+					for rn in renames {
+						rep.Renames = rep.Renames.Append("would unexport \(rn) in \(dir)")
+					}
+				} else {
+					for fn, txt in texts {
+						fs.Writes.WriteFile(filepath.Join([]string{dir, fn}), txt) catch {
+						case fs.NotFound, fs.Denied, fs.Failed:
+							return PlanFailure{Message: "write \(fn) failed"}
+						}
+					}
+					for rn in renames {
+						rep.Renames = rep.Renames.Append("unexported \(rn) in \(dir)")
+					}
+					g = BuildGraph(pkgName, readPkgFiles())
+				}
+			}
+		}
+	}
+
+	let res = try Plan(g)
+	for mv in res.Moves {
+		let kind = if mv.Kind == "" { "law" } else { mv.Kind }
+		let mut line = if mv.From == mv.To {
+			"\(kind) \(mv.Law) in \(filepath.Join([]string{dir, mv.From})): moved its helpers beside it"
+		} else {
+			"moved \(kind) \(mv.Law) from \(filepath.Join([]string{dir, mv.From})) to \(filepath.Join([]string{dir, mv.To}))"
+		}
+		if mv.Helpers.Len() > 0 {
+			line = line + " with " + strings.Join(mv.Helpers, ", ")
+		}
+		rep.Moves = rep.Moves.Append(line)
+	}
+	for h in res.Helpers {
+		rep.Moves = rep.Moves.Append("moved \(h) (\(dir))")
+	}
+	let mut renamedFrom = Map[string, bool]{}
+	for rn in res.Renamed {
+		rep.Moves = rep.Moves.Append("renamed \(rn) (\(dir))")
+		let arrow = strings.Index(rn, " -> ")
+		if arrow >= 0 {
+			renamedFrom[rn[0:arrow]] = true
+		}
+	}
+	for u in res.Unplaced {
+		rep.Unplaced = rep.Unplaced.Append("\(u) in \(dir) names nothing in its package; state it in the package it is about")
+	}
+	if write {
+		for i, fn in res.FileNames {
+			fs.Writes.WriteFile(filepath.Join([]string{dir, fn}), res.FileContents[i]) catch {
+			case fs.NotFound, fs.Denied, fs.Failed:
+				return PlanFailure{Message: "write \(fn) failed"}
+			}
+		}
+	}
+	for dName in res.Deleted {
+		let full = filepath.Join([]string{dir, dName})
+		let wasRenamed = match renamedFrom.Get(dName) {
+		case option.Some{Value: v}:
+			v
+		case option.None:
+			false
+		}
+		if !wasRenamed {
+			rep.Deleted = rep.Deleted.Append(full)
+		}
+		if write {
+			fs.Writes.Remove(full) catch {
+			case fs.NotFound, fs.Denied, fs.Failed:
+				return PlanFailure{Message: "remove \(full) failed"}
+			}
+		}
+	}
+	rep
+}
+
+// WordAtMatchesMixedCapsPrefix checks WordAt finds whole words only at camel-case/digit/underscore/EOF boundaries.
+law WordAtMatchesMixedCapsPrefix(suffix string) {
+	let base = "Sort"
+	let clean = SanitizeIdent(suffix)
+	let ch = clean[0]
+	let boundary = (ch >= byte(65) && ch <= byte(90)) || ch == byte(95) || (ch >= byte(48) && ch <= byte(57))
+	if boundary {
+		WordAt(base+clean, base) == 0
+	} else {
+		WordAt(base+clean, base) == -1
+	}
+}
+
+// PlanAndRunRelocatesLawsTestsAndHelpersTest verifies Plan moves, leftover test joining, file deletion/renaming, and Run writes.
+test PlanAndRunRelocatesLawsTestsAndHelpersTest {
+	let m = fstest.NewMemory()
+	let rep = with context { fs.Files: m, fs.Writes: m } {
+		try fs.Writes.MkdirAll("/pkg")
+		try fs.Writes.WriteFile("/pkg/a.ergo", "func Alpha(x int) int { x + 1 }\nfunc prod(x int) int { Alpha(x) }\n")
+		try fs.Writes.WriteFile("/pkg/laws.ergo", "// HelpA uses Alpha.\nfunc HelpA(x int) int { Alpha(x) }\n\nlaw AlphaOk(x int) {\n\tHelpA(x) >= Alpha(x)\n}\n\ntest KeepInTests() {\n\tassert 1 == 1\n}\n")
+		try fs.Writes.WriteFile("/pkg/tests.ergo", "test ExistingTest() {\n\tassert 1 == 1\n}\n")
+		try Run("pkg", "/pkg", true, true, Map[string, bool]{})
+	}
+	let text = FormatReport(rep)
+	assert strings.Contains(text, "unexported HelpA -> helpA")
+	assert strings.Contains(text, "moved law AlphaOk from /pkg/laws.ergo to /pkg/a.ergo with helpA")
+	assert strings.Contains(text, "deleted /pkg/laws.ergo: no declaration is left in it")
+	let aOut = with context { fs.Files: m } { try fs.Files.ReadFile("/pkg/a.ergo") }
+	assert strings.Contains(aOut, "func helpA(x int)") && strings.Contains(aOut, "law AlphaOk(x int)")
+	let tOut = with context { fs.Files: m } { try fs.Files.ReadFile("/pkg/tests.ergo") }
+	assert strings.Contains(tOut, "test KeepInTests()")
+
+	let gTie = BuildGraph("main", []SourceFile{
+		SourceFile{Name: "a.ergo", Src: "func Foo(x int) int { x }\n", Parsed: syntax.Parse("func Foo(x int) int { x }\n")},
+		SourceFile{Name: "b.ergo", Src: "func FooBar(x int) int { x }\n", Parsed: syntax.Parse("func FooBar(x int) int { x }\n")},
+		SourceFile{Name: "laws.ergo", Src: "law FooBarOk(x int) { Foo(x) == FooBar(x) }\n", Parsed: syntax.Parse("law FooBarOk(x int) { Foo(x) == FooBar(x) }\n")},
+	})
+	let pTie = try Plan(gTie)
+	assert pTie.Moves.Len() == 1 && pTie.Moves[0].To == "b.ergo"
+
+	let gSuf = BuildGraph("main", []SourceFile{
+		SourceFile{Name: "helper_test.ergo", Src: "test UnplacedOnly() { assert 1 == 1 }\n", Parsed: syntax.Parse("test UnplacedOnly() { assert 1 == 1 }\n")},
+	})
+	let pSuf = try Plan(gSuf)
+	assert pSuf.Renamed.Len() == 0 && pSuf.Deleted.Len() == 0
+}
