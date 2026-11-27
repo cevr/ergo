@@ -236,10 +236,20 @@
       "origin": "NB-6A-WASM32-EMITTER",
       "file": "compiler/objfmt/wasm/opcodes.ergo",
       "decl": "I32Add",
-      "from": "func I32Add(c mut CodeBuf) { c.Buf.U8(OpI32Add) }\n",
-      "to": "func I32Add(c mut CodeBuf) { c.Buf.U8(OpI32Sub) }\n",
+      "from": "c.Buf.U8(OpI32Add)",
+      "to": "c.Buf.U8(OpI32Sub)",
       "rule": "i32.add must use WebAssembly opcode 0x6a (not 0x6b i32.sub); live Bun and Node WebAssembly execution catches semantic opcode corruption.",
-      "killers": ["compiler/objfmt/wasm:law:WasmExec.LiveArithAndControlFlowRunsInBunAndNode"]
+      "killers": ["compiler/objfmt/wasm:AddModuleBytesAreTheSpecAndValidate", "compiler/objfmt/wasm:law:WasmExec.LiveArithAndControlFlowRunsInBunAndNode"]
+    },
+    {
+      "name": "wasm-func-extern-kind-agreed-but-wrong",
+      "origin": "NB-6A-WASM32-EMITTER",
+      "file": "compiler/objfmt/wasm/opcodes.ergo",
+      "decl": "KindFunc",
+      "from": "byte(0x00)",
+      "to": "byte(0x04)",
+      "rule": "A function export or import is extern kind 0x00. The encoder and decoder share the constant, so the round-trip law cannot see a wrong value; the spec's own bytes for the add module (and an engine's validator) can.",
+      "killers": ["compiler/objfmt/wasm:AddModuleBytesAreTheSpecAndValidate", "compiler/objfmt/wasm:law:WasmExec.LiveAddModuleValidatesInBunAndNode"]
     }
   ]
 }
