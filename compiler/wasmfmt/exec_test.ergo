@@ -1,0 +1,623 @@
+import exec
+import fs
+
+// WasmExec runs emitted WebAssembly binaries on real host JavaScript engines.
+type WasmExec {
+	RunWith(engine string, wasmBytes []byte, script string) exec.Result fails fs.NotFound | fs.Denied | fs.Failed | exec.NotFound | exec.Denied | exec.Failed,
+
+	// LiveArithAndControlFlowRunsInBunAndNode proves pure arithmetic and control-flow wasm runs identically on Bun and Node.
+	law LiveArithAndControlFlowRunsInBunAndNode() {
+		let m = BuildArithAndControlFlowModule() catch {
+		case WasmError:
+			return false
+		}
+		let wasm = Emit(m) catch {
+		case WasmError:
+			return false
+		}
+		let js = "const fs = require('fs');\n" +
+			"const bytes = fs.readFileSync('mod.wasm');\n" +
+			"(async () => {\n" +
+			"  const { instance } = await WebAssembly.instantiate(bytes);\n" +
+			"  const e = instance.exports;\n" +
+			"  const out = [\n" +
+			"    e.fact(0), e.fact(1), e.fact(5), e.fact(10),\n" +
+			"    e.fib(0), e.fib(1), e.fib(10), e.fib(12),\n" +
+			"    e.gcd(48, 18), e.gcd(1071, 462),\n" +
+			"    e.i64_mix(1000000000000n, 42),\n" +
+			"    e.f64_hyp(3.0, 4.0),\n" +
+			"    e.abs_diff(10, 27), e.abs_diff(27, 10),\n" +
+			"  ].join(',');\n" +
+			"  process.stdout.write(out);\n" +
+			"})().catch((err) => { console.error(err); process.exit(1); });\n"
+		let want = "1,1,120,3628800,0,1,55,144,6,21,-727379926,5,17,17"
+		let rBun = RunWith("/home/exedev/.local/bin/bun", wasm, js) catch {
+		case fs.NotFound, fs.Denied, fs.Failed, exec.NotFound, exec.Denied, exec.Failed:
+			return false
+		}
+		let rNode = RunWith("/home/exedev/.local/bin/node", wasm, js) catch {
+		case fs.NotFound, fs.Denied, fs.Failed, exec.NotFound, exec.Denied, exec.Failed:
+			return false
+		}
+		rBun.Status == 0 && rBun.Stdout == want && rNode.Status == 0 && rNode.Stdout == want
+	},
+
+	// LiveHostImportCallbackRunsInBunAndNode proves WASM host-imported callbacks run inside loops on Bun and Node.
+	law LiveHostImportCallbackRunsInBunAndNode() {
+		let m = BuildHostImportCallbackModule() catch {
+		case WasmError:
+			return false
+		}
+		let wasm = Emit(m) catch {
+		case WasmError:
+			return false
+		}
+		let js = "const fs = require('fs');\n" +
+			"const bytes = fs.readFileSync('mod.wasm');\n" +
+			"(async () => {\n" +
+			"  const logs = [];\n" +
+			"  const { instance } = await WebAssembly.instantiate(bytes, {\n" +
+			"    env: { log_i32: (v) => logs.push(v) },\n" +
+			"  });\n" +
+			"  const sum = instance.exports.emit_squares(2, 4);\n" +
+			"  process.stdout.write(sum + ':' + logs.join(','));\n" +
+			"})().catch((err) => { console.error(err); process.exit(1); });\n"
+		let want = "54:4,9,16,25"
+		let rBun = RunWith("/home/exedev/.local/bin/bun", wasm, js) catch {
+		case fs.NotFound, fs.Denied, fs.Failed, exec.NotFound, exec.Denied, exec.Failed:
+			return false
+		}
+		let rNode = RunWith("/home/exedev/.local/bin/node", wasm, js) catch {
+		case fs.NotFound, fs.Denied, fs.Failed, exec.NotFound, exec.Denied, exec.Failed:
+			return false
+		}
+		rBun.Status == 0 && rBun.Stdout == want && rNode.Status == 0 && rNode.Stdout == want
+	},
+
+	// LiveLinearMemoryCopyAndUTF8RunsInBunAndNode proves active .rodata, bulk memory.copy/fill, globals, and multi-value slices work on Bun and Node.
+	law LiveLinearMemoryCopyAndUTF8RunsInBunAndNode() {
+		let m = BuildLinearMemoryModule() catch {
+		case WasmError:
+			return false
+		}
+		let wasm = Emit(m) catch {
+		case WasmError:
+			return false
+		}
+		let js = "const fs = require('fs');\n" +
+			"const bytes = fs.readFileSync('mod.wasm');\n" +
+			"(async () => {\n" +
+			"  const { instance } = await WebAssembly.instantiate(bytes);\n" +
+			"  const e = instance.exports;\n" +
+			"  const mem = new Uint8Array(e.memory.buffer);\n" +
+			"  const dec = new TextDecoder();\n" +
+			"  const rodata = dec.decode(mem.subarray(64, 84));\n" +
+			"  const [ptr, len] = e.build_greeting();\n" +
+			"  const out = dec.decode(mem.subarray(ptr, ptr + len));\n" +
+			"  process.stdout.write(rodata + '|' + out + '|' + e.__heap_base.value + '|' + ptr + '|' + len + '|' + e.arena_ptr.value);\n" +
+			"})().catch((err) => { console.error(err); process.exit(1); });\n"
+		let want = "hello from ergo wasm|HELLO FROM ERGO WASM!|1024|1024|21|1045"
+		let rBun = RunWith("/home/exedev/.local/bin/bun", wasm, js) catch {
+		case fs.NotFound, fs.Denied, fs.Failed, exec.NotFound, exec.Denied, exec.Failed:
+			return false
+		}
+		let rNode = RunWith("/home/exedev/.local/bin/node", wasm, js) catch {
+		case fs.NotFound, fs.Denied, fs.Failed, exec.NotFound, exec.Denied, exec.Failed:
+			return false
+		}
+		rBun.Status == 0 && rBun.Stdout == want && rNode.Status == 0 && rNode.Stdout == want
+	},
+
+	// LivePassiveDataStartAndGrowRunsInBunAndNode proves passive memory.init/data.drop, start func, f64.const, br_table, memory.grow, and imported memory/global work on Bun and Node.
+	law LivePassiveDataStartAndGrowRunsInBunAndNode() {
+		let m = BuildBulkAndStartModule() catch {
+		case WasmError:
+			return false
+		}
+		let wasm = Emit(m) catch {
+		case WasmError:
+			return false
+		}
+		let mZeroData = BuildZeroDataBulkCopyModule() catch {
+		case WasmError:
+			return false
+		}
+		let wasmZero = Emit(mZeroData) catch {
+		case WasmError:
+			return false
+		}
+		let jsMain = "const fs = require('fs');\n" +
+			"const bytes = fs.readFileSync('mod.wasm');\n" +
+			"(async () => {\n" +
+			"  const mem = new WebAssembly.Memory({ initial: 1, maximum: 4 });\n" +
+			"  const base = new WebAssembly.Global({ value: 'i32', mutable: false }, 256);\n" +
+			"  const { instance } = await WebAssembly.instantiate(bytes, { env: { mem, base } });\n" +
+			"  const e = instance.exports;\n" +
+			"  const u8 = new Uint8Array(mem.buffer);\n" +
+			"  const dec = new TextDecoder();\n" +
+			"  const started = e.started.value;\n" +
+			"  const initText = dec.decode(u8.subarray(256, 260));\n" +
+			"  const sw = [e.pick(0), e.pick(1), e.pick(2), e.pick(9)].join(',');\n" +
+			"  const fval = e.fconst();\n" +
+			"  const prevPages = e.grow_one();\n" +
+			"  const nowPages = e.pages();\n" +
+			"  process.stdout.write(started + '|' + initText + '|' + sw + '|' + fval + '|' + prevPages + '->' + nowPages);\n" +
+			"})().catch((err) => { console.error(err); process.exit(1); });\n"
+		let wantMain = "77|ergo|10,20,30,99|-3.25|1->2"
+		let rBun = RunWith("/home/exedev/.local/bin/bun", wasm, jsMain) catch {
+		case fs.NotFound, fs.Denied, fs.Failed, exec.NotFound, exec.Denied, exec.Failed:
+			return false
+		}
+		let rNode = RunWith("/home/exedev/.local/bin/node", wasm, jsMain) catch {
+		case fs.NotFound, fs.Denied, fs.Failed, exec.NotFound, exec.Denied, exec.Failed:
+			return false
+		}
+		let jsZero = "const fs = require('fs');\n" +
+			"const bytes = fs.readFileSync('mod.wasm');\n" +
+			"(async () => {\n" +
+			"  const { instance } = await WebAssembly.instantiate(bytes);\n" +
+			"  process.stdout.write(String(instance.exports.fill_and_copy()));\n" +
+			"})().catch((err) => { console.error(err); process.exit(1); });\n"
+		let rBunZero = RunWith("/home/exedev/.local/bin/bun", wasmZero, jsZero) catch {
+		case fs.NotFound, fs.Denied, fs.Failed, exec.NotFound, exec.Denied, exec.Failed:
+			return false
+		}
+		let rNodeZero = RunWith("/home/exedev/.local/bin/node", wasmZero, jsZero) catch {
+		case fs.NotFound, fs.Denied, fs.Failed, exec.NotFound, exec.Denied, exec.Failed:
+			return false
+		}
+			rBun.Status == 0 && rBun.Stdout == wantMain && rNode.Status == 0 && rNode.Stdout == wantMain &&
+			rBunZero.Status == 0 && rBunZero.Stdout == "65" && rNodeZero.Status == 0 && rNodeZero.Stdout == "65"
+	},
+}
+
+type hostWasmRunner {
+	writes fs.Writes,
+	runner exec.Runner,
+} implements WasmExec
+
+func RunWith(h hostWasmRunner, engine string, wasmBytes []byte, script string) exec.Result fails fs.NotFound | fs.Denied | fs.Failed | exec.NotFound | exec.Denied | exec.Failed {
+	try h.writes.WriteFile("mod.wasm", wasmBytes.Text())
+	try h.writes.WriteFile("run.cjs", script)
+	let cmd = exec.New(engine, []string{"run.cjs"}).WithEnv("PATH", "/home/exedev/.local/bin:/usr/bin:/bin")
+	try h.runner.Run(cmd)
+}
+
+let onLiveWasmRuntimes = context needs TestAmbient {
+	WasmExec: hostWasmRunner{writes: fs.NewTestHost(), runner: exec.NewTestHost()},
+}
+
+func emitFactCode() CodeBuf {
+	let mut cb = NewCodeBuf()
+	cb.LocalGet(uint32(0))
+	cb.I32Const(int32(1))
+	cb.I32LeS()
+	cb.If(ValI32)
+	cb.I32Const(int32(1))
+	cb.Else()
+	cb.I32Const(int32(1))
+	cb.LocalSet(uint32(1))
+	cb.Loop(BlockEmpty)
+	cb.LocalGet(uint32(1))
+	cb.LocalGet(uint32(0))
+	cb.I32Mul()
+	cb.LocalSet(uint32(1))
+	cb.LocalGet(uint32(0))
+	cb.I32Const(int32(1))
+	cb.I32Sub()
+	cb.LocalTee(uint32(0))
+	cb.I32Const(int32(1))
+	cb.I32GtS()
+	cb.BrIf(uint32(0))
+	cb.End()
+	cb.LocalGet(uint32(1))
+	cb.End()
+	cb
+}
+
+func emitFibCode() CodeBuf {
+	let mut cb = NewCodeBuf()
+	cb.LocalGet(uint32(0))
+	cb.I32Const(int32(2))
+	cb.I32LtS()
+	cb.If(ValI32)
+	cb.LocalGet(uint32(0))
+	cb.Else()
+	cb.I32Const(int32(0))
+	cb.LocalSet(uint32(1))
+	cb.I32Const(int32(1))
+	cb.LocalSet(uint32(2))
+	cb.Block(BlockEmpty)
+	cb.Loop(BlockEmpty)
+	cb.LocalGet(uint32(0))
+	cb.I32Const(int32(1))
+	cb.I32LeS()
+	cb.BrIf(uint32(1))
+	cb.LocalGet(uint32(1))
+	cb.LocalGet(uint32(2))
+	cb.I32Add()
+	cb.LocalSet(uint32(3))
+	cb.LocalGet(uint32(2))
+	cb.LocalSet(uint32(1))
+	cb.LocalGet(uint32(3))
+	cb.LocalSet(uint32(2))
+	cb.LocalGet(uint32(0))
+	cb.I32Const(int32(1))
+	cb.I32Sub()
+	cb.LocalSet(uint32(0))
+	cb.Br(uint32(0))
+	cb.End()
+	cb.End()
+	cb.LocalGet(uint32(2))
+	cb.End()
+	cb
+}
+
+func emitGcdCode() CodeBuf {
+	let mut cb = NewCodeBuf()
+	cb.Block(BlockEmpty)
+	cb.Loop(BlockEmpty)
+	cb.LocalGet(uint32(1))
+	cb.I32Eqz()
+	cb.BrIf(uint32(1))
+	cb.LocalGet(uint32(0))
+	cb.LocalGet(uint32(1))
+	cb.I32RemU()
+	cb.LocalSet(uint32(2))
+	cb.LocalGet(uint32(1))
+	cb.LocalSet(uint32(0))
+	cb.LocalGet(uint32(2))
+	cb.LocalSet(uint32(1))
+	cb.Br(uint32(0))
+	cb.End()
+	cb.End()
+	cb.LocalGet(uint32(0))
+	cb
+}
+
+func emitI64MixCode() CodeBuf {
+	let mut cb = NewCodeBuf()
+	cb.LocalGet(uint32(0))
+	cb.LocalGet(uint32(1))
+	cb.I64ExtendI32S()
+	cb.I64Add()
+	cb.I32WrapI64()
+	cb
+}
+
+func emitHypotCode() CodeBuf {
+	let mut cb = NewCodeBuf()
+	cb.LocalGet(uint32(0))
+	cb.LocalGet(uint32(0))
+	cb.F64Mul()
+	cb.LocalGet(uint32(1))
+	cb.LocalGet(uint32(1))
+	cb.F64Mul()
+	cb.F64Add()
+	cb.F64Sqrt()
+	cb
+}
+
+func emitAbsDiffCode() CodeBuf {
+	let mut cb = NewCodeBuf()
+	cb.LocalGet(uint32(0))
+	cb.LocalGet(uint32(1))
+	cb.I32Sub()
+	cb.LocalGet(uint32(1))
+	cb.LocalGet(uint32(0))
+	cb.I32Sub()
+	cb.LocalGet(uint32(0))
+	cb.LocalGet(uint32(1))
+	cb.I32GtS()
+	cb.Select()
+	cb
+}
+
+// BuildArithAndControlFlowModule constructs module 1 exercising arithmetic, loops, conditionals, i64 conversions, and f64 ops.
+func BuildArithAndControlFlowModule() Module fails WasmError {
+	let mut m = NewModule()
+	let tI32ToI32 = m.InternType([]byte{ValI32}, []byte{ValI32})
+	let tI32PairToI32 = m.InternType([]byte{ValI32, ValI32}, []byte{ValI32})
+	let tMix = m.InternType([]byte{ValI64, ValI32}, []byte{ValI32})
+	let tF64Pair = m.InternType([]byte{ValF64, ValF64}, []byte{ValF64})
+
+	let fFact = try m.AddFunc(tI32ToI32, []byte{ValI32}, emitFactCode())
+	let fFib = try m.AddFunc(tI32ToI32, []byte{ValI32, ValI32, ValI32}, emitFibCode())
+	let fGcd = try m.AddFunc(tI32PairToI32, []byte{ValI32}, emitGcdCode())
+	let fMix = try m.AddFunc(tMix, []byte{}, emitI64MixCode())
+	let fHyp = try m.AddFunc(tF64Pair, []byte{}, emitHypotCode())
+	let fDiff = try m.AddFunc(tI32PairToI32, []byte{}, emitAbsDiffCode())
+
+	m.AddExportFunc("fact", fFact)
+	m.AddExportFunc("fib", fFib)
+	m.AddExportFunc("gcd", fGcd)
+	m.AddExportFunc("i64_mix", fMix)
+	m.AddExportFunc("f64_hyp", fHyp)
+	m.AddExportFunc("abs_diff", fDiff)
+	m
+}
+
+// BuildHostImportCallbackModule constructs module 2 importing env.log_i32 and invoking it in a loop.
+func BuildHostImportCallbackModule() Module fails WasmError {
+	let mut m = NewModule()
+	let tLog = m.InternType([]byte{ValI32}, []byte{})
+	let tEmit = m.InternType([]byte{ValI32, ValI32}, []byte{ValI32})
+	let logIdx = try m.AddImportFunc("env", "log_i32", tLog)
+
+	let mut cb = NewCodeBuf()
+	cb.I32Const(int32(0))
+	cb.LocalSet(uint32(2))
+	cb.I32Const(int32(0))
+	cb.LocalSet(uint32(3))
+	cb.Block(BlockEmpty)
+	cb.Loop(BlockEmpty)
+	cb.LocalGet(uint32(2))
+	cb.LocalGet(uint32(1))
+	cb.I32GeS()
+	cb.BrIf(uint32(1))
+	cb.LocalGet(uint32(0))
+	cb.LocalGet(uint32(2))
+	cb.I32Add()
+	cb.LocalTee(uint32(4))
+	cb.LocalGet(uint32(4))
+	cb.I32Mul()
+	cb.LocalTee(uint32(4))
+	cb.Call(logIdx)
+	cb.LocalGet(uint32(3))
+	cb.LocalGet(uint32(4))
+	cb.I32Add()
+	cb.LocalSet(uint32(3))
+	cb.LocalGet(uint32(2))
+	cb.I32Const(int32(1))
+	cb.I32Add()
+	cb.LocalSet(uint32(2))
+	cb.Br(uint32(0))
+	cb.End()
+	cb.End()
+	cb.LocalGet(uint32(3))
+
+	let fnIdx = try m.AddFunc(tEmit, []byte{ValI32, ValI32, ValI32}, cb)
+	m.AddExportFunc("emit_squares", fnIdx)
+	m
+}
+
+// BuildLinearMemoryModule constructs module 3 with active .rodata, globals, bulk memory.copy/fill, i32.store8, and multi-value (ptr, len).
+func BuildLinearMemoryModule() Module fails WasmError {
+	let mut m = NewModule()
+	let mem0 = m.AddMemoryBounded(uint32(1), uint32(2))
+	let heapBase = m.AddGlobal(ValI32, false, InitConstI32(int32(1024)))
+	let arenaPtr = m.AddGlobal(ValI32, true, InitConstI32(int32(1024)))
+	let _ = m.AddActiveData(int32(64), "hello from ergo wasm".Bytes())
+
+	let tGreet = m.InternType([]byte{}, []byte{ValI32, ValI32})
+	let mut cb = NewCodeBuf()
+	cb.GlobalGet(arenaPtr)
+	cb.LocalSet(uint32(0))
+	cb.LocalGet(uint32(0))
+	cb.I32Const(int32(21))
+	cb.I32Add()
+	cb.GlobalSet(arenaPtr)
+
+	cb.LocalGet(uint32(0))
+	cb.I32Const(int32(0))
+	cb.I32Const(int32(21))
+	cb.MemoryFill()
+
+	cb.LocalGet(uint32(0))
+	cb.I32Const(int32(64))
+	cb.I32Const(int32(20))
+	cb.MemoryCopy()
+
+	cb.I32Const(int32(0))
+	cb.LocalSet(uint32(1))
+	cb.Block(BlockEmpty)
+	cb.Loop(BlockEmpty)
+	cb.LocalGet(uint32(1))
+	cb.I32Const(int32(20))
+	cb.I32GeS()
+	cb.BrIf(uint32(1))
+	cb.LocalGet(uint32(0))
+	cb.LocalGet(uint32(1))
+	cb.I32Add()
+	cb.LocalTee(uint32(2))
+	cb.I32Load8U(uint32(0), uint32(0))
+	cb.LocalTee(uint32(3))
+	cb.I32Const(int32(97))
+	cb.I32GeU()
+	cb.If(BlockEmpty)
+	cb.LocalGet(uint32(3))
+	cb.I32Const(int32(122))
+	cb.I32LeU()
+	cb.If(BlockEmpty)
+	cb.LocalGet(uint32(2))
+	cb.LocalGet(uint32(3))
+	cb.I32Const(int32(32))
+	cb.I32Sub()
+	cb.I32Store8(uint32(0), uint32(0))
+	cb.End()
+	cb.End()
+	cb.LocalGet(uint32(1))
+	cb.I32Const(int32(1))
+	cb.I32Add()
+	cb.LocalSet(uint32(1))
+	cb.Br(uint32(0))
+	cb.End()
+	cb.End()
+
+	cb.LocalGet(uint32(0))
+	cb.I32Const(int32(33))
+	cb.I32Store8(uint32(0), uint32(20))
+
+	cb.LocalGet(uint32(0))
+	cb.I32Const(int32(21))
+
+	let fGreet = try m.AddFunc(tGreet, []byte{ValI32, ValI32, ValI32, ValI32}, cb)
+	m.AddExportFunc("build_greeting", fGreet)
+	m.AddExportMem("memory", mem0)
+	m.AddExportGlobal("__heap_base", heapBase)
+	m.AddExportGlobal("arena_ptr", arenaPtr)
+	m
+}
+
+// BuildBulkAndStartModule constructs a module exercising imported memory/global, passive memory.init/data.drop, start function, br_table, f64.const, and memory.grow.
+func BuildBulkAndStartModule() Module fails WasmError {
+	let mut m = NewModule()
+	let _ = try m.AddImportMem("env", "mem", uint32(1), uint32(4), true)
+	let gBase = try m.AddImportGlobal("env", "base", ValI32, false)
+	let gStarted = m.AddGlobal(ValI32, true, InitConstGlobalGet(gBase))
+	let seg0 = m.AddPassiveData("ergo".Bytes())
+
+	let tVoid = m.InternType([]byte{}, []byte{})
+	let tI32ToI32 = m.InternType([]byte{ValI32}, []byte{ValI32})
+	let tVoidToI32 = m.InternType([]byte{}, []byte{ValI32})
+	let tVoidToF64 = m.InternType([]byte{}, []byte{ValF64})
+
+	let mut cbStart = NewCodeBuf()
+	cbStart.I32Const(int32(77))
+	cbStart.GlobalSet(gStarted)
+	cbStart.GlobalGet(gBase)
+	cbStart.I32Const(int32(0))
+	cbStart.I32Const(int32(4))
+	cbStart.MemoryInit(seg0)
+	cbStart.DataDrop(seg0)
+	let fStart = try m.AddFunc(tVoid, []byte{}, cbStart)
+	m.SetStart(fStart)
+
+	let mut cbPick = NewCodeBuf()
+	cbPick.Block(BlockEmpty)
+	cbPick.Block(BlockEmpty)
+	cbPick.Block(BlockEmpty)
+	cbPick.Block(BlockEmpty)
+	cbPick.LocalGet(uint32(0))
+	cbPick.BrTable([]uint32{uint32(0), uint32(1), uint32(2)}, uint32(3))
+	cbPick.End()
+	cbPick.I32Const(int32(10))
+	cbPick.Return()
+	cbPick.End()
+	cbPick.I32Const(int32(20))
+	cbPick.Return()
+	cbPick.End()
+	cbPick.I32Const(int32(30))
+	cbPick.Return()
+	cbPick.End()
+	cbPick.I32Const(int32(99))
+	let fPick = try m.AddFunc(tI32ToI32, []byte{}, cbPick)
+
+	let mut cbFConst = NewCodeBuf()
+	cbFConst.F64Const(-3.25)
+	let fFConst = try m.AddFunc(tVoidToF64, []byte{}, cbFConst)
+
+	let mut cbGrow = NewCodeBuf()
+	cbGrow.I32Const(int32(1))
+	cbGrow.MemoryGrow()
+	let fGrow = try m.AddFunc(tVoidToI32, []byte{}, cbGrow)
+
+	let mut cbPages = NewCodeBuf()
+	cbPages.MemorySize()
+	let fPages = try m.AddFunc(tVoidToI32, []byte{}, cbPages)
+
+	m.AddExportGlobal("started", gStarted)
+	m.AddExportFunc("pick", fPick)
+	m.AddExportFunc("fconst", fFConst)
+	m.AddExportFunc("grow_one", fGrow)
+	m.AddExportFunc("pages", fPages)
+	m
+}
+
+// BuildZeroDataBulkCopyModule constructs a module using bulk memory.fill/copy with zero data segments.
+func BuildZeroDataBulkCopyModule() Module fails WasmError {
+	let mut m = NewModule()
+	let _ = m.AddMemory(uint32(1))
+	let tVoidToI32 = m.InternType([]byte{}, []byte{ValI32})
+	let mut cb = NewCodeBuf()
+	cb.I32Const(int32(0))
+	cb.I32Const(int32(65))
+	cb.I32Const(int32(8))
+	cb.MemoryFill()
+	cb.I32Const(int32(32))
+	cb.I32Const(int32(0))
+	cb.I32Const(int32(8))
+	cb.MemoryCopy()
+	cb.I32Const(int32(35))
+	cb.I32Load8U(uint32(0), uint32(0))
+	let fIdx = try m.AddFunc(tVoidToI32, []byte{}, cb)
+	m.AddExportFunc("fill_and_copy", fIdx)
+	m
+}
+
+test ExecFixturesBuildAndDecodeCleanly {
+	let m1 = BuildArithAndControlFlowModule() catch {
+	case WasmError:
+		NewModule()
+	}
+	let b1 = Emit(m1) catch {
+	case WasmError:
+		[]byte{}
+	}
+	let d1 = Decode(b1) catch {
+	case WasmError:
+		emptyDecodedModule(uint32(0))
+	}
+	assert d1.Version == WasmVersion && d1.Exports.Len() == 6 && !d1.HasDataCount
+
+	let m2 = BuildHostImportCallbackModule() catch {
+	case WasmError:
+		NewModule()
+	}
+	let b2 = Emit(m2) catch {
+	case WasmError:
+		[]byte{}
+	}
+	let d2 = Decode(b2) catch {
+	case WasmError:
+		emptyDecodedModule(uint32(0))
+	}
+	assert d2.Imports.Len() == 1 && d2.Exports.Len() == 1
+
+	let m3 = BuildLinearMemoryModule() catch {
+	case WasmError:
+		NewModule()
+	}
+	let b3 = Emit(m3) catch {
+	case WasmError:
+		[]byte{}
+	}
+	let d3 = Decode(b3) catch {
+	case WasmError:
+		emptyDecodedModule(uint32(0))
+	}
+	assert d3.HasDataCount && d3.DataCount == uint32(1)
+	assert d3.DataSegs.Len() == 1
+	assert d3.DecodedDataBytes(uint32(0)).Text() == "hello from ergo wasm"
+	assert d3.Globals.Len() == 2
+	assert d3.Exports.Len() == 4
+
+	let m4 = BuildBulkAndStartModule() catch {
+	case WasmError:
+		NewModule()
+	}
+	let b4 = Emit(m4) catch {
+	case WasmError:
+		[]byte{}
+	}
+	let d4 = Decode(b4) catch {
+	case WasmError:
+		emptyDecodedModule(uint32(0))
+	}
+	assert d4.HasStart && d4.HasDataCount && d4.DataCount == uint32(1)
+	assert d4.Imports.Len() == 2 && d4.Globals.Len() == 1 && d4.Exports.Len() == 5
+
+	let m5 = BuildZeroDataBulkCopyModule() catch {
+	case WasmError:
+		NewModule()
+	}
+	let b5 = Emit(m5) catch {
+	case WasmError:
+		[]byte{}
+	}
+	let d5 = Decode(b5) catch {
+	case WasmError:
+		emptyDecodedModule(uint32(0))
+	}
+	assert d5.HasDataCount && d5.DataCount == uint32(0) && d5.DataSegs.Len() == 0
+}

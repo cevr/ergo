@@ -1,0 +1,1217 @@
+// SecCustom is WebAssembly section ID 0 (custom section).
+let SecCustom = byte(0)
+
+// SecType is WebAssembly section ID 1 (type section).
+let SecType = byte(1)
+
+// SecImport is WebAssembly section ID 2 (import section).
+let SecImport = byte(2)
+
+// SecFunction is WebAssembly section ID 3 (function section).
+let SecFunction = byte(3)
+
+// SecTable is WebAssembly section ID 4 (table section).
+let SecTable = byte(4)
+
+// SecMemory is WebAssembly section ID 5 (memory section).
+let SecMemory = byte(5)
+
+// SecGlobal is WebAssembly section ID 6 (global section).
+let SecGlobal = byte(6)
+
+// SecExport is WebAssembly section ID 7 (export section).
+let SecExport = byte(7)
+
+// SecStart is WebAssembly section ID 8 (start section).
+let SecStart = byte(8)
+
+// SecElement is WebAssembly section ID 9 (element section).
+let SecElement = byte(9)
+
+// SecCode is WebAssembly section ID 10 (code section).
+let SecCode = byte(10)
+
+// SecData is WebAssembly section ID 11 (data section).
+let SecData = byte(11)
+
+// SecDataCount is WebAssembly section ID 12 (bulk-memory data count section).
+let SecDataCount = byte(12)
+
+// ValI32 is the 32-bit integer value type encoding (0x7f).
+let ValI32 = byte(0x7f)
+
+// ValI64 is the 64-bit integer value type encoding (0x7e).
+let ValI64 = byte(0x7e)
+
+// ValF32 is the 32-bit IEEE-754 float value type encoding (0x7d).
+let ValF32 = byte(0x7d)
+
+// ValF64 is the 64-bit IEEE-754 float value type encoding (0x7c).
+let ValF64 = byte(0x7c)
+
+// ValFuncRef is the function reference value type encoding (0x70).
+let ValFuncRef = byte(0x70)
+
+// ValExternRef is the external reference value type encoding (0x6f).
+let ValExternRef = byte(0x6f)
+
+// BlockEmpty is the empty block type encoding (0x40).
+let BlockEmpty = byte(0x40)
+
+// FuncTypeTag is the function signature type constructor byte (0x60).
+let FuncTypeTag = byte(0x60)
+
+// LimitMin is the limits header byte when only minimum is specified (0x00).
+let LimitMin = byte(0x00)
+
+// LimitMinMax is the limits header byte when both minimum and maximum are specified (0x01).
+let LimitMinMax = byte(0x01)
+
+// MutConst is the immutable global mutability byte (0x00).
+let MutConst = byte(0x00)
+
+// MutVar is the mutable global mutability byte (0x01).
+let MutVar = byte(0x01)
+
+// KindFunc is the external import/export descriptor kind for functions (0x00).
+let KindFunc = byte(0x00)
+
+// KindTable is the external import/export descriptor kind for tables (0x01).
+let KindTable = byte(0x01)
+
+// KindMem is the external import/export descriptor kind for memories (0x02).
+let KindMem = byte(0x02)
+
+// KindGlobal is the external import/export descriptor kind for globals (0x03).
+let KindGlobal = byte(0x03)
+
+// OpUnreachable is the WebAssembly unreachable opcode (0x00).
+let OpUnreachable = byte(0x00)
+
+// OpNop is the WebAssembly nop opcode (0x01).
+let OpNop = byte(0x01)
+
+// OpBlock is the WebAssembly block opcode (0x02).
+let OpBlock = byte(0x02)
+
+// OpLoop is the WebAssembly loop opcode (0x03).
+let OpLoop = byte(0x03)
+
+// OpIf is the WebAssembly if opcode (0x04).
+let OpIf = byte(0x04)
+
+// OpElse is the WebAssembly else opcode (0x05).
+let OpElse = byte(0x05)
+
+// OpEnd is the WebAssembly end opcode (0x0b).
+let OpEnd = byte(0x0b)
+
+// OpBr is the WebAssembly br opcode (0x0c).
+let OpBr = byte(0x0c)
+
+// OpBrIf is the WebAssembly br_if opcode (0x0d).
+let OpBrIf = byte(0x0d)
+
+// OpBrTable is the WebAssembly br_table opcode (0x0e).
+let OpBrTable = byte(0x0e)
+
+// OpReturn is the WebAssembly return opcode (0x0f).
+let OpReturn = byte(0x0f)
+
+// OpCall is the WebAssembly call opcode (0x10).
+let OpCall = byte(0x10)
+
+// OpCallIndirect is the WebAssembly call_indirect opcode (0x11).
+let OpCallIndirect = byte(0x11)
+
+// OpDrop is the WebAssembly drop opcode (0x1a).
+let OpDrop = byte(0x1a)
+
+// OpSelect is the WebAssembly select opcode (0x1b).
+let OpSelect = byte(0x1b)
+
+// OpLocalGet is the WebAssembly local.get opcode (0x20).
+let OpLocalGet = byte(0x20)
+
+// OpLocalSet is the WebAssembly local.set opcode (0x21).
+let OpLocalSet = byte(0x21)
+
+// OpLocalTee is the WebAssembly local.tee opcode (0x22).
+let OpLocalTee = byte(0x22)
+
+// OpGlobalGet is the WebAssembly global.get opcode (0x23).
+let OpGlobalGet = byte(0x23)
+
+// OpGlobalSet is the WebAssembly global.set opcode (0x24).
+let OpGlobalSet = byte(0x24)
+
+// OpI32Load is the WebAssembly i32.load opcode (0x28).
+let OpI32Load = byte(0x28)
+
+// OpI64Load is the WebAssembly i64.load opcode (0x29).
+let OpI64Load = byte(0x29)
+
+// OpF32Load is the WebAssembly f32.load opcode (0x2a).
+let OpF32Load = byte(0x2a)
+
+// OpF64Load is the WebAssembly f64.load opcode (0x2b).
+let OpF64Load = byte(0x2b)
+
+// OpI32Load8S is the WebAssembly i32.load8_s opcode (0x2c).
+let OpI32Load8S = byte(0x2c)
+
+// OpI32Load8U is the WebAssembly i32.load8_u opcode (0x2d).
+let OpI32Load8U = byte(0x2d)
+
+// OpI32Load16S is the WebAssembly i32.load16_s opcode (0x2e).
+let OpI32Load16S = byte(0x2e)
+
+// OpI32Load16U is the WebAssembly i32.load16_u opcode (0x2f).
+let OpI32Load16U = byte(0x2f)
+
+// OpI64Load8S is the WebAssembly i64.load8_s opcode (0x30).
+let OpI64Load8S = byte(0x30)
+
+// OpI64Load8U is the WebAssembly i64.load8_u opcode (0x31).
+let OpI64Load8U = byte(0x31)
+
+// OpI64Load16S is the WebAssembly i64.load16_s opcode (0x32).
+let OpI64Load16S = byte(0x32)
+
+// OpI64Load16U is the WebAssembly i64.load16_u opcode (0x33).
+let OpI64Load16U = byte(0x33)
+
+// OpI64Load32S is the WebAssembly i64.load32_s opcode (0x34).
+let OpI64Load32S = byte(0x34)
+
+// OpI64Load32U is the WebAssembly i64.load32_u opcode (0x35).
+let OpI64Load32U = byte(0x35)
+
+// OpI32Store is the WebAssembly i32.store opcode (0x36).
+let OpI32Store = byte(0x36)
+
+// OpI64Store is the WebAssembly i64.store opcode (0x37).
+let OpI64Store = byte(0x37)
+
+// OpF32Store is the WebAssembly f32.store opcode (0x38).
+let OpF32Store = byte(0x38)
+
+// OpF64Store is the WebAssembly f64.store opcode (0x39).
+let OpF64Store = byte(0x39)
+
+// OpI32Store8 is the WebAssembly i32.store8 opcode (0x3a).
+let OpI32Store8 = byte(0x3a)
+
+// OpI32Store16 is the WebAssembly i32.store16 opcode (0x3b).
+let OpI32Store16 = byte(0x3b)
+
+// OpI64Store8 is the WebAssembly i64.store8 opcode (0x3c).
+let OpI64Store8 = byte(0x3c)
+
+// OpI64Store16 is the WebAssembly i64.store16 opcode (0x3d).
+let OpI64Store16 = byte(0x3d)
+
+// OpI64Store32 is the WebAssembly i64.store32 opcode (0x3e).
+let OpI64Store32 = byte(0x3e)
+
+// OpMemorySize is the WebAssembly memory.size opcode (0x3f).
+let OpMemorySize = byte(0x3f)
+
+// OpMemoryGrow is the WebAssembly memory.grow opcode (0x40).
+let OpMemoryGrow = byte(0x40)
+
+// OpI32Const is the WebAssembly i32.const opcode (0x41).
+let OpI32Const = byte(0x41)
+
+// OpI64Const is the WebAssembly i64.const opcode (0x42).
+let OpI64Const = byte(0x42)
+
+// OpF32Const is the WebAssembly f32.const opcode (0x43).
+let OpF32Const = byte(0x43)
+
+// OpF64Const is the WebAssembly f64.const opcode (0x44).
+let OpF64Const = byte(0x44)
+
+// OpI32Eqz is the WebAssembly i32.eqz opcode (0x45).
+let OpI32Eqz = byte(0x45)
+
+// OpI32Eq is the WebAssembly i32.eq opcode (0x46).
+let OpI32Eq = byte(0x46)
+
+// OpI32Ne is the WebAssembly i32.ne opcode (0x47).
+let OpI32Ne = byte(0x47)
+
+// OpI32LtS is the WebAssembly i32.lt_s opcode (0x48).
+let OpI32LtS = byte(0x48)
+
+// OpI32LtU is the WebAssembly i32.lt_u opcode (0x49).
+let OpI32LtU = byte(0x49)
+
+// OpI32GtS is the WebAssembly i32.gt_s opcode (0x4a).
+let OpI32GtS = byte(0x4a)
+
+// OpI32GtU is the WebAssembly i32.gt_u opcode (0x4b).
+let OpI32GtU = byte(0x4b)
+
+// OpI32LeS is the WebAssembly i32.le_s opcode (0x4c).
+let OpI32LeS = byte(0x4c)
+
+// OpI32LeU is the WebAssembly i32.le_u opcode (0x4d).
+let OpI32LeU = byte(0x4d)
+
+// OpI32GeS is the WebAssembly i32.ge_s opcode (0x4e).
+let OpI32GeS = byte(0x4e)
+
+// OpI32GeU is the WebAssembly i32.ge_u opcode (0x4f).
+let OpI32GeU = byte(0x4f)
+
+// OpI64Eqz is the WebAssembly i64.eqz opcode (0x50).
+let OpI64Eqz = byte(0x50)
+
+// OpI64Eq is the WebAssembly i64.eq opcode (0x51).
+let OpI64Eq = byte(0x51)
+
+// OpI64Ne is the WebAssembly i64.ne opcode (0x52).
+let OpI64Ne = byte(0x52)
+
+// OpI64LtS is the WebAssembly i64.lt_s opcode (0x53).
+let OpI64LtS = byte(0x53)
+
+// OpI64LtU is the WebAssembly i64.lt_u opcode (0x54).
+let OpI64LtU = byte(0x54)
+
+// OpI64GtS is the WebAssembly i64.gt_s opcode (0x55).
+let OpI64GtS = byte(0x55)
+
+// OpI64GtU is the WebAssembly i64.gt_u opcode (0x56).
+let OpI64GtU = byte(0x56)
+
+// OpI64LeS is the WebAssembly i64.le_s opcode (0x57).
+let OpI64LeS = byte(0x57)
+
+// OpI64LeU is the WebAssembly i64.le_u opcode (0x58).
+let OpI64LeU = byte(0x58)
+
+// OpI64GeS is the WebAssembly i64.ge_s opcode (0x59).
+let OpI64GeS = byte(0x59)
+
+// OpI64GeU is the WebAssembly i64.ge_u opcode (0x5a).
+let OpI64GeU = byte(0x5a)
+
+// OpF64Eq is the WebAssembly f64.eq opcode (0x61).
+let OpF64Eq = byte(0x61)
+
+// OpF64Ne is the WebAssembly f64.ne opcode (0x62).
+let OpF64Ne = byte(0x62)
+
+// OpF64Lt is the WebAssembly f64.lt opcode (0x63).
+let OpF64Lt = byte(0x63)
+
+// OpF64Gt is the WebAssembly f64.gt opcode (0x64).
+let OpF64Gt = byte(0x64)
+
+// OpF64Le is the WebAssembly f64.le opcode (0x65).
+let OpF64Le = byte(0x65)
+
+// OpF64Ge is the WebAssembly f64.ge opcode (0x66).
+let OpF64Ge = byte(0x66)
+
+// OpI32Clz is the WebAssembly i32.clz opcode (0x67).
+let OpI32Clz = byte(0x67)
+
+// OpI32Ctz is the WebAssembly i32.ctz opcode (0x68).
+let OpI32Ctz = byte(0x68)
+
+// OpI32Popcnt is the WebAssembly i32.popcnt opcode (0x69).
+let OpI32Popcnt = byte(0x69)
+
+// OpI32Add is the WebAssembly i32.add opcode (0x6a).
+let OpI32Add = byte(0x6a)
+
+// OpI32Sub is the WebAssembly i32.sub opcode (0x6b).
+let OpI32Sub = byte(0x6b)
+
+// OpI32Mul is the WebAssembly i32.mul opcode (0x6c).
+let OpI32Mul = byte(0x6c)
+
+// OpI32DivS is the WebAssembly i32.div_s opcode (0x6d).
+let OpI32DivS = byte(0x6d)
+
+// OpI32DivU is the WebAssembly i32.div_u opcode (0x6e).
+let OpI32DivU = byte(0x6e)
+
+// OpI32RemS is the WebAssembly i32.rem_s opcode (0x6f).
+let OpI32RemS = byte(0x6f)
+
+// OpI32RemU is the WebAssembly i32.rem_u opcode (0x70).
+let OpI32RemU = byte(0x70)
+
+// OpI32And is the WebAssembly i32.and opcode (0x71).
+let OpI32And = byte(0x71)
+
+// OpI32Or is the WebAssembly i32.or opcode (0x72).
+let OpI32Or = byte(0x72)
+
+// OpI32Xor is the WebAssembly i32.xor opcode (0x73).
+let OpI32Xor = byte(0x73)
+
+// OpI32Shl is the WebAssembly i32.shl opcode (0x74).
+let OpI32Shl = byte(0x74)
+
+// OpI32ShrS is the WebAssembly i32.shr_s opcode (0x75).
+let OpI32ShrS = byte(0x75)
+
+// OpI32ShrU is the WebAssembly i32.shr_u opcode (0x76).
+let OpI32ShrU = byte(0x76)
+
+// OpI32Rotl is the WebAssembly i32.rotl opcode (0x77).
+let OpI32Rotl = byte(0x77)
+
+// OpI32Rotr is the WebAssembly i32.rotr opcode (0x78).
+let OpI32Rotr = byte(0x78)
+
+// OpI64Clz is the WebAssembly i64.clz opcode (0x79).
+let OpI64Clz = byte(0x79)
+
+// OpI64Ctz is the WebAssembly i64.ctz opcode (0x7a).
+let OpI64Ctz = byte(0x7a)
+
+// OpI64Popcnt is the WebAssembly i64.popcnt opcode (0x7b).
+let OpI64Popcnt = byte(0x7b)
+
+// OpI64Add is the WebAssembly i64.add opcode (0x7c).
+let OpI64Add = byte(0x7c)
+
+// OpI64Sub is the WebAssembly i64.sub opcode (0x7d).
+let OpI64Sub = byte(0x7d)
+
+// OpI64Mul is the WebAssembly i64.mul opcode (0x7e).
+let OpI64Mul = byte(0x7e)
+
+// OpI64DivS is the WebAssembly i64.div_s opcode (0x7f).
+let OpI64DivS = byte(0x7f)
+
+// OpI64DivU is the WebAssembly i64.div_u opcode (0x80).
+let OpI64DivU = byte(0x80)
+
+// OpI64RemS is the WebAssembly i64.rem_s opcode (0x81).
+let OpI64RemS = byte(0x81)
+
+// OpI64RemU is the WebAssembly i64.rem_u opcode (0x82).
+let OpI64RemU = byte(0x82)
+
+// OpI64And is the WebAssembly i64.and opcode (0x83).
+let OpI64And = byte(0x83)
+
+// OpI64Or is the WebAssembly i64.or opcode (0x84).
+let OpI64Or = byte(0x84)
+
+// OpI64Xor is the WebAssembly i64.xor opcode (0x85).
+let OpI64Xor = byte(0x85)
+
+// OpI64Shl is the WebAssembly i64.shl opcode (0x86).
+let OpI64Shl = byte(0x86)
+
+// OpI64ShrS is the WebAssembly i64.shr_s opcode (0x87).
+let OpI64ShrS = byte(0x87)
+
+// OpI64ShrU is the WebAssembly i64.shr_u opcode (0x88).
+let OpI64ShrU = byte(0x88)
+
+// OpI64Rotl is the WebAssembly i64.rotl opcode (0x89).
+let OpI64Rotl = byte(0x89)
+
+// OpI64Rotr is the WebAssembly i64.rotr opcode (0x8a).
+let OpI64Rotr = byte(0x8a)
+
+// OpF64Abs is the WebAssembly f64.abs opcode (0x99).
+let OpF64Abs = byte(0x99)
+
+// OpF64Neg is the WebAssembly f64.neg opcode (0x9a).
+let OpF64Neg = byte(0x9a)
+
+// OpF64Ceil is the WebAssembly f64.ceil opcode (0x9b).
+let OpF64Ceil = byte(0x9b)
+
+// OpF64Floor is the WebAssembly f64.floor opcode (0x9c).
+let OpF64Floor = byte(0x9c)
+
+// OpF64Trunc is the WebAssembly f64.trunc opcode (0x9d).
+let OpF64Trunc = byte(0x9d)
+
+// OpF64Nearest is the WebAssembly f64.nearest opcode (0x9e).
+let OpF64Nearest = byte(0x9e)
+
+// OpF64Sqrt is the WebAssembly f64.sqrt opcode (0x9f).
+let OpF64Sqrt = byte(0x9f)
+
+// OpF64Add is the WebAssembly f64.add opcode (0xa0).
+let OpF64Add = byte(0xa0)
+
+// OpF64Sub is the WebAssembly f64.sub opcode (0xa1).
+let OpF64Sub = byte(0xa1)
+
+// OpF64Mul is the WebAssembly f64.mul opcode (0xa2).
+let OpF64Mul = byte(0xa2)
+
+// OpF64Div is the WebAssembly f64.div opcode (0xa3).
+let OpF64Div = byte(0xa3)
+
+// OpF64Min is the WebAssembly f64.min opcode (0xa4).
+let OpF64Min = byte(0xa4)
+
+// OpF64Max is the WebAssembly f64.max opcode (0xa5).
+let OpF64Max = byte(0xa5)
+
+// OpF64Copysign is the WebAssembly f64.copysign opcode (0xa6).
+let OpF64Copysign = byte(0xa6)
+
+// OpI32WrapI64 is the WebAssembly i32.wrap_i64 opcode (0xa7).
+let OpI32WrapI64 = byte(0xa7)
+
+// OpI32TruncF32S is the WebAssembly i32.trunc_f32_s opcode (0xa8).
+let OpI32TruncF32S = byte(0xa8)
+
+// OpI32TruncF32U is the WebAssembly i32.trunc_f32_u opcode (0xa9).
+let OpI32TruncF32U = byte(0xa9)
+
+// OpI32TruncF64S is the WebAssembly i32.trunc_f64_s opcode (0xaa).
+let OpI32TruncF64S = byte(0xaa)
+
+// OpI32TruncF64U is the WebAssembly i32.trunc_f64_u opcode (0xab).
+let OpI32TruncF64U = byte(0xab)
+
+// OpI64ExtendI32S is the WebAssembly i64.extend_i32_s opcode (0xac).
+let OpI64ExtendI32S = byte(0xac)
+
+// OpI64ExtendI32U is the WebAssembly i64.extend_i32_u opcode (0xad).
+let OpI64ExtendI32U = byte(0xad)
+
+// OpI64TruncF64S is the WebAssembly i64.trunc_f64_s opcode (0xb0).
+let OpI64TruncF64S = byte(0xb0)
+
+// OpI64TruncF64U is the WebAssembly i64.trunc_f64_u opcode (0xb1).
+let OpI64TruncF64U = byte(0xb1)
+
+// OpF64ConvertI32S is the WebAssembly f64.convert_i32_s opcode (0xb7).
+let OpF64ConvertI32S = byte(0xb7)
+
+// OpF64ConvertI32U is the WebAssembly f64.convert_i32_u opcode (0xb8).
+let OpF64ConvertI32U = byte(0xb8)
+
+// OpF64ConvertI64S is the WebAssembly f64.convert_i64_s opcode (0xb9).
+let OpF64ConvertI64S = byte(0xb9)
+
+// OpF64ConvertI64U is the WebAssembly f64.convert_i64_u opcode (0xba).
+let OpF64ConvertI64U = byte(0xba)
+
+// OpI32ReinterpretF32 is the WebAssembly i32.reinterpret_f32 opcode (0xbc).
+let OpI32ReinterpretF32 = byte(0xbc)
+
+// OpI64ReinterpretF64 is the WebAssembly i64.reinterpret_f64 opcode (0xbd).
+let OpI64ReinterpretF64 = byte(0xbd)
+
+// OpF32ReinterpretI32 is the WebAssembly f32.reinterpret_i32 opcode (0xbe).
+let OpF32ReinterpretI32 = byte(0xbe)
+
+// OpF64ReinterpretI64 is the WebAssembly f64.reinterpret_i64 opcode (0xbf).
+let OpF64ReinterpretI64 = byte(0xbf)
+
+// OpI32Extend8S is the WebAssembly i32.extend8_s opcode (0xc0).
+let OpI32Extend8S = byte(0xc0)
+
+// OpI32Extend16S is the WebAssembly i32.extend16_s opcode (0xc1).
+let OpI32Extend16S = byte(0xc1)
+
+// OpI64Extend8S is the WebAssembly i64.extend8_s opcode (0xc2).
+let OpI64Extend8S = byte(0xc2)
+
+// OpI64Extend16S is the WebAssembly i64.extend16_s opcode (0xc3).
+let OpI64Extend16S = byte(0xc3)
+
+// OpI64Extend32S is the WebAssembly i64.extend32_s opcode (0xc4).
+let OpI64Extend32S = byte(0xc4)
+
+// OpPrefixFC is the WebAssembly 0xfc extended opcode prefix for bulk-memory and saturating ops.
+let OpPrefixFC = byte(0xfc)
+
+// BulkMemoryInit is the 0xfc sub-opcode for memory.init (8).
+let BulkMemoryInit = uint32(8)
+
+// BulkDataDrop is the 0xfc sub-opcode for data.drop (9).
+let BulkDataDrop = uint32(9)
+
+// BulkMemoryCopy is the 0xfc sub-opcode for memory.copy (10).
+let BulkMemoryCopy = uint32(10)
+
+// BulkMemoryFill is the 0xfc sub-opcode for memory.fill (11).
+let BulkMemoryFill = uint32(11)
+
+// IsValidValType reports whether b is a valid WebAssembly 1.0 value type byte.
+func IsValidValType(b byte) bool {
+	b == ValI32 || b == ValI64 || b == ValF32 || b == ValF64 || b == ValFuncRef || b == ValExternRef
+}
+
+// CodeBuf accumulates WebAssembly function body instructions with structured block tracking.
+type CodeBuf {
+	Buf       Buf,
+	IfStack   []uint8,
+	UsesBulk  bool,
+	UsesData  bool,
+	Underflow bool,
+	BadElse   bool,
+}
+
+// NewCodeBuf creates an empty instruction builder.
+func NewCodeBuf() CodeBuf {
+	CodeBuf{Buf: NewBuf(), IfStack: []uint8{}, UsesBulk: false, UsesData: false, Underflow: false, BadElse: false}
+}
+
+// CodeLen returns the encoded instruction byte count without the trailing 0x0b body terminator.
+func CodeLen(c CodeBuf) uint32 {
+	c.Buf.BufLen()
+}
+
+// CodeBytes returns the encoded instruction bytes currently in c.
+func CodeBytes(c CodeBuf) []byte {
+	c.Buf.BufBytes()
+}
+
+// CodeBalanced reports whether all opened structured control blocks are properly closed.
+func CodeBalanced(c CodeBuf) bool {
+	!c.Underflow && !c.BadElse && c.IfStack.Len() == 0
+}
+
+// Unreachable emits the unreachable instruction.
+func Unreachable(c mut CodeBuf) { c.Buf.U8(OpUnreachable) }
+
+// Nop emits the nop instruction.
+func Nop(c mut CodeBuf) { c.Buf.U8(OpNop) }
+
+func openBlock(c mut CodeBuf, op byte, bt byte, tag uint8) {
+	c.Buf.U8(op)
+	c.Buf.U8(bt)
+	c.IfStack = c.IfStack.Append(tag)
+}
+
+func openBlockType(c mut CodeBuf, op byte, typeIdx uint32, tag uint8) {
+	c.Buf.U8(op)
+	c.Buf.SLEB64(int64(typeIdx))
+	c.IfStack = c.IfStack.Append(tag)
+}
+
+// Block opens a structured block with a value or empty blocktype.
+func Block(c mut CodeBuf, bt byte) {
+	c.openBlock(OpBlock, bt, uint8(0))
+}
+
+// BlockType opens a structured block referencing a function type signature index.
+func BlockType(c mut CodeBuf, typeIdx uint32) {
+	c.openBlockType(OpBlock, typeIdx, uint8(0))
+}
+
+// Loop opens a structured loop with a value or empty blocktype.
+func Loop(c mut CodeBuf, bt byte) {
+	c.openBlock(OpLoop, bt, uint8(0))
+}
+
+// LoopType opens a structured loop referencing a function type signature index.
+func LoopType(c mut CodeBuf, typeIdx uint32) {
+	c.openBlockType(OpLoop, typeIdx, uint8(0))
+}
+
+// If opens a structured conditional block with a value or empty blocktype.
+func If(c mut CodeBuf, bt byte) {
+	c.openBlock(OpIf, bt, uint8(1))
+}
+
+// IfType opens a structured conditional block referencing a function type signature index.
+func IfType(c mut CodeBuf, typeIdx uint32) {
+	c.openBlockType(OpIf, typeIdx, uint8(1))
+}
+
+// Else emits the else branch marker for the innermost open If block.
+func Else(c mut CodeBuf) {
+	let n = c.IfStack.Len()
+	if n == 0 || c.IfStack[n-1] != uint8(1) {
+		c.BadElse = true
+	} else {
+		c.IfStack[n-1] = uint8(2)
+	}
+	c.Buf.U8(OpElse)
+}
+
+// End closes the innermost open Block, Loop, or If block.
+func End(c mut CodeBuf) {
+	let n = c.IfStack.Len()
+	if n == 0 {
+		c.Underflow = true
+	} else {
+		c.IfStack = c.IfStack.Slice(0, n-1)
+	}
+	c.Buf.U8(OpEnd)
+}
+
+// Br emits an unconditional branch to label depth l.
+func Br(c mut CodeBuf, l uint32) {
+	c.Buf.U8(OpBr)
+	c.Buf.ULEB32(l)
+}
+
+// BrIf emits a conditional branch to label depth l.
+func BrIf(c mut CodeBuf, l uint32) {
+	c.Buf.U8(OpBrIf)
+	c.Buf.ULEB32(l)
+}
+
+// BrTable emits a jump-table branch over labels with fallback defaultLabel.
+func BrTable(c mut CodeBuf, labels []uint32, defaultLabel uint32) {
+	c.Buf.U8(OpBrTable)
+	c.Buf.ULEB32(uint32(labels.Len()))
+	for l in labels {
+		c.Buf.ULEB32(l)
+	}
+	c.Buf.ULEB32(defaultLabel)
+}
+
+// Return emits the return instruction.
+func Return(c mut CodeBuf) { c.Buf.U8(OpReturn) }
+
+// Call emits a direct call to function index funcIdx.
+func Call(c mut CodeBuf, funcIdx uint32) {
+	c.Buf.U8(OpCall)
+	c.Buf.ULEB32(funcIdx)
+}
+
+// CallIndirect emits an indirect table call with typeIdx and tableIdx.
+func CallIndirect(c mut CodeBuf, typeIdx uint32, tableIdx uint32) {
+	c.Buf.U8(OpCallIndirect)
+	c.Buf.ULEB32(typeIdx)
+	c.Buf.ULEB32(tableIdx)
+}
+
+// Drop emits the drop instruction.
+func Drop(c mut CodeBuf) { c.Buf.U8(OpDrop) }
+
+// Select emits the select instruction.
+func Select(c mut CodeBuf) { c.Buf.U8(OpSelect) }
+
+// LocalGet emits local.get for local index idx.
+func LocalGet(c mut CodeBuf, idx uint32) {
+	c.Buf.U8(OpLocalGet)
+	c.Buf.ULEB32(idx)
+}
+
+// LocalSet emits local.set for local index idx.
+func LocalSet(c mut CodeBuf, idx uint32) {
+	c.Buf.U8(OpLocalSet)
+	c.Buf.ULEB32(idx)
+}
+
+// LocalTee emits local.tee for local index idx.
+func LocalTee(c mut CodeBuf, idx uint32) {
+	c.Buf.U8(OpLocalTee)
+	c.Buf.ULEB32(idx)
+}
+
+// GlobalGet emits global.get for global index idx.
+func GlobalGet(c mut CodeBuf, idx uint32) {
+	c.Buf.U8(OpGlobalGet)
+	c.Buf.ULEB32(idx)
+}
+
+// GlobalSet emits global.set for global index idx.
+func GlobalSet(c mut CodeBuf, idx uint32) {
+	c.Buf.U8(OpGlobalSet)
+	c.Buf.ULEB32(idx)
+}
+
+func emitMemOp(c mut CodeBuf, op byte, align uint32, offset uint32) {
+	c.Buf.U8(op)
+	c.Buf.ULEB32(align)
+	c.Buf.ULEB32(offset)
+}
+
+// I32Load emits i32.load with log2 alignment and static byte offset.
+func I32Load(c mut CodeBuf, align uint32, offset uint32) { c.emitMemOp(OpI32Load, align, offset) }
+
+// I64Load emits i64.load with log2 alignment and static byte offset.
+func I64Load(c mut CodeBuf, align uint32, offset uint32) { c.emitMemOp(OpI64Load, align, offset) }
+
+// F32Load emits f32.load with log2 alignment and static byte offset.
+func F32Load(c mut CodeBuf, align uint32, offset uint32) { c.emitMemOp(OpF32Load, align, offset) }
+
+// F64Load emits f64.load with log2 alignment and static byte offset.
+func F64Load(c mut CodeBuf, align uint32, offset uint32) { c.emitMemOp(OpF64Load, align, offset) }
+
+// I32Load8S emits i32.load8_s with log2 alignment and static byte offset.
+func I32Load8S(c mut CodeBuf, align uint32, offset uint32) { c.emitMemOp(OpI32Load8S, align, offset) }
+
+// I32Load8U emits i32.load8_u with log2 alignment and static byte offset.
+func I32Load8U(c mut CodeBuf, align uint32, offset uint32) { c.emitMemOp(OpI32Load8U, align, offset) }
+
+// I32Load16S emits i32.load16_s with log2 alignment and static byte offset.
+func I32Load16S(c mut CodeBuf, align uint32, offset uint32) { c.emitMemOp(OpI32Load16S, align, offset) }
+
+// I32Load16U emits i32.load16_u with log2 alignment and static byte offset.
+func I32Load16U(c mut CodeBuf, align uint32, offset uint32) { c.emitMemOp(OpI32Load16U, align, offset) }
+
+// I64Load8S emits i64.load8_s with log2 alignment and static byte offset.
+func I64Load8S(c mut CodeBuf, align uint32, offset uint32) { c.emitMemOp(OpI64Load8S, align, offset) }
+
+// I64Load8U emits i64.load8_u with log2 alignment and static byte offset.
+func I64Load8U(c mut CodeBuf, align uint32, offset uint32) { c.emitMemOp(OpI64Load8U, align, offset) }
+
+// I64Load16S emits i64.load16_s with log2 alignment and static byte offset.
+func I64Load16S(c mut CodeBuf, align uint32, offset uint32) { c.emitMemOp(OpI64Load16S, align, offset) }
+
+// I64Load16U emits i64.load16_u with log2 alignment and static byte offset.
+func I64Load16U(c mut CodeBuf, align uint32, offset uint32) { c.emitMemOp(OpI64Load16U, align, offset) }
+
+// I64Load32S emits i64.load32_s with log2 alignment and static byte offset.
+func I64Load32S(c mut CodeBuf, align uint32, offset uint32) { c.emitMemOp(OpI64Load32S, align, offset) }
+
+// I64Load32U emits i64.load32_u with log2 alignment and static byte offset.
+func I64Load32U(c mut CodeBuf, align uint32, offset uint32) { c.emitMemOp(OpI64Load32U, align, offset) }
+
+// I32Store emits i32.store with log2 alignment and static byte offset.
+func I32Store(c mut CodeBuf, align uint32, offset uint32) { c.emitMemOp(OpI32Store, align, offset) }
+
+// I64Store emits i64.store with log2 alignment and static byte offset.
+func I64Store(c mut CodeBuf, align uint32, offset uint32) { c.emitMemOp(OpI64Store, align, offset) }
+
+// F32Store emits f32.store with log2 alignment and static byte offset.
+func F32Store(c mut CodeBuf, align uint32, offset uint32) { c.emitMemOp(OpF32Store, align, offset) }
+
+// F64Store emits f64.store with log2 alignment and static byte offset.
+func F64Store(c mut CodeBuf, align uint32, offset uint32) { c.emitMemOp(OpF64Store, align, offset) }
+
+// I32Store8 emits i32.store8 with log2 alignment and static byte offset.
+func I32Store8(c mut CodeBuf, align uint32, offset uint32) { c.emitMemOp(OpI32Store8, align, offset) }
+
+// I32Store16 emits i32.store16 with log2 alignment and static byte offset.
+func I32Store16(c mut CodeBuf, align uint32, offset uint32) { c.emitMemOp(OpI32Store16, align, offset) }
+
+// I64Store8 emits i64.store8 with log2 alignment and static byte offset.
+func I64Store8(c mut CodeBuf, align uint32, offset uint32) { c.emitMemOp(OpI64Store8, align, offset) }
+
+// I64Store16 emits i64.store16 with log2 alignment and static byte offset.
+func I64Store16(c mut CodeBuf, align uint32, offset uint32) { c.emitMemOp(OpI64Store16, align, offset) }
+
+// I64Store32 emits i64.store32 with log2 alignment and static byte offset.
+func I64Store32(c mut CodeBuf, align uint32, offset uint32) { c.emitMemOp(OpI64Store32, align, offset) }
+
+// MemorySize emits memory.size for memory 0.
+func MemorySize(c mut CodeBuf) {
+	c.Buf.U8(OpMemorySize)
+	c.Buf.U8(byte(0x00))
+}
+
+// MemoryGrow emits memory.grow for memory 0.
+func MemoryGrow(c mut CodeBuf) {
+	c.Buf.U8(OpMemoryGrow)
+	c.Buf.U8(byte(0x00))
+}
+
+// MemoryInit emits bulk-memory memory.init for passive segment dataIdx into memory 0.
+func MemoryInit(c mut CodeBuf, dataIdx uint32) {
+	c.UsesBulk = true
+	c.UsesData = true
+	c.Buf.U8(OpPrefixFC)
+	c.Buf.ULEB32(BulkMemoryInit)
+	c.Buf.ULEB32(dataIdx)
+	c.Buf.U8(byte(0x00))
+}
+
+// DataDrop emits bulk-memory data.drop for data segment dataIdx.
+func DataDrop(c mut CodeBuf, dataIdx uint32) {
+	c.UsesBulk = true
+	c.UsesData = true
+	c.Buf.U8(OpPrefixFC)
+	c.Buf.ULEB32(BulkDataDrop)
+	c.Buf.ULEB32(dataIdx)
+}
+
+// MemoryCopy emits bulk-memory memory.copy between memory 0 and memory 0.
+func MemoryCopy(c mut CodeBuf) {
+	c.UsesBulk = true
+	c.Buf.U8(OpPrefixFC)
+	c.Buf.ULEB32(BulkMemoryCopy)
+	c.Buf.U8(byte(0x00))
+	c.Buf.U8(byte(0x00))
+}
+
+// MemoryFill emits bulk-memory memory.fill for memory 0.
+func MemoryFill(c mut CodeBuf) {
+	c.UsesBulk = true
+	c.Buf.U8(OpPrefixFC)
+	c.Buf.ULEB32(BulkMemoryFill)
+	c.Buf.U8(byte(0x00))
+}
+
+// I32Const emits i32.const with signed 32-bit immediate v.
+func I32Const(c mut CodeBuf, v int32) {
+	c.Buf.U8(OpI32Const)
+	c.Buf.SLEB32(v)
+}
+
+// I32ConstU emits i32.const from two's-complement 32-bit bits u.
+func I32ConstU(c mut CodeBuf, u uint32) {
+	c.Buf.U8(OpI32Const)
+	c.Buf.SLEB32Bits(u)
+}
+
+// I64Const emits i64.const with signed 64-bit immediate v.
+func I64Const(c mut CodeBuf, v int64) {
+	c.Buf.U8(OpI64Const)
+	c.Buf.SLEB64(v)
+}
+
+// I64ConstU emits i64.const from two's-complement 64-bit bits u.
+func I64ConstU(c mut CodeBuf, u uint64) {
+	c.Buf.U8(OpI64Const)
+	c.Buf.SLEB64Bits(u)
+}
+
+// F32ConstBits emits f32.const with IEEE-754 binary32 bit pattern bits.
+func F32ConstBits(c mut CodeBuf, bits uint32) {
+	c.Buf.U8(OpF32Const)
+	c.Buf.U32LE(bits)
+}
+
+// F64ConstBits emits f64.const with IEEE-754 binary64 bit pattern bits.
+func F64ConstBits(c mut CodeBuf, bits uint64) {
+	c.Buf.U8(OpF64Const)
+	c.Buf.U64LE(bits)
+}
+
+// F64Const emits f64.const for float64 value v.
+func F64Const(c mut CodeBuf, v float64) {
+	c.F64ConstBits(Float64Bits(v))
+}
+
+// I32Eqz emits i32.eqz.
+func I32Eqz(c mut CodeBuf) { c.Buf.U8(OpI32Eqz) }
+
+// I32Eq emits i32.eq.
+func I32Eq(c mut CodeBuf) { c.Buf.U8(OpI32Eq) }
+
+// I32Ne emits i32.ne.
+func I32Ne(c mut CodeBuf) { c.Buf.U8(OpI32Ne) }
+
+// I32LtS emits i32.lt_s.
+func I32LtS(c mut CodeBuf) { c.Buf.U8(OpI32LtS) }
+
+// I32LtU emits i32.lt_u.
+func I32LtU(c mut CodeBuf) { c.Buf.U8(OpI32LtU) }
+
+// I32GtS emits i32.gt_s.
+func I32GtS(c mut CodeBuf) { c.Buf.U8(OpI32GtS) }
+
+// I32GtU emits i32.gt_u.
+func I32GtU(c mut CodeBuf) { c.Buf.U8(OpI32GtU) }
+
+// I32LeS emits i32.le_s.
+func I32LeS(c mut CodeBuf) { c.Buf.U8(OpI32LeS) }
+
+// I32LeU emits i32.le_u.
+func I32LeU(c mut CodeBuf) { c.Buf.U8(OpI32LeU) }
+
+// I32GeS emits i32.ge_s.
+func I32GeS(c mut CodeBuf) { c.Buf.U8(OpI32GeS) }
+
+// I32GeU emits i32.ge_u.
+func I32GeU(c mut CodeBuf) { c.Buf.U8(OpI32GeU) }
+
+// I32Clz emits i32.clz.
+func I32Clz(c mut CodeBuf) { c.Buf.U8(OpI32Clz) }
+
+// I32Ctz emits i32.ctz.
+func I32Ctz(c mut CodeBuf) { c.Buf.U8(OpI32Ctz) }
+
+// I32Popcnt emits i32.popcnt.
+func I32Popcnt(c mut CodeBuf) { c.Buf.U8(OpI32Popcnt) }
+
+// I32Add emits i32.add.
+func I32Add(c mut CodeBuf) { c.Buf.U8(OpI32Add) }
+
+// I32Sub emits i32.sub.
+func I32Sub(c mut CodeBuf) { c.Buf.U8(OpI32Sub) }
+
+// I32Mul emits i32.mul.
+func I32Mul(c mut CodeBuf) { c.Buf.U8(OpI32Mul) }
+
+// I32DivS emits i32.div_s.
+func I32DivS(c mut CodeBuf) { c.Buf.U8(OpI32DivS) }
+
+// I32DivU emits i32.div_u.
+func I32DivU(c mut CodeBuf) { c.Buf.U8(OpI32DivU) }
+
+// I32RemS emits i32.rem_s.
+func I32RemS(c mut CodeBuf) { c.Buf.U8(OpI32RemS) }
+
+// I32RemU emits i32.rem_u.
+func I32RemU(c mut CodeBuf) { c.Buf.U8(OpI32RemU) }
+
+// I32And emits i32.and.
+func I32And(c mut CodeBuf) { c.Buf.U8(OpI32And) }
+
+// I32Or emits i32.or.
+func I32Or(c mut CodeBuf) { c.Buf.U8(OpI32Or) }
+
+// I32Xor emits i32.xor.
+func I32Xor(c mut CodeBuf) { c.Buf.U8(OpI32Xor) }
+
+// I32Shl emits i32.shl.
+func I32Shl(c mut CodeBuf) { c.Buf.U8(OpI32Shl) }
+
+// I32ShrS emits i32.shr_s.
+func I32ShrS(c mut CodeBuf) { c.Buf.U8(OpI32ShrS) }
+
+// I32ShrU emits i32.shr_u.
+func I32ShrU(c mut CodeBuf) { c.Buf.U8(OpI32ShrU) }
+
+// I32Rotl emits i32.rotl.
+func I32Rotl(c mut CodeBuf) { c.Buf.U8(OpI32Rotl) }
+
+// I32Rotr emits i32.rotr.
+func I32Rotr(c mut CodeBuf) { c.Buf.U8(OpI32Rotr) }
+
+// I64Eqz emits i64.eqz.
+func I64Eqz(c mut CodeBuf) { c.Buf.U8(OpI64Eqz) }
+
+// I64Eq emits i64.eq.
+func I64Eq(c mut CodeBuf) { c.Buf.U8(OpI64Eq) }
+
+// I64Ne emits i64.ne.
+func I64Ne(c mut CodeBuf) { c.Buf.U8(OpI64Ne) }
+
+// I64LtS emits i64.lt_s.
+func I64LtS(c mut CodeBuf) { c.Buf.U8(OpI64LtS) }
+
+// I64LtU emits i64.lt_u.
+func I64LtU(c mut CodeBuf) { c.Buf.U8(OpI64LtU) }
+
+// I64GtS emits i64.gt_s.
+func I64GtS(c mut CodeBuf) { c.Buf.U8(OpI64GtS) }
+
+// I64GtU emits i64.gt_u.
+func I64GtU(c mut CodeBuf) { c.Buf.U8(OpI64GtU) }
+
+// I64LeS emits i64.le_s.
+func I64LeS(c mut CodeBuf) { c.Buf.U8(OpI64LeS) }
+
+// I64LeU emits i64.le_u.
+func I64LeU(c mut CodeBuf) { c.Buf.U8(OpI64LeU) }
+
+// I64GeS emits i64.ge_s.
+func I64GeS(c mut CodeBuf) { c.Buf.U8(OpI64GeS) }
+
+// I64GeU emits i64.ge_u.
+func I64GeU(c mut CodeBuf) { c.Buf.U8(OpI64GeU) }
+
+// I64Clz emits i64.clz.
+func I64Clz(c mut CodeBuf) { c.Buf.U8(OpI64Clz) }
+
+// I64Ctz emits i64.ctz.
+func I64Ctz(c mut CodeBuf) { c.Buf.U8(OpI64Ctz) }
+
+// I64Popcnt emits i64.popcnt.
+func I64Popcnt(c mut CodeBuf) { c.Buf.U8(OpI64Popcnt) }
+
+// I64Add emits i64.add.
+func I64Add(c mut CodeBuf) { c.Buf.U8(OpI64Add) }
+
+// I64Sub emits i64.sub.
+func I64Sub(c mut CodeBuf) { c.Buf.U8(OpI64Sub) }
+
+// I64Mul emits i64.mul.
+func I64Mul(c mut CodeBuf) { c.Buf.U8(OpI64Mul) }
+
+// I64DivS emits i64.div_s.
+func I64DivS(c mut CodeBuf) { c.Buf.U8(OpI64DivS) }
+
+// I64DivU emits i64.div_u.
+func I64DivU(c mut CodeBuf) { c.Buf.U8(OpI64DivU) }
+
+// I64RemS emits i64.rem_s.
+func I64RemS(c mut CodeBuf) { c.Buf.U8(OpI64RemS) }
+
+// I64RemU emits i64.rem_u.
+func I64RemU(c mut CodeBuf) { c.Buf.U8(OpI64RemU) }
+
+// I64And emits i64.and.
+func I64And(c mut CodeBuf) { c.Buf.U8(OpI64And) }
+
+// I64Or emits i64.or.
+func I64Or(c mut CodeBuf) { c.Buf.U8(OpI64Or) }
+
+// I64Xor emits i64.xor.
+func I64Xor(c mut CodeBuf) { c.Buf.U8(OpI64Xor) }
+
+// I64Shl emits i64.shl.
+func I64Shl(c mut CodeBuf) { c.Buf.U8(OpI64Shl) }
+
+// I64ShrS emits i64.shr_s.
+func I64ShrS(c mut CodeBuf) { c.Buf.U8(OpI64ShrS) }
+
+// I64ShrU emits i64.shr_u.
+func I64ShrU(c mut CodeBuf) { c.Buf.U8(OpI64ShrU) }
+
+// I64Rotl emits i64.rotl.
+func I64Rotl(c mut CodeBuf) { c.Buf.U8(OpI64Rotl) }
+
+// I64Rotr emits i64.rotr.
+func I64Rotr(c mut CodeBuf) { c.Buf.U8(OpI64Rotr) }
+
+// F64Eq emits f64.eq.
+func F64Eq(c mut CodeBuf) { c.Buf.U8(OpF64Eq) }
+
+// F64Ne emits f64.ne.
+func F64Ne(c mut CodeBuf) { c.Buf.U8(OpF64Ne) }
+
+// F64Lt emits f64.lt.
+func F64Lt(c mut CodeBuf) { c.Buf.U8(OpF64Lt) }
+
+// F64Gt emits f64.gt.
+func F64Gt(c mut CodeBuf) { c.Buf.U8(OpF64Gt) }
+
+// F64Le emits f64.le.
+func F64Le(c mut CodeBuf) { c.Buf.U8(OpF64Le) }
+
+// F64Ge emits f64.ge.
+func F64Ge(c mut CodeBuf) { c.Buf.U8(OpF64Ge) }
+
+// F64Abs emits f64.abs.
+func F64Abs(c mut CodeBuf) { c.Buf.U8(OpF64Abs) }
+
+// F64Neg emits f64.neg.
+func F64Neg(c mut CodeBuf) { c.Buf.U8(OpF64Neg) }
+
+// F64Ceil emits f64.ceil.
+func F64Ceil(c mut CodeBuf) { c.Buf.U8(OpF64Ceil) }
+
+// F64Floor emits f64.floor.
+func F64Floor(c mut CodeBuf) { c.Buf.U8(OpF64Floor) }
+
+// F64Trunc emits f64.trunc.
+func F64Trunc(c mut CodeBuf) { c.Buf.U8(OpF64Trunc) }
+
+// F64Nearest emits f64.nearest.
+func F64Nearest(c mut CodeBuf) { c.Buf.U8(OpF64Nearest) }
+
+// F64Sqrt emits f64.sqrt.
+func F64Sqrt(c mut CodeBuf) { c.Buf.U8(OpF64Sqrt) }
+
+// F64Add emits f64.add.
+func F64Add(c mut CodeBuf) { c.Buf.U8(OpF64Add) }
+
+// F64Sub emits f64.sub.
+func F64Sub(c mut CodeBuf) { c.Buf.U8(OpF64Sub) }
+
+// F64Mul emits f64.mul.
+func F64Mul(c mut CodeBuf) { c.Buf.U8(OpF64Mul) }
+
+// F64Div emits f64.div.
+func F64Div(c mut CodeBuf) { c.Buf.U8(OpF64Div) }
+
+// F64Min emits f64.min.
+func F64Min(c mut CodeBuf) { c.Buf.U8(OpF64Min) }
+
+// F64Max emits f64.max.
+func F64Max(c mut CodeBuf) { c.Buf.U8(OpF64Max) }
+
+// F64Copysign emits f64.copysign.
+func F64Copysign(c mut CodeBuf) { c.Buf.U8(OpF64Copysign) }
+
+// I32WrapI64 emits i32.wrap_i64.
+func I32WrapI64(c mut CodeBuf) { c.Buf.U8(OpI32WrapI64) }
+
+// I32TruncF64S emits i32.trunc_f64_s.
+func I32TruncF64S(c mut CodeBuf) { c.Buf.U8(OpI32TruncF64S) }
+
+// I32TruncF64U emits i32.trunc_f64_u.
+func I32TruncF64U(c mut CodeBuf) { c.Buf.U8(OpI32TruncF64U) }
+
+// I64ExtendI32S emits i64.extend_i32_s.
+func I64ExtendI32S(c mut CodeBuf) { c.Buf.U8(OpI64ExtendI32S) }
+
+// I64ExtendI32U emits i64.extend_i32_u.
+func I64ExtendI32U(c mut CodeBuf) { c.Buf.U8(OpI64ExtendI32U) }
+
+// I64TruncF64S emits i64.trunc_f64_s.
+func I64TruncF64S(c mut CodeBuf) { c.Buf.U8(OpI64TruncF64S) }
+
+// I64TruncF64U emits i64.trunc_f64_u.
+func I64TruncF64U(c mut CodeBuf) { c.Buf.U8(OpI64TruncF64U) }
+
+// F64ConvertI32S emits f64.convert_i32_s.
+func F64ConvertI32S(c mut CodeBuf) { c.Buf.U8(OpF64ConvertI32S) }
+
+// F64ConvertI32U emits f64.convert_i32_u.
+func F64ConvertI32U(c mut CodeBuf) { c.Buf.U8(OpF64ConvertI32U) }
+
+// F64ConvertI64S emits f64.convert_i64_s.
+func F64ConvertI64S(c mut CodeBuf) { c.Buf.U8(OpF64ConvertI64S) }
+
+// F64ConvertI64U emits f64.convert_i64_u.
+func F64ConvertI64U(c mut CodeBuf) { c.Buf.U8(OpF64ConvertI64U) }
+
+// I64ReinterpretF64 emits i64.reinterpret_f64.
+func I64ReinterpretF64(c mut CodeBuf) { c.Buf.U8(OpI64ReinterpretF64) }
+
+// F64ReinterpretI64 emits f64.reinterpret_i64.
+func F64ReinterpretI64(c mut CodeBuf) { c.Buf.U8(OpF64ReinterpretI64) }
+
+// I32Extend8S emits i32.extend8_s.
+func I32Extend8S(c mut CodeBuf) { c.Buf.U8(OpI32Extend8S) }
+
+// I32Extend16S emits i32.extend16_s.
+func I32Extend16S(c mut CodeBuf) { c.Buf.U8(OpI32Extend16S) }
+
+// I64Extend8S emits i64.extend8_s.
+func I64Extend8S(c mut CodeBuf) { c.Buf.U8(OpI64Extend8S) }
+
+// I64Extend16S emits i64.extend16_s.
+func I64Extend16S(c mut CodeBuf) { c.Buf.U8(OpI64Extend16S) }
+
+// I64Extend32S emits i64.extend32_s.
+func I64Extend32S(c mut CodeBuf) { c.Buf.U8(OpI64Extend32S) }
+
+// CodeBufTracksNestingAndBulkFlags proves structured block balance and bulk-memory detection.
+law CodeBufTracksNestingAndBulkFlags(depth int) {
+	let n = (depth%5+5)%5 + 1
+	let mut cb = NewCodeBuf()
+	for _ in 0..n {
+		cb.Block(BlockEmpty)
+	}
+	cb.If(ValI32)
+	cb.I32Const(int32(1))
+	cb.Else()
+	cb.I32Const(int32(2))
+	cb.End()
+	for _ in 0..n {
+		cb.End()
+	}
+	let bal = cb.CodeBalanced() && !cb.UsesBulk
+	cb.MemoryCopy()
+	bal && cb.UsesBulk && !cb.UsesData
+}
+
+test CodeBufDetectsUnbalancedAndInvalidElse {
+	let mut unclosed = NewCodeBuf()
+	unclosed.Loop(BlockEmpty)
+	assert !unclosed.CodeBalanced()
+	unclosed.End()
+	assert unclosed.CodeBalanced()
+
+	let mut extraEnd = NewCodeBuf()
+	extraEnd.End()
+	assert !extraEnd.CodeBalanced()
+
+	let mut badElse = NewCodeBuf()
+	badElse.Block(BlockEmpty)
+	badElse.Else()
+	badElse.End()
+	assert !badElse.CodeBalanced()
+}

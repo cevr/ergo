@@ -1,0 +1,547 @@
+import slices
+
+// InitI32 selects an i32.const initializer expression.
+let InitI32 = uint8(1)
+
+// InitI64 selects an i64.const initializer expression.
+let InitI64 = uint8(2)
+
+// InitF32 selects an f32.const initializer expression.
+let InitF32 = uint8(3)
+
+// InitF64 selects an f64.const initializer expression.
+let InitF64 = uint8(4)
+
+// InitGlobalGet selects a global.get initializer expression.
+let InitGlobalGet = uint8(5)
+
+// InitExpr represents a WebAssembly constant initializer expression.
+type InitExpr {
+	Kind      uint8,
+	Bits      uint64,
+	GlobalIdx uint32,
+}
+
+// InitConstI32 creates an i32.const initializer expression.
+func InitConstI32(v int32) InitExpr {
+	InitExpr{Kind: InitI32, Bits: uint64(BitsFromInt32(v)), GlobalIdx: uint32(0)}
+}
+
+// InitConstI32U creates an i32.const initializer expression from 32-bit two's-complement bits.
+func InitConstI32U(v uint32) InitExpr {
+	InitExpr{Kind: InitI32, Bits: uint64(v), GlobalIdx: uint32(0)}
+}
+
+// InitConstI64 creates an i64.const initializer expression.
+func InitConstI64(v int64) InitExpr {
+	InitExpr{Kind: InitI64, Bits: BitsFromInt64(v), GlobalIdx: uint32(0)}
+}
+
+// InitConstI64U creates an i64.const initializer expression from 64-bit bits.
+func InitConstI64U(v uint64) InitExpr {
+	InitExpr{Kind: InitI64, Bits: v, GlobalIdx: uint32(0)}
+}
+
+// InitConstF32Bits creates an f32.const initializer expression from binary32 bits.
+func InitConstF32Bits(bits uint32) InitExpr {
+	InitExpr{Kind: InitF32, Bits: uint64(bits), GlobalIdx: uint32(0)}
+}
+
+// InitConstF64Bits creates an f64.const initializer expression from binary64 bits.
+func InitConstF64Bits(bits uint64) InitExpr {
+	InitExpr{Kind: InitF64, Bits: bits, GlobalIdx: uint32(0)}
+}
+
+// InitConstF64 creates an f64.const initializer expression for f.
+func InitConstF64(f float64) InitExpr {
+	InitConstF64Bits(Float64Bits(f))
+}
+
+// InitConstGlobalGet creates a global.get initializer expression referencing globalIdx.
+func InitConstGlobalGet(globalIdx uint32) InitExpr {
+	InitExpr{Kind: InitGlobalGet, Bits: uint64(0), GlobalIdx: globalIdx}
+}
+
+// FuncSig stores dense spans into Module's ParamTypes and ResultTypes pools.
+type FuncSig {
+	ParamOff  uint32,
+	ParamLen  uint32,
+	ResultOff uint32,
+	ResultLen uint32,
+}
+
+// ImportDef describes one imported function, memory, or global.
+type ImportDef {
+	Module     string,
+	Name       string,
+	Kind       uint8,
+	TypeIdx    uint32,
+	MemMin     uint32,
+	MemMax     uint32,
+	MemHasMax  bool,
+	GlobalType uint8,
+	GlobalMut  bool,
+}
+
+// MemDef describes one defined linear memory's page limits.
+type MemDef {
+	Min    uint32,
+	Max    uint32,
+	HasMax bool,
+}
+
+// GlobalDef describes one defined module global variable.
+type GlobalDef {
+	ValType uint8,
+	Mutable bool,
+	Init    InitExpr,
+}
+
+// ExportDef describes one exported function, memory, or global.
+type ExportDef {
+	Name  string,
+	Kind  uint8,
+	Index uint32,
+}
+
+// LocalRun is one run-length-compressed local declaration entry.
+type LocalRun {
+	Count   uint32,
+	ValType uint8,
+}
+
+// FuncDef describes one defined function's signature index, locals span, and code span.
+type FuncDef {
+	TypeIdx  uint32,
+	LocalOff uint32,
+	LocalLen uint32,
+	CodeOff  uint32,
+	CodeLen  uint32,
+	UsesBulk bool,
+	UsesData bool,
+}
+
+// DataSeg describes one active or passive linear-memory data segment.
+type DataSeg {
+	Passive bool,
+	MemIdx  uint32,
+	Offset  InitExpr,
+	DataOff uint32,
+	DataLen uint32,
+}
+
+// Module holds a flat data-oriented WebAssembly 1.0 + bulk-memory module definition.
+type Module {
+	ParamTypes    []byte,
+	ResultTypes   []byte,
+	Sigs          []FuncSig,
+	Imports       []ImportDef,
+	Funcs         []FuncDef,
+	LocalRuns     []LocalRun,
+	CodeBytes     []byte,
+	Mems          []MemDef,
+	Globals       []GlobalDef,
+	Exports       []ExportDef,
+	HasStart      bool,
+	StartIdx      uint32,
+	DataSegs      []DataSeg,
+	DataPool      []byte,
+	EmitDataCount bool,
+}
+
+// NewModule creates an empty WebAssembly Module builder.
+func NewModule() Module {
+	Module{
+		ParamTypes:    []byte{},
+		ResultTypes:   []byte{},
+		Sigs:          []FuncSig{},
+		Imports:       []ImportDef{},
+		Funcs:         []FuncDef{},
+		LocalRuns:     []LocalRun{},
+		CodeBytes:     []byte{},
+		Mems:          []MemDef{},
+		Globals:       []GlobalDef{},
+		Exports:       []ExportDef{},
+		HasStart:      false,
+		StartIdx:      uint32(0),
+		DataSegs:      []DataSeg{},
+		DataPool:      []byte{},
+		EmitDataCount: false,
+	}
+}
+
+func importCountByKind(m Module, kind uint8) uint32 {
+	let mut n = uint32(0)
+	for imp in m.Imports {
+		if imp.Kind == kind {
+			n = n + uint32(1)
+		}
+	}
+	n
+}
+
+// ImportedFuncCount returns the number of imported functions in m.
+func ImportedFuncCount(m Module) uint32 {
+	importCountByKind(m, KindFunc)
+}
+
+// ImportedMemCount returns the number of imported memories in m.
+func ImportedMemCount(m Module) uint32 {
+	importCountByKind(m, KindMem)
+}
+
+// ImportedGlobalCount returns the number of imported globals in m.
+func ImportedGlobalCount(m Module) uint32 {
+	importCountByKind(m, KindGlobal)
+}
+
+// TotalFuncCount returns the total number of imported and defined functions in m.
+func TotalFuncCount(m Module) uint32 {
+	ImportedFuncCount(m) + uint32(m.Funcs.Len())
+}
+
+// TotalMemCount returns the total number of imported and defined memories in m.
+func TotalMemCount(m Module) uint32 {
+	ImportedMemCount(m) + uint32(m.Mems.Len())
+}
+
+// TotalGlobalCount returns the total number of imported and defined globals in m.
+func TotalGlobalCount(m Module) uint32 {
+	ImportedGlobalCount(m) + uint32(m.Globals.Len())
+}
+
+func bytesSliceEqual(pool []byte, off uint32, length uint32, want []byte) bool {
+	if int(length) != want.Len() {
+		return false
+	}
+	let base = int(off)
+	for i in 0..want.Len() {
+		if pool[base+i] != want[i] {
+			return false
+		}
+	}
+	true
+}
+
+// AddType appends a function signature to the Type section and returns its type index.
+func AddType(m mut Module, params []byte, results []byte) uint32 {
+	let idx = uint32(m.Sigs.Len())
+	let pOff = uint32(m.ParamTypes.Len())
+	m.ParamTypes = m.ParamTypes.AppendBytes(params)
+	let rOff = uint32(m.ResultTypes.Len())
+	m.ResultTypes = m.ResultTypes.AppendBytes(results)
+	m.Sigs = m.Sigs.Append(FuncSig{
+		ParamOff:  pOff,
+		ParamLen:  uint32(params.Len()),
+		ResultOff: rOff,
+		ResultLen: uint32(results.Len()),
+	})
+	idx
+}
+
+// InternType returns an existing matching signature index or appends a new one.
+func InternType(m mut Module, params []byte, results []byte) uint32 {
+	for i, s in m.Sigs {
+		if bytesSliceEqual(m.ParamTypes, s.ParamOff, s.ParamLen, params) && bytesSliceEqual(m.ResultTypes, s.ResultOff, s.ResultLen, results) {
+			return uint32(i)
+		}
+	}
+	m.AddType(params, results)
+}
+
+// SigParams returns the parameter value types of signature sigIdx.
+func SigParams(m Module, sigIdx uint32) []byte {
+	let s = m.Sigs[int(sigIdx)]
+	let start = int(s.ParamOff)
+	m.ParamTypes.Slice(start, start+int(s.ParamLen))
+}
+
+// SigResults returns the result value types of signature sigIdx.
+func SigResults(m Module, sigIdx uint32) []byte {
+	let s = m.Sigs[int(sigIdx)]
+	let start = int(s.ResultOff)
+	m.ResultTypes.Slice(start, start+int(s.ResultLen))
+}
+
+// AddImportFunc adds an imported function and returns its WebAssembly function index.
+func AddImportFunc(m mut Module, mod string, name string, typeIdx uint32) uint32 fails WasmError {
+	if m.Funcs.Len() > 0 {
+		return errAt("invalid-index", uint32(0), "imported functions must be added before defined functions")
+	}
+	let idx = ImportedFuncCount(*m)
+	m.Imports = m.Imports.Append(ImportDef{
+		Module:     mod,
+		Name:       name,
+		Kind:       KindFunc,
+		TypeIdx:    typeIdx,
+		MemMin:     uint32(0),
+		MemMax:     uint32(0),
+		MemHasMax:  false,
+		GlobalType: byte(0),
+		GlobalMut:  false,
+	})
+	idx
+}
+
+// AddImportMem adds an imported linear memory and returns its memory index.
+func AddImportMem(m mut Module, mod string, name string, minPages uint32, maxPages uint32, hasMax bool) uint32 fails WasmError {
+	if m.Mems.Len() > 0 {
+		return errAt("invalid-index", uint32(0), "imported memories must be added before defined memories")
+	}
+	let idx = ImportedMemCount(*m)
+	m.Imports = m.Imports.Append(ImportDef{
+		Module:     mod,
+		Name:       name,
+		Kind:       KindMem,
+		TypeIdx:    uint32(0),
+		MemMin:     minPages,
+		MemMax:     maxPages,
+		MemHasMax:  hasMax,
+		GlobalType: byte(0),
+		GlobalMut:  false,
+	})
+	idx
+}
+
+// AddImportGlobal adds an imported global variable and returns its global index.
+func AddImportGlobal(m mut Module, mod string, name string, valType uint8, mutable bool) uint32 fails WasmError {
+	if m.Globals.Len() > 0 {
+		return errAt("invalid-index", uint32(0), "imported globals must be added before defined globals")
+	}
+	let idx = ImportedGlobalCount(*m)
+	m.Imports = m.Imports.Append(ImportDef{
+		Module:     mod,
+		Name:       name,
+		Kind:       KindGlobal,
+		TypeIdx:    uint32(0),
+		MemMin:     uint32(0),
+		MemMax:     uint32(0),
+		MemHasMax:  false,
+		GlobalType: valType,
+		GlobalMut:  mutable,
+	})
+	idx
+}
+
+// AddMemory adds an unbounded linear memory with minPages initial 64KiB pages.
+func AddMemory(m mut Module, minPages uint32) uint32 {
+	let idx = TotalMemCount(*m)
+	m.Mems = m.Mems.Append(MemDef{Min: minPages, Max: uint32(0), HasMax: false})
+	idx
+}
+
+// AddMemoryBounded adds a bounded linear memory with minPages and maxPages limits.
+func AddMemoryBounded(m mut Module, minPages uint32, maxPages uint32) uint32 {
+	let idx = TotalMemCount(*m)
+	m.Mems = m.Mems.Append(MemDef{Min: minPages, Max: maxPages, HasMax: true})
+	idx
+}
+
+// AddGlobal adds a defined global variable and returns its global index.
+func AddGlobal(m mut Module, valType uint8, mutable bool, init InitExpr) uint32 {
+	let idx = TotalGlobalCount(*m)
+	m.Globals = m.Globals.Append(GlobalDef{ValType: valType, Mutable: mutable, Init: init})
+	idx
+}
+
+// CompressLocals run-length encodes a flat slice of non-parameter local types.
+func CompressLocals(locals []byte) []LocalRun {
+	let mut runs = []LocalRun{}
+	for t in locals {
+		let n = runs.Len()
+		if n > 0 && runs[n-1].ValType == t {
+			runs[n-1] = LocalRun{Count: runs[n-1].Count + uint32(1), ValType: t}
+		} else {
+			runs = runs.Append(LocalRun{Count: uint32(1), ValType: t})
+		}
+	}
+	runs
+}
+
+func appendNormalizedRuns(m mut Module, runs []LocalRun) (uint32, uint32) {
+	let off = uint32(m.LocalRuns.Len())
+	let mut count = uint32(0)
+	for r in runs {
+		if r.Count == uint32(0) {
+			continue
+		}
+		if count > uint32(0) {
+			let last = m.LocalRuns.Len() - 1
+			if m.LocalRuns[last].ValType == r.ValType {
+				m.LocalRuns[last] = LocalRun{Count: m.LocalRuns[last].Count + r.Count, ValType: r.ValType}
+				continue
+			}
+		}
+		m.LocalRuns = m.LocalRuns.Append(r)
+		count = count + uint32(1)
+	}
+	(off, count)
+}
+
+// AddFuncRuns defines a function using explicit LocalRun entries and returns its function index.
+func AddFuncRuns(m mut Module, typeIdx uint32, runs []LocalRun, body CodeBuf) uint32 fails WasmError {
+	if !body.CodeBalanced() {
+		return errAt("unbalanced-block", uint32(0), "function body has unbalanced control blocks")
+	}
+	let idx = TotalFuncCount(*m)
+	let (locOff, locLen) = m.appendNormalizedRuns(runs)
+	let codeOff = uint32(m.CodeBytes.Len())
+	let bs = body.CodeBytes()
+	m.CodeBytes = m.CodeBytes.AppendBytes(bs)
+	m.Funcs = m.Funcs.Append(FuncDef{
+		TypeIdx:  typeIdx,
+		LocalOff: locOff,
+		LocalLen: locLen,
+		CodeOff:  codeOff,
+		CodeLen:  uint32(bs.Len()),
+		UsesBulk: body.UsesBulk,
+		UsesData: body.UsesData,
+	})
+	idx
+}
+
+// AddFunc defines a function with run-length compressed locals and returns its function index.
+func AddFunc(m mut Module, typeIdx uint32, locals []byte, body CodeBuf) uint32 fails WasmError {
+	m.AddFuncRuns(typeIdx, CompressLocals(locals), body)
+}
+
+// FuncLocals returns the LocalRun declarations of defined function defIdx.
+func FuncLocals(m Module, defIdx uint32) []LocalRun {
+	let fd = m.Funcs[int(defIdx)]
+	let start = int(fd.LocalOff)
+	m.LocalRuns.Slice(start, start+int(fd.LocalLen))
+}
+
+// FuncCode returns the body instruction bytes (without trailing 0x0b) of defined function defIdx.
+func FuncCode(m Module, defIdx uint32) []byte {
+	let fd = m.Funcs[int(defIdx)]
+	let start = int(fd.CodeOff)
+	m.CodeBytes.Slice(start, start+int(fd.CodeLen))
+}
+
+// AddExportFunc exports function funcIdx under name.
+func AddExportFunc(m mut Module, name string, funcIdx uint32) {
+	m.Exports = m.Exports.Append(ExportDef{Name: name, Kind: KindFunc, Index: funcIdx})
+}
+
+// AddExportMem exports memory memIdx under name.
+func AddExportMem(m mut Module, name string, memIdx uint32) {
+	m.Exports = m.Exports.Append(ExportDef{Name: name, Kind: KindMem, Index: memIdx})
+}
+
+// AddExportGlobal exports global globalIdx under name.
+func AddExportGlobal(m mut Module, name string, globalIdx uint32) {
+	m.Exports = m.Exports.Append(ExportDef{Name: name, Kind: KindGlobal, Index: globalIdx})
+}
+
+// SetStart sets the module start function index.
+func SetStart(m mut Module, funcIdx uint32) {
+	m.HasStart = true
+	m.StartIdx = funcIdx
+}
+
+// AddActiveDataAt appends an active data segment at explicit memory index and offset expr.
+func AddActiveDataAt(m mut Module, memIdx uint32, offset InitExpr, bs []byte) uint32 {
+	let idx = uint32(m.DataSegs.Len())
+	let off = uint32(m.DataPool.Len())
+	m.DataPool = m.DataPool.AppendBytes(bs)
+	m.DataSegs = m.DataSegs.Append(DataSeg{
+		Passive: false,
+		MemIdx:  memIdx,
+		Offset:  offset,
+		DataOff: off,
+		DataLen: uint32(bs.Len()),
+	})
+	idx
+}
+
+// AddActiveData appends an active data segment in memory 0 at constant i32 offset.
+func AddActiveData(m mut Module, offset int32, bs []byte) uint32 {
+	m.AddActiveDataAt(uint32(0), InitConstI32(offset), bs)
+}
+
+// AddPassiveData appends a passive bulk-memory data segment and returns its data index.
+func AddPassiveData(m mut Module, bs []byte) uint32 {
+	let idx = uint32(m.DataSegs.Len())
+	let off = uint32(m.DataPool.Len())
+	m.DataPool = m.DataPool.AppendBytes(bs)
+	m.DataSegs = m.DataSegs.Append(DataSeg{
+		Passive: true,
+		MemIdx:  uint32(0),
+		Offset:  InitConstI32(int32(0)),
+		DataOff: off,
+		DataLen: uint32(bs.Len()),
+	})
+	idx
+}
+
+// DataBytes returns the payload bytes of data segment segIdx.
+func DataBytes(m Module, segIdx uint32) []byte {
+	let d = m.DataSegs[int(segIdx)]
+	let start = int(d.DataOff)
+	m.DataPool.Slice(start, start+int(d.DataLen))
+}
+
+// CompressLocalsCollapsesRuns proves adjacent identical local types merge cleanly and preserve total count.
+law CompressLocalsCollapsesRuns(types []uint8) {
+	let mut raw = slices.WithCapacity[byte](types.Len())
+	for t in types {
+		let k = int(t) % 4
+		let vt = if k == 0 { ValI32 } else if k == 1 { ValI64 } else if k == 2 { ValF32 } else { ValF64 }
+		raw = raw.Append(vt)
+	}
+	let runs = CompressLocals(raw)
+	let mut total = uint32(0)
+	let mut ok = true
+	for i, r in runs {
+		total = total + r.Count
+		if r.Count == uint32(0) {
+			ok = false
+		}
+		if i > 0 && runs[i-1].ValType == r.ValType {
+			ok = false
+		}
+	}
+	ok && total == uint32(raw.Len())
+}
+
+test ModuleBuilderInternAndIndices {
+	let mut m = NewModule()
+	let t0 = m.InternType([]byte{ValI32, ValI32}, []byte{ValI32})
+	let t1 = m.InternType([]byte{ValI32, ValI32}, []byte{ValI32})
+	let t2 = m.InternType([]byte{}, []byte{ValI32, ValI32})
+	assert t0 == uint32(0) && t1 == uint32(0) && t2 == uint32(1)
+	assert m.SigParams(t0) == []byte{ValI32, ValI32}
+	assert m.SigResults(t2) == []byte{ValI32, ValI32}
+
+	let impF = m.AddImportFunc("env", "log", t0) catch {
+	case WasmError:
+		uint32(99)
+	}
+	assert impF == uint32(0)
+	let mem0 = m.AddMemoryBounded(uint32(1), uint32(4))
+	assert mem0 == uint32(0)
+	let g0 = m.AddGlobal(ValI32, true, InitConstI32(int32(1024)))
+	assert g0 == uint32(0)
+
+	let mut cb = NewCodeBuf()
+	cb.LocalGet(uint32(0))
+	cb.LocalGet(uint32(1))
+	cb.I32Add()
+	let fn0 = m.AddFunc(t0, []byte{ValI32, ValI32, ValI64}, cb) catch {
+	case WasmError:
+		uint32(99)
+	}
+	assert fn0 == uint32(1)
+	assert m.FuncLocals(uint32(0)).Len() == 2
+	assert m.FuncLocals(uint32(0))[0].Count == uint32(2)
+	assert m.FuncLocals(uint32(0))[0].ValType == ValI32
+	assert m.FuncLocals(uint32(0))[1].Count == uint32(1)
+	assert m.FuncLocals(uint32(0))[1].ValType == ValI64
+
+	let d0 = m.AddActiveData(int32(16), "hello".Bytes())
+	let d1 = m.AddPassiveData("world".Bytes())
+	assert d0 == uint32(0) && d1 == uint32(1)
+	assert m.DataBytes(d0).Text() == "hello"
+	assert m.DataBytes(d1).Text() == "world"
+}

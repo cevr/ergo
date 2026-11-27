@@ -1,0 +1,255 @@
+{
+  "about": "compiler/wasmfmt: pure-Ergo DoD WebAssembly 1.0 + bulk-memory binary emitter and structural decoder/validator. Every mutant breaks one binary format, LEB128, section ordering, opcode, local compression, data segment, or decoder validation invariant.",
+  "mutants": [
+    {
+      "name": "wasmfmt-uleb32-drop-cont-bit",
+      "origin": "NB-6A-WASM32-EMITTER",
+      "file": "compiler/wasmfmt/leb.ergo",
+      "decl": "ULEB32",
+      "from": "\t\tw.U8(b | byte(0x80))\n",
+      "to": "\t\tw.U8(b)\n",
+      "rule": "Canonical ULEB32 multi-byte encodings must set continuation bit 0x80 on all non-final bytes.",
+      "killers": ["compiler/wasmfmt:law:ULEB32RoundTrips"]
+    },
+    {
+      "name": "wasmfmt-sleb32-drop-sign-check",
+      "origin": "NB-6A-WASM32-EMITTER",
+      "file": "compiler/wasmfmt/leb.ergo",
+      "decl": "SLEB32",
+      "from": "\t\tlet signBit = b & byte(0x40)\n",
+      "to": "\t\tlet signBit = byte(0)\n",
+      "rule": "Canonical SLEB32 termination requires checking bit 6 of the final byte against the sign of the remaining shifted value.",
+      "killers": ["compiler/wasmfmt:law:SLEB32RoundTrips"]
+    },
+    {
+      "name": "wasmfmt-sleb64-wrong-shift",
+      "origin": "NB-6A-WASM32-EMITTER",
+      "file": "compiler/wasmfmt/leb.ergo",
+      "decl": "SLEB64",
+      "from": "\t\tx = x >> 7\n",
+      "to": "\t\tx = x >> 6\n",
+      "rule": "SLEB64 encodes 7 payload bits per byte and must shift by 7.",
+      "killers": ["compiler/wasmfmt:law:SLEB64RoundTrips"]
+    },
+    {
+      "name": "wasmfmt-uleb32-allow-overlong-zero",
+      "origin": "NB-6A-WASM32-EMITTER",
+      "file": "compiler/wasmfmt/leb.ergo",
+      "decl": "ReadULEB32",
+      "from": "\t\tif !more && idx > 0 && low == uint32(0) {\n\t\t\treturn errAt(\"overlong-leb\", start, \"non-minimal trailing zero byte in uleb32\")\n\t\t}\n",
+      "to": "\t\tif false && !more && idx > 0 && low == uint32(0) {\n\t\t\treturn errAt(\"overlong-leb\", start, \"non-minimal trailing zero byte in uleb32\")\n\t\t}\n",
+      "rule": "Strict ReadULEB32 must reject non-minimal overlong encodings with redundant trailing zero bytes.",
+      "killers": ["compiler/wasmfmt:LEB128BoundariesAndMalformedRejected"]
+    },
+    {
+      "name": "wasmfmt-uleb32-skip-highbit-check",
+      "origin": "NB-6A-WASM32-EMITTER",
+      "file": "compiler/wasmfmt/leb.ergo",
+      "decl": "ReadULEB32",
+      "from": "\t\t\tif (b & byte(0x70)) != byte(0) {\n\t\t\t\treturn errAt(\"noncanonical-leb\", start, \"uleb32 sets unused high bits\")\n\t\t\t}\n",
+      "to": "\t\t\tif false && (b&byte(0x70)) != byte(0) {\n\t\t\t\treturn errAt(\"noncanonical-leb\", start, \"uleb32 sets unused high bits\")\n\t\t\t}\n",
+      "rule": "Strict ReadULEB32 must reject 5th-byte encodings that set unused bits above bit 31.",
+      "killers": ["compiler/wasmfmt:LEB128BoundariesAndMalformedRejected"]
+    },
+    {
+      "name": "wasmfmt-sleb64-skip-final-sign-check",
+      "origin": "NB-6A-WASM32-EMITTER",
+      "file": "compiler/wasmfmt/leb.ergo",
+      "decl": "ReadSLEB64Bits",
+      "from": "\t\t\ttry checkSLEB64FinalByte(start, b)\n",
+      "to": "",
+      "rule": "Strict ReadSLEB64Bits must validate canonical sign extension on the 10th byte.",
+      "killers": ["compiler/wasmfmt:LEB128BoundariesAndMalformedRejected"]
+    },
+    {
+      "name": "wasmfmt-float64-neg-zero-lost",
+      "origin": "NB-6A-WASM32-EMITTER",
+      "file": "compiler/wasmfmt/leb.ergo",
+      "decl": "Float64Bits",
+      "from": "\tlet neg = f < 0.0 || (f == 0.0 && math.IsInf(1.0/f, -1))\n",
+      "to": "\tlet neg = f < 0.0\n",
+      "rule": "Float64Bits must preserve the sign bit of -0.0 via 1.0 / -0.0 == -Inf.",
+      "killers": ["compiler/wasmfmt:LEB128BoundariesAndMalformedRejected", "compiler/wasmfmt:law:Float64BitsRoundTrips"]
+    },
+    {
+      "name": "wasmfmt-wrong-magic-header",
+      "origin": "NB-6A-WASM32-EMITTER",
+      "file": "compiler/wasmfmt/leb.ergo",
+      "decl": "WriteHeader",
+      "from": "\tw.U8(WasmMagic3)\n",
+      "to": "\tw.U8(WasmMagic2)\n",
+      "rule": "WriteHeader must write the exact 4-byte \\0asm magic preamble.",
+      "killers": ["compiler/wasmfmt:law:EmittedModuleRoundTrips", "compiler/wasmfmt:ExecFixturesBuildAndDecodeCleanly"]
+    },
+    {
+      "name": "wasmfmt-section-order-datacount-after-code",
+      "origin": "NB-6A-WASM32-EMITTER",
+      "file": "compiler/wasmfmt/emit.ergo",
+      "decl": "Emit",
+      "from": "\temitDataCountSection(&out, m)\n\temitCodeSection(&out, m)\n",
+      "to": "\temitCodeSection(&out, m)\n\temitDataCountSection(&out, m)\n",
+      "rule": "DataCount section (12) must appear strictly before Code section (10) in canonical WebAssembly section order.",
+      "killers": ["compiler/wasmfmt:law:EmittedModuleRoundTrips", "compiler/wasmfmt:ExecFixturesBuildAndDecodeCleanly"]
+    },
+    {
+      "name": "wasmfmt-wrong-datacount-sec-id",
+      "origin": "NB-6A-WASM32-EMITTER",
+      "file": "compiler/wasmfmt/emit.ergo",
+      "decl": "emitDataCountSection",
+      "from": "\tout.WriteSection(SecDataCount, sec.BufBytes())\n",
+      "to": "\tout.WriteSection(byte(13), sec.BufBytes())\n",
+      "rule": "DataCount section must use canonical WebAssembly section ID 12.",
+      "killers": ["compiler/wasmfmt:law:EmittedModuleRoundTrips", "compiler/wasmfmt:ExecFixturesBuildAndDecodeCleanly"]
+    },
+    {
+      "name": "wasmfmt-bulk-copy-flag-dropped",
+      "origin": "NB-6A-WASM32-EMITTER",
+      "file": "compiler/wasmfmt/opcodes.ergo",
+      "decl": "MemoryCopy",
+      "from": "\tc.UsesBulk = true\n\tc.Buf.U8(OpPrefixFC)\n\tc.Buf.ULEB32(BulkMemoryCopy)\n",
+      "to": "\tc.Buf.U8(OpPrefixFC)\n\tc.Buf.ULEB32(BulkMemoryCopy)\n",
+      "rule": "MemoryCopy must mark UsesBulk so the emitter emits DataCount section 12.",
+      "killers": ["compiler/wasmfmt:law:CodeBufTracksNestingAndBulkFlags", "compiler/wasmfmt:law:EmittedModuleRoundTrips"]
+    },
+    {
+      "name": "wasmfmt-mem-copy-missing-second-zero",
+      "origin": "NB-6A-WASM32-EMITTER",
+      "file": "compiler/wasmfmt/opcodes.ergo",
+      "decl": "MemoryCopy",
+      "from": "\tc.Buf.ULEB32(BulkMemoryCopy)\n\tc.Buf.U8(byte(0x00))\n\tc.Buf.U8(byte(0x00))\n",
+      "to": "\tc.Buf.ULEB32(BulkMemoryCopy)\n\tc.Buf.U8(byte(0x00))\n",
+      "rule": "memory.copy (0xfc 0x0a) requires both destination and source memory index bytes (0x00, 0x00).",
+      "killers": ["compiler/wasmfmt:law:EmittedModuleRoundTrips", "compiler/wasmfmt:ExecFixturesBuildAndDecodeCleanly"]
+    },
+    {
+      "name": "wasmfmt-codebuf-else-ignored",
+      "origin": "NB-6A-WASM32-EMITTER",
+      "file": "compiler/wasmfmt/opcodes.ergo",
+      "decl": "Else",
+      "from": "\tif n == 0 || c.IfStack[n-1] != uint8(1) {\n\t\tc.BadElse = true\n",
+      "to": "\tif n == 0 || c.IfStack[n-1] != uint8(1) {\n\t\tc.BadElse = false\n",
+      "rule": "CodeBuf.Else must flag BadElse when emitted outside an open If block.",
+      "killers": ["compiler/wasmfmt:CodeBufDetectsUnbalancedAndInvalidElse"]
+    },
+    {
+      "name": "wasmfmt-locals-no-merge",
+      "origin": "NB-6A-WASM32-EMITTER",
+      "file": "compiler/wasmfmt/module.ergo",
+      "decl": "CompressLocals",
+      "from": "\t\tif n > 0 && runs[n-1].ValType == t {\n",
+      "to": "\t\tif false && n > 0 && runs[n-1].ValType == t {\n",
+      "rule": "CompressLocals must merge consecutive locals of the same value type into run-length entries.",
+      "killers": ["compiler/wasmfmt:law:CompressLocalsCollapsesRuns", "compiler/wasmfmt:ModuleBuilderInternAndIndices"]
+    },
+    {
+      "name": "wasmfmt-code-body-drop-end",
+      "origin": "NB-6A-WASM32-EMITTER",
+      "file": "compiler/wasmfmt/emit.ergo",
+      "decl": "emitCodeSection",
+      "from": "\t\tbody.RawBytes(code)\n\t\tbody.U8(OpEnd)\n",
+      "to": "\t\tbody.RawBytes(code)\n",
+      "rule": "Every WebAssembly function body in the Code section must terminate with 0x0b (end).",
+      "killers": ["compiler/wasmfmt:law:EmittedModuleRoundTrips", "compiler/wasmfmt:ExecFixturesBuildAndDecodeCleanly"]
+    },
+    {
+      "name": "wasmfmt-data-passive-mode-wrong",
+      "origin": "NB-6A-WASM32-EMITTER",
+      "file": "compiler/wasmfmt/emit.ergo",
+      "decl": "emitDataSection",
+      "from": "\t\tif ds.Passive {\n\t\t\tsec.U8(byte(0x01))\n\t\t} else if ds.MemIdx == uint32(0) {\n",
+      "to": "\t\tif ds.Passive {\n\t\t\tsec.U8(byte(0x02))\n\t\t} else if ds.MemIdx == uint32(0) {\n",
+      "rule": "Passive data segments in section 11 must use segment mode tag 0x01.",
+      "killers": ["compiler/wasmfmt:law:EmittedModuleRoundTrips", "compiler/wasmfmt:ExecFixturesBuildAndDecodeCleanly"]
+    },
+    {
+      "name": "wasmfmt-emit-allow-dup-export",
+      "origin": "NB-6A-WASM32-EMITTER",
+      "file": "compiler/wasmfmt/emit.ergo",
+      "decl": "validateExports",
+      "from": "\t\t\tif m.Exports[j].Name == ex.Name {\n\t\t\t\treturn errAt(\"invalid-export\", uint32(i), \"duplicate export name \\(ex.Name)\")\n\t\t\t}\n",
+      "to": "\t\t\tif false && m.Exports[j].Name == ex.Name {\n\t\t\t\treturn errAt(\"invalid-export\", uint32(i), \"duplicate export name \\(ex.Name)\")\n\t\t\t}\n",
+      "rule": "ValidateModule must reject duplicate export names.",
+      "killers": ["compiler/wasmfmt:EmitRejectsInvalidModuleContracts"]
+    },
+    {
+      "name": "wasmfmt-emit-allow-bad-limit",
+      "origin": "NB-6A-WASM32-EMITTER",
+      "file": "compiler/wasmfmt/emit.ergo",
+      "decl": "validateLimits",
+      "from": "\t\tif maxPages < minPages {\n\t\t\treturn errAt(\"invalid-limit\", uint32(0), \"\\(label) max pages \\(maxPages) < min \\(minPages)\")\n\t\t}\n",
+      "to": "\t\tif false && maxPages < minPages {\n\t\t\treturn errAt(\"invalid-limit\", uint32(0), \"\\(label) max pages \\(maxPages) < min \\(minPages)\")\n\t\t}\n",
+      "rule": "Memory limits must reject maxPages < minPages.",
+      "killers": ["compiler/wasmfmt:EmitRejectsInvalidModuleContracts"]
+    },
+    {
+      "name": "wasmfmt-decode-allow-out-of-order",
+      "origin": "NB-6A-WASM32-EMITTER",
+      "file": "compiler/wasmfmt/decode.ergo",
+      "decl": "Decode",
+      "from": "\t\tif rank < prevRank {\n\t\t\treturn errAt(\"bad-section-order\", idOff, \"section id \\(id) out of canonical order\")\n\t\t}\n",
+      "to": "\t\tif false && rank < prevRank {\n\t\t\treturn errAt(\"bad-section-order\", idOff, \"section id \\(id) out of canonical order\")\n\t\t}\n",
+      "rule": "Decode must reject WebAssembly sections appearing out of canonical order.",
+      "killers": ["compiler/wasmfmt:DecodeRejectsCorruptedBinaries"]
+    },
+    {
+      "name": "wasmfmt-decode-allow-dup-section",
+      "origin": "NB-6A-WASM32-EMITTER",
+      "file": "compiler/wasmfmt/decode.ergo",
+      "decl": "Decode",
+      "from": "\t\tif (seenMask & bit) != uint32(0) {\n\t\t\treturn errAt(\"duplicate-section\", idOff, \"duplicate section id \\(id)\")\n\t\t}\n",
+      "to": "\t\tif false && (seenMask&bit) != uint32(0) {\n\t\t\treturn errAt(\"duplicate-section\", idOff, \"duplicate section id \\(id)\")\n\t\t}\n",
+      "rule": "Decode must reject duplicate standard WebAssembly sections.",
+      "killers": ["compiler/wasmfmt:DecodeRejectsCorruptedBinaries"]
+    },
+    {
+      "name": "wasmfmt-decode-allow-datacount-mismatch",
+      "origin": "NB-6A-WASM32-EMITTER",
+      "file": "compiler/wasmfmt/decode.ergo",
+      "decl": "validateDecodedModule",
+      "from": "\tif d.HasDataCount && d.DataCount != uint32(d.DataSegs.Len()) {\n",
+      "to": "\tif false && d.HasDataCount && d.DataCount != uint32(d.DataSegs.Len()) {\n",
+      "rule": "Decode must reject modules where DataCount disagrees with the Data section count.",
+      "killers": ["compiler/wasmfmt:DecodeRejectsCorruptedBinaries"]
+    },
+    {
+      "name": "wasmfmt-decode-allow-bad-align",
+      "origin": "NB-6A-WASM32-EMITTER",
+      "file": "compiler/wasmfmt/decode.ergo",
+      "decl": "checkScalarOrVarInstr",
+      "from": "\t\tif totalMems == uint32(0) || align > maxMemAlignLog2(op) {\n",
+      "to": "\t\tif totalMems == uint32(0) || align > uint32(99) {\n",
+      "rule": "Memory load/store instructions must reject alignments larger than the instruction's natural width.",
+      "killers": ["compiler/wasmfmt:DecodeRejectsCorruptedBinaries"]
+    },
+    {
+      "name": "wasmfmt-decode-allow-trailing-code",
+      "origin": "NB-6A-WASM32-EMITTER",
+      "file": "compiler/wasmfmt/decode.ergo",
+      "decl": "validateCodeBody",
+      "from": "\t\t\tif ifStack.Len() == 0 && r.Remaining() != uint32(0) {\n\t\t\t\treturn errAt(\"trailing-bytes\", r.At, \"trailing bytes after function end\")\n\t\t\t}\n",
+      "to": "\t\t\tif false && ifStack.Len() == 0 && r.Remaining() != uint32(0) {\n\t\t\t\treturn errAt(\"trailing-bytes\", r.At, \"trailing bytes after function end\")\n\t\t\t}\n",
+      "rule": "Function body decoding must reject trailing instructions after the top-level 0x0b end.",
+      "killers": ["compiler/wasmfmt:DecodeRejectsCorruptedBinaries"]
+    },
+    {
+      "name": "wasmfmt-decode-allow-immutable-global-set",
+      "origin": "NB-6A-WASM32-EMITTER",
+      "file": "compiler/wasmfmt/decode.ergo",
+      "decl": "checkScalarOrVarInstr",
+      "from": "\t\tif op == OpGlobalSet && !decodedGlobalMut(d, idx) {\n",
+      "to": "\t\tif false && op == OpGlobalSet && !decodedGlobalMut(d, idx) {\n",
+      "rule": "Code validation must reject global.set targeting an immutable global.",
+      "killers": ["compiler/wasmfmt:DecodeRejectsCorruptedBinaries"]
+    },
+    {
+      "name": "wasmfmt-wrong-i32-add-opcode",
+      "origin": "NB-6A-WASM32-EMITTER",
+      "file": "compiler/wasmfmt/opcodes.ergo",
+      "decl": "I32Add",
+      "from": "func I32Add(c mut CodeBuf) { c.Buf.U8(OpI32Add) }\n",
+      "to": "func I32Add(c mut CodeBuf) { c.Buf.U8(OpI32Sub) }\n",
+      "rule": "i32.add must use WebAssembly opcode 0x6a (not 0x6b i32.sub); live Bun and Node WebAssembly execution catches semantic opcode corruption.",
+      "killers": ["compiler/wasmfmt:law:WasmExec.LiveArithAndControlFlowRunsInBunAndNode"]
+    }
+  ]
+}

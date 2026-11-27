@@ -1,0 +1,796 @@
+import math
+import slices
+import utf8
+
+// WasmMagic0 is byte 0 ('\x00') of the WebAssembly binary magic header.
+let WasmMagic0 = byte(0x00)
+
+// WasmMagic1 is byte 1 ('a') of the WebAssembly binary magic header.
+let WasmMagic1 = byte(0x61)
+
+// WasmMagic2 is byte 2 ('s') of the WebAssembly binary magic header.
+let WasmMagic2 = byte(0x73)
+
+// WasmMagic3 is byte 3 ('m') of the WebAssembly binary magic header.
+let WasmMagic3 = byte(0x6d)
+
+// WasmVersion is the WebAssembly 1.0 binary format version number.
+let WasmVersion = uint32(1)
+
+// WasmError describes a validation or decoding error at a byte offset.
+type WasmError {
+	Kind   string,
+	Off    uint32,
+	Detail string,
+}
+
+func errAt(kind string, off uint32, detail string) WasmError {
+	WasmError{Kind: kind, Off: off, Detail: detail}
+}
+
+// Buf is an append-only byte buffer for encoding WebAssembly binaries.
+type Buf {
+	Bytes []byte,
+}
+
+// NewBuf creates an empty Buf.
+func NewBuf() Buf {
+	Buf{Bytes: []byte{}}
+}
+
+// BufWithCap creates an empty Buf with preallocated capacity.
+func BufWithCap(cap uint32) Buf {
+	Buf{Bytes: slices.WithCapacity[byte](int(cap))}
+}
+
+// BufLen returns the number of bytes written to w.
+func BufLen(w Buf) uint32 {
+	uint32(w.Bytes.Len())
+}
+
+// BufBytes returns the underlying encoded byte slice of w.
+func BufBytes(w Buf) []byte {
+	w.Bytes
+}
+
+// BufText returns w's encoded bytes as a raw byte string.
+func BufText(w Buf) string {
+	w.Bytes.Text()
+}
+
+// U8 appends one byte to w.
+func U8(w mut Buf, b byte) {
+	w.Bytes = w.Bytes.Append(b)
+}
+
+// RawBytes appends a byte slice to w.
+func RawBytes(w mut Buf, bs []byte) {
+	w.Bytes = w.Bytes.AppendBytes(bs)
+}
+
+// RawString appends the raw UTF-8/binary bytes of s to w.
+func RawString(w mut Buf, s string) {
+	w.Bytes = w.Bytes.AppendString(s)
+}
+
+// U32LE appends v as 4 little-endian bytes.
+func U32LE(w mut Buf, v uint32) {
+	w.U8(byte(v & uint32(0xff)))
+	w.U8(byte((v >> 8) & uint32(0xff)))
+	w.U8(byte((v >> 16) & uint32(0xff)))
+	w.U8(byte((v >> 24) & uint32(0xff)))
+}
+
+// U64LE appends v as 8 little-endian bytes.
+func U64LE(w mut Buf, v uint64) {
+	w.U32LE(uint32(v & uint64(0xffffffff)))
+	w.U32LE(uint32((v >> 32) & uint64(0xffffffff)))
+}
+
+// PatchU32LE overwrites 4 little-endian bytes at byte offset at.
+func PatchU32LE(w mut Buf, at uint32, v uint32) {
+	let i = int(at)
+	w.Bytes[i] = byte(v & uint32(0xff))
+	w.Bytes[i+1] = byte((v >> 8) & uint32(0xff))
+	w.Bytes[i+2] = byte((v >> 16) & uint32(0xff))
+	w.Bytes[i+3] = byte((v >> 24) & uint32(0xff))
+}
+
+// WriteHeader writes the 8-byte WebAssembly magic header and version 1.
+func WriteHeader(w mut Buf) {
+	w.U8(WasmMagic0)
+	w.U8(WasmMagic1)
+	w.U8(WasmMagic2)
+	w.U8(WasmMagic3)
+	w.U32LE(WasmVersion)
+}
+
+// ULEB32 encodes v as a canonical unsigned LEB128 32-bit integer.
+func ULEB32(w mut Buf, v uint32) {
+	let mut x = v
+	for {
+		let b = byte(x & uint32(0x7f))
+		x = x >> 7
+		if x == uint32(0) {
+			w.U8(b)
+			return
+		}
+		w.U8(b | byte(0x80))
+	}
+}
+
+// ULEB64 encodes v as a canonical unsigned LEB128 64-bit integer.
+func ULEB64(w mut Buf, v uint64) {
+	let mut x = v
+	for {
+		let b = byte(x & uint64(0x7f))
+		x = x >> 7
+		if x == uint64(0) {
+			w.U8(b)
+			return
+		}
+		w.U8(b | byte(0x80))
+	}
+}
+
+// SLEB32 encodes v as a canonical signed LEB128 32-bit integer.
+func SLEB32(w mut Buf, v int32) {
+	let mut x = v
+	for {
+		let b = byte(x & int32(0x7f))
+		x = x >> 7
+		let signBit = b & byte(0x40)
+		if (x == int32(0) && signBit == byte(0)) || (x == int32(-1) && signBit != byte(0)) {
+			w.U8(b)
+			return
+		}
+		w.U8(b | byte(0x80))
+	}
+}
+
+// SLEB64 encodes v as a canonical signed LEB128 64-bit integer.
+func SLEB64(w mut Buf, v int64) {
+	let mut x = v
+	for {
+		let b = byte(x & int64(0x7f))
+		x = x >> 7
+		let signBit = b & byte(0x40)
+		if (x == int64(0) && signBit == byte(0)) || (x == int64(-1) && signBit != byte(0)) {
+			w.U8(b)
+			return
+		}
+		w.U8(b | byte(0x80))
+	}
+}
+
+// Int32FromBits converts two's-complement 32-bit pattern u to int32.
+func Int32FromBits(u uint32) int32 {
+	if (u & uint32(0x80000000)) != uint32(0) {
+		int32(int64(u) - int64(0x100000000))
+	} else {
+		int32(u)
+	}
+}
+
+// BitsFromInt32 converts int32 v to its two's-complement 32-bit pattern.
+func BitsFromInt32(v int32) uint32 {
+	if v < int32(0) {
+		uint32(int64(v) + int64(0x100000000))
+	} else {
+		uint32(v)
+	}
+}
+
+// Int64FromBits converts two's-complement 64-bit pattern u to int64.
+func Int64FromBits(u uint64) int64 {
+	let hi = (u >> uint64(32)) & uint64(0xffffffff)
+	let lo = u & uint64(0xffffffff)
+	let signedHi = if (hi & uint64(0x80000000)) != uint64(0) { int64(hi) - int64(0x100000000) } else { int64(hi) }
+	(signedHi << 32) | int64(lo)
+}
+
+// BitsFromInt64 converts int64 v to its two's-complement 64-bit pattern.
+func BitsFromInt64(v int64) uint64 {
+	let hi = uint32((v >> 32) & int64(0xffffffff))
+	let lo = uint32(v & int64(0xffffffff))
+	(uint64(hi) << 32) | uint64(lo)
+}
+
+// SLEB32Bits encodes two's-complement 32-bit pattern u as canonical SLEB32.
+func SLEB32Bits(w mut Buf, u uint32) {
+	w.SLEB32(Int32FromBits(u))
+}
+
+// SLEB64Bits encodes two's-complement 64-bit pattern u as canonical SLEB64.
+func SLEB64Bits(w mut Buf, u uint64) {
+	w.SLEB64(Int64FromBits(u))
+}
+
+// WriteName writes a length-prefixed UTF-8 name vector.
+func WriteName(w mut Buf, s string) {
+	w.ULEB32(uint32(s.Len()))
+	w.RawString(s)
+}
+
+// WriteSection writes a WebAssembly section header (ID + payload length) and payload.
+func WriteSection(w mut Buf, id uint8, payload []byte) {
+	w.U8(id)
+	w.ULEB32(uint32(payload.Len()))
+	w.RawBytes(payload)
+}
+
+func pow2Step(expShift int) float64 {
+	let mut p = 2.0
+	for _ in 0..expShift {
+		p = p * p
+	}
+	p
+}
+
+func invPow2Step(expShift int) float64 {
+	let mut p = 0.5
+	for _ in 0..expShift {
+		p = p * p
+	}
+	p
+}
+
+func scalePosToUnit(absF float64) (float64, int) {
+	let mut m = absF
+	let mut exp = 0
+	let mut k = 9
+	for k >= 0 {
+		let up = pow2Step(k)
+		if m >= up {
+			m = m * invPow2Step(k)
+			exp = exp + (1 << k)
+		}
+		k = k - 1
+	}
+	(m, exp)
+}
+
+func scaleSubToUnit(absF float64) (float64, int) {
+	let mut m = absF
+	let mut exp = 0
+	let n512 = invPow2Step(9)
+	let p512 = pow2Step(9)
+	for m < n512 {
+		m = m * p512
+		exp = exp - 512
+	}
+	let mut k = 8
+	for k >= 0 {
+		let dn = invPow2Step(k)
+		if m < dn {
+			m = m * pow2Step(k)
+			exp = exp - (1 << k)
+		}
+		k = k - 1
+	}
+	if m < 1.0 {
+		m = m * 2.0
+		exp = exp - 1
+	}
+	(m, exp)
+}
+
+// Float64Bits converts f to its IEEE-754 binary64 bit pattern.
+func Float64Bits(f float64) uint64 {
+	if math.IsNaN(f) {
+		return uint64(0x7ff8000000000001)
+	}
+	let neg = f < 0.0 || (f == 0.0 && math.IsInf(1.0/f, -1))
+	let signBit = if neg { uint64(1) << 63 } else { uint64(0) }
+	if f == 0.0 {
+		return signBit
+	}
+	if math.IsInf(f, 0) {
+		return signBit | uint64(0x7ff0000000000000)
+	}
+	let absF = math.Abs(f)
+	let (m, exp) = if absF >= 2.0 {
+		scalePosToUnit(absF)
+	} else if absF < 1.0 {
+		scaleSubToUnit(absF)
+	} else {
+		(absF, 0)
+	}
+	if exp >= -1022 {
+		let biased = uint64(exp + 1023)
+		let frac = uint64((m - 1.0) * 4503599627370496.0)
+		return signBit | (biased << 52) | (frac & uint64(0xfffffffffffff))
+	}
+	let mut scaled = m
+	let shift = exp + 1074
+	for _ in 0..shift {
+		scaled = scaled * 2.0
+	}
+	signBit | (uint64(scaled) & uint64(0xfffffffffffff))
+}
+
+func mulPow2(val float64, e int) float64 {
+	let mut out = val
+	if e > 0 {
+		let mut rem = e
+		for rem >= 512 {
+			out = out * pow2Step(9)
+			rem = rem - 512
+		}
+		for _ in 0..rem {
+			out = out * 2.0
+		}
+		return out
+	}
+	let mut rem = -e
+	for rem >= 512 {
+		out = out * invPow2Step(9)
+		rem = rem - 512
+	}
+	for _ in 0..rem {
+		out = out * 0.5
+	}
+	out
+}
+
+// Float64FromBits converts an IEEE-754 binary64 bit pattern to float64.
+func Float64FromBits(bits uint64) float64 {
+	let neg = (bits >> 63) != uint64(0)
+	let exp = int((bits >> 52) & uint64(0x7ff))
+	let mant = bits & uint64(0xfffffffffffff)
+	if exp == 0x7ff {
+		if mant != uint64(0) {
+			return math.NaN()
+		}
+		return math.Inf(if neg { -1 } else { 1 })
+	}
+	let sign = if neg { -1.0 } else { 1.0 }
+	if exp == 0 {
+		if mant == uint64(0) {
+			return if neg { -0.0 } else { 0.0 }
+		}
+		return sign * mulPow2(float64(mant), -1074)
+	}
+	let mag = 1.0 + float64(mant)/4503599627370496.0
+	sign * mulPow2(mag, exp-1023)
+}
+
+// Reader is a bounds-checked binary decoder cursor over a byte slice.
+type Reader {
+	Bytes []byte,
+	At    uint32,
+}
+
+// NewReader constructs a Reader starting at offset 0 of bs.
+func NewReader(bs []byte) Reader {
+	Reader{Bytes: bs, At: uint32(0)}
+}
+
+// NewReaderString constructs a Reader over the raw bytes of s.
+func NewReaderString(s string) Reader {
+	Reader{Bytes: s.Bytes(), At: uint32(0)}
+}
+
+// Remaining returns the number of unread bytes in r.
+func Remaining(r Reader) uint32 {
+	if int(r.At) >= r.Bytes.Len() {
+		return uint32(0)
+	}
+	uint32(r.Bytes.Len()) - r.At
+}
+
+// ReadByte reads and advances past one byte, failing on EOF.
+func ReadByte(r mut Reader) byte fails WasmError {
+	if int(r.At) >= r.Bytes.Len() {
+		return errAt("eof", r.At, "unexpected end of input reading byte")
+	}
+	let b = r.Bytes[int(r.At)]
+	r.At = r.At + uint32(1)
+	b
+}
+
+// ReadBytes reads n bytes without copying past EOF.
+func ReadBytes(r mut Reader, n uint32) []byte fails WasmError {
+	if uint64(r.At)+uint64(n) > uint64(r.Bytes.Len()) {
+		return errAt("eof", r.At, "unexpected end of input reading \(n) bytes")
+	}
+	let start = int(r.At)
+	let end = start + int(n)
+	r.At = uint32(end)
+	r.Bytes.Slice(start, end)
+}
+
+// ReadU32LE reads a 4-byte little-endian uint32.
+func ReadU32LE(r mut Reader) uint32 fails WasmError {
+	let bs = try r.ReadBytes(uint32(4))
+	uint32(bs[0]) | (uint32(bs[1]) << 8) | (uint32(bs[2]) << 16) | (uint32(bs[3]) << 24)
+}
+
+// ReadU64LE reads an 8-byte little-endian uint64.
+func ReadU64LE(r mut Reader) uint64 fails WasmError {
+	let lo = try r.ReadU32LE()
+	let hi = try r.ReadU32LE()
+	uint64(lo) | (uint64(hi) << 32)
+}
+
+// ReadHeader validates the 8-byte WebAssembly magic and version 1 header.
+func ReadHeader(r mut Reader) uint32 fails WasmError {
+	let start = r.At
+	let hdr = try r.ReadBytes(uint32(4))
+	if hdr[0] != WasmMagic0 || hdr[1] != WasmMagic1 || hdr[2] != WasmMagic2 || hdr[3] != WasmMagic3 {
+		return errAt("bad-magic", start, "invalid WebAssembly magic bytes")
+	}
+	let verOff = r.At
+	let ver = try r.ReadU32LE()
+	if ver != WasmVersion {
+		return errAt("bad-version", verOff, "unsupported WebAssembly version \(ver)")
+	}
+	ver
+}
+
+// ReadULEB32 reads a strict canonical unsigned LEB128 32-bit integer.
+func ReadULEB32(r mut Reader) uint32 fails WasmError {
+	let start = r.At
+	let mut res = uint32(0)
+	let mut shift = uint32(0)
+	for idx in 0..5 {
+		let b = try r.ReadByte()
+		let more = (b & byte(0x80)) != byte(0)
+		let low = uint32(b & byte(0x7f))
+		if idx == 4 {
+			if more {
+				return errAt("overlong-leb", start, "uleb32 exceeds 5 bytes")
+			}
+			if (b & byte(0x70)) != byte(0) {
+				return errAt("noncanonical-leb", start, "uleb32 sets unused high bits")
+			}
+		}
+		if !more && idx > 0 && low == uint32(0) {
+			return errAt("overlong-leb", start, "non-minimal trailing zero byte in uleb32")
+		}
+		res = res | (low << shift)
+		if !more {
+			return res
+		}
+		shift = shift + uint32(7)
+	}
+	errAt("overlong-leb", start, "uleb32 exceeds 5 bytes")
+}
+
+// ReadULEB64 reads a strict canonical unsigned LEB128 64-bit integer.
+func ReadULEB64(r mut Reader) uint64 fails WasmError {
+	let start = r.At
+	let mut res = uint64(0)
+	let mut shift = uint32(0)
+	for idx in 0..10 {
+		let b = try r.ReadByte()
+		let more = (b & byte(0x80)) != byte(0)
+		let low = uint64(b & byte(0x7f))
+		if idx == 9 {
+			if more {
+				return errAt("overlong-leb", start, "uleb64 exceeds 10 bytes")
+			}
+			if (b & byte(0x7e)) != uint8(0) {
+				return errAt("noncanonical-leb", start, "uleb64 sets unused high bits")
+			}
+		}
+		if !more && idx > 0 && low == uint64(0) {
+			return errAt("overlong-leb", start, "non-minimal trailing zero byte in uleb64")
+		}
+		res = res | (low << shift)
+		if !more {
+			return res
+		}
+		shift = shift + uint32(7)
+	}
+	errAt("overlong-leb", start, "uleb64 exceeds 10 bytes")
+}
+
+func checkSLEB32FinalByte(start uint32, b byte) fails WasmError {
+	let hi = b & byte(0x78)
+	if hi != byte(0x00) && hi != byte(0x78) {
+		return errAt("noncanonical-leb", start, "sleb32 final byte violates sign extension")
+	}
+}
+
+func checkSLEB64FinalByte(start uint32, b byte) fails WasmError {
+	if b != byte(0x00) && b != byte(0x7f) {
+		return errAt("noncanonical-leb", start, "sleb64 final byte violates sign extension")
+	}
+}
+
+func isRedundantSLEBByte(idx int, b byte, prevSign byte) bool {
+	if idx == 0 {
+		return false
+	}
+	(b == byte(0x00) && prevSign == byte(0)) || (b == byte(0x7f) && prevSign != byte(0))
+}
+
+// ReadSLEB32Bits reads a strict canonical signed LEB128 32-bit value as two's-complement bits.
+func ReadSLEB32Bits(r mut Reader) uint32 fails WasmError {
+	let start = r.At
+	let mut res = uint32(0)
+	let mut shift = uint32(0)
+	let mut prevSign = byte(0)
+	for idx in 0..5 {
+		let b = try r.ReadByte()
+		let more = (b & byte(0x80)) != byte(0)
+		let low = uint32(b & byte(0x7f))
+		if idx == 4 {
+			if more {
+				return errAt("overlong-leb", start, "sleb32 exceeds 5 bytes")
+			}
+			try checkSLEB32FinalByte(start, b)
+		}
+		if !more && isRedundantSLEBByte(idx, b, prevSign) {
+			return errAt("overlong-leb", start, "non-minimal sign-extension byte in sleb32")
+		}
+		res = res | (low << shift)
+		shift = shift + uint32(7)
+		if !more {
+			if shift < uint32(32) && (b&byte(0x40)) != byte(0) {
+				res = res | (uint32(0xffffffff) << shift)
+			}
+			return res
+		}
+		prevSign = b & byte(0x40)
+	}
+	errAt("overlong-leb", start, "sleb32 exceeds 5 bytes")
+}
+
+// ReadSLEB32 reads a strict canonical signed LEB128 32-bit integer.
+func ReadSLEB32(r mut Reader) int32 fails WasmError {
+	Int32FromBits(try r.ReadSLEB32Bits())
+}
+
+// ReadSLEB64Bits reads a strict canonical signed LEB128 64-bit value as two's-complement bits.
+func ReadSLEB64Bits(r mut Reader) uint64 fails WasmError {
+	let start = r.At
+	let mut res = uint64(0)
+	let mut shift = uint32(0)
+	let mut prevSign = byte(0)
+	for idx in 0..10 {
+		let b = try r.ReadByte()
+		let more = (b & byte(0x80)) != byte(0)
+		let low = uint64(b & byte(0x7f))
+		if idx == 9 {
+			if more {
+				return errAt("overlong-leb", start, "sleb64 exceeds 10 bytes")
+			}
+			try checkSLEB64FinalByte(start, b)
+		}
+		if !more && isRedundantSLEBByte(idx, b, prevSign) {
+			return errAt("overlong-leb", start, "non-minimal sign-extension byte in sleb64")
+		}
+		res = res | (low << shift)
+		shift = shift + uint32(7)
+		if !more {
+			let allOnes uint64 = 0xffffffffffffffff
+			if shift < uint32(64) && (b&byte(0x40)) != byte(0) {
+				res = res | (allOnes << shift)
+			}
+			return res
+		}
+		prevSign = b & byte(0x40)
+	}
+	errAt("overlong-leb", start, "sleb64 exceeds 10 bytes")
+}
+
+// ReadSLEB64 reads a strict canonical signed LEB128 64-bit integer.
+func ReadSLEB64(r mut Reader) int64 fails WasmError {
+	Int64FromBits(try r.ReadSLEB64Bits())
+}
+
+// ReadName reads a length-prefixed UTF-8 string and rejects invalid UTF-8.
+func ReadName(r mut Reader) string fails WasmError {
+	let off = r.At
+	let n = try r.ReadULEB32()
+	let bs = try r.ReadBytes(n)
+	let s = bs.Text()
+	if !utf8.ValidString(s) {
+		return errAt("bad-utf8", off, "name is not valid UTF-8")
+	}
+	s
+}
+
+// ULEB32RoundTrips proves canonical ULEB32 encode/decode bijection for arbitrary uint32 values.
+law ULEB32RoundTrips(x uint32) {
+	let mut w = NewBuf()
+	w.ULEB32(x)
+	let mut r = NewReader(w.Bytes)
+	let got = r.ReadULEB32() catch {
+	case WasmError:
+		return false
+	}
+	let mut w2 = NewBuf()
+	w2.ULEB32(got)
+	got == x && r.At == w.BufLen() && w.BufBytes() == w2.BufBytes()
+}
+
+// ULEB64RoundTrips proves canonical ULEB64 encode/decode bijection for arbitrary uint64 values.
+law ULEB64RoundTrips(x uint64) {
+	let mut w = NewBuf()
+	w.ULEB64(x)
+	let mut r = NewReader(w.Bytes)
+	let got = r.ReadULEB64() catch {
+	case WasmError:
+		return false
+	}
+	got == x && r.At == w.BufLen()
+}
+
+// SLEB32RoundTrips proves canonical SLEB32 encode/decode round-trips for arbitrary int32 values.
+law SLEB32RoundTrips(x int32) {
+	let mut w = NewBuf()
+	w.SLEB32(x)
+	let mut r = NewReader(w.Bytes)
+	let got = r.ReadSLEB32() catch {
+	case WasmError:
+		return false
+	}
+	got == x && r.At == w.BufLen()
+}
+
+// SLEB64RoundTrips proves canonical SLEB64 encode/decode round-trips for arbitrary int64 values.
+law SLEB64RoundTrips(x int64) {
+	let mut w = NewBuf()
+	w.SLEB64(x)
+	let mut r = NewReader(w.Bytes)
+	let got = r.ReadSLEB64() catch {
+	case WasmError:
+		return false
+	}
+	got == x && r.At == w.BufLen()
+}
+
+// Float64BitsRoundTrips proves pure-Ergo IEEE-754 binary64 encoding and decoding round-trips.
+law Float64BitsRoundTrips(f float64) {
+	let bits = Float64Bits(f)
+	let back = Float64FromBits(bits)
+	if math.IsNaN(f) {
+		return math.IsNaN(back)
+	}
+	if f == 0.0 {
+		return back == 0.0 && math.IsInf(1.0/back, -1) == math.IsInf(1.0/f, -1) && Float64Bits(back) == bits
+	}
+	back == f && Float64Bits(back) == bits
+}
+
+func rejectsULEB32(bs []byte, wantKind string) bool {
+	let mut r = NewReader(bs)
+	let _ = r.ReadULEB32() catch {
+	case WasmError as e:
+		return e.Kind == wantKind
+	}
+	false
+}
+
+func rejectsULEB64(bs []byte, wantKind string) bool {
+	let mut r = NewReader(bs)
+	let _ = r.ReadULEB64() catch {
+	case WasmError as e:
+		return e.Kind == wantKind
+	}
+	false
+}
+
+func rejectsSLEB32(bs []byte, wantKind string) bool {
+	let mut r = NewReader(bs)
+	let _ = r.ReadSLEB32() catch {
+	case WasmError as e:
+		return e.Kind == wantKind
+	}
+	false
+}
+
+func rejectsSLEB64(bs []byte, wantKind string) bool {
+	let mut r = NewReader(bs)
+	let _ = r.ReadSLEB64() catch {
+	case WasmError as e:
+		return e.Kind == wantKind
+	}
+	false
+}
+
+func roundTripU64(v uint64) bool {
+	let mut w = NewBuf()
+	w.ULEB64(v)
+	let mut r = NewReader(w.Bytes)
+	let got = r.ReadULEB64() catch {
+	case WasmError:
+		return false
+	}
+	got == v && r.At == w.BufLen()
+}
+
+func roundTripI64(v int64) bool {
+	let mut w = NewBuf()
+	w.SLEB64(v)
+	let mut r = NewReader(w.Bytes)
+	let got = r.ReadSLEB64() catch {
+	case WasmError:
+		return false
+	}
+	got == v && r.At == w.BufLen()
+}
+
+func roundTripI32(v int32) bool {
+	let mut w = NewBuf()
+	w.SLEB32(v)
+	let mut r = NewReader(w.Bytes)
+	let got = r.ReadSLEB32() catch {
+	case WasmError:
+		return false
+	}
+	got == v && r.At == w.BufLen()
+}
+
+test LEB128BoundariesAndMalformedRejected {
+	assert roundTripU64(uint64(0))
+	assert roundTripU64(uint64(127))
+	assert roundTripU64(uint64(128))
+	assert roundTripU64(uint64(16383))
+	assert roundTripU64(uint64(16384))
+	assert roundTripU64(uint64(0xffffffff))
+	let maxU64 uint64 = 0xffffffffffffffff
+	assert roundTripU64(uint64(0x7fffffffffffffff))
+	assert roundTripU64(maxU64)
+	assert roundTripI32(int32(0))
+	assert roundTripI32(int32(-1))
+	assert roundTripI32(int32(63))
+	assert roundTripI32(int32(64))
+	assert roundTripI32(int32(-64))
+	assert roundTripI32(int32(-65))
+	assert roundTripI32(int32(2147483647))
+	assert roundTripI32(int32(-2147483648))
+	assert roundTripI64(int64(0))
+	assert roundTripI64(int64(-1))
+	assert roundTripI64(int64(63))
+	assert roundTripI64(int64(64))
+	assert roundTripI64(int64(-64))
+	assert roundTripI64(int64(-65))
+	assert roundTripI64(math.MaxInt64())
+	assert roundTripI64(math.MinInt64())
+	assert Float64Bits(-0.0) == (uint64(1) << 63)
+	assert Float64Bits(0.0) == uint64(0)
+	assert math.IsInf(1.0/Float64FromBits(Float64Bits(-0.0)), -1)
+
+	assert rejectsULEB32([]byte{}, "eof")
+	assert rejectsULEB32([]byte{byte(0x80)}, "eof")
+	assert rejectsULEB32([]byte{byte(0x80), byte(0x00)}, "overlong-leb")
+	assert rejectsULEB32([]byte{byte(0x80), byte(0x80), byte(0x80), byte(0x80), byte(0x80), byte(0x00)}, "overlong-leb")
+	assert rejectsULEB32([]byte{byte(0x80), byte(0x80), byte(0x80), byte(0x80), byte(0x10)}, "noncanonical-leb")
+
+	assert rejectsULEB64([]byte{}, "eof")
+	assert rejectsULEB64([]byte{byte(0x81), byte(0x00)}, "overlong-leb")
+	assert rejectsULEB64([]byte{byte(0x80), byte(0x80), byte(0x80), byte(0x80), byte(0x80), byte(0x80), byte(0x80), byte(0x80), byte(0x80), byte(0x02)}, "noncanonical-leb")
+	assert rejectsULEB64([]byte{byte(0x80), byte(0x80), byte(0x80), byte(0x80), byte(0x80), byte(0x80), byte(0x80), byte(0x80), byte(0x80), byte(0x80), byte(0x00)}, "overlong-leb")
+
+	assert rejectsSLEB32([]byte{byte(0x80), byte(0x00)}, "overlong-leb")
+	assert rejectsSLEB32([]byte{byte(0xff), byte(0x7f)}, "overlong-leb")
+	assert rejectsSLEB32([]byte{byte(0x80), byte(0x80), byte(0x80), byte(0x80), byte(0x08)}, "noncanonical-leb")
+	assert rejectsSLEB32([]byte{byte(0x80), byte(0x80), byte(0x80), byte(0x80), byte(0x70)}, "noncanonical-leb")
+
+	assert rejectsSLEB64([]byte{byte(0x80), byte(0x00)}, "overlong-leb")
+	assert rejectsSLEB64([]byte{byte(0xff), byte(0x7f)}, "overlong-leb")
+	assert rejectsSLEB64([]byte{byte(0x80), byte(0x80), byte(0x80), byte(0x80), byte(0x80), byte(0x80), byte(0x80), byte(0x80), byte(0x80), byte(0x01)}, "noncanonical-leb")
+	assert rejectsSLEB64([]byte{byte(0x80), byte(0x80), byte(0x80), byte(0x80), byte(0x80), byte(0x80), byte(0x80), byte(0x80), byte(0x80), byte(0x7e)}, "noncanonical-leb")
+
+	let mut badMagic = NewReader([]byte{byte(0x00), byte(0x61), byte(0x73), byte(0x6e), byte(1), byte(0), byte(0), byte(0)})
+	let mut gotMagic = ""
+	let _ = badMagic.ReadHeader() catch {
+	case WasmError as e:
+		gotMagic = e.Kind
+		uint32(0)
+	}
+	assert gotMagic == "bad-magic"
+
+	let mut badVer = NewReader([]byte{byte(0x00), byte(0x61), byte(0x73), byte(0x6d), byte(2), byte(0), byte(0), byte(0)})
+	let mut gotVer = ""
+	let _ = badVer.ReadHeader() catch {
+	case WasmError as e:
+		gotVer = e.Kind
+		uint32(0)
+	}
+	assert gotVer == "bad-version"
+}
