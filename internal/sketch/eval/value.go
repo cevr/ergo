@@ -348,6 +348,13 @@ func truth(v Value) bool {
 
 // describe is an Ergo-like text of v for a report.
 func describe(v Value) string {
+	return describeWithRoot(nil, v)
+}
+
+// describeWithRoot formats v like describe while rendering types owned by root
+// as "main" without mutating shared *check.Package fields during concurrent
+// evaluation.
+func describeWithRoot(root *check.Package, v Value) string {
 	switch v := v.(type) {
 	case *record:
 		var parts []string
@@ -357,16 +364,17 @@ func describe(v Value) string {
 			if s != nil && i < len(s.Fields) {
 				name = s.Fields[i].Name
 			}
-			parts = append(parts, name+": "+describe(f))
+			parts = append(parts, name+": "+describeWithRoot(root, f))
 		}
+		tn := typeStringWithRoot(root, v.t)
 		if len(parts) == 0 {
-			return v.t.String()
+			return tn
 		}
-		return v.t.String() + "{" + strings.Join(parts, ", ") + "}"
+		return tn + "{" + strings.Join(parts, ", ") + "}"
 	case tuple:
 		var parts []string
 		for _, e := range v.elems {
-			parts = append(parts, describe(e))
+			parts = append(parts, describeWithRoot(root, e))
 		}
 		return "(" + strings.Join(parts, ", ") + ")"
 	case string:
@@ -380,7 +388,7 @@ func describe(v Value) string {
 	case term:
 		return v.termText()
 	case *operation:
-		return describe(v.value)
+		return describeWithRoot(root, v.value)
 	case opObject:
 		return v.describe()
 	}
@@ -388,6 +396,44 @@ func describe(v Value) string {
 		return s
 	}
 	return fmt.Sprint(v)
+}
+
+func typeStringWithRoot(root *check.Package, t check.Type) string {
+	if root == nil || t == nil {
+		return fmt.Sprint(t)
+	}
+	switch t := t.(type) {
+	case *check.Named:
+		if check.IsProviderMap(t) {
+			return t.String()
+		}
+		name := t.Obj.Name
+		if t.Obj.Pkg != nil && !check.IsTransitionalPreludeType(t.Obj) {
+			base := (&check.Named{Obj: t.Obj}).String()
+			if t.Obj.Pkg == root {
+				if strings.HasPrefix(base, root.Name+".") {
+					name = "main." + t.Obj.Name
+				}
+			} else {
+				name = base
+			}
+		}
+		if len(t.TArgs) > 0 {
+			parts := make([]string, len(t.TArgs))
+			for i, a := range t.TArgs {
+				parts[i] = typeStringWithRoot(root, a)
+			}
+			name += "[" + strings.Join(parts, ", ") + "]"
+		}
+		return name
+	case *check.Slice:
+		return "[]" + typeStringWithRoot(root, t.Elem)
+	case *check.Array:
+		return "[" + strconv.FormatInt(t.Len, 10) + "]" + typeStringWithRoot(root, t.Elem)
+	case *check.Map:
+		return "Map[" + typeStringWithRoot(root, t.Key) + ", " + typeStringWithRoot(root, t.Elem) + "]"
+	}
+	return t.String()
 }
 
 func formatFloat(f float64, bits int) string { return strconv.FormatFloat(f, 'g', -1, bits) }

@@ -148,7 +148,7 @@ func (in *interp) initPackage(p *check.Package) *initFailure {
 			case ctlUnsupported:
 				return &initFailure{Skipped, fmt.Sprintf("the package initializer at %s cannot run at check time: %s", siteText(site), ab.msg), site}
 			case ctlFail, ctlEscape:
-				return &initFailure{Defect, "a package initializer failed: " + describe(ab.val), at}
+				return &initFailure{Defect, "a package initializer failed: " + describeWithRoot(in.root, ab.val), at}
 			}
 			ice("the control %d left a package initializer", ab.kind)
 		}

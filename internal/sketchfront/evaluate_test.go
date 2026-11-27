@@ -4,11 +4,14 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
+	"ergo.local/prototype/internal/gobind"
 	"ergo.local/prototype/internal/report"
 	"ergo.local/prototype/internal/sketch/eval"
 )
@@ -416,4 +419,67 @@ func statusesOf(e report.Evaluation) (statuses, names []string) {
 		names = append(names, o.Name)
 	}
 	return statuses, names
+}
+
+func TestEvaluateConcurrentSharedPackagesNoRace(t *testing.T) {
+	dir := t.TempDir()
+	depDir := filepath.Join(dir, "dep")
+	useDir := filepath.Join(dir, "use")
+	if err := os.MkdirAll(depDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(useDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "ergo.mod"), []byte("module example.com/sharedrace\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	depSrc := "type Box {\n\tValue() int,\n\tlaw Positive() { Value() >= 0 },\n}\n\ntype Unit {} implements Box\n\nfunc Value(u Unit) int { 1 }\n"
+	useSrc := "import example.com/sharedrace/dep\n\ntype Zero {} implements dep.Box\n\nfunc Value(z Zero) int { 0 }\n"
+	if err := os.WriteFile(filepath.Join(depDir, "dep.ergo"), []byte(depSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(useDir, "use.ergo"), []byte(useSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	analyses, err := CheckPackages([]string{depDir, useDir}, gobind.Platform{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for idx, a := range analyses {
+		if len(a.Diagnostics) != 0 {
+			t.Fatalf("pkg %d diagnostics: %v", idx, a.Diagnostics)
+		}
+	}
+	var wg sync.WaitGroup
+	errs := make(chan string, 16)
+	for range 8 {
+		for idx, a := range analyses {
+			wg.Add(1)
+			go func(idx int, a Analysis) {
+				defer wg.Done()
+				rep, err := a.Evaluate(eval.DefaultBudget())
+				if err != nil {
+					errs <- fmt.Sprintf("pkg %d: %v", idx, err)
+					return
+				}
+				if idx == 1 {
+					for _, r := range rep.Results {
+						if strings.Contains(r.Name, "main.Box.") {
+							errs <- fmt.Sprintf("use reported main.Box law: %+v", rep.Results)
+							return
+						}
+					}
+					if len(rep.Results) == 0 || rep.Results[0].Name != "law dep.Box.Positive for Zero" {
+						errs <- fmt.Sprintf("use results mismatch: %+v", rep.Results)
+					}
+				}
+			}(idx, a)
+		}
+	}
+	wg.Wait()
+	close(errs)
+	for msg := range errs {
+		t.Error(msg)
+	}
 }

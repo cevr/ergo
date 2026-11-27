@@ -565,7 +565,7 @@ func (in *interp) runBodyFrame(fr *frame, body *syntax.BlockStmt, law bool, res 
 			}
 		}
 	case ctlFail, ctlEscape:
-		res.Status, res.Reason = Refuted, "a failure escaped: "+describe(ab.val)
+		res.Status, res.Reason = Refuted, "a failure escaped: "+describeWithRoot(in.root, ab.val)
 		res.Site = in.site(pkg, decl, decl.Pos())
 		res.escaped = true
 	case ctlDefect:
