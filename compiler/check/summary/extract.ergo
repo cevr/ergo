@@ -1,0 +1,1901 @@
+import compiler/check/bind
+import compiler/check/expr
+import compiler/check/facts
+import compiler/check/footprint
+import compiler/check/store
+import compiler/check/types
+import compiler/syntax
+import dense
+import option
+import slices
+import strconv
+import strings
+
+// SourceFile pairs a virtual file name with its Ergo source text.
+type SourceFile {
+	// Name is the package-relative file path.
+	Name string,
+	// Text is the raw UTF-8 source text.
+	Text string,
+}
+
+// SourceUnit specifies one package of source files in dependency order.
+type SourceUnit {
+	// PkgPath is the package's canonical import path.
+	PkgPath string,
+	// PkgName is the declared package identifier.
+	PkgName string,
+	// IsPrelude marks whether the unit represents the implicit prelude package.
+	IsPrelude bool,
+	// Files holds the source files forming this package.
+	Files []SourceFile,
+}
+
+// LowerHint carries precomputed cross-package lowering metadata for one exported function.
+type LowerHint {
+	// Name is the exported function identifier.
+	Name string,
+	// Flags holds Lower* bit flags (purity, inline eligibility, direct call, recursion).
+	Flags uint32,
+	// InlineCost measures body size for inline budgeting.
+	InlineCost uint32,
+	// ParamAbis holds one ParamAbi* mode per parameter.
+	ParamAbis []uint8,
+	// Caps holds canonical capability TypeIDs when supplied directly, or empty to derive from footprint.
+	Caps []uint32,
+}
+
+// CheckedUnit supplies a type-checked package snapshot to Extract.
+type CheckedUnit {
+	// PkgPath and PkgName identify the package.
+	PkgPath   string,
+	PkgName   string,
+	IsPrelude bool,
+	// Store, Iface, Pkg, Typer, Footprint, and Parsed come from the checking pipeline.
+	Store     store.Store,
+	Iface     types.Iface,
+	Pkg       expr.Pkg,
+	Typer     expr.Typer,
+	Footprint footprint.Facts,
+	Parsed    []syntax.Parsed,
+	// Deps holds summaries of imported packages for recording check and lower assumptions.
+	Deps []Summary,
+	// DepStores holds frozen dependency stores matching Store's import order.
+	DepStores []store.Frozen,
+	// Lower holds optional precomputed function lowering hints overriding derived estimates.
+	Lower []LowerHint,
+}
+
+type extractState {
+	unit    CheckedUnit,
+	sec     CheckSection,
+	low     LowerSection,
+	org     TypeOrigin,
+	pkgPath string,
+	refs    []facts.Refined,
+	sCopy   store.Store,
+	ext     []types.Ext,
+}
+
+type declItem {
+	Kind     uint8,
+	Name     string,
+	FileIdx  int,
+	Node     dense.ID[syntax.Node],
+	DirText  string,
+	ParseIdx int,
+}
+
+func isExportedName(name string) bool {
+	if name.Len() == 0 {
+		return false
+	}
+	let c = name[0]
+	c >= byte('A') && c <= byte('Z')
+}
+
+func hasOptNode(o dense.Opt[syntax.Node]) bool {
+	match dense.Unpack(o) {
+	case option.Some:
+		true
+	case option.None:
+		false
+	}
+}
+
+func hasOptType(o dense.Opt[store.TKey]) bool {
+	match dense.Unpack(o) {
+	case option.Some:
+		true
+	case option.None:
+		false
+	}
+}
+
+func identNameText(p syntax.Parsed, id dense.ID[syntax.Node]) string {
+	if syntax.KindOf(p.Tree, id) != syntax.KIdent {
+		return ""
+	}
+	let nm = syntax.NameOf(p.Tree, id)
+	syntax.TokText(p, nm.Tok)
+}
+
+func extractDirectives(p syntax.Parsed, doc int) string {
+	if doc < 0 || doc >= syntax.NumGroups(p) {
+		return ""
+	}
+	let src = syntax.SourceOf(p)
+	let pos = syntax.GroupPos(p, doc)
+	let end = syntax.GroupEnd(p, doc)
+	if pos < 0 || end > src.Len() || end <= pos {
+		return ""
+	}
+	let block = src[pos:end]
+	let lines = strings.Split(block, "\n")
+	let mut kept = []string{}
+	for i in 0..lines.Len() {
+		let line = strings.TrimSpace(lines[i])
+		if strings.HasPrefix(line, "// ergo:") {
+			kept = kept.Append(strings.TrimSpace(strings.TrimPrefix(line, "// ergo:")))
+		}
+	}
+	strings.Join(kept, ";")
+}
+
+func nodeSemExtraText(p syntax.Parsed, k uint8, id dense.ID[syntax.Node]) string {
+	if k == syntax.KIdent {
+		return syntax.TokText(p, syntax.NameOf(p.Tree, id).Tok)
+	}
+	if k == syntax.KBasicLit {
+		return syntax.TokText(p, syntax.BasicLitOf(p.Tree, id).Tok)
+	}
+	if k == syntax.KBinaryExpr {
+		return syntax.TokText(p, syntax.BinaryExprOf(p.Tree, id).Op)
+	}
+	if k == syntax.KUnaryExpr {
+		return syntax.TokText(p, syntax.UnaryExprOf(p.Tree, id).Op)
+	}
+	if k == syntax.KAssignStmt {
+		return syntax.TokText(p, syntax.AssignStmtOf(p.Tree, id).Tok)
+	}
+	if k == syntax.KBranchStmt {
+		return syntax.TokText(p, syntax.BranchStmtOf(p.Tree, id).Tok)
+	}
+	if k == syntax.KSkipStmt {
+		let sr = syntax.SkipStmtOf(p.Tree, id).Reason
+		return if sr >= 0 { syntax.TokText(p, sr) } else { "" }
+	}
+	nodeFlagExtraText(p, k, id)
+}
+
+func nodeFlagExtraText(p syntax.Parsed, k uint8, id dense.ID[syntax.Node]) string {
+	if k == syntax.KFuncType {
+		let ft = syntax.FuncTypeOf(p.Tree, id)
+		return (if ft.Entry >= 0 { "E" } else { "" }) + (if ft.Defects >= 0 { "D" } else { "" })
+	}
+	if k == syntax.KField {
+		let fd = syntax.FieldOf(p.Tree, id)
+		return (if fd.Own >= 0 { "O" } else { "" }) + (if fd.Mut >= 0 { "M" } else { "" }) + (if fd.Dots >= 0 { "..." } else { "" })
+	}
+	if k == syntax.KCallExpr {
+		let ce = syntax.CallExprOf(p.Tree, id)
+		return if ce.TrailingFunc { "T" } else { "" }
+	}
+	if k == syntax.KSliceExpr {
+		let se = syntax.SliceExprOf(p.Tree, id)
+		return if se.Slice3 { "3" } else { "" }
+	}
+	if k == syntax.KLawDecl {
+		let ld = syntax.LawDeclOf(p.Tree, id)
+		return (if ld.Rewrite { "R" } else { "" }) + (if ld.Equation { "Q" } else { "" })
+	}
+	if k == syntax.KMachineEntry {
+		let me = syntax.MachineEntryOf(p.Tree, id)
+		return if me.Name >= 0 { syntax.TokText(p, me.Name) } else { "" }
+	}
+	""
+}
+
+func pushCanonNode(tk mut TokenPool, syms mut SymPool, p syntax.Parsed, id dense.ID[syntax.Node], depth int) {
+	if depth > 256 {
+		return
+	}
+	let k = syntax.KindOf(p.Tree, id)
+	let sem = nodeSemExtraText(p, k, id)
+	let txtID = if sem != "" { InternSym(syms, sem) } else { NoIdx }
+	tk.Kinds = tk.Kinds.Append(k)
+	tk.Texts = tk.Texts.Append(txtID)
+	let ch = syntax.Children(p.Tree, id, []uint32{})
+	for i in 0..ch.Len() {
+		pushCanonNode(tk, syms, p, syntax.NodeAt(p.Tree, int(ch[i])), depth+1)
+	}
+	tk.Kinds = tk.Kinds.Append(uint8(255))
+	tk.Texts = tk.Texts.Append(NoIdx)
+}
+
+func captureNodeStream(tk mut TokenPool, syms mut SymPool, p syntax.Parsed, opt dense.Opt[syntax.Node]) (uint32, uint32) {
+	let start = uint32(tk.Kinds.Len())
+	match dense.Unpack(opt) {
+	case option.Some{Value: node}:
+		pushCanonNode(tk, syms, p, node, 0)
+	case option.None:
+	}
+	(start, uint32(tk.Kinds.Len()))
+}
+
+func captureNodeDirect(tk mut TokenPool, syms mut SymPool, p syntax.Parsed, node dense.ID[syntax.Node]) (uint32, uint32) {
+	let start = uint32(tk.Kinds.Len())
+	pushCanonNode(tk, syms, p, node, 0)
+	(start, uint32(tk.Kinds.Len()))
+}
+
+func findDepSummary(deps []Summary, path string) option.Option[Summary] {
+	for i in 0..deps.Len() {
+		if PackagePath(deps[i]) == path {
+			return option.Some{Value: deps[i]}
+		}
+	}
+	option.None
+}
+
+func populateImports(st mut extractState) {
+	let raw = store.ImportPaths(st.unit.Store)
+	let sorted = slices.Sort(slices.Clone(raw))
+	for i in 0..sorted.Len() {
+		if i > 0 && sorted[i] == sorted[i-1] {
+			continue
+		}
+		let path = sorted[i]
+		let mut checkD = ZeroDigest()
+		let mut lowerD = ZeroDigest()
+		match findDepSummary(st.unit.Deps, path) {
+		case option.Some{Value: dep}:
+			checkD = dep.Header.CheckDigest
+			lowerD = dep.Header.LowerDigest
+		case option.None:
+		}
+		st.sec.ImportPaths = st.sec.ImportPaths.Append(InternSym(&st.sec.Syms, path))
+		st.sec.ImportCheck = st.sec.ImportCheck.Append(checkD)
+		st.low.ImportPaths = st.low.ImportPaths.Append(InternSym(&st.low.Syms, path))
+		st.low.ImportLower = st.low.ImportLower.Append(lowerD)
+	}
+}
+
+func topDeclNodes(p syntax.Parsed) []dense.ID[syntax.Node] {
+	let mut out = []dense.ID[syntax.Node]{}
+	if p.Failed {
+		return out
+	}
+	match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
+	case syntax.File as root:
+		let n = syntax.Len(root.Decls)
+		for i in 0..n {
+			out = out.Append(syntax.Item(p.Tree, root.Decls, i))
+		}
+	case _:
+	}
+	out
+}
+
+func appendFileDeclItems(items mut []declItem, f int, p syntax.Parsed) {
+	let decls = topDeclNodes(p)
+	for i in 0..decls.Len() {
+		let d = decls[i]
+		let k = syntax.KindOf(p.Tree, d)
+		if k == syntax.KFuncDecl {
+			let fd = syntax.FuncDeclOf(p.Tree, d)
+			let nm = identNameText(p, fd.Name)
+			if isExportedName(nm) {
+				let dir = extractDirectives(p, fd.Doc)
+				*items = (*items).Append(declItem{Kind: DeclFunc, Name: nm, FileIdx: f, Node: d, DirText: dir, ParseIdx: -1})
+			}
+		} else if k == syntax.KTypeDecl {
+			let td = syntax.TypeDeclOf(p.Tree, d)
+			let nm = identNameText(p, td.Name)
+			if isExportedName(nm) {
+				let dir = extractDirectives(p, td.Doc)
+				*items = (*items).Append(declItem{Kind: DeclType, Name: nm, FileIdx: f, Node: d, DirText: dir, ParseIdx: -1})
+			}
+		} else if k == syntax.KContextDecl {
+			let cd = syntax.ContextDeclOf(p.Tree, d)
+			let nm = identNameText(p, cd.Name)
+			if isExportedName(nm) {
+				let dir = extractDirectives(p, cd.Doc)
+				*items = (*items).Append(declItem{Kind: DeclContext, Name: nm, FileIdx: f, Node: d, DirText: dir, ParseIdx: -1})
+			}
+		} else if k == syntax.KLawDecl {
+			let ld = syntax.LawDeclOf(p.Tree, d)
+			let nm = identNameText(p, ld.Name)
+			if isExportedName(nm) {
+				let dir = extractDirectives(p, ld.Doc)
+				*items = (*items).Append(declItem{Kind: DeclLaw, Name: nm, FileIdx: f, Node: d, DirText: dir, ParseIdx: -1})
+			}
+		} else if k == syntax.KVarDecl {
+			appendVarDeclItems(items, f, p, d)
+		}
+	}
+}
+
+func appendVarDeclItems(items mut []declItem, f int, p syntax.Parsed, d dense.ID[syntax.Node]) {
+	let vd = syntax.VarDeclOf(p.Tree, d)
+	let dir = extractDirectives(p, vd.Doc)
+	if syntax.KindOf(p.Tree, vd.Spec) != syntax.KVarSpec {
+		return
+	}
+	let vs = syntax.VarSpecOf(p.Tree, vd.Spec)
+	let dk = if vd.Mut < 0 { DeclConst } else { DeclVar }
+	let nn = syntax.Len(vs.Names)
+	for j in 0..nn {
+		let nmNode = syntax.Item(p.Tree, vs.Names, j)
+		let nm = identNameText(p, nmNode)
+		if isExportedName(nm) {
+			*items = (*items).Append(declItem{Kind: dk, Name: nm, FileIdx: f, Node: d, DirText: dir, ParseIdx: j})
+		}
+	}
+}
+
+func sortDeclItems(items []declItem) []declItem {
+	let sorted = slices.SortFunc(items, func(a declItem, b declItem) int {
+		if a.Kind != b.Kind {
+			return int(a.Kind) - int(b.Kind)
+		}
+		strings.Compare(a.Name, b.Name)
+	})
+	let mut out = slices.WithCapacity[declItem](sorted.Len())
+	for i in 0..sorted.Len() {
+		if i > 0 && sorted[i].Kind == sorted[i-1].Kind && sorted[i].Name == sorted[i-1].Name {
+			continue
+		}
+		out = out.Append(sorted[i])
+	}
+	out
+}
+
+func findExprFnIdx(k expr.Pkg, file int, decl dense.ID[syntax.Node]) int {
+	for i in 0..k.Fns.Len() {
+		let f = k.Fns[i]
+		if f.File == file && f.Decl == decl {
+			return i
+		}
+	}
+	-1
+}
+
+func findIfaceDecl(iface types.Iface, name string) option.Option[types.IfaceDecl] {
+	for i in 0..iface.Decls.Len() {
+		if iface.Decls[i].Name == name {
+			return option.Some{Value: iface.Decls[i]}
+		}
+	}
+	option.None
+}
+
+func resolveNodeType(st mut extractState, fileIdx int, params []string, node dense.ID[syntax.Node]) uint32 {
+	let p = st.unit.Parsed[fileIdx]
+	let env = types.NewEnv(st.sCopy, st.unit.Parsed, p, params, st.unit.Pkg.Kinds, st.ext, st.unit.Pkg.Foreign, st.unit.Pkg.Ifaces)
+	let tk = types.Resolve(&st.sCopy, env, node)
+	ImportStoreType(&st.sec.Types, &st.sec.Syms, st.sCopy, st.org, tk)
+}
+
+func collectRowTypes(st mut extractState, t dense.ID[store.TKey]) []uint32 {
+	let mut tmpP = NewTypePool()
+	let mut tmpS = NewSymPool()
+	let tr = ImportStoreType(&tmpP, &tmpS, st.unit.Store, st.org, t)
+	let kind = store.KindOfType(st.unit.Store, t)
+	if kind != store.KRow && kind != store.KRowValue {
+		if tr == InternNoValue(&tmpP) {
+			return []uint32{}
+		}
+		return []uint32{copyCanonType(&st.sec.Types, &st.sec.Syms, tmpP, tmpS, tr)}
+	}
+	let ops = TypeOperands(tmpP, tr)
+	let mut out = slices.WithCapacity[uint32](ops.Len())
+	for i in 0..ops.Len() {
+		out = out.Append(copyCanonType(&st.sec.Types, &st.sec.Syms, tmpP, tmpS, ops[i]))
+	}
+	out
+}
+
+func fieldParamModes(p syntax.Parsed, paramsNode dense.ID[syntax.Node]) ([]string, []uint8) {
+	let mut names = []string{}
+	let mut modes = []uint8{}
+	if syntax.KindOf(p.Tree, paramsNode) != syntax.KFieldList {
+		return (names, modes)
+	}
+	let fl = syntax.FieldListOf(p.Tree, paramsNode)
+	let n = syntax.Len(fl.List)
+	for i in 0..n {
+		let fn = syntax.Item(p.Tree, fl.List, i)
+		if syntax.KindOf(p.Tree, fn) != syntax.KField {
+			continue
+		}
+		let fd = syntax.FieldOf(p.Tree, fn)
+		let mode = if fd.Own >= 0 {
+			ParamOwn
+		} else if fd.Mut >= 0 {
+			ParamMut
+		} else {
+			ParamVal
+		}
+		let nn = syntax.Len(fd.Names)
+		if nn == 0 {
+			names = names.Append("")
+			modes = modes.Append(mode)
+		} else {
+			for j in 0..nn {
+				names = names.Append(identNameText(p, syntax.Item(p.Tree, fd.Names, j)))
+				modes = modes.Append(mode)
+			}
+		}
+	}
+	(names, modes)
+}
+
+func appendTypeParamsList(st mut extractState, p syntax.Parsed, tps dense.Opt[syntax.Node], params []string, fileIdx int) {
+	match dense.Unpack(tps) {
+	case option.None:
+	case option.Some{Value: flNode}:
+		if syntax.KindOf(p.Tree, flNode) != syntax.KFieldList {
+			return
+		}
+		let fl = syntax.FieldListOf(p.Tree, flNode)
+		let n = syntax.Len(fl.List)
+		for i in 0..n {
+			let fNode = syntax.Item(p.Tree, fl.List, i)
+			if syntax.KindOf(p.Tree, fNode) != syntax.KField {
+				continue
+			}
+			let fd = syntax.FieldOf(p.Tree, fNode)
+			let consT = match dense.Unpack(fd.Type) {
+			case option.Some{Value: ct}:
+				resolveNodeType(st, fileIdx, params, ct)
+			case option.None:
+				NoIdx
+			}
+			let consSym = match dense.Unpack(fd.Type) {
+			case option.Some{Value: _}:
+				InternSym(&st.sec.Syms, CanonicalTypeKey(st.sec.Types, st.sec.Syms, consT))
+			case option.None:
+				NoIdx
+			}
+			let flags = if fd.Own >= 0 { TParamFlagOwn } else { uint32(0) }
+			let nn = syntax.Len(fd.Names)
+			for j in 0..nn {
+				let tpName = identNameText(p, syntax.Item(p.Tree, fd.Names, j))
+				st.sec.FnTPNames = st.sec.FnTPNames.Append(InternSym(&st.sec.Syms, tpName))
+				st.sec.FnTPCons = st.sec.FnTPCons.Append(consT)
+				st.sec.FnTPConsText = st.sec.FnTPConsText.Append(consSym)
+				st.sec.FnTPFlags = st.sec.FnTPFlags.Append(flags)
+			}
+		}
+	}
+}
+
+func unwrapFuncResult(s store.Store, resT dense.ID[store.TKey]) option.Option[dense.ID[store.TKey]] {
+	if store.KindOfType(s, resT) == store.KTuple {
+		let elts = store.OperandsOf(s, resT)
+		if elts.Len() == 0 {
+			return option.None
+		}
+		if elts.Len() == 1 {
+			return option.Some{Value: elts[0]}
+		}
+	}
+	option.Some{Value: resT}
+}
+
+func appendExportedFunc(st mut extractState, it declItem) uint32 {
+	let sub = uint32(st.sec.FnNames.Len())
+	let p = st.unit.Parsed[it.FileIdx]
+	let fd = syntax.FuncDeclOf(p.Tree, it.Node)
+	let ft = syntax.FuncTypeOf(p.Tree, fd.Type)
+	let fnIdx = findExprFnIdx(st.unit.Pkg, it.FileIdx, it.Node)
+	let f = st.unit.Pkg.Fns[fnIdx]
+	st.sec.FnNames = st.sec.FnNames.Append(InternSym(&st.sec.Syms, it.Name))
+
+	let isGeneric = f.Params.Len() > 0 || hasOptNode(fd.TypeParams) || hasOptNode(ft.TypeParams)
+	let mut flags = uint32(0)
+	if f.Close {
+		flags = flags | FnFlagClose
+	}
+	if isGeneric {
+		flags = flags | FnFlagGeneric
+	}
+	if ft.Entry >= 0 {
+		flags = flags | FnFlagEntry
+	}
+	if hasOptNode(fd.Extern) {
+		flags = flags | FnFlagExtern
+	}
+	if hasOptType(f.SelfRole) {
+		flags = flags | FnFlagHasSelfRole
+	}
+	st.sec.FnFlags = st.sec.FnFlags.Append(flags)
+
+	appendTypeParamsList(st, p, fd.TypeParams, f.Params, it.FileIdx)
+	appendTypeParamsList(st, p, ft.TypeParams, f.Params, it.FileIdx)
+	st.sec.FnTParamStarts = st.sec.FnTParamStarts.Append(uint32(st.sec.FnTPNames.Len()))
+
+	let (astNames, astModes) = fieldParamModes(p, ft.Params)
+	let sigOps = store.OperandsOf(st.unit.Store, f.Sig)
+	let np = if sigOps.Len() >= 3 { sigOps.Len() - 3 } else { 0 }
+	for j in 0..np {
+		let pName = if j < f.Pnames.Len() && f.Pnames[j] != "" {
+			f.Pnames[j]
+		} else if j < astNames.Len() {
+			astNames[j]
+		} else {
+			""
+		}
+		let mut mode = if j < astModes.Len() { astModes[j] } else { ParamVal }
+		if j < f.Own.Len() && f.Own[j] {
+			mode = ParamOwn
+		} else if j < f.Takes.Len() && f.Takes[j] {
+			mode = ParamTakes
+		} else if store.KindOfType(st.unit.Store, sigOps[j]) == store.KEntry {
+			mode = ParamEntry
+		}
+		st.sec.FnParamNames = st.sec.FnParamNames.Append(InternSym(&st.sec.Syms, pName))
+		st.sec.FnParamTypes = st.sec.FnParamTypes.Append(ImportStoreType(&st.sec.Types, &st.sec.Syms, st.unit.Store, st.org, sigOps[j]))
+		st.sec.FnParamModes = st.sec.FnParamModes.Append(mode)
+	}
+	st.sec.FnParamStarts = st.sec.FnParamStarts.Append(uint32(st.sec.FnParamNames.Len()))
+
+	let resType = if sigOps.Len() >= 3 {
+		match unwrapFuncResult(st.unit.Store, sigOps[np]) {
+		case option.Some{Value: rt}:
+			ImportStoreType(&st.sec.Types, &st.sec.Syms, st.unit.Store, st.org, rt)
+		case option.None:
+			NoIdx
+		}
+	} else {
+		NoIdx
+	}
+	st.sec.FnResults = st.sec.FnResults.Append(resType)
+
+	if sigOps.Len() >= 3 {
+		let failsList = collectRowTypes(st, sigOps[np+1])
+		for j in 0..failsList.Len() {
+			st.sec.FnFailTypes = st.sec.FnFailTypes.Append(failsList[j])
+		}
+		let needsList = collectRowTypes(st, sigOps[np+2])
+		for j in 0..needsList.Len() {
+			st.sec.FnNeedTypes = st.sec.FnNeedTypes.Append(needsList[j])
+		}
+	}
+	if store.SigDefects(st.unit.Store, f.Sig) || ft.Defects >= 0 {
+		st.sec.FnDefectTypes = st.sec.FnDefectTypes.Append(InternBasic(&st.sec.Types, uint32(0)))
+	}
+	st.sec.FnFailStarts = st.sec.FnFailStarts.Append(uint32(st.sec.FnFailTypes.Len()))
+	st.sec.FnNeedStarts = st.sec.FnNeedStarts.Append(uint32(st.sec.FnNeedTypes.Len()))
+	st.sec.FnDefectStarts = st.sec.FnDefectStarts.Append(uint32(st.sec.FnDefectTypes.Len()))
+
+	st.sec.FnRefineStarts = st.sec.FnRefineStarts.Append(uint32(st.sec.FnRefParamIdx.Len()))
+	for j in 0..f.SelfBounds.Len() {
+		let sb = f.SelfBounds[j]
+		let opT = match dense.Unpack(sb.Op) {
+		case option.Some{Value: t}:
+			ImportStoreType(&st.sec.Types, &st.sec.Syms, st.unit.Store, st.org, t)
+		case option.None:
+			NoIdx
+		}
+		st.sec.FnSelfBoundOps = st.sec.FnSelfBoundOps.Append(opT)
+		st.sec.FnSelfBoundArity = st.sec.FnSelfBoundArity.Append(uint32(sb.Arity))
+	}
+	st.sec.FnSelfBoundStarts = st.sec.FnSelfBoundStarts.Append(uint32(st.sec.FnSelfBoundOps.Len()))
+	st.sec.FnSelfArity = st.sec.FnSelfArity.Append(uint32(f.SelfArity))
+	let selfR = match dense.Unpack(f.SelfRole) {
+	case option.Some{Value: t}:
+		ImportStoreType(&st.sec.Types, &st.sec.Syms, st.unit.Store, st.org, t)
+	case option.None:
+		NoIdx
+	}
+	st.sec.FnSelfRole = st.sec.FnSelfRole.Append(selfR)
+
+	let nf = syntax.Len(ft.Facts)
+	for j in 0..nf {
+		let fc = syntax.FactClauseOf(p.Tree, syntax.Item(p.Tree, ft.Facts, j))
+		let fk = if fc.Kind == syntax.FactGiven {
+			FactGiven
+		} else if fc.Kind == syntax.FactGives {
+			FactGives
+		} else {
+			FactKeeps
+		}
+		let (cs, ce) = captureNodeDirect(&st.sec.Tokens, &st.sec.Syms, p, fc.Cond)
+		let (ws, we) = captureNodeStream(&st.sec.Tokens, &st.sec.Syms, p, fc.When)
+		st.sec.FnFactKinds = st.sec.FnFactKinds.Append(fk)
+		st.sec.FnFactCondStarts = st.sec.FnFactCondStarts.Append(cs)
+		st.sec.FnFactCondEnds = st.sec.FnFactCondEnds.Append(ce)
+		st.sec.FnFactWhenStarts = st.sec.FnFactWhenStarts.Append(ws)
+		st.sec.FnFactWhenEnds = st.sec.FnFactWhenEnds.Append(we)
+	}
+	st.sec.FnFactStarts = st.sec.FnFactStarts.Append(uint32(st.sec.FnFactKinds.Len()))
+
+	if isGeneric {
+		let (bs, be) = captureNodeStream(&st.sec.Tokens, &st.sec.Syms, p, fd.Body)
+		st.sec.FnBodyTokStarts = st.sec.FnBodyTokStarts.Append(bs)
+		st.sec.FnBodyTokEnds = st.sec.FnBodyTokEnds.Append(be)
+	} else {
+		let at = uint32(st.sec.Tokens.Kinds.Len())
+		st.sec.FnBodyTokStarts = st.sec.FnBodyTokStarts.Append(at)
+		st.sec.FnBodyTokEnds = st.sec.FnBodyTokEnds.Append(at)
+	}
+
+	appendLowerFn(st, it, fnIdx, f, fd, np)
+	sub
+}
+
+func appendLowerFn(st mut extractState, it declItem, fnIdx int, f expr.Fn, fd syntax.FuncDecl, np int) {
+	let p = st.unit.Parsed[it.FileIdx]
+	st.low.FnNames = st.low.FnNames.Append(InternSym(&st.low.Syms, it.Name))
+
+	let mut hintFound = false
+	let mut hintFlags = uint32(0)
+	let mut hintCost = uint32(0)
+	let mut hintAbis = []uint8{}
+	let mut hintCaps = []uint32{}
+	for i in 0..st.unit.Lower.Len() {
+		let h = st.unit.Lower[i]
+		if h.Name == it.Name {
+			hintFound = true
+			hintFlags = h.Flags
+			hintCost = h.InlineCost
+			hintAbis = h.ParamAbis
+			hintCaps = h.Caps
+			break
+		}
+	}
+	let (bs, be) = captureNodeStream(&st.low.Tokens, &st.low.Syms, p, fd.Body)
+	let bodyTokCount = int(be - bs)
+	if !hintFound {
+		let isOpaque = footprint.Opaque(st.unit.Footprint, fnIdx)
+		let isDies = footprint.Dies(st.unit.Footprint, fnIdx)
+		let isEmpty = footprint.Empty(st.unit.Footprint, fnIdx)
+		if isEmpty && !isOpaque && !isDies {
+			hintFlags = hintFlags | LowerPure | LowerAllocFree
+		}
+		if isOpaque {
+			hintFlags = hintFlags | LowerOpaque
+		}
+		if isDies {
+			hintFlags = hintFlags | LowerDies
+		}
+		if !isOpaque && !isDies && !hasOptNode(fd.Extern) && bodyTokCount > 0 && bodyTokCount <= 64 {
+			hintFlags = hintFlags | LowerInlineCandidate
+		}
+		hintCost = uint32(bodyTokCount)
+	}
+	if hintFlags&LowerInlineCandidate == uint32(0) {
+		st.low.Tokens.Kinds = st.low.Tokens.Kinds[0:int(bs)]
+		st.low.Tokens.Texts = st.low.Tokens.Texts[0:int(bs)]
+		st.low.FnTokStarts = st.low.FnTokStarts.Append(bs)
+		st.low.FnTokEnds = st.low.FnTokEnds.Append(bs)
+	} else {
+		st.low.FnTokStarts = st.low.FnTokStarts.Append(bs)
+		st.low.FnTokEnds = st.low.FnTokEnds.Append(be)
+	}
+	st.low.FnFlags = st.low.FnFlags.Append(hintFlags)
+	st.low.FnInlineCost = st.low.FnInlineCost.Append(hintCost)
+
+	if hintCaps.Len() > 0 {
+		for i in 0..hintCaps.Len() {
+			st.low.FnCaps = st.low.FnCaps.Append(hintCaps[i])
+		}
+	} else {
+		let fpCaps = footprint.Caps(st.unit.Footprint, fnIdx)
+		let mut tmpP = NewTypePool()
+		let mut tmpS = NewSymPool()
+		let mut raw = slices.WithCapacity[uint32](fpCaps.Len())
+		for i in 0..fpCaps.Len() {
+			raw = raw.Append(ImportStoreType(&tmpP, &tmpS, st.unit.Store, st.org, fpCaps[i]))
+		}
+		let sortedCaps = sortAndDedupeTypes(tmpP, tmpS, raw)
+		for i in 0..sortedCaps.Len() {
+			st.low.FnCaps = st.low.FnCaps.Append(copyCanonType(&st.low.Types, &st.low.Syms, tmpP, tmpS, sortedCaps[i]))
+		}
+	}
+	st.low.FnCapStarts = st.low.FnCapStarts.Append(uint32(st.low.FnCaps.Len()))
+
+	if hintAbis.Len() > 0 {
+		for i in 0..hintAbis.Len() {
+			st.low.FnParamAbis = st.low.FnParamAbis.Append(hintAbis[i])
+		}
+	} else {
+		for j in 0..np {
+			let abi = if j < f.Takes.Len() && f.Takes[j] { ParamAbiTakes } else { ParamAbiCopy }
+			st.low.FnParamAbis = st.low.FnParamAbis.Append(abi)
+		}
+	}
+	st.low.FnAbiStarts = st.low.FnAbiStarts.Append(uint32(st.low.FnParamAbis.Len()))
+}
+
+func typeParamNamesFromNode(p syntax.Parsed, tps dense.Opt[syntax.Node]) []string {
+	let mut out = []string{}
+	match dense.Unpack(tps) {
+	case option.None:
+	case option.Some{Value: n}:
+		if syntax.KindOf(p.Tree, n) != syntax.KFieldList {
+			return out
+		}
+		let fl = syntax.FieldListOf(p.Tree, n)
+		for i in 0..syntax.Len(fl.List) {
+			let f = syntax.Item(p.Tree, fl.List, i)
+			if syntax.KindOf(p.Tree, f) != syntax.KField {
+				continue
+			}
+			let fd = syntax.FieldOf(p.Tree, f)
+			for j in 0..syntax.Len(fd.Names) {
+				out = out.Append(identNameText(p, syntax.Item(p.Tree, fd.Names, j)))
+			}
+		}
+	}
+	out
+}
+
+func appendTyTParams(st mut extractState, p syntax.Parsed, tps dense.Opt[syntax.Node], params []string, fileIdx int) {
+	match dense.Unpack(tps) {
+	case option.None:
+	case option.Some{Value: n}:
+		if syntax.KindOf(p.Tree, n) != syntax.KFieldList {
+			return
+		}
+		let fl = syntax.FieldListOf(p.Tree, n)
+		for i in 0..syntax.Len(fl.List) {
+			let f = syntax.Item(p.Tree, fl.List, i)
+			if syntax.KindOf(p.Tree, f) != syntax.KField {
+				continue
+			}
+			let fd = syntax.FieldOf(p.Tree, f)
+			let consT = match dense.Unpack(fd.Type) {
+			case option.Some{Value: ct}:
+				resolveNodeType(st, fileIdx, params, ct)
+			case option.None:
+				NoIdx
+			}
+			let flags = if fd.Own >= 0 { TParamFlagOwn } else { uint32(0) }
+			for j in 0..syntax.Len(fd.Names) {
+				let nm = identNameText(p, syntax.Item(p.Tree, fd.Names, j))
+				st.sec.TyTPNames = st.sec.TyTPNames.Append(InternSym(&st.sec.Syms, nm))
+				st.sec.TyTPCons = st.sec.TyTPCons.Append(consT)
+				st.sec.TyTPFlags = st.sec.TyTPFlags.Append(flags)
+			}
+		}
+	}
+}
+
+func appendExportedStructFields(st mut extractState, tyName string) (bool, []expr.Field) {
+	let mut hasUnexported = false
+	let mut phys = []expr.Field{}
+	for i in 0..st.unit.Pkg.Recs.Len() {
+		let rec = st.unit.Pkg.Recs[i]
+		if rec.Name == tyName {
+			phys = rec.Fields
+			break
+		}
+	}
+	for i in 0..phys.Len() {
+		let fd = phys[i]
+		if !isExportedName(fd.Name) {
+			hasUnexported = true
+			continue
+		}
+		st.sec.FieldNames = st.sec.FieldNames.Append(InternSym(&st.sec.Syms, fd.Name))
+		st.sec.FieldTypes = st.sec.FieldTypes.Append(ImportStoreType(&st.sec.Types, &st.sec.Syms, st.unit.Store, st.org, fd.T))
+		st.sec.FieldFlags = st.sec.FieldFlags.Append(uint32(0))
+	}
+	(hasUnexported, phys)
+}
+
+type unionVariantItem {
+	Name   string,
+	TypeID uint32,
+	Fields []expr.Field,
+}
+
+func collectOneVariant(st extractState, p syntax.Parsed, vt dense.ID[syntax.Node], params []string, fileIdx int) unionVariantItem {
+	let vk = syntax.KindOf(p.Tree, vt)
+	if vk == syntax.KVariantSpec {
+		let vs = syntax.VariantSpecOf(p.Tree, vt)
+		let vn = identNameText(p, vs.Name)
+		let mut flds = []expr.Field{}
+		for r in 0..st.unit.Pkg.Recs.Len() {
+			if st.unit.Pkg.Recs[r].Name == vn {
+				flds = st.unit.Pkg.Recs[r].Fields
+				break
+			}
+		}
+		return unionVariantItem{Name: vn, TypeID: NoIdx, Fields: flds}
+	}
+	let mut sLocal = st
+	let ct = resolveNodeType(&sLocal, fileIdx, params, vt)
+	let nm = CanonicalTypeKey(sLocal.sec.Types, sLocal.sec.Syms, ct)
+	unionVariantItem{Name: nm, TypeID: ct, Fields: []expr.Field{}}
+}
+
+func appendUnionVariants(st mut extractState, p syntax.Parsed, spec dense.ID[syntax.Node], params []string, fileIdx int) {
+	let mut varItems = []unionVariantItem{}
+	let sk = syntax.KindOf(p.Tree, spec)
+	if sk == syntax.KErrorRow {
+		let er = syntax.ErrorRowOf(p.Tree, spec)
+		for i in 0..syntax.Len(er.Types) {
+			varItems = varItems.Append(collectOneVariant(*st, p, syntax.Item(p.Tree, er.Types, i), params, fileIdx))
+		}
+	} else if sk == syntax.KInterfaceType {
+		let it = syntax.InterfaceTypeOf(p.Tree, spec)
+		for i in 0..syntax.Len(it.Members) {
+			varItems = varItems.Append(collectOneVariant(*st, p, syntax.Item(p.Tree, it.Members, i), params, fileIdx))
+		}
+	} else if sk == syntax.KVariantSpec {
+		varItems = varItems.Append(collectOneVariant(*st, p, spec, params, fileIdx))
+	}
+	let sorted = slices.SortFunc(varItems, func(a unionVariantItem, b unionVariantItem) int {
+		strings.Compare(a.Name, b.Name)
+	})
+	for i in 0..sorted.Len() {
+		let item = sorted[i]
+		st.sec.UnionVarNames = st.sec.UnionVarNames.Append(InternSym(&st.sec.Syms, item.Name))
+		st.sec.UnionVarTypes = st.sec.UnionVarTypes.Append(item.TypeID)
+		let start = uint32(st.sec.UnionVarFieldNames.Len())
+		for j in 0..item.Fields.Len() {
+			let f = item.Fields[j]
+			if !isExportedName(f.Name) {
+				continue
+			}
+			st.sec.UnionVarFieldNames = st.sec.UnionVarFieldNames.Append(InternSym(&st.sec.Syms, f.Name))
+			st.sec.UnionVarFieldTypes = st.sec.UnionVarFieldTypes.Append(ImportStoreType(&st.sec.Types, &st.sec.Syms, st.unit.Store, st.org, f.T))
+			st.sec.UnionVarFieldFlags = st.sec.UnionVarFieldFlags.Append(uint32(0))
+		}
+		st.sec.UnionVarFieldStarts = st.sec.UnionVarFieldStarts.Append(start)
+		st.sec.UnionVarFieldEnds = st.sec.UnionVarFieldEnds.Append(uint32(st.sec.UnionVarFieldNames.Len()))
+	}
+}
+
+func appendRoleDef(st mut extractState, role types.Role, ifaceDecl option.Option[types.IfaceDecl], p syntax.Parsed, spec dense.ID[syntax.Node]) uint32 {
+	let idx = uint32(st.sec.RoleSelfSites.Len())
+	st.sec.RoleSelfSites = st.sec.RoleSelfSites.Append(uint8(role.Self))
+	let harness = match ifaceDecl {
+	case option.Some{Value: id}:
+		if id.Harness != "" { InternSym(&st.sec.Syms, id.Harness) } else { NoIdx }
+	case option.None:
+		NoIdx
+	}
+	st.sec.RoleHarness = st.sec.RoleHarness.Append(harness)
+	for i in 0..role.Includes.Len() {
+		st.sec.RoleIncludes = st.sec.RoleIncludes.Append(ImportStoreType(&st.sec.Types, &st.sec.Syms, st.unit.Store, st.org, role.Includes[i]))
+	}
+	st.sec.RoleIncludeStarts = st.sec.RoleIncludeStarts.Append(uint32(st.sec.RoleIncludes.Len()))
+
+	let sortedMems = slices.SortFunc(slices.Clone(role.Members), func(a types.RoleMember, b types.RoleMember) int {
+		strings.Compare(a.Name, b.Name)
+	})
+	for i in 0..sortedMems.Len() {
+		let m = sortedMems[i]
+		st.sec.RoleMemNames = st.sec.RoleMemNames.Append(InternSym(&st.sec.Syms, m.Name))
+		let mut mFlags = uint32(0)
+		if m.Mut {
+			mFlags = mFlags | uint32(1)
+		}
+		if m.Fallible {
+			mFlags = mFlags | uint32(2)
+		}
+		st.sec.RoleMemFlags = st.sec.RoleMemFlags.Append(mFlags)
+		st.sec.RoleMemSigs = st.sec.RoleMemSigs.Append(ImportStoreType(&st.sec.Types, &st.sec.Syms, st.unit.Store, st.org, m.Sig))
+		for j in 0..m.Own.Len() {
+			st.sec.RoleMemOwnNames = st.sec.RoleMemOwnNames.Append(InternSym(&st.sec.Syms, m.Own[j].Name))
+			st.sec.RoleMemOwnCons = st.sec.RoleMemOwnCons.Append(InternSym(&st.sec.Syms, m.Own[j].Cons))
+		}
+		st.sec.RoleMemOwnStarts = st.sec.RoleMemOwnStarts.Append(uint32(st.sec.RoleMemOwnNames.Len()))
+		for j in 0..m.Positions.Len() {
+			st.sec.RoleMemPositions = st.sec.RoleMemPositions.Append(uint32(m.Positions[j]))
+		}
+		st.sec.RoleMemPosStarts = st.sec.RoleMemPosStarts.Append(uint32(st.sec.RoleMemPositions.Len()))
+	}
+	st.sec.RoleMemberStarts = st.sec.RoleMemberStarts.Append(uint32(st.sec.RoleMemNames.Len()))
+
+	if syntax.KindOf(p.Tree, spec) == syntax.KInterfaceType {
+		let it = syntax.InterfaceTypeOf(p.Tree, spec)
+		for i in 0..syntax.Len(it.Members) {
+			let mem = syntax.Item(p.Tree, it.Members, i)
+			if syntax.KindOf(p.Tree, mem) != syntax.KLawDecl {
+				continue
+			}
+			let ld = syntax.LawDeclOf(p.Tree, mem)
+			let ln = identNameText(p, ld.Name)
+			let (ls, le) = captureNodeStream(&st.sec.Tokens, &st.sec.Syms, p, ld.Body)
+			st.sec.RoleLawNames = st.sec.RoleLawNames.Append(InternSym(&st.sec.Syms, ln))
+			st.sec.RoleLawTokStarts = st.sec.RoleLawTokStarts.Append(ls)
+			st.sec.RoleLawTokEnds = st.sec.RoleLawTokEnds.Append(le)
+		}
+	}
+	st.sec.RoleLawStarts = st.sec.RoleLawStarts.Append(uint32(st.sec.RoleLawNames.Len()))
+	idx
+}
+
+func appendRefinementRecord(st mut extractState, r facts.Refinement, parseName string) uint32 {
+	let idx = uint32(st.sec.RefIsLen.Len())
+	st.sec.RefIsLen = st.sec.RefIsLen.Append(r.Len)
+	st.sec.RefParseNames = st.sec.RefParseNames.Append(if parseName != "" { InternSym(&st.sec.Syms, parseName) } else { NoIdx })
+	for i in 0..r.Spans.Len() {
+		let sp = r.Spans[i]
+		let (lk, ln, lm) = numParts(sp.Lo)
+		let (hk, hn, hm) = numParts(sp.Hi)
+		st.sec.SpanLoKind = st.sec.SpanLoKind.Append(lk)
+		st.sec.SpanLoNeg = st.sec.SpanLoNeg.Append(ln)
+		st.sec.SpanLoMag = st.sec.SpanLoMag.Append(lm)
+		st.sec.SpanHiKind = st.sec.SpanHiKind.Append(hk)
+		st.sec.SpanHiNeg = st.sec.SpanHiNeg.Append(hn)
+		st.sec.SpanHiMag = st.sec.SpanHiMag.Append(hm)
+	}
+	st.sec.RefSpanStarts = st.sec.RefSpanStarts.Append(uint32(st.sec.SpanLoKind.Len()))
+	idx
+}
+
+func numParts(n facts.Num) (uint8, uint8, uint64) {
+	match n {
+	case facts.Below:
+		(NumBelow, uint8(0), uint64(0))
+	case facts.Above:
+		(NumAbove, uint8(0), uint64(0))
+	case facts.At as a:
+		(NumAt, if a.Neg { uint8(1) } else { uint8(0) }, a.Mag)
+	}
+}
+
+type implSortItem {
+	Imp  string,
+	Name string,
+	Args []uint32,
+}
+
+func appendTypeImplements(st mut extractState, td syntax.TypeDecl, fileIdx int, params []string) {
+	let nc = syntax.Len(td.Implements)
+	if nc == 0 {
+		return
+	}
+	let mut items = slices.WithCapacity[implSortItem](nc)
+	for i in 0..nc {
+		let cn = syntax.Item(st.unit.Parsed[fileIdx].Tree, td.Implements, i)
+		let ct = resolveNodeType(st, fileIdx, params, cn)
+		let ci = int(ct)
+		let mut rImp = st.pkgPath
+		let mut rName = ""
+		let mut args = []uint32{}
+		if ci < TypeCount(st.sec.Types) {
+			let k = st.sec.Types.Kind[ci]
+			if k == TypeNamed {
+				rImp = SymText(st.sec.Syms, st.sec.Types.A[ci])
+				rName = SymText(st.sec.Syms, st.sec.Types.B[ci])
+			} else if k == TypeInstance {
+				let ops = TypeOperands(st.sec.Types, ct)
+				if ops.Len() >= 2 {
+					rImp = SymText(st.sec.Syms, ops[0])
+					rName = SymText(st.sec.Syms, ops[1])
+					args = ops[2:ops.Len()]
+				}
+			}
+		}
+		if rName == "" {
+			rName = identNameText(st.unit.Parsed[fileIdx], cn)
+		}
+		items = items.Append(implSortItem{Imp: rImp, Name: rName, Args: args})
+	}
+	let sorted = slices.SortFunc(items, func(a implSortItem, b implSortItem) int {
+		if a.Imp != b.Imp {
+			return strings.Compare(a.Imp, b.Imp)
+		}
+		strings.Compare(a.Name, b.Name)
+	})
+	for i in 0..sorted.Len() {
+		let item = sorted[i]
+		st.sec.ClaimRoleImp = st.sec.ClaimRoleImp.Append(InternSym(&st.sec.Syms, item.Imp))
+		st.sec.ClaimRoleName = st.sec.ClaimRoleName.Append(InternSym(&st.sec.Syms, item.Name))
+		for j in 0..item.Args.Len() {
+			st.sec.ClaimArgs = st.sec.ClaimArgs.Append(item.Args[j])
+		}
+		st.sec.ClaimArgStarts = st.sec.ClaimArgStarts.Append(uint32(st.sec.ClaimArgs.Len()))
+		st.sec.ClaimLayStarts = st.sec.ClaimLayStarts.Append(uint32(st.sec.ClaimLayoutSlots.Len()))
+	}
+}
+
+func appendExportedType(st mut extractState, it declItem) uint32 {
+	let sub = uint32(st.sec.TyNames.Len())
+	let p = st.unit.Parsed[it.FileIdx]
+	let td = syntax.TypeDeclOf(p.Tree, it.Node)
+	let params = typeParamNamesFromNode(p, td.TypeParams)
+	st.sec.TyNames = st.sec.TyNames.Append(InternSym(&st.sec.Syms, it.Name))
+
+	appendTyTParams(st, p, td.TypeParams, params, it.FileIdx)
+	st.sec.TyTParamStarts = st.sec.TyTParamStarts.Append(uint32(st.sec.TyTPNames.Len()))
+
+	let ifaceDecl = findIfaceDecl(st.unit.Iface, it.Name)
+	let mut subkind = TyDefined
+	let mut flags = uint32(0)
+	let mut underType = NoIdx
+	let mut roleIdx = NoIdx
+	let mut refIdx = NoIdx
+	let mut physFields = []expr.Field{}
+
+	let mut hasRole = false
+	for i in 0..st.unit.Pkg.Roles.Len() {
+		if st.unit.Pkg.Roles[i].Name == it.Name {
+			subkind = TyOp
+			roleIdx = match dense.Unpack(td.Spec) {
+			case option.Some{Value: sp}:
+				appendRoleDef(st, st.unit.Pkg.Roles[i], ifaceDecl, p, sp)
+			case option.None:
+				NoIdx
+			}
+			if types.ConstraintOnlyRole(st.unit.Pkg.Roles[i]) {
+				flags = flags | TyFlagConstraintOnly
+			}
+			hasRole = true
+			break
+		}
+	}
+
+	if !hasRole {
+		match dense.Unpack(td.Spec) {
+		case option.Some{Value: sp}:
+			let sk = syntax.KindOf(p.Tree, sp)
+			if sk == syntax.KStructType {
+				subkind = TyStruct
+				let (unexp, phys) = appendExportedStructFields(st, it.Name)
+				physFields = phys
+				if unexp {
+					flags = flags | TyFlagHasUnexportedFields
+				}
+			} else if sk == syntax.KMachineType {
+				subkind = TyMachine
+				let mt = syntax.MachineTypeOf(p.Tree, sp)
+				let (ss, se) = captureNodeDirect(&st.sec.Tokens, &st.sec.Syms, p, mt.State)
+				st.sec.MachKinds = st.sec.MachKinds.Append(MachineState)
+				st.sec.MachNames = st.sec.MachNames.Append(InternSym(&st.sec.Syms, "$state"))
+				st.sec.MachStarts = st.sec.MachStarts.Append(ss)
+				st.sec.MachEnds = st.sec.MachEnds.Append(se)
+			} else if sk == syntax.KErrorRow || sk == syntax.KVariantSpec || sk == syntax.KInterfaceType {
+				subkind = TyUnion
+				appendUnionVariants(st, p, sp, params, it.FileIdx)
+			} else {
+				let isAlias = match ifaceDecl {
+				case option.Some{Value: id}:
+					id.Alias
+				case option.None:
+					false
+				}
+				subkind = if hasOptNode(td.Where) {
+					TyRefined
+				} else if isAlias {
+					TyAlias
+				} else {
+					TyDefined
+				}
+				underType = resolveNodeType(st, it.FileIdx, params, sp)
+			}
+		case option.None:
+		}
+	}
+
+	if hasOptNode(td.Where) {
+		for i in 0..st.refs.Len() {
+			let r = st.refs[i]
+			if r.File == it.FileIdx && r.Name == td.Name {
+				match r.R {
+				case option.Some{Value: rf}:
+					let mut parseFn = ""
+					for j in 0..st.unit.Pkg.Parses.Len() {
+						let pr = st.unit.Pkg.Parses[j]
+						if pr.File == it.FileIdx && identNameText(p, pr.Name) == "Parse"+it.Name {
+							parseFn = "Parse" + it.Name
+							break
+						}
+					}
+					refIdx = appendRefinementRecord(st, rf, parseFn)
+				case option.None:
+				}
+				break
+			}
+		}
+		if refIdx == NoIdx {
+			refIdx = appendRefinementRecord(st, facts.Refinement{Len: false, Spans: []facts.Span{}}, "")
+		}
+	}
+
+	let externPath = if strings.HasPrefix(it.DirText, "alias ") {
+		InternSym(&st.sec.Syms, strings.TrimSpace(strings.TrimPrefix(it.DirText, "alias ")))
+	} else {
+		NoIdx
+	}
+
+	appendTypeImplements(st, td, it.FileIdx, params)
+	st.sec.TySubkinds = st.sec.TySubkinds.Append(subkind)
+	st.sec.TyFlags = st.sec.TyFlags.Append(flags)
+	st.sec.TyUnderlyings = st.sec.TyUnderlyings.Append(underType)
+	st.sec.TyExternPaths = st.sec.TyExternPaths.Append(externPath)
+	st.sec.TyRefineIdx = st.sec.TyRefineIdx.Append(refIdx)
+	st.sec.TyRoleIdx = st.sec.TyRoleIdx.Append(roleIdx)
+	st.sec.TyFieldStarts = st.sec.TyFieldStarts.Append(uint32(st.sec.FieldNames.Len()))
+	st.sec.TyVarStarts = st.sec.TyVarStarts.Append(uint32(st.sec.UnionVarNames.Len()))
+	st.sec.TyClaimStarts = st.sec.TyClaimStarts.Append(uint32(st.sec.ClaimRoleName.Len()))
+	st.sec.TyMachineStart = st.sec.TyMachineStart.Append(uint32(st.sec.MachKinds.Len()))
+
+	appendLowerType(st, it.Name, subkind, externPath, physFields)
+	sub
+}
+
+func appendLowerType(st mut extractState, name string, subkind uint8, externPath uint32, phys []expr.Field) {
+	st.low.TyNames = st.low.TyNames.Append(InternSym(&st.low.Syms, name))
+	let abi = if externPath != NoIdx {
+		ValueAbiExternAlias
+	} else if subkind == TyStruct {
+		ValueAbiRecord
+	} else if subkind == TyUnion {
+		ValueAbiUnion
+	} else if subkind == TyOp {
+		ValueAbiOpBox
+	} else if subkind == TyMachine {
+		ValueAbiMachine
+	} else {
+		ValueAbiScalar
+	}
+	st.low.TyValueAbi = st.low.TyValueAbi.Append(abi)
+	let goPathSym = if externPath != NoIdx {
+		InternSym(&st.low.Syms, SymText(st.sec.Syms, externPath))
+	} else {
+		NoIdx
+	}
+	st.low.TyRuntimeGo = st.low.TyRuntimeGo.Append(goPathSym)
+	for i in 0..phys.Len() {
+		let fd = phys[i]
+		st.low.PhysFieldNames = st.low.PhysFieldNames.Append(InternSym(&st.low.Syms, fd.Name))
+		st.low.PhysFieldTypes = st.low.PhysFieldTypes.Append(ImportStoreType(&st.low.Types, &st.low.Syms, st.unit.Store, st.org, fd.T))
+		st.low.PhysFieldFlags = st.low.PhysFieldFlags.Append(if isExportedName(fd.Name) { uint32(1) } else { uint32(0) })
+	}
+	st.low.TyPhysFieldStarts = st.low.TyPhysFieldStarts.Append(uint32(st.low.PhysFieldNames.Len()))
+}
+
+func appendExportedVar(st mut extractState, it declItem) uint32 {
+	let sub = uint32(st.sec.TopVarNames.Len())
+	let p = st.unit.Parsed[it.FileIdx]
+	let vd = syntax.VarDeclOf(p.Tree, it.Node)
+	let vs = syntax.VarSpecOf(p.Tree, vd.Spec)
+	let nmNode = syntax.Item(p.Tree, vs.Names, it.ParseIdx)
+	let typ = match expr.DefType(st.unit.Typer, bind.PNodeOf(st.unit.Pkg.Ps, it.FileIdx, nmNode)) {
+	case option.Some{Value: t}:
+		ImportStoreType(&st.sec.Types, &st.sec.Syms, st.unit.Store, st.org, t)
+	case option.None:
+		match dense.Unpack(vs.Type) {
+		case option.Some{Value: tn}:
+			resolveNodeType(st, it.FileIdx, []string{}, tn)
+		case option.None:
+			InternNoValue(&st.sec.Types)
+		}
+	}
+	st.sec.TopVarNames = st.sec.TopVarNames.Append(InternSym(&st.sec.Syms, it.Name))
+	st.sec.TopVarTypes = st.sec.TopVarTypes.Append(typ)
+	st.sec.TopVarFlags = st.sec.TopVarFlags.Append(VarFlagMut)
+	sub
+}
+
+func appendExportedConst(st mut extractState, it declItem) uint32 {
+	let sub = uint32(st.sec.ConstNames.Len())
+	let p = st.unit.Parsed[it.FileIdx]
+	let vd = syntax.VarDeclOf(p.Tree, it.Node)
+	let vs = syntax.VarSpecOf(p.Tree, vd.Spec)
+	let nmNode = syntax.Item(p.Tree, vs.Names, it.ParseIdx)
+	let typ = match expr.DefType(st.unit.Typer, bind.PNodeOf(st.unit.Pkg.Ps, it.FileIdx, nmNode)) {
+	case option.Some{Value: t}:
+		ImportStoreType(&st.sec.Types, &st.sec.Syms, st.unit.Store, st.org, t)
+	case option.None:
+		match dense.Unpack(vs.Type) {
+		case option.Some{Value: tn}:
+			resolveNodeType(st, it.FileIdx, []string{}, tn)
+		case option.None:
+			InternNoValue(&st.sec.Types)
+		}
+	}
+	let (ts, te) = captureNodeStream(&st.sec.Tokens, &st.sec.Syms, p, vs.Value)
+	let valStr = match dense.Unpack(vs.Value) {
+	case option.Some{Value: vn}:
+		nodeSemExtraText(p, syntax.KindOf(p.Tree, vn), vn)
+	case option.None:
+		""
+	}
+	st.sec.ConstNames = st.sec.ConstNames.Append(InternSym(&st.sec.Syms, it.Name))
+	st.sec.ConstTypes = st.sec.ConstTypes.Append(typ)
+	st.sec.ConstValues = st.sec.ConstValues.Append(if valStr != "" { InternSym(&st.sec.Syms, valStr) } else { NoIdx })
+	st.sec.ConstTokStarts = st.sec.ConstTokStarts.Append(ts)
+	st.sec.ConstTokEnds = st.sec.ConstTokEnds.Append(te)
+	sub
+}
+
+func resolveProvidesClauseType(st mut extractState, fileIdx int, pn dense.ID[syntax.Node]) uint32 {
+	let p = st.unit.Parsed[fileIdx]
+	if syntax.KindOf(p.Tree, pn) == syntax.KProvidesClause {
+		let pc = syntax.ProvidesClauseOf(p.Tree, pn)
+		let nn = syntax.Len(pc.Names)
+		if nn == 0 {
+			return NoIdx
+		}
+		if nn == 1 {
+			return resolveNodeType(st, fileIdx, []string{}, syntax.Item(p.Tree, pc.Names, 0))
+		}
+		let mut ts = slices.WithCapacity[uint32](nn)
+		for i in 0..nn {
+			ts = ts.Append(resolveNodeType(st, fileIdx, []string{}, syntax.Item(p.Tree, pc.Names, i)))
+		}
+		return InternRow(&st.sec.Types, st.sec.Syms, ts)
+	}
+	resolveNodeType(st, fileIdx, []string{}, pn)
+}
+
+func appendExportedContext(st mut extractState, it declItem) uint32 {
+	let sub = uint32(st.sec.CtxNames.Len())
+	let p = st.unit.Parsed[it.FileIdx]
+	let cd = syntax.ContextDeclOf(p.Tree, it.Node)
+	let provT = match dense.Unpack(cd.Provides) {
+	case option.Some{Value: pn}:
+		resolveProvidesClauseType(st, it.FileIdx, pn)
+	case option.None:
+		NoIdx
+	}
+	match dense.Unpack(cd.Fails) {
+	case option.Some{Value: fn}:
+		let ts = resolveRowClauseTypes(st, it.FileIdx, fn)
+		for j in 0..ts.Len() {
+			st.sec.CtxFailTypes = st.sec.CtxFailTypes.Append(ts[j])
+		}
+	case option.None:
+	}
+	match dense.Unpack(cd.Needs) {
+	case option.Some{Value: nn}:
+		let ts = resolveRowClauseTypes(st, it.FileIdx, nn)
+		for j in 0..ts.Len() {
+			st.sec.CtxNeedTypes = st.sec.CtxNeedTypes.Append(ts[j])
+		}
+	case option.None:
+	}
+	st.sec.CtxNames = st.sec.CtxNames.Append(InternSym(&st.sec.Syms, it.Name))
+	st.sec.CtxProvides = st.sec.CtxProvides.Append(provT)
+	st.sec.CtxFailStarts = st.sec.CtxFailStarts.Append(uint32(st.sec.CtxFailTypes.Len()))
+	st.sec.CtxNeedStarts = st.sec.CtxNeedStarts.Append(uint32(st.sec.CtxNeedTypes.Len()))
+	sub
+}
+
+func resolveRowClauseTypes(st mut extractState, fileIdx int, clauseNode dense.ID[syntax.Node]) []uint32 {
+	let p = st.unit.Parsed[fileIdx]
+	let ck = syntax.KindOf(p.Tree, clauseNode)
+	let mut raw = []uint32{}
+	if ck == syntax.KNeedsClause {
+		let nc = syntax.NeedsClauseOf(p.Tree, clauseNode)
+		for i in 0..syntax.Len(nc.Names) {
+			raw = raw.Append(resolveNodeType(st, fileIdx, []string{}, syntax.Item(p.Tree, nc.Names, i)))
+		}
+		return sortAndDedupeTypes(st.sec.Types, st.sec.Syms, raw)
+	}
+	if ck == syntax.KErrorRow {
+		let er = syntax.ErrorRowOf(p.Tree, clauseNode)
+		for i in 0..syntax.Len(er.Types) {
+			raw = raw.Append(resolveNodeType(st, fileIdx, []string{}, syntax.Item(p.Tree, er.Types, i)))
+		}
+		return sortAndDedupeTypes(st.sec.Types, st.sec.Syms, raw)
+	}
+	let env = types.NewEnv(st.sCopy, st.unit.Parsed, p, []string{}, st.unit.Pkg.Kinds, st.ext, st.unit.Pkg.Foreign, st.unit.Pkg.Ifaces)
+	let tk = types.Resolve(&st.sCopy, env, clauseNode)
+	if store.KindOfType(st.sCopy, tk) == store.KRow || store.KindOfType(st.sCopy, tk) == store.KRowValue {
+		let ops = store.OperandsOf(st.sCopy, tk)
+		for i in 0..ops.Len() {
+			raw = raw.Append(ImportStoreType(&st.sec.Types, &st.sec.Syms, st.sCopy, st.org, ops[i]))
+		}
+	} else {
+		raw = raw.Append(ImportStoreType(&st.sec.Types, &st.sec.Syms, st.sCopy, st.org, tk))
+	}
+	sortAndDedupeTypes(st.sec.Types, st.sec.Syms, raw)
+}
+
+func appendExportedLaw(st mut extractState, it declItem) uint32 {
+	let sub = uint32(st.sec.LawNames.Len())
+	let p = st.unit.Parsed[it.FileIdx]
+	let ld = syntax.LawDeclOf(p.Tree, it.Node)
+	let tparams = typeParamNamesFromNode(p, ld.TypeParams)
+	match dense.Unpack(ld.TypeParams) {
+	case option.Some{Value: tpNode}:
+		if syntax.KindOf(p.Tree, tpNode) == syntax.KFieldList {
+			let fl = syntax.FieldListOf(p.Tree, tpNode)
+			for i in 0..syntax.Len(fl.List) {
+				let fn = syntax.Item(p.Tree, fl.List, i)
+				if syntax.KindOf(p.Tree, fn) != syntax.KField {
+					continue
+				}
+				let fd = syntax.FieldOf(p.Tree, fn)
+				let ct = match dense.Unpack(fd.Type) {
+				case option.Some{Value: ctn}:
+					resolveNodeType(st, it.FileIdx, tparams, ctn)
+				case option.None:
+					NoIdx
+				}
+				for j in 0..syntax.Len(fd.Names) {
+					let nm = identNameText(p, syntax.Item(p.Tree, fd.Names, j))
+					st.sec.LawTPNames = st.sec.LawTPNames.Append(InternSym(&st.sec.Syms, nm))
+					st.sec.LawTPCons = st.sec.LawTPCons.Append(ct)
+				}
+			}
+		}
+	case option.None:
+	}
+	st.sec.LawTParamStart = st.sec.LawTParamStart.Append(uint32(st.sec.LawTPNames.Len()))
+
+	match dense.Unpack(ld.Params) {
+	case option.Some{Value: pNode}:
+		if syntax.KindOf(p.Tree, pNode) == syntax.KFieldList {
+			let fl = syntax.FieldListOf(p.Tree, pNode)
+			for i in 0..syntax.Len(fl.List) {
+				let fn = syntax.Item(p.Tree, fl.List, i)
+				if syntax.KindOf(p.Tree, fn) != syntax.KField {
+					continue
+				}
+				let fd = syntax.FieldOf(p.Tree, fn)
+				let pt = match dense.Unpack(fd.Type) {
+				case option.Some{Value: ptn}:
+					resolveNodeType(st, it.FileIdx, tparams, ptn)
+				case option.None:
+					InternNoValue(&st.sec.Types)
+				}
+				for j in 0..syntax.Len(fd.Names) {
+					let nm = identNameText(p, syntax.Item(p.Tree, fd.Names, j))
+					st.sec.LawParamNames = st.sec.LawParamNames.Append(InternSym(&st.sec.Syms, nm))
+					st.sec.LawParamTypes = st.sec.LawParamTypes.Append(pt)
+				}
+			}
+		}
+	case option.None:
+	}
+	st.sec.LawParamStart = st.sec.LawParamStart.Append(uint32(st.sec.LawParamNames.Len()))
+
+	let mut flags = uint32(0)
+	if ld.Rewrite {
+		flags = flags | LawFlagRewrite
+	}
+	if ld.Equation {
+		flags = flags | LawFlagEquation
+	}
+	if ld.Quant >= 0 {
+		flags = flags | LawFlagQuant
+	}
+	if hasOptNode(ld.Reach) {
+		flags = flags | LawFlagReach
+	}
+	let (bs, be) = captureNodeStream(&st.sec.Tokens, &st.sec.Syms, p, ld.Body)
+	st.sec.LawNames = st.sec.LawNames.Append(InternSym(&st.sec.Syms, it.Name))
+	st.sec.LawFlags = st.sec.LawFlags.Append(flags)
+	st.sec.LawTokStarts = st.sec.LawTokStarts.Append(bs)
+	st.sec.LawTokEnds = st.sec.LawTokEnds.Append(be)
+	sub
+}
+
+func appendExportedParse(st mut extractState, it declItem) uint32 {
+	let sub = uint32(st.sec.ParseFnNames.Len())
+	let pr = st.unit.Pkg.Parses[it.ParseIdx]
+	let tyNm = strings.TrimPrefix(it.Name, "Parse")
+	st.sec.ParseTypeNames = st.sec.ParseTypeNames.Append(InternSym(&st.sec.Syms, tyNm))
+	st.sec.ParseFnNames = st.sec.ParseFnNames.Append(InternSym(&st.sec.Syms, it.Name))
+	st.sec.ParseSigs = st.sec.ParseSigs.Append(ImportStoreType(&st.sec.Types, &st.sec.Syms, st.unit.Store, st.org, pr.T))
+	sub
+}
+
+type claimSortKey {
+	RoleImp  string,
+	RoleName string,
+	RecvT    uint32,
+	HeadIdx  int,
+}
+
+func resolveMemberDeclName(st extractState, path string, decl uint32) string {
+	if path == "" || path == st.pkgPath {
+		if int(decl) < store.NumDecls(st.unit.Store) {
+			let d = store.DeclAt(st.unit.Store, int(decl))
+			let row = store.DeclOf(st.unit.Store, d)
+			return store.Text(st.unit.Store, row.Name)
+		}
+		return ""
+	}
+	for i in 0..st.unit.DepStores.Len() {
+		let ds = store.Of(st.unit.DepStores[i])
+		if store.PathOf(ds) == path && int(decl) < store.NumDecls(ds) {
+			let d = store.DeclAt(ds, int(decl))
+			let row = store.DeclOf(ds, d)
+			return store.Text(ds, row.Name)
+		}
+	}
+	""
+}
+
+func markNamedIfMatched(sec CheckSection, pkgPath string, tid uint32, flag uint32, flags mut []uint32) bool {
+	if int(tid) >= TypeCount(sec.Types) {
+		return false
+	}
+	let mut t = tid
+	let k0 = sec.Types.Kind[int(t)]
+	if k0 == TypePointer || k0 == TypeOwn {
+		t = sec.Types.A[int(t)]
+	}
+	if int(t) >= TypeCount(sec.Types) {
+		return false
+	}
+	if sec.Types.Kind[int(t)] != TypeNamed {
+		return false
+	}
+	if SymText(sec.Syms, sec.Types.A[int(t)]) != pkgPath {
+		return false
+	}
+	let nm = SymText(sec.Syms, sec.Types.B[int(t)])
+	for idx in 0..sec.TyNames.Len() {
+		if SymText(sec.Syms, sec.TyNames[idx]) == nm {
+			let old = (*flags)[idx]
+			if old&flag == uint32(0) {
+				(*flags)[idx] = old | flag
+				return true
+			}
+		}
+	}
+	false
+}
+
+func typeHoldsResource(sec CheckSection, pkgPath string, tid uint32) bool {
+	if int(tid) >= TypeCount(sec.Types) {
+		return false
+	}
+	let k = sec.Types.Kind[int(tid)]
+	if k == TypeOwn {
+		return true
+	}
+	if k == TypeSlice || k == TypeArray || k == TypePointer {
+		return typeHoldsResource(sec, pkgPath, sec.Types.A[int(tid)])
+	}
+	if k == TypeMap {
+		return typeHoldsResource(sec, pkgPath, sec.Types.A[int(tid)]) || typeHoldsResource(sec, pkgPath, sec.Types.B[int(tid)])
+	}
+	if k == TypeNamed {
+		let imp = SymText(sec.Syms, sec.Types.A[int(tid)])
+		let nm = SymText(sec.Syms, sec.Types.B[int(tid)])
+		if imp == "go" && nm == "Ref" {
+			return true
+		}
+		if imp == pkgPath {
+			for idx in 0..sec.TyNames.Len() {
+				if SymText(sec.Syms, sec.TyNames[idx]) == nm {
+					return sec.TyFlags[idx]&(TyFlagCloser|TyFlagHoldsResource) != uint32(0)
+				}
+			}
+		}
+	}
+	false
+}
+
+func markSemanticTypeFlags(st mut extractState) {
+	for i in 0..st.sec.FnFailTypes.Len() {
+		let _ = markNamedIfMatched(st.sec, st.pkgPath, st.sec.FnFailTypes[i], TyFlagIsError, &st.sec.TyFlags)
+	}
+	for i in 0..st.sec.CtxFailTypes.Len() {
+		let _ = markNamedIfMatched(st.sec, st.pkgPath, st.sec.CtxFailTypes[i], TyFlagIsError, &st.sec.TyFlags)
+	}
+	for i in 0..st.sec.FnNames.Len() {
+		if st.sec.FnFlags[i]&FnFlagClose != uint32(0) {
+			let ps = int(st.sec.FnParamStarts[i])
+			let pe = int(st.sec.FnParamStarts[i+1])
+			if ps < pe {
+				let _ = markNamedIfMatched(st.sec, st.pkgPath, st.sec.FnParamTypes[ps], TyFlagCloser|TyFlagHoldsResource, &st.sec.TyFlags)
+			}
+		}
+	}
+	let nTy = st.sec.TyNames.Len()
+	for iter in 0..nTy+1 {
+		let _ = iter
+		let mut changed = false
+		for i in 0..nTy {
+			if st.sec.TyFlags[i]&TyFlagHoldsResource != uint32(0) {
+				continue
+			}
+			let mut has = false
+			let ut = st.sec.TyUnderlyings[i]
+			if ut != NoIdx && typeHoldsResource(st.sec, st.pkgPath, ut) {
+				has = true
+			}
+			let fs = int(st.sec.TyFieldStarts[i])
+			let fe = int(st.sec.TyFieldStarts[i+1])
+			for j in fs..fe {
+				if typeHoldsResource(st.sec, st.pkgPath, st.sec.FieldTypes[j]) {
+					has = true
+				}
+			}
+			let vs = int(st.sec.TyVarStarts[i])
+			let ve = int(st.sec.TyVarStarts[i+1])
+			for v in vs..ve {
+				let vfs = int(st.sec.UnionVarFieldStarts[v])
+				let vfe = int(st.sec.UnionVarFieldEnds[v])
+				for j in vfs..vfe {
+					if typeHoldsResource(st.sec, st.pkgPath, st.sec.UnionVarFieldTypes[j]) {
+						has = true
+					}
+				}
+			}
+			if has {
+				st.sec.TyFlags[i] = st.sec.TyFlags[i] | TyFlagHoldsResource
+				changed = true
+			}
+		}
+		if !changed {
+			break
+		}
+	}
+}
+
+func appendFunctionClaims(st mut extractState) {
+	let n = store.FunctionClaimCount(st.unit.Store)
+	if n == 0 {
+		return
+	}
+	let mut items = []claimSortKey{}
+	for i in 0..n {
+		let ch = store.FunctionClaimAt(st.unit.Store, i)
+		let (rImp, rName) = ResolveOriginPair(st.unit.Store, st.org, store.OriginOfType(st.unit.Store, ch.Role))
+		let recvT = ImportStoreType(&st.sec.Types, &st.sec.Syms, st.unit.Store, st.org, ch.Receiver)
+		items = items.Append(claimSortKey{RoleImp: rImp, RoleName: rName, RecvT: recvT, HeadIdx: i})
+	}
+	let sorted = slices.SortFunc(items, func(a claimSortKey, b claimSortKey) int {
+		if a.RoleImp != b.RoleImp {
+			return strings.Compare(a.RoleImp, b.RoleImp)
+		}
+		if a.RoleName != b.RoleName {
+			return strings.Compare(a.RoleName, b.RoleName)
+		}
+		strings.Compare(CanonicalTypeKey(st.sec.Types, st.sec.Syms, a.RecvT), CanonicalTypeKey(st.sec.Types, st.sec.Syms, b.RecvT))
+	})
+	for i in 0..sorted.Len() {
+		let item = sorted[i]
+		let ch = store.FunctionClaimAt(st.unit.Store, item.HeadIdx)
+		st.sec.FClaimRoleImp = st.sec.FClaimRoleImp.Append(InternSym(&st.sec.Syms, item.RoleImp))
+		st.sec.FClaimRoleName = st.sec.FClaimRoleName.Append(InternSym(&st.sec.Syms, item.RoleName))
+		st.sec.FClaimReceiver = st.sec.FClaimReceiver.Append(item.RecvT)
+		for j in 0..ch.Binds.Len() {
+			st.sec.FClaimBinds = st.sec.FClaimBinds.Append(if ch.Binds[j] { uint32(1) } else { uint32(0) })
+		}
+		st.sec.FClaimBindStart = st.sec.FClaimBindStart.Append(uint32(st.sec.FClaimBinds.Len()))
+		for j in 0..ch.Positions.Len() {
+			st.sec.FClaimPositions = st.sec.FClaimPositions.Append(uint32(ch.Positions[j]))
+		}
+		st.sec.FClaimPosStart = st.sec.FClaimPosStart.Append(uint32(st.sec.FClaimPositions.Len()))
+		for j in 0..ch.Members.Len() {
+			let m = ch.Members[j]
+			let mName = resolveMemberDeclName(*st, m.Path, m.Decl)
+			st.sec.FClaimMemNames = st.sec.FClaimMemNames.Append(InternSym(&st.sec.Syms, mName))
+			let memT = InternNamed(&st.sec.Types, InternSym(&st.sec.Syms, m.Path), InternSym(&st.sec.Syms, mName))
+			st.sec.FClaimMemTypes = st.sec.FClaimMemTypes.Append(memT)
+		}
+		st.sec.FClaimMemStart = st.sec.FClaimMemStart.Append(uint32(st.sec.FClaimMemNames.Len()))
+	}
+}
+
+// Extract constructs a canonical Summary with independent Check and Lower sections from unit.
+func Extract(unit CheckedUnit) Summary {
+	let mut sCopy = unit.Store
+	let refs = facts.Refinements(&sCopy, unit.Pkg)
+	let ext = types.ExtOf(unit.Store, unit.Pkg.Ifaces)
+	let mut sec = EmptyCheckSection()
+	let pkgPathSym = InternSym(&sec.Syms, unit.PkgPath)
+	let pkgNameSym = InternSym(&sec.Syms, unit.PkgName)
+	let org = TypeOrigin{
+		SelfPath: unit.PkgPath,
+		Deps:     unit.DepStores,
+		Ifaces:   unit.Pkg.Ifaces,
+		Foreign:  unit.Pkg.Foreign,
+	}
+	let mut st = extractState{
+		unit:    unit,
+		sec:     sec,
+		low:     EmptyLowerSection(),
+		org:     org,
+		pkgPath: unit.PkgPath,
+		refs:    refs,
+		sCopy:   sCopy,
+		ext:     ext,
+	}
+	populateImports(&st)
+
+	let mut rawDecls = []declItem{}
+	for f in 0..unit.Parsed.Len() {
+		appendFileDeclItems(&rawDecls, f, unit.Parsed[f])
+	}
+	for i in 0..unit.Pkg.Parses.Len() {
+		let pr = unit.Pkg.Parses[i]
+		let base = identNameText(unit.Parsed[pr.File], pr.Name)
+		let fnName = if strings.HasPrefix(base, "Parse") { base } else { "Parse" + base }
+		if isExportedName(base) {
+			rawDecls = rawDecls.Append(declItem{Kind: DeclParse, Name: fnName, FileIdx: pr.File, Node: pr.Name, DirText: "", ParseIdx: i})
+		}
+	}
+	let decls = sortDeclItems(rawDecls)
+
+	let mut headerFlags = if unit.IsPrelude { FlagPrelude } else { uint32(0) }
+	for f in 0..unit.Parsed.Len() {
+		if unit.Parsed[f].Failed {
+			headerFlags = headerFlags | FlagParseFailed
+		}
+	}
+	for i in 0..decls.Len() {
+		let it = decls[i]
+		let sub = if it.Kind == DeclFunc {
+			let sIdx = appendExportedFunc(&st, it)
+			if st.sec.FnFlags[int(sIdx)]&FnFlagGeneric != uint32(0) {
+				headerFlags = headerFlags | FlagHasGeneric
+			}
+			sIdx
+		} else if it.Kind == DeclType {
+			appendExportedType(&st, it)
+		} else if it.Kind == DeclVar {
+			appendExportedVar(&st, it)
+		} else if it.Kind == DeclConst {
+			appendExportedConst(&st, it)
+		} else if it.Kind == DeclContext {
+			appendExportedContext(&st, it)
+		} else if it.Kind == DeclLaw {
+			appendExportedLaw(&st, it)
+		} else {
+			appendExportedParse(&st, it)
+		}
+		st.sec.DeclKinds = st.sec.DeclKinds.Append(it.Kind)
+		st.sec.DeclNames = st.sec.DeclNames.Append(InternSym(&st.sec.Syms, it.Name))
+		st.sec.DeclSubs = st.sec.DeclSubs.Append(sub)
+		st.sec.DeclDirectives = st.sec.DeclDirectives.Append(if it.DirText != "" { InternSym(&st.sec.Syms, it.DirText) } else { NoIdx })
+	}
+
+	appendFunctionClaims(&st)
+	markSemanticTypeFlags(&st)
+
+	let mut out = Summary{
+		Header: Header{
+			Version:     FormatVersion,
+			Flags:       headerFlags,
+			PkgPath:     pkgPathSym,
+			PkgName:     pkgNameSym,
+			CheckDigest: ZeroDigest(),
+			LowerDigest: ZeroDigest(),
+		},
+		Check: st.sec,
+		Lower: st.low,
+	}
+	RefreshDigests(&out)
+	out
+}
+
+// SummarizeProgram parses, checks, and extracts canonical Summary records for a topological slice of SourceUnit.
+func SummarizeProgram(units []SourceUnit) []Summary {
+	let n = units.Len()
+	let mut out = slices.WithCapacity[Summary](n)
+	let mut depStores = []store.Frozen{}
+	let mut depIfaces = []types.Iface{}
+	let mut depExprs = []expr.Dep{}
+	for i in 0..n {
+		let u = units[i]
+		let mut bFiles = slices.WithCapacity[bind.File](u.Files.Len())
+		let mut pFiles = slices.WithCapacity[syntax.Parsed](u.Files.Len())
+		for j in 0..u.Files.Len() {
+			let sf = u.Files[j]
+			let parsed = syntax.Parse(sf.Text)
+			bFiles = bFiles.Append(bind.File{Name: sf.Name, Parsed: parsed})
+			pFiles = pFiles.Append(parsed)
+		}
+		let imps = bind.Imports(bFiles)
+		let mut unitDeps = []Summary{}
+		let mut unitDepStores = []store.Frozen{}
+		let mut unitDepIfaces = []types.Iface{}
+		let mut unitExprDeps = []expr.Dep{}
+		for j in 0..imps.Len() {
+			let impPath = imps[j]
+			for k in 0..out.Len() {
+				if PackagePath(out[k]) == impPath {
+					unitDeps = unitDeps.Append(out[k])
+					unitDepStores = unitDepStores.Append(depStores[k])
+					unitDepIfaces = unitDepIfaces.Append(depIfaces[k])
+					unitExprDeps = unitExprDeps.Append(depExprs[k])
+					break
+				}
+			}
+		}
+		let s0 = bind.Collect(u.PkgPath, bFiles)
+		let ps = bind.BuildParents(bFiles)
+		let (s1, uses) = bind.Bind(s0, unitDepStores, ps, bFiles, 1)
+		let mut s = s1
+		let ext = types.ExtOf(s, unitDepIfaces)
+		let foreign = types.WithAliases([]types.Foreign{}, s, unitDepIfaces)
+		let k0 = expr.Load(&s, bFiles, uses, ps, ext, foreign, unitDepIfaces, u.IsPrelude)
+		let iface = types.Interface(s, k0.Parsed, k0.Kinds, k0.Ext, k0.Foreign, unitDepIfaces)
+		let k1 = expr.WithDeps(k0, unitExprDeps)
+		let typer = expr.Check(&s, k1)
+		let fp = footprint.Of(s, k1, typer)
+		let sum = Extract(CheckedUnit{
+			PkgPath:   u.PkgPath,
+			PkgName:   u.PkgName,
+			IsPrelude: u.IsPrelude,
+			Store:     s,
+			Iface:     iface,
+			Pkg:       k1,
+			Typer:     typer,
+			Footprint: fp,
+			Parsed:    pFiles,
+			Deps:      unitDeps,
+			DepStores: unitDepStores,
+			Lower:     []LowerHint{},
+		})
+		out = out.Append(sum)
+		let frozen = store.Freeze(s)
+		depStores = depStores.Append(frozen)
+		depIfaces = depIfaces.Append(iface)
+		depExprs = depExprs.Append(expr.Dep{Path: u.PkgPath, S: store.Of(frozen), K: expr.Exported(k1)})
+	}
+	out
+}
+
+func makePairProgram(depSrc string, appSrc string) []Summary {
+	SummarizeProgram([]SourceUnit{
+		SourceUnit{
+			PkgPath:   "pkg/dep",
+			PkgName:   "dep",
+			IsPrelude: false,
+			Files:     []SourceFile{SourceFile{Name: "dep.ergo", Text: depSrc}},
+		},
+		SourceUnit{
+			PkgPath:   "pkg/app",
+			PkgName:   "app",
+			IsPrelude: false,
+			Files:     []SourceFile{SourceFile{Name: "app.ergo", Text: appSrc}},
+		},
+	})
+}
+
+func seedMod(seed int, bound int) int {
+	int((uint64(seed) & uint64(0x7fffffffffffffff)) % uint64(bound))
+}
+
+law PrivateBodyEditKeepsCheckDigest(seed int) {
+	let delta = strconv.Itoa(seedMod(seed, 50) + 1)
+	let baseDep = "type FailInvalid {}\nfunc helper(n int) int {\n\tlet k = n + 1\n\tk * 2\n}\nfunc Compute(x int) int fails FailInvalid {\n\tlet r = helper(x)\n\tif r < 0 {\n\t\treturn FailInvalid\n\t}\n\tr + 7\n}\nfunc LargeNonInline(a int, b int) int {\n\tlet v0 = a + 1\n\tlet v1 = v0 + b\n\tlet v2 = v1 + 2\n\tlet v3 = v2 + 3\n\tlet v4 = v3 + 4\n\tlet v5 = v4 + 5\n\tlet v6 = v5 + 6\n\tlet v7 = v6 + 7\n\tlet v8 = v7 + 8\n\tlet v9 = v8 + 9\n\tv9\n}\n"
+	let editedDep = "type FailInvalid {}\nfunc helper(n int) int {\n\tlet localVar = n + \(delta)\n\tlocalVar * 3\n}\nfunc Compute(x int) int fails FailInvalid {\n\tlet out = helper(x) + 1\n\tif out < 0 {\n\t\treturn FailInvalid\n\t}\n\tout + 19\n}\nfunc LargeNonInline(a int, b int) int {\n\tlet w0 = a + \(delta)\n\tlet w1 = w0 + b\n\tlet w2 = w1 + 20\n\tlet w3 = w2 + 30\n\tlet w4 = w3 + 40\n\tlet w5 = w4 + 50\n\tlet w6 = w5 + 60\n\tlet w7 = w6 + 70\n\tlet w8 = w7 + 80\n\tlet w9 = w8 + 90\n\tw9\n}\n"
+	let appSrc = "import pkg/dep\nfunc Use(n int) int fails dep.FailInvalid {\n\ttry dep.Compute(n)\n}\n"
+
+	let sumsA = makePairProgram(baseDep, appSrc)
+	let sumsB = makePairProgram(editedDep, appSrc)
+	assert sumsA[0].Header.Flags&FlagParseFailed == uint32(0)
+	assert sumsA[1].Header.Flags&FlagParseFailed == uint32(0)
+	assert sumsB[0].Header.Flags&FlagParseFailed == uint32(0)
+	assert sumsA[0].Header.CheckDigest == sumsB[0].Header.CheckDigest
+	assert sumsA[1].Header.CheckDigest == sumsB[1].Header.CheckDigest
+	assert Render(sumsA[0]) == Render(sumsB[0])
+	assert !strings.Contains(Render(sumsA[0]), "helper")
+	assert sumsA[0].Header.LowerDigest != sumsB[0].Header.LowerDigest
+	true
+}
+
+law PositionShiftKeepsDigest(seed int) {
+	let mag = seedMod(seed, 50)
+	let blanks = strings.Repeat("\n", (mag%6)+1)
+	let depA = "type ErrA {}\ntype ErrB {}\ntype Item {\n\tCount int,\n\tsecret int,\n}\nfunc Id[T any](x T) T {\n\tx\n}\nfunc Add(a int, b int) int {\n\ta + b\n}\nfunc RowOrder(flag bool) int fails ErrB | ErrA {\n\tif flag {\n\t\treturn ErrA\n\t}\n\t1\n}\n"
+	let depB = "\(blanks)// Shifted doc or comment\nfunc RowOrder(flag bool) int fails ErrA | ErrB {\n\tif flag {\n\t\treturn ErrA\n\t}\n\t1\n}\nfunc Add(\n\ta int,\n\tb int,\n) int {\n\t// inside comment\n\ta + b\n}\n\(blanks)func Id[T any](x T) T {\n\(blanks)\tx\n}\n// Trailing comment line \(strconv.Itoa(mag))\ntype Item {\n\tCount int,\n\tsecret int,\n}\ntype ErrB {}\ntype ErrA {}\n"
+	let appA = "import pkg/dep\nfunc RunItem(it dep.Item) int {\n\tdep.Add(it.Count, dep.Id(1))\n}\n"
+	let appB = "\(blanks)// Moved application file\nimport pkg/dep\n\(blanks)func RunItem(it dep.Item) int {\n\t// layout shift\n\tdep.Add(it.Count, dep.Id(1))\n}\n"
+
+	let sumsA = makePairProgram(depA, appA)
+	let sumsB = makePairProgram(depB, appB)
+	assert sumsA[0].Header.Flags&FlagParseFailed == uint32(0)
+	assert sumsB[0].Header.Flags&FlagParseFailed == uint32(0)
+	assert sumsA[1].Header.Flags&FlagParseFailed == uint32(0)
+	assert sumsA[0].Header.CheckDigest == sumsB[0].Header.CheckDigest
+	assert sumsA[0].Header.LowerDigest == sumsB[0].Header.LowerDigest
+	assert sumsA[1].Header.CheckDigest == sumsB[1].Header.CheckDigest
+	assert sumsA[1].Header.LowerDigest == sumsB[1].Header.LowerDigest
+	assert Render(sumsA[0]) == Render(sumsB[0])
+	let encA = Encode(sumsA[0])
+	let encB = Encode(sumsB[0])
+	assert encA.Len() == encB.Len()
+	for i in 0..encA.Len() {
+		assert encA[i] == encB[i]
+	}
+	true
+}
+
+func editedDepForChoice(choice int) string {
+	let cases = []string{
+		"type ErrOne {}\ntype Kind = KindA{} | KindB{}\ntype CapOne { Ping() int, }\ntype Box[T any] { Val T, }\nfunc Calc(xs []int64) int takes xs {\n\txs.Len() + 1\n}\nfunc Poly[T any](v T) T {\n\tv\n}\n",
+		"type ErrOne {}\ntype Kind = KindA{} | KindB{}\ntype CapOne { Ping() int, }\ntype Box[T any] { Val T, }\nfunc Calc(xs []int) int {\n\txs.Len() + 1\n}\nfunc Poly[T any](v T) T {\n\tv\n}\n",
+		"type ErrOne {}\ntype Kind = KindA{} | KindB{}\ntype CapOne { Ping() int, }\ntype Box[T any] { Val T, }\nfunc Calc(xs []int) int fails ErrOne takes xs {\n\tif xs.Len() == 0 {\n\t\treturn ErrOne\n\t}\n\txs.Len() + 1\n}\nfunc Poly[T any](v T) T {\n\tv\n}\n",
+		"type ErrOne {}\ntype Kind = KindA{} | KindB{}\ntype CapOne { Ping() int, }\ntype Box[T any] { Val T, }\nfunc Calc(xs []int) int takes xs {\n\txs.Len() + 1\n}\nfunc Poly[T any](v T) T {\n\tlet u = v\n\tu\n}\n",
+		"type ErrOne {}\ntype Kind = KindA{} | KindB{}\ntype CapOne { Ping() int, }\ntype Box[T any] { Val string, }\nfunc Calc(xs []int) int takes xs {\n\txs.Len() + 1\n}\nfunc Poly[T any](v T) T {\n\tv\n}\n",
+		"type ErrOne {}\ntype Kind = KindA{} | KindB{} | KindC{}\ntype CapOne { Ping() int, }\ntype Box[T any] { Val T, }\nfunc Calc(xs []int) int takes xs {\n\txs.Len() + 1\n}\nfunc Poly[T any](v T) T {\n\tv\n}\n",
+		"type ErrOne {}\ntype Kind = KindA{} | KindB{}\ntype CapOne { Ping() int, }\ntype Box[T any] { Val T, } implements CapOne\nfunc Calc(xs []int) int takes xs {\n\txs.Len() + 1\n}\nfunc Poly[T any](v T) T {\n\tv\n}\n",
+	}
+	cases[choice%cases.Len()]
+}
+
+law ExportedSigEditMovesCheckDigest(seed int) {
+	let depBase = "type ErrOne {}\ntype Kind = KindA{} | KindB{}\ntype CapOne { Ping() int, }\ntype Box[T any] { Val T, }\nfunc Calc(xs []int) int takes xs {\n\txs.Len() + 1\n}\nfunc Poly[T any](v T) T {\n\tv\n}\n"
+	let appSrc = "import pkg/dep\nfunc Wrap(xs []int) int {\n\tdep.Calc(xs)\n}\n"
+	let baseSums = makePairProgram(depBase, appSrc)
+	assert baseSums[0].Header.Flags&FlagParseFailed == uint32(0)
+	assert baseSums[1].Header.Flags&FlagParseFailed == uint32(0)
+	let baseCheck = baseSums[0].Header.CheckDigest
+	let baseRender = Render(baseSums[0])
+
+	let variantChoice = seedMod(seed, 7)
+	let editedDep = editedDepForChoice(variantChoice)
+	let newSums = makePairProgram(editedDep, appSrc)
+	assert newSums[0].Header.Flags&FlagParseFailed == uint32(0)
+	assert newSums[0].Header.CheckDigest != baseCheck
+	if variantChoice != 3 {
+		assert Render(newSums[0]) != baseRender
+	}
+	true
+}
+
+test ExtractProgramCoversRichConstructs {
+	let depSrc = "let Limit = 64\nlet mut Counter = 0\ntype Port int where 1 <= it && it <= 65535\ntype Status = Ready{} | Busy{Ms int}\ntype Box[T any] { Val T, }\ntype Record {\n\tID string,\n\tCount int,\n\tTags Map[string, int],\n\tprivateVal int,\n}\ntype Clock {\n\tTick(n int) int,\n}\ntype FixedClock {} implements Clock\nfunc Tick(_ FixedClock, n int) int {\n\tn + 1\n}\nlet Sys = context provides Clock { Clock: FixedClock }\nfunc Emit(r *Record, p Port, b Box[int]) (Status, int) fails Record needs Clock {\n\tlet _ = r\n\tlet _ = p\n\tlet _ = b\n\t(Ready, 1)\n}\nlaw BoundedLimit(x int) {\n\tLimit > 0\n}\nfunc unexportedHelper(n int) int {\n\tn + 1\n}\n"
+	let appSrc = "import pkg/dep\nfunc CallDep(r *dep.Record, p dep.Port, b dep.Box[int]) (dep.Status, int) fails dep.Record needs dep.Clock {\n\ttry dep.Emit(r, p, b)\n}\n"
+	let sums = makePairProgram(depSrc, appSrc)
+	let depSum = sums[0]
+	let appSum = sums[1]
+	let dp = syntax.Parse(depSrc)
+	assert dp.Message == ""
+	let ap = syntax.Parse(appSrc)
+	assert ap.Message == ""
+	assert depSum.Header.Flags&FlagParseFailed == uint32(0)
+	assert appSum.Header.Flags&FlagParseFailed == uint32(0)
+	let encDep = Encode(depSum)
+	let encApp = Encode(appSum)
+	let mut ok = true
+	let decDep = Decode(encDep) catch {
+	case _:
+		ok = false
+		depSum
+	}
+	assert ok
+	let _ = DecodeVerified(encApp, HeaderImports(appSum)) catch {
+	case _:
+		ok = false
+		appSum
+	}
+	assert ok
+	let depTxt = Render(decDep)
+	assert strings.Contains(depTxt, "Limit")
+	assert strings.Contains(depTxt, "Counter")
+	assert strings.Contains(depTxt, "Port")
+	assert strings.Contains(depTxt, "Status")
+	assert strings.Contains(depTxt, "Record")
+	assert strings.Contains(depTxt, "Clock")
+	assert strings.Contains(depTxt, "is Clock")
+	assert strings.Contains(depTxt, "Emit(r *Record, p Port, b Box[int]) (Status, int) fails Record needs Clock")
+	assert strings.Contains(depTxt, "context Sys provides Clock")
+	assert strings.Contains(depTxt, "Record {ID string, Count int, Tags Map[string, int], ...} [error]")
+	let appTxt = Render(appSum)
+	assert strings.Contains(appTxt, "pkg/dep.Box[int]")
+	assert strings.Contains(appTxt, "pkg/dep.Status")
+	assert strings.Contains(appTxt, "*pkg/dep.Record")
+	assert strings.Contains(depTxt, "ParsePort")
+	assert strings.Contains(depTxt, "Sys")
+	assert strings.Contains(depTxt, "Emit")
+	assert strings.Contains(depTxt, "BoundedLimit")
+	assert !strings.Contains(depTxt, "unexportedHelper")
+	assert !strings.Contains(depTxt, "privateVal")
+	assert EqualSummary(depSum, decDep)
+}
+
+test PrivateAndTestDeclsKeepBothDigests {
+	let depA = "type Num int\nfunc Double(x int) int {\n\tx * 2\n}\nfunc helper(x int) int {\n\tx + 1\n}\ntest helperLaw {\n\tassert helper(1) == 2\n}\n"
+	let depB = "type Num int\nfunc Double(x int) int {\n\tx * 2\n}\nfunc helper(x int) int {\n\tx + 99\n}\ntest helperLaw {\n\tassert helper(1) == 100\n}\n"
+	let appSrc = "import pkg/dep\nfunc RunDouble(x int) int {\n\tdep.Double(x)\n}\n"
+	let sa = makePairProgram(depA, appSrc)
+	let sb = makePairProgram(depB, appSrc)
+	assert sa[0].Header.Flags&FlagParseFailed == uint32(0)
+	assert sb[0].Header.Flags&FlagParseFailed == uint32(0)
+	assert sa[0].Header.CheckDigest == sb[0].Header.CheckDigest
+	assert sa[0].Header.LowerDigest == sb[0].Header.LowerDigest
+	assert EqualSummary(sa[0], sb[0])
+}
