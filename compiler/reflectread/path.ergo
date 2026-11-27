@@ -1,0 +1,148 @@
+import slices
+import strconv
+import strings
+
+// StepScope names a package-scope root path segment.
+let StepScope = uint8('s')
+
+// StepContext names a context root path segment.
+let StepContext = uint8('c')
+
+// StepField names a struct field path segment by field index.
+let StepField = uint8('f')
+
+// StepIndex names a slice or array element path segment by index.
+let StepIndex = uint8('i')
+
+// StepString names a string-keyed map entry path segment.
+let StepString = uint8('k')
+
+// StepInt names an integer-keyed map entry path segment.
+let StepInt = uint8('n')
+
+// MalformedStep indicates a malformed uvarint or truncated encoded object path step.
+type MalformedStep {
+	Reason string,
+}
+
+// AppendUvarint appends an unsigned LEB128 varint encoding of v to dst.
+func AppendUvarint(dst []byte, v uint64) []byte {
+	let mut out = dst
+	let mut x = v
+	for x >= uint64(0x80) {
+		out = out.Append(byte(x) | byte(0x80))
+		x = x >> 7
+	}
+	out.Append(byte(x))
+}
+
+// DecodeUvarint reads one unsigned LEB128 varint from src and returns the value and byte width.
+func DecodeUvarint(src []byte) (uint64, int) fails MalformedStep {
+	let mut x = uint64(0)
+	let mut s = 0
+	for i in 0..len(src) {
+		let b = src[i]
+		if i == 10 || (i == 9 && b > byte(1)) {
+			return MalformedStep{Reason: "uvarint overflow"}
+		}
+		if b < byte(0x80) {
+			return (x | (uint64(b) << uint(s)), i + 1)
+		}
+		x = x | (uint64(b&byte(0x7f)) << uint(s))
+		s = s + 7
+	}
+	return MalformedStep{Reason: "truncated uvarint"}
+}
+
+// AppendStep appends one encoded path step of kind with text payload s to dst.
+func AppendStep(dst []byte, kind uint8, s string) []byte {
+	let mut out = dst.Append(byte(kind))
+	out = AppendUvarint(out, uint64(s.Len()))
+	for b in s.Bytes() {
+		out = out.Append(b)
+	}
+	out
+}
+
+// AppendNumStep appends an integer-encoded path step of kind to dst.
+func AppendNumStep(dst []byte, kind uint8, n int) []byte {
+	AppendStep(dst, kind, strconv.Itoa(n))
+}
+
+// NextStep decodes the leading path step from p and returns kind, text, and remaining bytes.
+func NextStep(p []byte) (uint8, string, []byte) fails MalformedStep {
+	if len(p) < 2 {
+		return MalformedStep{Reason: "step shorter than two bytes"}
+	}
+	let kind = p[0]
+	let (slen, width) = try DecodeUvarint(p[1:])
+	let avail = uint64(len(p) - 1 - width)
+	if slen > avail {
+		return MalformedStep{Reason: "step length exceeds buffer"}
+	}
+	let start = 1 + width
+	let end = start + int(slen)
+	let seg = slices.Clone(p[start:end])
+	(kind, seg.Text(), p[end:])
+}
+
+// FormatPath renders an encoded object path into slash-separated step notation.
+func FormatPath(p []byte) string fails MalformedStep {
+	let mut sb = strings.NewBuilder()
+	let mut cur = p
+	let mut first = true
+	for len(cur) > 0 {
+		let (kind, txt, rest) = try NextStep(cur)
+		if !first {
+			sb.WriteByte('/')
+		}
+		first = false
+		sb.WriteByte(byte(kind))
+		sb.WriteByte(':')
+		sb.WriteString(txt)
+		cur = rest
+	}
+	sb.String()
+}
+
+law UvarintRoundTrips(v uint64) {
+	let enc = AppendUvarint([]byte{}, v)
+	let (dec, width) = DecodeUvarint(enc) catch {
+	case MalformedStep:
+		return false
+	}
+	dec == v && width == len(enc)
+}
+
+law StepRoundTrips(idx uint8, text string) {
+	let kinds = []uint8{StepScope, StepContext, StepField, StepIndex, StepString, StepInt}
+	let kind = kinds[int(idx)%len(kinds)]
+	let enc = AppendStep([]byte{}, kind, text)
+	let (rk, rt, rest) = NextStep(enc) catch {
+	case MalformedStep:
+		return false
+	}
+	rk == kind && rt == text && len(rest) == 0
+}
+
+test PathStepsEncodeDecodeAndFormat {
+	let mut p = AppendStep([]byte{}, StepScope, "Root")
+	p = AppendNumStep(p, StepField, 2)
+	p = AppendNumStep(p, StepIndex, 1)
+	p = AppendStep(p, StepString, "alpha")
+	p = AppendNumStep(p, StepInt, -7)
+	let formatted = FormatPath(p) catch {
+	case MalformedStep:
+		assert false
+		""
+	}
+	assert formatted == "s:Root/f:2/i:1/k:alpha/n:-7"
+	let trunc = p[:len(p)-1]
+	let mut rejected = false
+	let _ = FormatPath(trunc) catch {
+	case MalformedStep:
+		rejected = true
+		""
+	}
+	assert rejected
+}

@@ -1,0 +1,731 @@
+import dense
+import go math
+import slices
+import strconv
+
+// ValTag identifies a value node in ValueStore.
+type ValTag {}
+
+// EntryTag identifies a map entry in ValueStore.
+type EntryTag {}
+
+// StopType names a pointer element type (PkgPath, Name) where Walk stops descending.
+type StopType {
+	PkgPath string,
+	Name    string,
+}
+
+// UnresolvedPath indicates a path that cannot be resolved against a ValueStore root.
+type UnresolvedPath {
+	Reason string,
+}
+
+// StoreView pairs a MetaTable with a ValueStore for traversal and ranking.
+type StoreView {
+	Meta   MetaTable,
+	Values ValueStore,
+}
+
+// ValueStore holds a reflected value graph as flat Structure-of-Arrays tables.
+type ValueStore {
+	Strs          dense.Strings,
+	Vals          dense.Count[ValTag],
+	ValType       dense.Col[ValTag, uint32],
+	ValNil        dense.Col[ValTag, bool],
+	ValScalar     dense.Col[ValTag, uint64],
+	ValStr        dense.Col[ValTag, dense.ID[dense.Str]],
+	ValTarget     dense.Col[ValTag, uint32],
+	ValElems      dense.Col[ValTag, dense.Run[uint32]],
+	ValMapEntries dense.Col[ValTag, dense.Run[uint32]],
+	ValKnownTag   dense.Col[ValTag, uint8],
+	ValKnownID    dense.Col[ValTag, uint64],
+	Entries       dense.Count[EntryTag],
+	EntryStrKey   dense.Col[EntryTag, dense.ID[dense.Str]],
+	EntryIntKey   dense.Col[EntryTag, uint64],
+	EntryVal      dense.Col[EntryTag, uint32],
+	ElemPool      dense.Pool[uint32],
+}
+
+// WalkScratch stores reusable traversal buffers and the ordered visited pointer results.
+type WalkScratch {
+	Seen           []bool,
+	PathBuf        []byte,
+	Sorted         []uint32,
+	VisitPtrs      []dense.ID[ValTag],
+	VisitPathBytes []byte,
+	VisitPathStart []uint32,
+	VisitPathLen   []uint32,
+}
+
+// NewValueStore constructs an empty ValueStore.
+func NewValueStore() ValueStore {
+	ValueStore{
+		Strs:          dense.NewStrings(),
+		Vals:          dense.NewCount[ValTag](),
+		ValType:       dense.NewCol[ValTag, uint32](),
+		ValNil:        dense.NewCol[ValTag, bool](),
+		ValScalar:     dense.NewCol[ValTag, uint64](),
+		ValStr:        dense.NewCol[ValTag, dense.ID[dense.Str]](),
+		ValTarget:     dense.NewCol[ValTag, uint32](),
+		ValElems:      dense.NewCol[ValTag, dense.Run[uint32]](),
+		ValMapEntries: dense.NewCol[ValTag, dense.Run[uint32]](),
+		ValKnownTag:   dense.NewCol[ValTag, uint8](),
+		ValKnownID:    dense.NewCol[ValTag, uint64](),
+		Entries:       dense.NewCount[EntryTag](),
+		EntryStrKey:   dense.NewCol[EntryTag, dense.ID[dense.Str]](),
+		EntryIntKey:   dense.NewCol[EntryTag, uint64](),
+		EntryVal:      dense.NewCol[EntryTag, uint32](),
+		ElemPool:      dense.NewPool[uint32](),
+	}
+}
+
+// NewWalkScratch constructs reusable buffers for Walk.
+func NewWalkScratch() WalkScratch {
+	WalkScratch{
+		Seen:           slices.WithCapacity[bool](32),
+		PathBuf:        slices.WithCapacity[byte](128),
+		Sorted:         slices.WithCapacity[uint32](32),
+		VisitPtrs:      slices.WithCapacity[dense.ID[ValTag]](32),
+		VisitPathBytes: slices.WithCapacity[byte](256),
+		VisitPathStart: slices.WithCapacity[uint32](32),
+		VisitPathLen:   slices.WithCapacity[uint32](32),
+	}
+}
+
+func resetWalkScratch(sc mut WalkScratch, totalVals int) {
+	sc.Seen = sc.Seen[:0]
+	for _ in 0..totalVals {
+		sc.Seen = sc.Seen.Append(false)
+	}
+	sc.PathBuf = sc.PathBuf[:0]
+	sc.Sorted = sc.Sorted[:0]
+	sc.VisitPtrs = sc.VisitPtrs[:0]
+	sc.VisitPathBytes = sc.VisitPathBytes[:0]
+	sc.VisitPathStart = sc.VisitPathStart[:0]
+	sc.VisitPathLen = sc.VisitPathLen[:0]
+}
+
+// VisitCount returns the number of pointer values recorded in sc during Walk.
+func VisitCount(sc WalkScratch) int {
+	len(sc.VisitPtrs)
+}
+
+// VisitPath returns the encoded byte path recorded for visit index i.
+func VisitPath(sc WalkScratch, i int) []byte {
+	let start = int(sc.VisitPathStart[i])
+	let n = int(sc.VisitPathLen[i])
+	sc.VisitPathBytes[start : start+n]
+}
+
+func allocValRow(vs mut ValueStore, tid dense.ID[TypeTag]) dense.ID[ValTag] {
+	let vid = dense.Next(&vs.Vals)
+	dense.Push(&vs.ValType, uint32(dense.Index(tid)))
+	dense.Push(&vs.ValNil, false)
+	dense.Push(&vs.ValScalar, uint64(0))
+	dense.Push(&vs.ValStr, dense.InternText(&vs.Strs, ""))
+	dense.Push(&vs.ValTarget, NoIndex)
+	let emptyRun = dense.PutList(&vs.ElemPool, []uint32{})
+	dense.Push(&vs.ValElems, emptyRun)
+	dense.Push(&vs.ValMapEntries, emptyRun)
+	dense.Push(&vs.ValKnownTag, uint8(0))
+	dense.Push(&vs.ValKnownID, uint64(0))
+	vid
+}
+
+// AddNilVal inserts a nil interface, pointer, or slice value of type tid.
+func AddNilVal(vs mut ValueStore, tid dense.ID[TypeTag]) dense.ID[ValTag] {
+	let vid = allocValRow(vs, tid)
+	dense.SetOf(&vs.ValNil, vid, true)
+	vid
+}
+
+// AddScalarVal inserts an integer, unsigned, or boolean bit pattern value of type tid.
+func AddScalarVal(vs mut ValueStore, tid dense.ID[TypeTag], raw uint64) dense.ID[ValTag] {
+	let vid = allocValRow(vs, tid)
+	dense.SetOf(&vs.ValScalar, vid, raw)
+	vid
+}
+
+// AddFloatVal inserts a float64 scalar value of type tid using IEEE-754 bits.
+func AddFloatVal(vs mut ValueStore, tid dense.ID[TypeTag], v float64) dense.ID[ValTag] {
+	let vid = allocValRow(vs, tid)
+	dense.SetOf(&vs.ValScalar, vid, math.Float64bits(v))
+	vid
+}
+
+// AddStringVal inserts a string value of type tid.
+func AddStringVal(vs mut ValueStore, tid dense.ID[TypeTag], text string) dense.ID[ValTag] {
+	let vid = allocValRow(vs, tid)
+	dense.SetOf(&vs.ValStr, vid, dense.InternText(&vs.Strs, text))
+	vid
+}
+
+// AddPtrVal inserts a pointer or interface value referencing target.
+func AddPtrVal(vs mut ValueStore, tid dense.ID[TypeTag], target dense.ID[ValTag]) dense.ID[ValTag] {
+	let vid = allocValRow(vs, tid)
+	dense.SetOf(&vs.ValTarget, vid, uint32(dense.Index(target)))
+	vid
+}
+
+// MarkKnownPtr attaches a known encoder tag and id to pointer value vid.
+func MarkKnownPtr(vs mut ValueStore, vid dense.ID[ValTag], tag uint8, id uint64) {
+	dense.SetOf(&vs.ValKnownTag, vid, tag)
+	dense.SetOf(&vs.ValKnownID, vid, id)
+}
+
+// AddCompositeVal inserts a struct, slice, or array value referencing ordered children.
+func AddCompositeVal(vs mut ValueStore, tid dense.ID[TypeTag], children []dense.ID[ValTag]) dense.ID[ValTag] {
+	let vid = allocValRow(vs, tid)
+	let mut raw = slices.WithCapacity[uint32](len(children))
+	for c in children {
+		raw = raw.Append(uint32(dense.Index(c)))
+	}
+	dense.SetOf(&vs.ValElems, vid, dense.PutList(&vs.ElemPool, raw))
+	vid
+}
+
+// AddStrEntry registers a string-keyed map entry returning its pool entry index.
+func AddStrEntry(vs mut ValueStore, key string, val dense.ID[ValTag]) uint32 {
+	let eid = dense.Next(&vs.Entries)
+	dense.Push(&vs.EntryStrKey, dense.InternText(&vs.Strs, key))
+	dense.Push(&vs.EntryIntKey, uint64(0))
+	dense.Push(&vs.EntryVal, uint32(dense.Index(val)))
+	uint32(dense.Index(eid))
+}
+
+// AddIntEntry registers a signed integer-keyed map entry returning its pool entry index.
+func AddIntEntry(vs mut ValueStore, key uint64, val dense.ID[ValTag]) uint32 {
+	let eid = dense.Next(&vs.Entries)
+	dense.Push(&vs.EntryStrKey, dense.InternText(&vs.Strs, ""))
+	dense.Push(&vs.EntryIntKey, key)
+	dense.Push(&vs.EntryVal, uint32(dense.Index(val)))
+	uint32(dense.Index(eid))
+}
+
+// AddMapVal inserts a map value referencing entry indices created with AddStrEntry or AddIntEntry.
+func AddMapVal(vs mut ValueStore, tid dense.ID[TypeTag], entries []uint32) dense.ID[ValTag] {
+	let vid = allocValRow(vs, tid)
+	dense.SetOf(&vs.ValMapEntries, vid, dense.PutList(&vs.ElemPool, entries))
+	vid
+}
+
+func appendBEUint64(dst []byte, v uint64) []byte {
+	dst.Append(byte(v >> 56)).
+		Append(byte(v >> 48)).
+		Append(byte(v >> 40)).
+		Append(byte(v >> 32)).
+		Append(byte(v >> 24)).
+		Append(byte(v >> 16)).
+		Append(byte(v >> 8)).
+		Append(byte(v))
+}
+
+func appendRankString(dst []byte, s string) []byte {
+	let mut out = appendBEUint64(dst, uint64(s.Len()))
+	for b in s.Bytes() {
+		out = out.Append(b)
+	}
+	out
+}
+
+func rankScalar(view StoreView, dst []byte, vid dense.ID[ValTag], kind uint8) []byte {
+	if kind == KindString {
+		let s = dense.Text(view.Values.Strs, dense.Of(view.Values.ValStr, vid))
+		return appendRankString(dst.Append(byte(7)), s)
+	}
+	let raw = dense.Of(view.Values.ValScalar, vid)
+	if kind == KindInt {
+		return appendBEUint64(dst.Append(byte(8)), raw^(uint64(1)<<63))
+	}
+	if kind == KindUint || kind == KindFloat {
+		return appendBEUint64(dst.Append(byte(8)), raw)
+	}
+	if kind == KindBool {
+		let b = if raw != uint64(0) { byte(1) } else { byte(0) }
+		return dst.Append(byte(8)).Append(b)
+	}
+	if kind == KindMap {
+		let n = dense.RunLen(dense.Of(view.Values.ValMapEntries, vid))
+		return appendBEUint64(dst.Append(byte(9)), uint64(n))
+	}
+	dst.Append(byte(9))
+}
+
+func rankComposite(view StoreView, dst []byte, vid dense.ID[ValTag], kind uint8, depth int) []byte {
+	let mut out = dst
+	let elems = dense.List(view.Values.ElemPool, dense.Of(view.Values.ValElems, vid))
+	if kind == KindSlice {
+		if dense.Of(view.Values.ValNil, vid) {
+			return out.Append(byte(0))
+		}
+		out = appendBEUint64(out.Append(byte(6)), uint64(len(elems)))
+	} else if kind == KindArray {
+		out = out.Append(byte(6))
+	} else {
+		out = out.Append(byte(5))
+	}
+	for raw in elems {
+		out = rankVal(view, out, dense.IDAt(view.Values.Vals, int(raw)), depth)
+	}
+	out
+}
+
+func rankVal(view StoreView, dst []byte, vid dense.ID[ValTag], depth int) []byte {
+	let tid = dense.IDAt(view.Meta.Types, int(dense.Of(view.Values.ValType, vid)))
+	let kind = dense.Of(view.Meta.Kind, tid)
+	if kind == KindInvalid {
+		return dst.Append(byte(0))
+	}
+	if kind == KindInterface {
+		if dense.Of(view.Values.ValNil, vid) {
+			return dst.Append(byte(0))
+		}
+		let tgt = dense.Of(view.Values.ValTarget, vid)
+		if tgt == NoIndex {
+			return dst.Append(byte(0))
+		}
+		return rankVal(view, dst, dense.IDAt(view.Values.Vals, int(tgt)), depth)
+	}
+	if kind == KindPointer {
+		if dense.Of(view.Values.ValNil, vid) {
+			return dst.Append(byte(0))
+		}
+		let knownTag = dense.Of(view.Values.ValKnownTag, vid)
+		if knownTag != uint8(0) {
+			return appendBEUint64(dst.Append(byte(knownTag)), dense.Of(view.Values.ValKnownID, vid))
+		}
+		let out = appendRankString(dst.Append(byte(4)), TypeDisplay(view.Meta, tid))
+		let tgt = dense.Of(view.Values.ValTarget, vid)
+		if depth == 0 || tgt == NoIndex {
+			return out
+		}
+		return rankVal(view, out, dense.IDAt(view.Values.Vals, int(tgt)), depth-1)
+	}
+	if kind == KindStruct || kind == KindSlice || kind == KindArray {
+		return rankComposite(view, dst, vid, kind, depth)
+	}
+	rankScalar(view, dst, vid, kind)
+}
+
+// RankValue appends the deterministic structural rank of value vid to dst.
+func RankValue(view StoreView, dst []byte, vid dense.ID[ValTag], depth int) []byte {
+	rankVal(view, dst, vid, depth)
+}
+
+// Rank appends the structural rank of the element pointed to by ptr to dst.
+func Rank(view StoreView, dst []byte, ptr dense.ID[ValTag], depth int) []byte {
+	let tid = dense.IDAt(view.Meta.Types, int(dense.Of(view.Values.ValType, ptr)))
+	if dense.Of(view.Meta.Kind, tid) != KindPointer || dense.Of(view.Values.ValNil, ptr) {
+		return dst.Append(byte(0))
+	}
+	let tgt = dense.Of(view.Values.ValTarget, ptr)
+	if tgt == NoIndex {
+		return dst.Append(byte(0))
+	}
+	rankVal(view, dst, dense.IDAt(view.Values.Vals, int(tgt)), depth)
+}
+
+func stopMatches(m MetaTable, ptrType dense.ID[TypeTag], stops []StopType) bool {
+	let elemIdx = dense.Of(m.Elem, ptrType)
+	if elemIdx == NoIndex {
+		return false
+	}
+	let (pkg, name) = TypePkgAndName(m, dense.IDAt(m.Types, int(elemIdx)))
+	for st in stops {
+		if st.PkgPath == pkg && st.Name == name {
+			return true
+		}
+	}
+	false
+}
+
+func recordVisitedPtr(sc mut WalkScratch, ptr dense.ID[ValTag]) {
+	let start = uint32(len(sc.VisitPathBytes))
+	let pLen = uint32(len(sc.PathBuf))
+	sc.VisitPtrs = sc.VisitPtrs.Append(ptr)
+	sc.VisitPathStart = sc.VisitPathStart.Append(start)
+	sc.VisitPathLen = sc.VisitPathLen.Append(pLen)
+	sc.VisitPathBytes = slices.AppendAll(sc.VisitPathBytes, sc.PathBuf)
+}
+
+func formatSignedU64(u uint64) string {
+	let signBit = uint64(1) << 63
+	if (u & signBit) != uint64(0) {
+		let mag = uint64(0) - u
+		let buf = strconv.AppendUint([]byte{'-'}, mag, 10)
+		return buf.Text()
+	}
+	let buf = strconv.AppendUint([]byte{}, u, 10)
+	buf.Text()
+}
+
+func sortStrEntries(vs ValueStore, entries []uint32) []uint32 {
+	slices.SortFunc(entries, func(a uint32, b uint32) int {
+		let sa = dense.Text(vs.Strs, dense.Of(vs.EntryStrKey, dense.IDAt(vs.Entries, int(a))))
+		let sb = dense.Text(vs.Strs, dense.Of(vs.EntryStrKey, dense.IDAt(vs.Entries, int(b))))
+		if sa < sb {
+			return -1
+		}
+		if sa > sb {
+			return 1
+		}
+		0
+	})
+}
+
+func sortIntEntries(vs ValueStore, entries []uint32) []uint32 {
+	let signBit = uint64(1) << 63
+	slices.SortFunc(entries, func(a uint32, b uint32) int {
+		let ka = dense.Of(vs.EntryIntKey, dense.IDAt(vs.Entries, int(a))) ^ signBit
+		let kb = dense.Of(vs.EntryIntKey, dense.IDAt(vs.Entries, int(b))) ^ signBit
+		if ka < kb {
+			return -1
+		}
+		if ka > kb {
+			return 1
+		}
+		0
+	})
+}
+
+func walkMapNode(view StoreView, sc mut WalkScratch, vid dense.ID[ValTag], tid dense.ID[TypeTag], stops []StopType) {
+	let keyIdx = dense.Of(view.Meta.KeyType, tid)
+	if keyIdx == NoIndex {
+		return
+	}
+	let keyKind = dense.Of(view.Meta.Kind, dense.IDAt(view.Meta.Types, int(keyIdx)))
+	let rawEntries = dense.List(view.Values.ElemPool, dense.Of(view.Values.ValMapEntries, vid))
+	if keyKind == KindString {
+		let sorted = sortStrEntries(view.Values, rawEntries)
+		for rawE in sorted {
+			let eid = dense.IDAt(view.Values.Entries, int(rawE))
+			let key = dense.Text(view.Values.Strs, dense.Of(view.Values.EntryStrKey, eid))
+			let val = dense.IDAt(view.Values.Vals, int(dense.Of(view.Values.EntryVal, eid)))
+			let mark = len(sc.PathBuf)
+			sc.PathBuf = AppendStep(sc.PathBuf, StepString, key)
+			walkNode(view, sc, val, stops)
+			sc.PathBuf = sc.PathBuf[:mark]
+		}
+		return
+	}
+	if keyKind == KindInt {
+		let sorted = sortIntEntries(view.Values, rawEntries)
+		for rawE in sorted {
+			let eid = dense.IDAt(view.Values.Entries, int(rawE))
+			let key = formatSignedU64(dense.Of(view.Values.EntryIntKey, eid))
+			let val = dense.IDAt(view.Values.Vals, int(dense.Of(view.Values.EntryVal, eid)))
+			let mark = len(sc.PathBuf)
+			sc.PathBuf = AppendStep(sc.PathBuf, StepString, key)
+			sc.PathBuf[mark] = byte(StepInt)
+			walkNode(view, sc, val, stops)
+			sc.PathBuf = sc.PathBuf[:mark]
+		}
+	}
+}
+
+func walkChildren(view StoreView, sc mut WalkScratch, vid dense.ID[ValTag], stepKind uint8, stops []StopType) {
+	let elems = dense.List(view.Values.ElemPool, dense.Of(view.Values.ValElems, vid))
+	for i in 0..len(elems) {
+		let child = dense.IDAt(view.Values.Vals, int(elems[i]))
+		let mark = len(sc.PathBuf)
+		sc.PathBuf = AppendNumStep(sc.PathBuf, stepKind, i)
+		walkNode(view, sc, child, stops)
+		sc.PathBuf = sc.PathBuf[:mark]
+	}
+}
+
+func walkNode(view StoreView, sc mut WalkScratch, vid dense.ID[ValTag], stops []StopType) {
+	let tid = dense.IDAt(view.Meta.Types, int(dense.Of(view.Values.ValType, vid)))
+	let kind = dense.Of(view.Meta.Kind, tid)
+	if kind == KindPointer {
+		let tgtIdx = dense.Of(view.Values.ValTarget, vid)
+		if dense.Of(view.Values.ValNil, vid) || tgtIdx == NoIndex || stopMatches(view.Meta, tid, stops) {
+			return
+		}
+		if sc.Seen[int(tgtIdx)] {
+			return
+		}
+		sc.Seen[int(tgtIdx)] = true
+		recordVisitedPtr(sc, vid)
+		walkNode(view, sc, dense.IDAt(view.Values.Vals, int(tgtIdx)), stops)
+		return
+	}
+	if kind == KindInterface {
+		let tgtIdx = dense.Of(view.Values.ValTarget, vid)
+		if !dense.Of(view.Values.ValNil, vid) && tgtIdx != NoIndex {
+			walkNode(view, sc, dense.IDAt(view.Values.Vals, int(tgtIdx)), stops)
+		}
+		return
+	}
+	if kind == KindStruct {
+		walkChildren(view, sc, vid, StepField, stops)
+		return
+	}
+	if kind == KindSlice || kind == KindArray {
+		walkChildren(view, sc, vid, StepIndex, stops)
+		return
+	}
+	if kind == KindMap {
+		walkMapNode(view, sc, vid, tid, stops)
+	}
+}
+
+// Walk traverses the value graph from root in canonical order, recording every
+// newly reached non-nil pointer and its path into sc.
+func Walk(view StoreView, sc mut WalkScratch, root dense.ID[ValTag], prefix []byte, stops []StopType) {
+	resetWalkScratch(sc, dense.Total(view.Values.Vals))
+	sc.PathBuf = slices.AppendAll(sc.PathBuf, prefix)
+	walkNode(view, sc, root, stops)
+}
+
+func derefValue(view StoreView, vid dense.ID[ValTag]) dense.ID[ValTag] fails UnresolvedPath {
+	let mut cur = vid
+	let maxHops = dense.Total(view.Values.Vals) + 1
+	for _ in 0..maxHops {
+		let tid = dense.IDAt(view.Meta.Types, int(dense.Of(view.Values.ValType, cur)))
+		let kind = dense.Of(view.Meta.Kind, tid)
+		if kind != KindPointer && kind != KindInterface {
+			return cur
+		}
+		let tgt = dense.Of(view.Values.ValTarget, cur)
+		if dense.Of(view.Values.ValNil, cur) || tgt == NoIndex {
+			return UnresolvedPath{Reason: "nil pointer or interface in path"}
+		}
+		cur = dense.IDAt(view.Values.Vals, int(tgt))
+	}
+	UnresolvedPath{Reason: "deref cycle"}
+}
+
+func parseStepIndex(text string) int fails UnresolvedPath {
+	let idx = strconv.Atoi(text) catch {
+	case strconv.Malformed:
+		return UnresolvedPath{Reason: "invalid numeric path index \(text)"}
+	case strconv.OutOfRange:
+		return UnresolvedPath{Reason: "path index out of range \(text)"}
+	}
+	if idx < 0 {
+		return UnresolvedPath{Reason: "negative path index \(text)"}
+	}
+	idx
+}
+
+func resolveMapStep(view StoreView, mapVal dense.ID[ValTag], kind uint8, text string) dense.ID[ValTag] fails UnresolvedPath {
+	let tid = dense.IDAt(view.Meta.Types, int(dense.Of(view.Values.ValType, mapVal)))
+	let kIdx = dense.Of(view.Meta.KeyType, tid)
+	if dense.Of(view.Meta.Kind, tid) != KindMap || kIdx == NoIndex {
+		return UnresolvedPath{Reason: "map step on non-map value"}
+	}
+	let keyKind = dense.Of(view.Meta.Kind, dense.IDAt(view.Meta.Types, int(kIdx)))
+	let entries = dense.List(view.Values.ElemPool, dense.Of(view.Values.ValMapEntries, mapVal))
+	if kind == StepString && keyKind == KindString {
+		for rawE in entries {
+			let eid = dense.IDAt(view.Values.Entries, int(rawE))
+			if dense.Text(view.Values.Strs, dense.Of(view.Values.EntryStrKey, eid)) == text {
+				return dense.IDAt(view.Values.Vals, int(dense.Of(view.Values.EntryVal, eid)))
+			}
+		}
+		return UnresolvedPath{Reason: "missing string key \(text)"}
+	}
+	if kind == StepInt && keyKind == KindInt {
+		let parsed = strconv.ParseInt(text, 10, 64) catch {
+		case strconv.Malformed:
+			return UnresolvedPath{Reason: "malformed int map key \(text)"}
+		case strconv.OutOfRange:
+			return UnresolvedPath{Reason: "out of range int map key \(text)"}
+		}
+		let want = uint64(parsed)
+		for rawE in entries {
+			let eid = dense.IDAt(view.Values.Entries, int(rawE))
+			if dense.Of(view.Values.EntryIntKey, eid) == want {
+				return dense.IDAt(view.Values.Vals, int(dense.Of(view.Values.EntryVal, eid)))
+			}
+		}
+		return UnresolvedPath{Reason: "missing int key \(text)"}
+	}
+	UnresolvedPath{Reason: "map key kind mismatch"}
+}
+
+func resolveStep(view StoreView, cur dense.ID[ValTag], kind uint8, text string) dense.ID[ValTag] fails UnresolvedPath {
+	let val = try derefValue(view, cur)
+	let tid = dense.IDAt(view.Meta.Types, int(dense.Of(view.Values.ValType, val)))
+	let vKind = dense.Of(view.Meta.Kind, tid)
+	if kind == StepField {
+		if vKind != KindStruct {
+			return UnresolvedPath{Reason: "field step on non-struct"}
+		}
+		let i = try parseStepIndex(text)
+		let elems = dense.List(view.Values.ElemPool, dense.Of(view.Values.ValElems, val))
+		if i >= len(elems) {
+			return UnresolvedPath{Reason: "field index out of bounds"}
+		}
+		return dense.IDAt(view.Values.Vals, int(elems[i]))
+	}
+	if kind == StepIndex {
+		if vKind != KindSlice && vKind != KindArray {
+			return UnresolvedPath{Reason: "index step on non-sequence"}
+		}
+		if vKind == KindSlice && dense.Of(view.Values.ValNil, val) {
+			return UnresolvedPath{Reason: "index step on nil slice"}
+		}
+		let i = try parseStepIndex(text)
+		let elems = dense.List(view.Values.ElemPool, dense.Of(view.Values.ValElems, val))
+		if i >= len(elems) {
+			return UnresolvedPath{Reason: "element index out of bounds"}
+		}
+		return dense.IDAt(view.Values.Vals, int(elems[i]))
+	}
+	if kind == StepString || kind == StepInt {
+		return try resolveMapStep(view, val, kind, text)
+	}
+	UnresolvedPath{Reason: "unknown path step kind"}
+}
+
+// Resolve walks path steps starting at root and returns the non-nil pointer value reached.
+func Resolve(view StoreView, root dense.ID[ValTag], path []byte) dense.ID[ValTag] fails MalformedStep | UnresolvedPath {
+	let mut cur = root
+	let mut p = path
+	for len(p) > 0 {
+		let (kind, text, rest) = try NextStep(p)
+		p = rest
+		cur = try resolveStep(view, cur, kind, text)
+	}
+	let maxHops = dense.Total(view.Values.Vals) + 1
+	for _ in 0..maxHops {
+		let tid = dense.IDAt(view.Meta.Types, int(dense.Of(view.Values.ValType, cur)))
+		if dense.Of(view.Meta.Kind, tid) != KindInterface {
+			break
+		}
+		let tgt = dense.Of(view.Values.ValTarget, cur)
+		if dense.Of(view.Values.ValNil, cur) || tgt == NoIndex {
+			return UnresolvedPath{Reason: "nil interface at end of path"}
+		}
+		cur = dense.IDAt(view.Values.Vals, int(tgt))
+	}
+	let tid = dense.IDAt(view.Meta.Types, int(dense.Of(view.Values.ValType, cur)))
+	if dense.Of(view.Meta.Kind, tid) != KindPointer || dense.Of(view.Values.ValNil, cur) {
+		return UnresolvedPath{Reason: "resolved target is not a non-nil pointer"}
+	}
+	cur
+}
+
+func buildFixtureView() (StoreView, dense.ID[ValTag], dense.ID[ValTag]) {
+	let mut m = NewMetaTable()
+	let tInt = AddType(&m, TypeSpec{Kind: KindInt, PkgPath: "", Name: "int", KeyOrLen: uint32(0), Elem: NoIndex})
+	let tStr = AddType(&m, TypeSpec{Kind: KindString, PkgPath: "", Name: "string", KeyOrLen: uint32(0), Elem: NoIndex})
+	let tFloat = AddType(&m, TypeSpec{Kind: KindFloat, PkgPath: "", Name: "float64", KeyOrLen: uint32(0), Elem: NoIndex})
+	let tNode = AddStruct(&m, "ergo.local/pkg", "Node", []FieldSpec{
+		FieldSpec{Name: "Val", Type: uint32(dense.Index(tInt))},
+		FieldSpec{Name: "Tag", Type: uint32(dense.Index(tStr))},
+	})
+	let tNodePtr = AddType(&m, TypeSpec{Kind: KindPointer, PkgPath: "", Name: "", KeyOrLen: uint32(0), Elem: uint32(dense.Index(tNode))})
+	let tMap = AddType(&m, TypeSpec{Kind: KindMap, PkgPath: "", Name: "", KeyOrLen: uint32(dense.Index(tStr)), Elem: uint32(dense.Index(tNodePtr))})
+	let tArr = AddType(&m, TypeSpec{Kind: KindArray, PkgPath: "", Name: "", KeyOrLen: uint32(1), Elem: uint32(dense.Index(tFloat))})
+	let tRoot = AddStruct(&m, "ergo.local/pkg", "Root", []FieldSpec{
+		FieldSpec{Name: "Items", Type: uint32(dense.Index(tMap))},
+		FieldSpec{Name: "NilPtr", Type: uint32(dense.Index(tNodePtr))},
+		FieldSpec{Name: "Weights", Type: uint32(dense.Index(tArr))},
+	})
+	let mut vs = NewValueStore()
+	let vOne = AddScalarVal(&vs, tInt, uint64(7))
+	let vStr = AddStringVal(&vs, tStr, "leaf")
+	let nA = AddCompositeVal(&vs, tNode, []dense.ID[ValTag]{vOne, vStr})
+	let pA = AddPtrVal(&vs, tNodePtr, nA)
+	let pB = AddPtrVal(&vs, tNodePtr, nA)
+	let eBeta = AddStrEntry(&vs, "beta", pB)
+	let eAlpha = AddStrEntry(&vs, "alpha", pA)
+	let mVal = AddMapVal(&vs, tMap, []uint32{eBeta, eAlpha})
+	let pNil = AddNilVal(&vs, tNodePtr)
+	let wVal = AddFloatVal(&vs, tFloat, 1.5)
+	let arrVal = AddCompositeVal(&vs, tArr, []dense.ID[ValTag]{wVal})
+	let root = AddCompositeVal(&vs, tRoot, []dense.ID[ValTag]{mVal, pNil, arrVal})
+	(StoreView{Meta: m, Values: vs}, root, pA)
+}
+
+law RankOrdersNegativeBelowPositive(x int, y int) {
+	if x == y {
+		return true
+	}
+	let a = if x < y { x } else { y }
+	let b = if x < y { y } else { x }
+	let mut m = NewMetaTable()
+	let tInt = AddType(&m, TypeSpec{Kind: KindInt, PkgPath: "", Name: "int", KeyOrLen: uint32(0), Elem: NoIndex})
+	let mut vs = NewValueStore()
+	let va = AddScalarVal(&vs, tInt, uint64(a))
+	let vb = AddScalarVal(&vs, tInt, uint64(b))
+	let view = StoreView{Meta: m, Values: vs}
+	let ra = RankValue(view, []byte{}, va, 1)
+	let rb = RankValue(view, []byte{}, vb, 1)
+	if len(ra) != 9 || len(rb) != 9 {
+		return false
+	}
+	for idx in 0..9 {
+		if ra[idx] != rb[idx] {
+			return ra[idx] < rb[idx]
+		}
+	}
+	false
+}
+
+test WalkResolveAndRankBehaviors {
+	let (view, root, pA) = buildFixtureView()
+	let mut sc = NewWalkScratch()
+	Walk(view, &sc, root, []byte{}, []StopType{})
+	assert VisitCount(sc) == 1
+	let resolved = Resolve(view, root, VisitPath(sc, 0)) catch {
+	case MalformedStep, UnresolvedPath:
+		assert false
+		pA
+	}
+	assert dense.Of(view.Values.ValTarget, resolved) == dense.Of(view.Values.ValTarget, pA)
+	let mut vsKnown = view.Values
+	MarkKnownPtr(&vsKnown, pA, uint8(3), uint64(42))
+	let knownView = StoreView{Meta: view.Meta, Values: vsKnown}
+	let rKnown = Rank(knownView, []byte{}, pA, 2)
+	assert len(rKnown) > 1
+	let rDirect = RankValue(knownView, []byte{}, pA, 0)
+	assert len(rDirect) == 9 && rDirect[0] == byte(3) && rDirect[8] == byte(42)
+	let stopRes = WalkScratch{
+		Seen:           []bool{},
+		PathBuf:        []byte{},
+		Sorted:         []uint32{},
+		VisitPtrs:      []dense.ID[ValTag]{},
+		VisitPathBytes: []byte{},
+		VisitPathStart: []uint32{},
+		VisitPathLen:   []uint32{},
+	}
+	let mut scStop = stopRes
+	Walk(view, &scStop, root, []byte{}, []StopType{StopType{PkgPath: "ergo.local/pkg", Name: "Node"}})
+	assert VisitCount(scStop) == 0
+}
+
+test IntMapWalkAndSliceIndexResolve {
+	let mut m = NewMetaTable()
+	let tInt = AddType(&m, TypeSpec{Kind: KindInt, PkgPath: "", Name: "int", KeyOrLen: uint32(0), Elem: NoIndex})
+	let tIntPtr = AddType(&m, TypeSpec{Kind: KindPointer, PkgPath: "", Name: "", KeyOrLen: uint32(0), Elem: uint32(dense.Index(tInt))})
+	let tIntMap = AddType(&m, TypeSpec{Kind: KindMap, PkgPath: "", Name: "", KeyOrLen: uint32(dense.Index(tInt)), Elem: uint32(dense.Index(tIntPtr))})
+	let mut vs = NewValueStore()
+	let negFive = ^uint64(4)
+	let vNeg = AddScalarVal(&vs, tInt, negFive)
+	let vPos = AddScalarVal(&vs, tInt, uint64(12))
+	let pNeg = AddPtrVal(&vs, tIntPtr, vNeg)
+	let pPos = AddPtrVal(&vs, tIntPtr, vPos)
+	let ePos = AddIntEntry(&vs, uint64(12), pPos)
+	let eNeg = AddIntEntry(&vs, negFive, pNeg)
+	let mVal = AddMapVal(&vs, tIntMap, []uint32{ePos, eNeg})
+	let view = StoreView{Meta: m, Values: vs}
+	let mut sc = NewWalkScratch()
+	Walk(view, &sc, mVal, []byte{}, []StopType{})
+	assert VisitCount(sc) == 2
+	let fmt0 = FormatPath(VisitPath(sc, 0)) catch {
+	case MalformedStep:
+		assert false
+		""
+	}
+	assert fmt0 == "n:-5"
+	let r1 = Resolve(view, mVal, VisitPath(sc, 1)) catch {
+	case MalformedStep, UnresolvedPath:
+		assert false
+		pPos
+	}
+	assert dense.Of(view.Values.ValTarget, r1) == dense.Of(view.Values.ValTarget, pPos)
+}

@@ -1,0 +1,854 @@
+import dense
+import slices
+import strings
+import utf8
+
+// TokTag identifies one lexeme stored in LexArena.
+type TokTag {}
+
+// TokIllegal marks a lexically invalid byte sequence.
+let TokIllegal = uint8(0)
+
+// TokIdent marks an identifier, keyword other than import/go, or path word.
+let TokIdent = uint8(1)
+
+// TokInt marks an integer literal token.
+let TokInt = uint8(2)
+
+// TokFloat marks a floating-point literal token.
+let TokFloat = uint8(3)
+
+// TokComment marks a line or block comment lexeme.
+let TokComment = uint8(4)
+
+// TokString marks a raw, interpreted, or interpolated string segment.
+let TokString = uint8(5)
+
+// TokRune marks a rune literal token.
+let TokRune = uint8(6)
+
+// TokPeriod marks '.' or '..'.
+let TokPeriod = uint8(7)
+
+// TokOr marks '|'.
+let TokOr = uint8(8)
+
+// TokAssign marks '='.
+let TokAssign = uint8(9)
+
+// TokLParen marks '('.
+let TokLParen = uint8(10)
+
+// TokRParen marks ')'.
+let TokRParen = uint8(11)
+
+// TokLBrack marks '['.
+let TokLBrack = uint8(12)
+
+// TokRBrack marks ']'.
+let TokRBrack = uint8(13)
+
+// TokLBrace marks '{'.
+let TokLBrace = uint8(14)
+
+// TokRBrace marks '}'.
+let TokRBrace = uint8(15)
+
+// TokComma marks ','.
+let TokComma = uint8(16)
+
+// TokSemicolon marks an explicit ';'.
+let TokSemicolon = uint8(17)
+
+// TokImport marks the 'import' keyword.
+let TokImport = uint8(18)
+
+// TokGo marks the 'go' keyword.
+let TokGo = uint8(19)
+
+// TokOther marks any remaining operator or punctuation lexeme.
+let TokOther = uint8(20)
+
+// LexArena stores all lexemes of a source as flat Structure-of-Arrays columns.
+type LexArena {
+	Src      string,
+	Lexemes  dense.Count[TokTag],
+	TokStart dense.Col[TokTag, uint32],
+	TokEnd   dense.Col[TokTag, uint32],
+	TokKind  dense.Col[TokTag, uint8],
+	TokInner dense.Col[TokTag, bool],
+	ErrCount uint32,
+}
+
+// LexScratch holds reusable boolean masks for normalizing LexArena streams.
+type LexScratch {
+	Drop []bool,
+	Kept []dense.ID[TokTag],
+}
+
+type lexCursor {
+	src   string,
+	arena LexArena,
+	pos   int,
+	paths int,
+}
+
+// NewLexScratch creates reusable scratch buffers for Normalize.
+func NewLexScratch() LexScratch {
+	LexScratch{
+		Drop: slices.WithCapacity[bool](64),
+		Kept: slices.WithCapacity[dense.ID[TokTag]](64),
+	}
+}
+
+// LexemeText returns the slice of src covered by lexeme id.
+func LexemeText(a LexArena, id dense.ID[TokTag]) string {
+	let s = int(dense.Of(a.TokStart, id))
+	let e = int(dense.Of(a.TokEnd, id))
+	a.Src[s:e]
+}
+
+// CommentKinds returns the comment variants inserted at token boundaries by property tests.
+func CommentKinds() []string {
+	[]string{" /* marker */ ", " /* one\n two */ ", " // marker\n ", " /* marker */\n\n"}
+}
+
+func newLexArena(src string) LexArena {
+	LexArena{
+		Src:      src,
+		Lexemes:  dense.NewCount[TokTag](),
+		TokStart: dense.NewCol[TokTag, uint32](),
+		TokEnd:   dense.NewCol[TokTag, uint32](),
+		TokKind:  dense.NewCol[TokTag, uint8](),
+		TokInner: dense.NewCol[TokTag, bool](),
+		ErrCount: uint32(0),
+	}
+}
+
+func emitLexeme(cur mut lexCursor, start int, end int, kind uint8, inner bool) {
+	let _ = dense.Next(&cur.arena.Lexemes)
+	dense.Push(&cur.arena.TokStart, uint32(start))
+	dense.Push(&cur.arena.TokEnd, uint32(end))
+	dense.Push(&cur.arena.TokKind, kind)
+	dense.Push(&cur.arena.TokInner, inner)
+	cur.pos = end
+}
+
+func isPathByte(c byte) bool {
+	c == '_' || c == '.' || c == '/' || c == '-' || c == '~' || c == '+' || (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c >= byte(0x80)
+}
+
+func isASCIILetter(c byte) bool {
+	c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+}
+
+func isDigitByte(c byte) bool {
+	c >= '0' && c <= '9'
+}
+
+func isHexByte(c byte) bool {
+	(c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
+}
+
+func scanComment(cur mut lexCursor, start int, inner bool) {
+	let src = cur.src
+	let n = src.Len()
+	if start+1 < n && src[start+1] == '/' {
+		let mut i = start + 2
+		for i < n && src[i] != '\n' {
+			i = i + 1
+		}
+		emitLexeme(cur, start, i, TokComment, inner)
+		return
+	}
+	let mut i = start + 2
+	let mut closed = false
+	for i+1 < n {
+		if src[i] == '*' && src[i+1] == '/' {
+			i = i + 2
+			closed = true
+			break
+		}
+		i = i + 1
+	}
+	if !closed {
+		i = n
+		cur.arena.ErrCount = cur.arena.ErrCount + uint32(1)
+	}
+	emitLexeme(cur, start, i, TokComment, inner)
+}
+
+func scanRawString(cur mut lexCursor, start int, inner bool) {
+	let src = cur.src
+	let n = src.Len()
+	let mut i = start + 1
+	let mut closed = false
+	for i < n {
+		if src[i] == '`' {
+			i = i + 1
+			closed = true
+			break
+		}
+		i = i + 1
+	}
+	if !closed {
+		i = n
+		cur.arena.ErrCount = cur.arena.ErrCount + uint32(1)
+	}
+	emitLexeme(cur, start, i, TokString, inner)
+}
+
+func scanRuneLit(cur mut lexCursor, start int, inner bool) {
+	let src = cur.src
+	let n = src.Len()
+	let mut i = start + 1
+	let mut closed = false
+	for i < n {
+		let c = src[i]
+		if c == '\n' {
+			break
+		}
+		if c == '\'' {
+			i = i + 1
+			closed = true
+			break
+		}
+		if c == '\\' && i+1 < n {
+			i = i + 2
+		} else {
+			i = i + 1
+		}
+	}
+	if !closed {
+		cur.arena.ErrCount = cur.arena.ErrCount + uint32(1)
+	}
+	emitLexeme(cur, start, i, TokRune, inner)
+}
+
+func scanInterpString(cur mut lexCursor, start int, initInner bool) {
+	let src = cur.src
+	let n = src.Len()
+	let mut seg = start
+	let mut segInner = initInner
+	let mut i = start + 1
+	for i < n {
+		let c = src[i]
+		if c == '\\' {
+			if i+1 < n && src[i+1] == '(' {
+				emitLexeme(cur, seg, i+2, TokString, segInner)
+				lexRunLoop(cur, 0, true)
+				if cur.pos >= n {
+					cur.arena.ErrCount = cur.arena.ErrCount + uint32(1)
+					return
+				}
+				seg = cur.pos
+				segInner = true
+				i = cur.pos + 1
+				continue
+			}
+			i = i + 2
+			continue
+		}
+		if c == '\n' {
+			cur.arena.ErrCount = cur.arena.ErrCount + uint32(1)
+			emitLexeme(cur, seg, i, TokString, segInner)
+			return
+		}
+		if c == '"' {
+			emitLexeme(cur, seg, i+1, TokString, segInner)
+			return
+		}
+		i = i + 1
+	}
+	cur.arena.ErrCount = cur.arena.ErrCount + uint32(1)
+	emitLexeme(cur, seg, n, TokString, segInner)
+}
+
+func scanDigitRun(src string, pos int, hex bool) int {
+	let n = src.Len()
+	let mut i = pos
+	for i < n {
+		let c = src[i]
+		if c == '_' {
+			i = i + 1
+			continue
+		}
+		if hex {
+			if !isHexByte(c) {
+				break
+			}
+		} else if !isDigitByte(c) {
+			break
+		}
+		i = i + 1
+	}
+	i
+}
+
+func scanNumberLit(cur mut lexCursor, start int, inner bool) {
+	let src = cur.src
+	let n = src.Len()
+	let mut i = start
+	let mut kind = TokInt
+	let mut hex = false
+	if src[i] == '.' {
+		kind = TokFloat
+		i = scanDigitRun(src, i+1, false)
+	} else {
+		if src[i] == '0' && i+1 < n && (src[i+1] == 'x' || src[i+1] == 'X') {
+			hex = true
+			i = scanDigitRun(src, i+2, true)
+		} else if src[i] == '0' && i+1 < n && (src[i+1] == 'b' || src[i+1] == 'B' || src[i+1] == 'o' || src[i+1] == 'O') {
+			i = scanDigitRun(src, i+2, false)
+		} else {
+			i = scanDigitRun(src, i, false)
+		}
+		if i < n && src[i] == '.' && !(i+1 < n && src[i+1] == '.') {
+			kind = TokFloat
+			i = scanDigitRun(src, i+1, hex)
+		}
+	}
+	if i < n && (src[i] == 'e' || src[i] == 'E' || (hex && (src[i] == 'p' || src[i] == 'P'))) {
+		kind = TokFloat
+		i = i + 1
+		if i < n && (src[i] == '+' || src[i] == '-') {
+			i = i + 1
+		}
+		i = scanDigitRun(src, i, false)
+	}
+	if i < n && src[i] == 'i' {
+		i = i + 1
+	}
+	cur.paths = 0
+	emitLexeme(cur, start, i, kind, inner)
+}
+
+func scanIdentLit(cur mut lexCursor, start int, inner bool) {
+	let src = cur.src
+	let n = src.Len()
+	let mut i = start
+	for i < n {
+		let c = src[i]
+		if isASCIILetter(c) || isDigitByte(c) {
+			i = i + 1
+			continue
+		}
+		if c >= byte(0x80) {
+			let d = utf8.DecodeRuneInString(src[i:])
+			if utf8.IsLetter(d.Rune) || utf8.IsDigit(d.Rune) {
+				i = i + d.Size
+				continue
+			}
+		}
+		break
+	}
+	let word = src[start:i]
+	let mut kind = TokIdent
+	if word == "import" {
+		kind = TokImport
+		cur.paths = 3
+	} else if word == "extern" {
+		cur.paths = -1
+	} else if word == "go" {
+		kind = TokGo
+		if cur.paths == -1 {
+			cur.paths = 1
+		} else {
+			cur.paths = 0
+		}
+	} else {
+		cur.paths = 0
+	}
+	emitLexeme(cur, start, i, kind, inner)
+}
+
+func threeCharOpEnd(src string, start int) int {
+	if strings.HasPrefix(src[start:], "...") || strings.HasPrefix(src[start:], "<<=") || strings.HasPrefix(src[start:], ">>=") || strings.HasPrefix(src[start:], "&^=") {
+		return start + 3
+	}
+	0
+}
+
+func twoCharOpEnd(src string, start int) int {
+	let sub = src[start:]
+	let p = if sub.Len() >= 2 { sub[:2] } else { "" }
+	if p == ":=" || p == "==" || p == "!=" || p == "<=" || p == ">=" || p == "&&" || p == "||" || p == "<-" || p == "++" || p == "--" || p == "<<" || p == ">>" || p == "&^" || p == "+=" || p == "-=" || p == "*=" || p == "/=" || p == "%=" || p == "&=" || p == "|=" || p == "^=" {
+		return start + 2
+	}
+	0
+}
+
+func oneCharTokenKind(c byte) (uint8, bool) {
+	if c == '.' { return (TokPeriod, true) }
+	if c == '|' { return (TokOr, true) }
+	if c == '=' { return (TokAssign, true) }
+	if c == '(' { return (TokLParen, true) }
+	if c == ')' { return (TokRParen, true) }
+	if c == '[' { return (TokLBrack, true) }
+	if c == ']' { return (TokRBrack, true) }
+	if c == '{' { return (TokLBrace, true) }
+	if c == '}' { return (TokRBrace, true) }
+	if c == ',' { return (TokComma, true) }
+	if c == ';' { return (TokSemicolon, true) }
+	if c == '+' || c == '-' || c == '*' || c == '/' || c == '%' || c == '&' || c == '^' || c == '<' || c == '>' || c == '!' || c == '~' || c == ':' {
+		return (TokOther, true)
+	}
+	(TokIllegal, false)
+}
+
+func scanGoToken(cur mut lexCursor, start int, inner bool) {
+	let src = cur.src
+	let n = src.Len()
+	let c = src[start]
+	if c == '/' && start+1 < n && (src[start+1] == '/' || src[start+1] == '*') {
+		scanComment(cur, start, inner)
+		return
+	}
+	if c == '`' {
+		cur.paths = 0
+		scanRawString(cur, start, inner)
+		return
+	}
+	if c == '\'' {
+		cur.paths = 0
+		scanRuneLit(cur, start, inner)
+		return
+	}
+	if isDigitByte(c) || (c == '.' && start+1 < n && isDigitByte(src[start+1])) {
+		scanNumberLit(cur, start, inner)
+		return
+	}
+	if isASCIILetter(c) {
+		scanIdentLit(cur, start, inner)
+		return
+	}
+	if c >= byte(0x80) {
+		let d = utf8.DecodeRuneInString(src[start:])
+		if utf8.IsLetter(d.Rune) {
+			scanIdentLit(cur, start, inner)
+			return
+		}
+		cur.arena.ErrCount = cur.arena.ErrCount + uint32(1)
+		cur.paths = 0
+		emitLexeme(cur, start, start+d.Size, TokIllegal, inner)
+		return
+	}
+	cur.paths = 0
+	let op3 = threeCharOpEnd(src, start)
+	if op3 > 0 {
+		emitLexeme(cur, start, op3, TokOther, inner)
+		return
+	}
+	let op2 = twoCharOpEnd(src, start)
+	if op2 > 0 {
+		emitLexeme(cur, start, op2, TokOther, inner)
+		return
+	}
+	let (kind, ok) = oneCharTokenKind(c)
+	if !ok {
+		cur.arena.ErrCount = cur.arena.ErrCount + uint32(1)
+	}
+	emitLexeme(cur, start, start+1, kind, inner)
+}
+
+func scanImportPathWord(cur mut lexCursor, start int, inner bool) {
+	let src = cur.src
+	let n = src.Len()
+	let mut end = start
+	for end < n && isPathByte(src[end]) {
+		if src[end] == '/' && end+1 < n && (src[end+1] == '/' || src[end+1] == '*') {
+			break
+		}
+		end = end + 1
+	}
+	let word = src[start:end]
+	emitLexeme(cur, start, end, TokIdent, inner)
+	if cur.paths == 3 && word == "go" {
+		cur.paths = 2
+	} else if cur.paths == 3 {
+		cur.paths = 1
+	} else {
+		cur.paths = cur.paths - 1
+	}
+}
+
+func scanRangePrefix(cur mut lexCursor, start int, inner bool) bool {
+	let src = cur.src
+	let n = src.Len()
+	let c = src[start]
+	if strings.HasPrefix(src[start:], "..") && !strings.HasPrefix(src[start:], "...") {
+		emitLexeme(cur, start, start+2, TokPeriod, inner)
+		return true
+	}
+	if isDigitByte(c) {
+		let mut end = start
+		for end < n && isDigitByte(src[end]) {
+			end = end + 1
+		}
+		if strings.HasPrefix(src[end:], "..") && !strings.HasPrefix(src[end:], "...") {
+			emitLexeme(cur, start, end, TokInt, inner)
+			return true
+		}
+	}
+	false
+}
+
+func lexRunLoop(cur mut lexCursor, initDepth int, inner bool) {
+	let src = cur.src
+	let n = src.Len()
+	let mut depth = initDepth
+	for cur.pos < n {
+		let c = src[cur.pos]
+		if c == '\n' {
+			cur.paths = 0
+			cur.pos = cur.pos + 1
+			continue
+		}
+		if c == ' ' || c == '\t' || c == '\r' {
+			cur.pos = cur.pos + 1
+			continue
+		}
+		let start = cur.pos
+		if inner && c == ')' && depth == 0 {
+			return
+		}
+		if inner && c == '(' {
+			depth = depth + 1
+		} else if inner && c == ')' {
+			depth = depth - 1
+		}
+		if c == '"' {
+			scanInterpString(cur, start, inner)
+			continue
+		}
+		let commentNext = c == '/' && start+1 < n && (src[start+1] == '/' || src[start+1] == '*')
+		if cur.paths > 0 && isPathByte(c) && !commentNext {
+			scanImportPathWord(cur, start, inner)
+			continue
+		}
+		if scanRangePrefix(cur, start, inner) {
+			continue
+		}
+		scanGoToken(cur, start, inner)
+	}
+}
+
+// LexAll lexes src into a LexArena independently of compiler/syntax.
+func LexAll(src string) LexArena {
+	let mut cur = lexCursor{
+		src:   src,
+		arena: newLexArena(src),
+		pos:   0,
+		paths: 0,
+	}
+	lexRunLoop(&cur, 0, false)
+	cur.arena
+}
+
+func prevCodeLexeme(a LexArena, i int) int {
+	let mut j = i - 1
+	for j >= 0 {
+		let k = dense.Of(a.TokKind, dense.IDAt(a.Lexemes, j))
+		if k != TokComment && k != TokSemicolon {
+			return j
+		}
+		j = j - 1
+	}
+	-1
+}
+
+func findHeaderLParenClose(a LexArena, openIdx int) (int, bool) {
+	let n = dense.Total(a.Lexemes)
+	let mut depth = 0
+	let mut comma = false
+	let mut brace = false
+	let mut endIdx = -1
+	let mut k = openIdx
+	for k < n && endIdx < 0 {
+		let kind = dense.Of(a.TokKind, dense.IDAt(a.Lexemes, k))
+		if kind == TokLParen || kind == TokLBrack {
+			depth = depth + 1
+		} else if kind == TokRParen || kind == TokRBrack {
+			depth = depth - 1
+			if depth == 0 {
+				endIdx = k
+			}
+		} else if kind == TokLBrace {
+			brace = true
+		} else if kind == TokComma && depth == 1 {
+			comma = true
+		}
+		k = k + 1
+	}
+	if endIdx < 0 || comma || brace {
+		return (-1, false)
+	}
+	let mut next = endIdx + 1
+	for next < n {
+		let nk = dense.Of(a.TokKind, dense.IDAt(a.Lexemes, next))
+		if nk != TokComment && nk != TokSemicolon {
+			return (endIdx, nk == TokLBrace)
+		}
+		next = next + 1
+	}
+	(-1, false)
+}
+
+// Normalize filters canonical formatter normalizations (leading union '|',
+// redundant header parens on with/match) into sc.Kept.
+func Normalize(a LexArena, sc mut LexScratch) []dense.ID[TokTag] {
+	let n = dense.Total(a.Lexemes)
+	sc.Drop = sc.Drop[:0]
+	for _ in 0..n {
+		sc.Drop = sc.Drop.Append(false)
+	}
+	sc.Kept = sc.Kept[:0]
+	for i in 0..n {
+		let prev = prevCodeLexeme(a, i)
+		if prev < 0 {
+			continue
+		}
+		let curID = dense.IDAt(a.Lexemes, i)
+		let prevID = dense.IDAt(a.Lexemes, prev)
+		let k = dense.Of(a.TokKind, curID)
+		let pk = dense.Of(a.TokKind, prevID)
+		if k == TokOr && pk == TokAssign {
+			sc.Drop[i] = true
+		} else if k == TokLParen {
+			let pText = LexemeText(a, prevID)
+			if pText == "with" || pText == "match" {
+				let (endIdx, ok) = findHeaderLParenClose(a, i)
+				if ok {
+					sc.Drop[i] = true
+					sc.Drop[endIdx] = true
+				}
+			}
+		}
+	}
+	for i in 0..n {
+		if !sc.Drop[i] {
+			sc.Kept = sc.Kept.Append(dense.IDAt(a.Lexemes, i))
+		}
+	}
+	sc.Kept
+}
+
+func formatOneComment(raw string) string {
+	let cleaned = strings.ReplaceAll(raw, "\r", "")
+	let mut lines = strings.Split(cleaned, "\n")
+	for i in 0..len(lines) {
+		lines[i] = strings.TrimRight(lines[i], " \t")
+		if i > 0 {
+			lines[i] = strings.TrimLeft(lines[i], " \t")
+		}
+	}
+	strings.Join(lines, "\n")
+}
+
+// Comments returns all normalized comments in source order and whether src lexed cleanly.
+func Comments(src string) ([]string, bool) {
+	let a = LexAll(src)
+	let mut out = []string{}
+	for i in 0..dense.Total(a.Lexemes) {
+		let id = dense.IDAt(a.Lexemes, i)
+		if dense.Of(a.TokKind, id) == TokComment {
+			out = out.Append(formatOneComment(LexemeText(a, id)))
+		}
+	}
+	(out, a.ErrCount == uint32(0))
+}
+
+func nextCodeInKept(a LexArena, kept []dense.ID[TokTag], idx int) uint8 {
+	for j in idx+1..len(kept) {
+		let k = dense.Of(a.TokKind, kept[j])
+		if k != TokComment && k != TokSemicolon {
+			return k
+		}
+	}
+	TokIllegal
+}
+
+// Tokens returns the normalized token texts excluding comments, semicolons, and trailing commas.
+func Tokens(src string) ([]string, bool) {
+	let a = LexAll(src)
+	let mut sc = NewLexScratch()
+	let norm = Normalize(a, &sc)
+	let mut code = slices.WithCapacity[dense.ID[TokTag]](len(norm))
+	for id in norm {
+		let k = dense.Of(a.TokKind, id)
+		if k != TokComment && k != TokSemicolon {
+			code = code.Append(id)
+		}
+	}
+	let mut out = slices.WithCapacity[string](len(code))
+	for i in 0..len(code) {
+		let id = code[i]
+		let k = dense.Of(a.TokKind, id)
+		if k == TokComma && i+1 < len(code) {
+			let nk = dense.Of(a.TokKind, code[i+1])
+			if nk == TokRParen || nk == TokRBrack || nk == TokRBrace {
+				continue
+			}
+		}
+		out = out.Append(LexemeText(a, id))
+	}
+	(out, a.ErrCount == uint32(0))
+}
+
+// Interleaved returns normalized tokens and comments interleaved in source order.
+func Interleaved(src string) ([]string, bool) {
+	let a = LexAll(src)
+	let mut sc = NewLexScratch()
+	let norm = Normalize(a, &sc)
+	let mut out = slices.WithCapacity[string](len(norm))
+	for i in 0..len(norm) {
+		let id = norm[i]
+		let k = dense.Of(a.TokKind, id)
+		if k == TokSemicolon {
+			continue
+		}
+		if k == TokComma {
+			let nk = nextCodeInKept(a, norm, i)
+			if nk == TokRParen || nk == TokRBrack || nk == TokRBrace {
+				continue
+			}
+		}
+		if k == TokComment {
+			out = out.Append("comment " + formatOneComment(LexemeText(a, id)))
+			continue
+		}
+		out = out.Append(LexemeText(a, id))
+	}
+	(out, a.ErrCount == uint32(0))
+}
+
+// Boundaries returns the byte offsets of tokens before which a comment may be inserted.
+func Boundaries(src string) []int {
+	let a = LexAll(src)
+	let mut out = []int{}
+	for i in 0..dense.Total(a.Lexemes) {
+		let id = dense.IDAt(a.Lexemes, i)
+		let k = dense.Of(a.TokKind, id)
+		if k != TokSemicolon && k != TokComment && !dense.Of(a.TokInner, id) {
+			out = out.Append(int(dense.Of(a.TokStart, id)))
+		}
+	}
+	out
+}
+
+// FirstDiff returns the first index where a and b differ alongside both entries, or (-1, "", "").
+func FirstDiff(a []string, b []string) (int, string, string) {
+	let maxLen = if len(a) > len(b) { len(a) } else { len(b) }
+	for i in 0..maxLen {
+		let x = if i < len(a) { a[i] } else { "<none>" }
+		let y = if i < len(b) { b[i] } else { "<none>" }
+		if x != y {
+			return (i, x, y)
+		}
+	}
+	(-1, "", "")
+}
+
+func pickStr(r mut PCG, opts []string) string {
+	opts[IntN(r, len(opts))]
+}
+
+func trimSpaceChars(s string) string {
+	strings.TrimFunc(s, func(ch rune) bool { ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n' })
+}
+
+func buildPerturbedGap(gap string, afterLineComment bool, r mut PCG) string {
+	let mut n = strings.Count(gap, "\n")
+	if n == 0 {
+		if gap == "" {
+			return ""
+		}
+		return pickStr(r, []string{" ", "  ", "\t", " \t"})
+	}
+	if n >= 2 {
+		n = n + IntN(r, 2)
+	}
+	let mut b = strings.NewBuilder()
+	for i in 0..n {
+		if !(i == 0 && afterLineComment) && IntN(r, 3) == 0 {
+			b.WriteString(pickStr(r, []string{" ", "\t "}))
+		}
+		b.WriteByte('\n')
+	}
+	b.WriteString(pickStr(r, []string{"", "\t", "    ", "\t\t ", " "}))
+	b.String()
+}
+
+// Perturb rewrites inter-token whitespace deterministically from seed while
+// preserving all tokens, comments, zero-width gaps, and blank-line divisions.
+func Perturb(src string, seed uint64) (string, bool) {
+	let a = LexAll(src)
+	if a.ErrCount != uint32(0) {
+		return ("", false)
+	}
+	let mut r = NewPCG(seed, uint64(195))
+	let mut b = strings.NewBuilder()
+	let mut prev = 0
+	let mut prevLineComment = false
+	for i in 0..dense.Total(a.Lexemes) {
+		let id = dense.IDAt(a.Lexemes, i)
+		let start = int(dense.Of(a.TokStart, id))
+		let end = int(dense.Of(a.TokEnd, id))
+		let gap = src[prev:start]
+		if trimSpaceChars(gap) != "" {
+			b.WriteString(gap)
+		} else if i == 0 {
+			b.WriteString(pickStr(&r, []string{"", "\n", "\n\n"}))
+		} else {
+			b.WriteString(buildPerturbedGap(gap, prevLineComment, &r))
+		}
+		b.WriteString(src[start:end])
+		prev = end
+		prevLineComment = dense.Of(a.TokKind, id) == TokComment && strings.HasPrefix(src[start:end], "//")
+	}
+	if prevLineComment {
+		b.WriteString(pickStr(&r, []string{"\n", "\n\n\n", ""}))
+	} else {
+		b.WriteString(pickStr(&r, []string{"\n", "\n\n\n", "  \n", ""}))
+	}
+	(b.String(), true)
+}
+
+law PerturbPreservesTokensAndInterleaved(seed uint64) {
+	let src = "import go net/http\n\ntype U = | A | B\n\n// doc\nfunc f(x int) string {\n\tfor i in 0..10 {\n\t\twith (Ctx) { wait(500ms) }\n\t}\n\t\"val=\\(x + 1)\"\n}\n"
+	let (toks0, ok0) = Tokens(src)
+	let (int0, okI0) = Interleaved(src)
+	if !ok0 || !okI0 {
+		return false
+	}
+	let (p, pok) = Perturb(src, seed)
+	if !pok {
+		return false
+	}
+	let (toks1, ok1) = Tokens(p)
+	let (int1, okI1) = Interleaved(p)
+	if !ok1 || !okI1 {
+		return false
+	}
+	let (di, _, _) = FirstDiff(toks0, toks1)
+	let (dii, _, _) = FirstDiff(int0, int1)
+	di == -1 && dii == -1
+}
+
+test LexAllHandlesSpecialTokensAndProperties {
+	let src = "import go net/http\n\ntype U = | A | B\n\n// c1  \nlet n = 1..10\nlet u = \"a \\(n + 1) b\"\nfunc f() {\n\tmatch (x) {\n\tcase _:\n\t\tuse(1, 2,)\n\t}\n}\n"
+	let (toks, ok) = Tokens(src)
+	assert ok
+	assert slices.Contains(toks, "net/http")
+	assert slices.Contains(toks, "..")
+	assert slices.Index(toks, "match")+1 == slices.Index(toks, "x")
+	assert toks[slices.Index(toks, "2")+1] == ")"
+	assert slices.Index(toks, "|") > slices.Index(toks, "=")+1
+	let (cmts, okc) = Comments(src)
+	assert okc && len(cmts) == 1 && cmts[0] == "// c1"
+	let bounds = Boundaries(src)
+	assert len(bounds) > 5
+	assert len(CommentKinds()) == 4
+	let (di, x, y) = FirstDiff([]string{"a", "b"}, []string{"a", "c"})
+	assert di == 1 && x == "b" && y == "c"
+}

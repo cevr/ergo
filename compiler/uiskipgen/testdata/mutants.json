@@ -1,0 +1,70 @@
+{
+  "about": "Pure-Ergo uiskipgen generator, PRNG, and emission invariants.",
+  "mutants": [
+    {
+      "name": "selfhost-uiskipgen-pcg-pow2-mask",
+      "origin": "selfhost-uiskipgen",
+      "file": "compiler/uiskipgen/pcg.ergo",
+      "decl": "IntN",
+      "from": "\t\treturn int(NextUint64(p) & (un - uint64(1)))\n",
+      "to": "\t\treturn int(NextUint64(p) & un)\n",
+      "rule": "Power-of-two fast path in IntN must mask with n-1 so results remain strictly below n",
+      "killers": ["compiler/uiskipgen:law:IntNAlwaysWithinRange"],
+      "anchor": {
+        "tests": ["compiler/uiskipgen:law:IntNAlwaysWithinRange"]
+      }
+    },
+    {
+      "name": "selfhost-uiskipgen-comps-per-seed",
+      "origin": "selfhost-uiskipgen",
+      "file": "compiler/uiskipgen/uiskipgen.ergo",
+      "decl": "NewSkipArena",
+      "from": "\t\tCompsPerSeed: 5,\n",
+      "to": "\t\tCompsPerSeed: 4,\n",
+      "rule": "SkipArena must default to 5 components per generated seed",
+      "killers": ["compiler/uiskipgen:ProgramGeneratesValidSyntaxAndGuards"],
+      "anchor": {
+        "tests": ["compiler/uiskipgen:ProgramGeneratesValidSyntaxAndGuards"]
+      }
+    },
+    {
+      "name": "selfhost-uiskipgen-seed-passes-count",
+      "origin": "selfhost-uiskipgen",
+      "file": "compiler/uiskipgen/uiskipgen.ergo",
+      "decl": "Generate",
+      "from": "\tlet passRun = buildSeedPasses(a, sc, &g, 10)\n",
+      "to": "\tlet passRun = buildSeedPasses(a, sc, &g, 9)\n",
+      "rule": "Generate must emit 10 render passes per seed",
+      "killers": ["compiler/uiskipgen:ProgramGeneratesValidSyntaxAndGuards"],
+      "anchor": {
+        "tests": ["compiler/uiskipgen:ProgramGeneratesValidSyntaxAndGuards"]
+      }
+    },
+    {
+      "name": "selfhost-uiskipgen-press-sentinel",
+      "origin": "selfhost-uiskipgen",
+      "file": "compiler/uiskipgen/uiskipgen.ergo",
+      "decl": "writeSeedMain",
+      "from": "\t\tlet pressStr = if press == noPressMarker { \"-1\" } else { strconv.Itoa(int(press)) }\n",
+      "to": "\t\tlet pressStr = if press == noPressMarker { \"0\" } else { strconv.Itoa(int(press)) }\n",
+      "rule": "Unpressed passes must emit -1 sentinel rather than 0",
+      "killers": ["compiler/uiskipgen:ProgramGeneratesValidSyntaxAndGuards"],
+      "anchor": {
+        "tests": ["compiler/uiskipgen:ProgramGeneratesValidSyntaxAndGuards"]
+      }
+    },
+    {
+      "name": "selfhost-uiskipgen-emit-trailed-guard",
+      "origin": "selfhost-uiskipgen",
+      "file": "compiler/uiskipgen/uiskipgen.ergo",
+      "decl": "Emit",
+      "from": "\tst.sb.WriteString(\"\\tgaveBack()\\n\\tfixed()\\n\\tgrowth(8)\\n\\tgrowth(64)\\n\\telsewhere(50)\\n\\telsewhere(200)\\n\\tnested()\\n\\ttallied()\\n\\tallChange(50)\\n\\tallChange(200)\\n\\tsubset()\\n\\tcardsGuard(50)\\n\\tcardsGuard(200)\\n\\taliased()\\n\\tloopedTwice()\\n\\tcutTwice()\\n\\tshrunk(50)\\n\\tdropped(50)\\n\\ttrailed(50)\\n}\\n\")\n",
+      "to": "\tst.sb.WriteString(\"\\tgaveBack()\\n\\tfixed()\\n\\tgrowth(8)\\n\\tgrowth(64)\\n\\telsewhere(50)\\n\\telsewhere(200)\\n\\tnested()\\n\\ttallied()\\n\\tallChange(50)\\n\\tallChange(200)\\n\\tsubset()\\n\\tcardsGuard(50)\\n\\tcardsGuard(200)\\n\\taliased()\\n\\tloopedTwice()\\n\\tcutTwice()\\n\\tshrunk(50)\\n\\tdropped(50)\\n}\\n\")\n",
+      "rule": "Emit must invoke trailed(50) guard at the end of generated main()",
+      "killers": ["compiler/uiskipgen:ProgramGeneratesValidSyntaxAndGuards"],
+      "anchor": {
+        "tests": ["compiler/uiskipgen:ProgramGeneratesValidSyntaxAndGuards"]
+      }
+    }
+  ]
+}

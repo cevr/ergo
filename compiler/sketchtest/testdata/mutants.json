@@ -1,0 +1,96 @@
+{
+  "about": "Pure-Ergo sketchtest RNG, lexical oracle, inputs, contexts, laws, and release-needs mutants.",
+  "mutants": [
+    {
+      "name": "selfhost-sketchtest-rng-pow2-mask",
+      "origin": "selfhost-sketchtest",
+      "file": "compiler/sketchtest/rng.ergo",
+      "decl": "IntN",
+      "from": "\t\treturn int(NextUint64(r) & (un - uint64(1)))\n",
+      "to": "\t\treturn int(NextUint64(r) & un)\n",
+      "rule": "Power-of-two fast path in IntN must mask with n-1",
+      "killers": ["compiler/sketchtest:law:RNGDeterministic"],
+      "anchor": {
+        "tests": ["compiler/sketchtest:law:RNGDeterministic"]
+      }
+    },
+    {
+      "name": "selfhost-sketchtest-lex-union-bar",
+      "origin": "selfhost-sketchtest",
+      "file": "compiler/sketchtest/lex.ergo",
+      "decl": "Normalize",
+      "from": "\t\tif k == TokOr && pk == TokAssign {\n\t\t\tsc.Drop[i] = true\n",
+      "to": "\t\tif k == TokOr && pk == TokIllegal {\n\t\t\tsc.Drop[i] = true\n",
+      "rule": "Normalize must drop leading '|' tokens immediately following '=' in unions",
+      "killers": ["compiler/sketchtest:LexAllHandlesSpecialTokensAndProperties"],
+      "anchor": {
+        "tests": ["compiler/sketchtest:LexAllHandlesSpecialTokensAndProperties"]
+      }
+    },
+    {
+      "name": "selfhost-sketchtest-lex-match-paren",
+      "origin": "selfhost-sketchtest",
+      "file": "compiler/sketchtest/lex.ergo",
+      "decl": "Normalize",
+      "from": "\t\t\tif pText == \"with\" || pText == \"match\" {\n",
+      "to": "\t\t\tif pText == \"with\" {\n",
+      "rule": "Normalize must elide redundant header parentheses after both with and match",
+      "killers": ["compiler/sketchtest:LexAllHandlesSpecialTokensAndProperties"],
+      "anchor": {
+        "tests": ["compiler/sketchtest:LexAllHandlesSpecialTokensAndProperties"]
+      }
+    },
+    {
+      "name": "selfhost-sketchtest-inputs-wrap",
+      "origin": "selfhost-sketchtest",
+      "file": "compiler/sketchtest/inputs.ergo",
+      "decl": "WrapChunk",
+      "from": "\tlet first = FirstWord(chunk)\n",
+      "to": "\tlet first = \"\"\n",
+      "rule": "WrapChunk must avoid wrapping top-level declarations in func snippet()",
+      "killers": ["compiler/sketchtest:InMemoryCorpusRepositoryAndSpecFences"],
+      "anchor": {
+        "tests": ["compiler/sketchtest:InMemoryCorpusRepositoryAndSpecFences"]
+      }
+    },
+    {
+      "name": "selfhost-sketchtest-contexts-replace",
+      "origin": "selfhost-sketchtest",
+      "file": "compiler/sketchtest/contexts.ergo",
+      "decl": "extractContextBody",
+      "from": "\t\tlet isReplace = ent.Replace >= 0\n",
+      "to": "\t\tlet isReplace = false\n",
+      "rule": "extractContextBody must record replace flag from AST context entries",
+      "killers": ["compiler/sketchtest:ContextBindingExtractionHandlesNamedReplaceEmbedAndInline"],
+      "anchor": {
+        "tests": ["compiler/sketchtest:ContextBindingExtractionHandlesNamedReplaceEmbedAndInline"]
+      }
+    },
+    {
+      "name": "selfhost-sketchtest-laws-boolish",
+      "origin": "selfhost-sketchtest",
+      "file": "compiler/sketchtest/laws.ergo",
+      "decl": "LawKindBoolish",
+      "from": "\tk == LawKindBool || k == LawKindFlag\n",
+      "to": "\tk == LawKindBool\n",
+      "rule": "LawKindBoolish must accept both bool and defined flag kinds",
+      "killers": ["compiler/sketchtest:LawTopCasesAndWantExtraction"],
+      "anchor": {
+        "tests": ["compiler/sketchtest:LawTopCasesAndWantExtraction"]
+      }
+    },
+    {
+      "name": "selfhost-sketchtest-relneeds-explicit",
+      "origin": "selfhost-sketchtest",
+      "file": "compiler/sketchtest/relneeds.ergo",
+      "decl": "Explicit",
+      "from": "\te.ParseWritten = true\n",
+      "to": "\te.ParseWritten = false\n",
+      "rule": "Explicit must mark parseLw clause as written so direct model matches inference",
+      "killers": ["compiler/sketchtest:law:ExplicitPreservesRowsAndParses"],
+      "anchor": {
+        "tests": ["compiler/sketchtest:law:ExplicitPreservesRowsAndParses"]
+      }
+    }
+  ]
+}

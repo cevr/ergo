@@ -1,0 +1,690 @@
+import compiler/syntax
+import dense
+import slices
+import strconv
+import strings
+
+// SeedTag identifies a generated seed program in SkipArena.
+type SeedTag {}
+
+// CompTag identifies a generated component function in SkipArena.
+type CompTag {}
+
+// StmtTag identifies a generated statement node in SkipArena.
+type StmtTag {}
+
+// PassTag identifies a generated render pass state in SkipArena.
+type PassTag {}
+
+// ItemTag identifies a snapshot item row in SkipArena.
+type ItemTag {}
+
+let noPressMarker = uint32(4294967295)
+
+let stmtText = uint8(0)
+let stmtCheck = uint8(1)
+let stmtToggle = uint8(2)
+let stmtPressable = uint8(3)
+let stmtRow = uint8(4)
+let stmtIf = uint8(5)
+let stmtCall = uint8(6)
+let stmtCallCond = uint8(7)
+let stmtCallLoop = uint8(8)
+let stmtCallEach = uint8(9)
+let stmtFieldset = uint8(12)
+let stmtSame = uint8(13)
+let stmtStopBound = uint8(14)
+let stmtWideBag = uint8(15)
+let stmtGateBound = uint8(16)
+let stmtLeaf = uint8(17)
+
+// SkipArena holds generated components, statements, render passes, and item
+// snapshots as flat Structure-of-Arrays tables indexed by dense uint32 IDs.
+type SkipArena {
+	CompsPerSeed int,
+	StrPool      dense.Strings,
+	Seeds        dense.Count[SeedTag],
+	SeedVal      dense.Col[SeedTag, uint64],
+	SeedComps    dense.Col[SeedTag, dense.Run[uint32]],
+	SeedPasses   dense.Col[SeedTag, dense.Run[uint32]],
+	SeedPtrs     dense.Col[SeedTag, dense.Run[uint32]],
+	Comps        dense.Count[CompTag],
+	CompIdx      dense.Col[CompTag, uint32],
+	CompStmts    dense.Col[CompTag, dense.Run[uint32]],
+	Stmts        dense.Count[StmtTag],
+	StmtKind     dense.Col[StmtTag, uint8],
+	StmtComp     dense.Col[StmtTag, uint32],
+	StmtArg0     dense.Col[StmtTag, uint32],
+	StmtArg1     dense.Col[StmtTag, uint32],
+	StmtKidsA    dense.Col[StmtTag, dense.Run[uint32]],
+	StmtKidsB    dense.Col[StmtTag, dense.Run[uint32]],
+	Kids         dense.Pool[uint32],
+	Passes       dense.Count[PassTag],
+	PassA        dense.Col[PassTag, uint32],
+	PassTopText  dense.Col[PassTag, dense.ID[dense.Str]],
+	PassItems    dense.Col[PassTag, dense.Run[uint32]],
+	PassPress    dense.Col[PassTag, uint32],
+	Items        dense.Count[ItemTag],
+	ItemID       dense.Col[ItemTag, uint32],
+	ItemText     dense.Col[ItemTag, dense.ID[dense.Str]],
+	ItemDone     dense.Col[ItemTag, bool],
+	ItemRuns     dense.Pool[uint32],
+}
+
+// Scratch holds reusable temporary buffers used during UI skip generation.
+type Scratch {
+	ChildStack   dense.Stack[uint32],
+	PassItemID   []uint32,
+	PassItemText []dense.ID[dense.Str],
+	PassItemDone []bool,
+	Order        []uint32,
+	FlagCount    uint32,
+	NextItemID   uint32,
+}
+
+type genCursor {
+	rng   PCG,
+	comp  int,
+	comps int,
+	depth int,
+}
+
+type emitState {
+	arena SkipArena,
+	sb    strings.Builder,
+	seed  uint64,
+	depth int,
+}
+
+// NewSkipArena constructs an empty SkipArena for generating UI skip programs.
+func NewSkipArena() SkipArena {
+	SkipArena{
+		CompsPerSeed: 5,
+		StrPool:      dense.NewStrings(),
+		Seeds:        dense.NewCount[SeedTag](),
+		SeedVal:      dense.NewCol[SeedTag, uint64](),
+		SeedComps:    dense.NewCol[SeedTag, dense.Run[uint32]](),
+		SeedPasses:   dense.NewCol[SeedTag, dense.Run[uint32]](),
+		SeedPtrs:     dense.NewCol[SeedTag, dense.Run[uint32]](),
+		Comps:        dense.NewCount[CompTag](),
+		CompIdx:      dense.NewCol[CompTag, uint32](),
+		CompStmts:    dense.NewCol[CompTag, dense.Run[uint32]](),
+		Stmts:        dense.NewCount[StmtTag](),
+		StmtKind:     dense.NewCol[StmtTag, uint8](),
+		StmtComp:     dense.NewCol[StmtTag, uint32](),
+		StmtArg0:     dense.NewCol[StmtTag, uint32](),
+		StmtArg1:     dense.NewCol[StmtTag, uint32](),
+		StmtKidsA:    dense.NewCol[StmtTag, dense.Run[uint32]](),
+		StmtKidsB:    dense.NewCol[StmtTag, dense.Run[uint32]](),
+		Kids:         dense.NewPool[uint32](),
+		Passes:       dense.NewCount[PassTag](),
+		PassA:        dense.NewCol[PassTag, uint32](),
+		PassTopText:  dense.NewCol[PassTag, dense.ID[dense.Str]](),
+		PassItems:    dense.NewCol[PassTag, dense.Run[uint32]](),
+		PassPress:    dense.NewCol[PassTag, uint32](),
+		Items:        dense.NewCount[ItemTag](),
+		ItemID:       dense.NewCol[ItemTag, uint32](),
+		ItemText:     dense.NewCol[ItemTag, dense.ID[dense.Str]](),
+		ItemDone:     dense.NewCol[ItemTag, bool](),
+		ItemRuns:     dense.NewPool[uint32](),
+	}
+}
+
+// NewScratch constructs reusable generation scratch buffers.
+func NewScratch() Scratch {
+	Scratch{
+		ChildStack:   dense.NewStack[uint32](),
+		PassItemID:   slices.WithCapacity[uint32](16),
+		PassItemText: slices.WithCapacity[dense.ID[dense.Str]](16),
+		PassItemDone: slices.WithCapacity[bool](16),
+		Order:        slices.WithCapacity[uint32](16),
+		FlagCount:    uint32(0),
+		NextItemID:   uint32(0),
+	}
+}
+
+func resetSeedScratch(sc mut Scratch) {
+	dense.Cut(&sc.ChildStack, 0)
+	sc.PassItemID = sc.PassItemID[:0]
+	sc.PassItemText = sc.PassItemText[:0]
+	sc.PassItemDone = sc.PassItemDone[:0]
+	sc.Order = sc.Order[:0]
+	sc.FlagCount = uint32(0)
+	sc.NextItemID = uint32(0)
+}
+
+func pushStmtRow(a mut SkipArena, kind uint8, comp uint32, arg0 uint32, arg1 uint32) dense.ID[StmtTag] {
+	let id = dense.Next(&a.Stmts)
+	let emptyRun = dense.PutList(&a.Kids, []uint32{})
+	dense.Push(&a.StmtKind, kind)
+	dense.Push(&a.StmtComp, comp)
+	dense.Push(&a.StmtArg0, arg0)
+	dense.Push(&a.StmtArg1, arg1)
+	dense.Push(&a.StmtKidsA, emptyRun)
+	dense.Push(&a.StmtKidsB, emptyRun)
+	id
+}
+
+func appendKidStmt(a mut SkipArena, sc mut Scratch, g mut genCursor) {
+	let id = buildStmtNode(a, sc, g)
+	dense.StackPush(&sc.ChildStack, uint32(dense.Index(id)))
+}
+
+func buildStmtRun(a mut SkipArena, sc mut Scratch, g mut genCursor) dense.Run[uint32] {
+	let mark = dense.Mark(sc.ChildStack)
+	let count = 1 + IntN(&g.rng, 3)
+	for _ in 0..count {
+		appendKidStmt(a, sc, g)
+	}
+	dense.PutSince(&a.Kids, &sc.ChildStack, mark)
+}
+
+func buildLeafKind(a mut SkipArena, sc mut Scratch, g mut genCursor, kind uint8) dense.ID[StmtTag] {
+	if kind == stmtToggle {
+		sc.FlagCount = sc.FlagCount + uint32(1)
+		return pushStmtRow(a, stmtToggle, uint32(g.comp), sc.FlagCount, uint32(0))
+	}
+	pushStmtRow(a, kind, uint32(g.comp), uint32(0), uint32(0))
+}
+
+func buildNestedBlock(a mut SkipArena, sc mut Scratch, g mut genCursor, kind uint8) dense.ID[StmtTag] {
+	let mut arg0 = uint32(0)
+	let mut arg1 = uint32(0)
+	if kind == stmtIf {
+		arg0 = uint32(2 + IntN(&g.rng, 2))
+		arg1 = uint32(IntN(&g.rng, 2))
+	}
+	g.depth = g.depth + 1
+	let kids = buildStmtRun(a, sc, g)
+	g.depth = g.depth - 1
+	let id = pushStmtRow(a, kind, uint32(g.comp), arg0, arg1)
+	dense.SetOf(&a.StmtKidsA, id, kids)
+	id
+}
+
+func buildBoundaryNode(a mut SkipArena, sc mut Scratch, g mut genCursor, kind uint8) dense.ID[StmtTag] {
+	g.depth = g.depth + 1
+	let kidsA = buildStmtRun(a, sc, g)
+	g.depth = g.depth - 1
+	if kind == stmtStopBound {
+		let modVal = uint32(IntN(&g.rng, 3))
+		let id = pushStmtRow(a, stmtStopBound, uint32(g.comp), modVal, uint32(0))
+		dense.SetOf(&a.StmtKidsA, id, kidsA)
+		return id
+	}
+	let mod = uint32(2 + IntN(&g.rng, 2))
+	let eq = uint32(IntN(&g.rng, 2))
+	g.depth = g.depth + 1
+	let kidsB = buildStmtRun(a, sc, g)
+	g.depth = g.depth - 1
+	let id = pushStmtRow(a, stmtGateBound, uint32(g.comp), mod, eq)
+	dense.SetOf(&a.StmtKidsA, id, kidsA)
+	dense.SetOf(&a.StmtKidsB, id, kidsB)
+	id
+}
+
+func drawCallee(g mut genCursor) int {
+	if g.comp+1 >= g.comps {
+		return -1
+	}
+	g.comp + 1 + IntN(&g.rng, g.comps-g.comp-1)
+}
+
+func buildCallNode(a mut SkipArena, g mut genCursor, kind uint8) dense.ID[StmtTag] {
+	let tplIdx = uint32(IntN(&g.rng, 7))
+	let callee = drawCallee(g)
+	if callee < 0 {
+		return pushStmtRow(a, stmtLeaf, uint32(g.comp), uint32(0), uint32(0))
+	}
+	if kind == stmtCall || kind == uint8(7) {
+		return pushStmtRow(a, stmtCall, uint32(g.comp), uint32(callee), tplIdx)
+	}
+	if kind == uint8(8) {
+		return pushStmtRow(a, stmtCallCond, uint32(g.comp), uint32(callee), tplIdx)
+	}
+	let loopCallee = drawCallee(g)
+	if kind == uint8(9) {
+		return pushStmtRow(a, stmtCallLoop, uint32(g.comp), uint32(loopCallee), uint32(0))
+	}
+	pushStmtRow(a, stmtCallEach, uint32(g.comp), uint32(loopCallee), uint32(0))
+}
+
+func buildStmtNode(a mut SkipArena, sc mut Scratch, g mut genCursor) dense.ID[StmtTag] {
+	let mut kind = uint8(IntN(&g.rng, 17))
+	let kint = int(kind)
+	if g.depth >= 2 && ((kint >= 3 && kint <= 5) || (kint >= 12 && kint != 15)) {
+		kind = stmtText
+	}
+	if kind == stmtText || kind == stmtCheck || kind == stmtToggle || kind == stmtWideBag {
+		return buildLeafKind(a, sc, g, kind)
+	}
+	if kind == stmtPressable || kind == stmtRow || kind == stmtIf || kind == stmtFieldset || kind == stmtSame {
+		return buildNestedBlock(a, sc, g, kind)
+	}
+	if kind == stmtStopBound || kind == stmtGateBound {
+		return buildBoundaryNode(a, sc, g, kind)
+	}
+	buildCallNode(a, g, kind)
+}
+
+func applyStateEdit(a mut SkipArena, sc mut Scratch, rng mut PCG, curA uint32, topStr dense.ID[dense.Str]) (uint32, dense.ID[dense.Str]) {
+	let mut nextA = curA
+	let mut nextTop = topStr
+	let op = IntN(rng, 7)
+	if op == 0 {
+		nextA = uint32(IntN(rng, 6))
+	} else if op == 1 {
+		if len(sc.Order) > 0 {
+			let idx = IntN(rng, len(sc.Order))
+			let pos = int(sc.Order[idx])
+			sc.PassItemDone[pos] = !sc.PassItemDone[pos]
+		}
+	} else if op == 2 {
+		let n = IntN(rng, 3)
+		nextTop = dense.InternText(&a.StrPool, "top\(n)")
+	} else if op == 3 {
+		let itemID = sc.NextItemID
+		sc.NextItemID = sc.NextItemID + uint32(1)
+		let txt = dense.InternText(&a.StrPool, "i\(itemID)")
+		let pos = uint32(len(sc.PassItemID))
+		sc.PassItemID = sc.PassItemID.Append(itemID)
+		sc.PassItemText = sc.PassItemText.Append(txt)
+		sc.PassItemDone = sc.PassItemDone.Append(false)
+		sc.Order = sc.Order.Append(pos)
+	} else if op == 4 {
+		if len(sc.Order) > 1 {
+			let idx = IntN(rng, len(sc.Order))
+			sc.Order = slices.Delete(sc.Order, idx, idx+1)
+		}
+	} else if op == 5 {
+		sc.Order = ShuffleIndices(rng, sc.Order)
+	}
+	(nextA, nextTop)
+}
+
+func snapshotPassItems(a mut SkipArena, sc mut Scratch) dense.Run[uint32] {
+	let mark = dense.Mark(sc.ChildStack)
+	for pos in sc.Order {
+		let p = int(pos)
+		let itemRow = dense.Next(&a.Items)
+		dense.Push(&a.ItemID, sc.PassItemID[p])
+		dense.Push(&a.ItemText, sc.PassItemText[p])
+		dense.Push(&a.ItemDone, sc.PassItemDone[p])
+		dense.StackPush(&sc.ChildStack, uint32(dense.Index(itemRow)))
+	}
+	dense.PutSince(&a.ItemRuns, &sc.ChildStack, mark)
+}
+
+func buildSeedPasses(a mut SkipArena, sc mut Scratch, g mut genCursor, passCount int) dense.Run[uint32] {
+	let mut curA = uint32(IntN(&g.rng, 6))
+	let mut topStr = dense.InternText(&a.StrPool, "top")
+	let initItems = 1 + IntN(&g.rng, 4)
+	for k in 0..initItems {
+		let txt = dense.InternText(&a.StrPool, "i\(k)")
+		let pos = uint32(len(sc.PassItemID))
+		sc.PassItemID = sc.PassItemID.Append(uint32(k))
+		sc.PassItemText = sc.PassItemText.Append(txt)
+		sc.PassItemDone = sc.PassItemDone.Append(false)
+		sc.Order = sc.Order.Append(pos)
+	}
+	sc.NextItemID = uint32(initItems)
+	let startIdx = dense.Total(a.Passes)
+	for _ in 0..passCount {
+		let (nA, nTop) = applyStateEdit(a, sc, &g.rng, curA, topStr)
+		curA = nA
+		topStr = nTop
+		let run = snapshotPassItems(a, sc)
+		let mut press = noPressMarker
+		if IntN(&g.rng, 3) == 0 {
+			press = uint32(IntN(&g.rng, 40))
+		}
+		let _ = dense.Next(&a.Passes)
+		dense.Push(&a.PassA, curA)
+		dense.Push(&a.PassTopText, topStr)
+		dense.Push(&a.PassItems, run)
+		dense.Push(&a.PassPress, press)
+	}
+	let idxMark = dense.Mark(sc.ChildStack)
+	for p in 0..passCount {
+		dense.StackPush(&sc.ChildStack, uint32(startIdx+p))
+	}
+	dense.PutSince(&a.Kids, &sc.ChildStack, idxMark)
+}
+
+// Generate appends all components, statement trees, render passes, and pointer
+// trials for seed into a and returns its SeedTag ID.
+func Generate(a mut SkipArena, sc mut Scratch, seed uint64) dense.ID[SeedTag] {
+	resetSeedScratch(sc)
+	let mut g = genCursor{
+		rng:   NewPCG(seed, uint64(0x51c9)),
+		comp:  0,
+		comps: a.CompsPerSeed,
+		depth: 0,
+	}
+	let compMark = dense.Mark(sc.ChildStack)
+	for c in 0..a.CompsPerSeed {
+		g.comp = c
+		g.depth = 0
+		let stmts = buildStmtRun(a, sc, &g)
+		let cid = dense.Next(&a.Comps)
+		dense.Push(&a.CompIdx, uint32(c))
+		dense.Push(&a.CompStmts, stmts)
+		dense.StackPush(&sc.ChildStack, uint32(dense.Index(cid)))
+	}
+	let compRun = dense.PutSince(&a.Kids, &sc.ChildStack, compMark)
+	let passRun = buildSeedPasses(a, sc, &g, 10)
+	let ptrMark = dense.Mark(sc.ChildStack)
+	for _ in 0..4 {
+		dense.StackPush(&sc.ChildStack, uint32(IntN(&g.rng, 3)))
+	}
+	let ptrRun = dense.PutSince(&a.Kids, &sc.ChildStack, ptrMark)
+	let sid = dense.Next(&a.Seeds)
+	dense.Push(&a.SeedVal, seed)
+	dense.Push(&a.SeedComps, compRun)
+	dense.Push(&a.SeedPasses, passRun)
+	dense.Push(&a.SeedPtrs, ptrRun)
+	sid
+}
+
+func writeIndent(sb mut strings.Builder, depth int) {
+	for _ in 0..depth {
+		sb.WriteByte('\t')
+	}
+}
+
+func writeLine(st mut emitState, text string) {
+	writeIndent(&st.sb, st.depth)
+	st.sb.WriteString(text)
+	st.sb.WriteByte('\n')
+}
+
+func callArgsTemplate(tplIdx uint32) string {
+	if tplIdx == uint32(0) {
+		return "a, it"
+	}
+	if tplIdx == uint32(1) {
+		return "it.Id, it"
+	}
+	if tplIdx == uint32(2) {
+		return "3, it"
+	}
+	if tplIdx == uint32(3) {
+		return "a+1, it"
+	}
+	if tplIdx == uint32(4) {
+		return "a*2%5, it"
+	}
+	if tplIdx == uint32(5) {
+		return "len(rows(a)), it"
+	}
+	"a%3, Item{Id: it.Id, Text: \"\\(it.Text)\\(a%2)\", Done: it.Done}"
+}
+
+func formatCompCall(seed uint64, callee uint32, args string) string {
+	"s\(seed)c\(callee)(f, \(args))"
+}
+
+func emitLeafLine(st mut emitState, id dense.ID[StmtTag]) {
+	let kind = dense.Of(st.arena.StmtKind, id)
+	let comp = dense.Of(st.arena.StmtComp, id)
+	if kind == stmtWideBag {
+		writeLine(st, "wideA(f, Wide{It: it, Tags: rows(a), N: a%3, M: a})")
+		writeLine(st, "wideB(f, Wide{It: it, Tags: rows(a), N: 0, M: 0})")
+		writeLine(st, "bagged(f, Bag{Name: it.Text, Tags: rows(a)})")
+		return
+	}
+	if kind == stmtText {
+		writeLine(st, "ui.Text(f, \"c\(comp) \\(a) \\(it.Text)\")")
+		return
+	}
+	if kind == stmtCheck {
+		writeLine(st, "ui.Check(f, it.Text, it.Done, it.Id)")
+		return
+	}
+	if kind == stmtToggle {
+		let fl = dense.Of(st.arena.StmtArg0, id)
+		writeLine(st, "let fl\(fl) = ui.NewFlag(f, a%2 == 0)")
+		writeLine(st, "ui.Toggle(f, fl\(fl), \"t\(comp)\")")
+		return
+	}
+	writeLine(st, "ui.Text(f, \"leaf \\(it.Id)\")")
+}
+
+func emitStmtList(st mut emitState, run dense.Run[uint32]) {
+	for raw in dense.List(st.arena.Kids, run) {
+		emitStmtNode(st, dense.IDAt(st.arena.Stmts, int(raw)))
+	}
+}
+
+func blockHeaderLine(a SkipArena, id dense.ID[StmtTag]) string {
+	let kind = dense.Of(a.StmtKind, id)
+	let comp = dense.Of(a.StmtComp, id)
+	if kind == stmtPressable {
+		return "ui.Pressable(f, \"p\(comp)\", a)"
+	}
+	if kind == stmtRow {
+		return "ui.Row(f, ui.Plain())"
+	}
+	if kind == stmtIf {
+		let mod = dense.Of(a.StmtArg0, id)
+		let eq = dense.Of(a.StmtArg1, id)
+		return "if a%\(mod) == \(eq)"
+	}
+	if kind == stmtFieldset {
+		return "ui.Fieldset(f, a%2 == 1, \"\")"
+	}
+	"ui.Same(f, ui.ByInt(a%2))"
+}
+
+func emitBlockNode(st mut emitState, id dense.ID[StmtTag]) {
+	let head = blockHeaderLine(st.arena, id)
+	writeLine(st, "\(head) {")
+	st.depth = st.depth + 1
+	emitStmtList(st, dense.Of(st.arena.StmtKidsA, id))
+	st.depth = st.depth - 1
+	writeLine(st, "}")
+}
+
+func emitBoundNode(st mut emitState, id dense.ID[StmtTag]) {
+	let kind = dense.Of(st.arena.StmtKind, id)
+	let comp = dense.Of(st.arena.StmtComp, id)
+	let arg0 = dense.Of(st.arena.StmtArg0, id)
+	let arg1 = dense.Of(st.arena.StmtArg1, id)
+	writeLine(st, "ui.Boundary(f) {")
+	st.depth = st.depth + 1
+	emitStmtList(st, dense.Of(st.arena.StmtKidsA, id))
+	if kind == stmtStopBound {
+		writeLine(st, "try stopIf(a%3 == \(arg0), a)")
+		st.depth = st.depth - 1
+		writeLine(st, "} catch {")
+		writeLine(st, "case Stop:")
+		writeLine(st, "\tui.Text(f, \"stopped\")")
+		writeLine(st, "}")
+		return
+	}
+	writeLine(st, "try gate(a%\(arg0) == \(arg1))")
+	emitStmtList(st, dense.Of(st.arena.StmtKidsB, id))
+	st.depth = st.depth - 1
+	writeLine(st, "} catch {")
+	writeLine(st, "case ui.Pending:")
+	writeLine(st, "\tui.Text(f, \"wait \(comp) \\(a)\")")
+	writeLine(st, "}")
+}
+
+func emitCallNode(st mut emitState, id dense.ID[StmtTag]) {
+	let kind = dense.Of(st.arena.StmtKind, id)
+	let callee = dense.Of(st.arena.StmtArg0, id)
+	let tpl = dense.Of(st.arena.StmtArg1, id)
+	let callText = formatCompCall(st.seed, callee, callArgsTemplate(tpl))
+	if kind == stmtCall {
+		writeLine(st, callText)
+		return
+	}
+	if kind == stmtCallCond {
+		writeLine(st, "if a%2 == 0 {")
+		st.depth = st.depth + 1
+		writeLine(st, callText)
+		st.depth = st.depth - 1
+		writeLine(st, "}")
+		writeLine(st, callText)
+		return
+	}
+	let loopCall = formatCompCall(st.seed, callee, "k, it")
+	if kind == stmtCallLoop {
+		writeLine(st, "for k in 0..a%3 {")
+		st.depth = st.depth + 1
+		writeLine(st, loopCall)
+		st.depth = st.depth - 1
+		writeLine(st, "}")
+		return
+	}
+	writeLine(st, "ui.Each(f, rows(a), func(k int) ui.Key { ui.ByInt(k) }) func(k int) {")
+	st.depth = st.depth + 1
+	writeLine(st, loopCall)
+	st.depth = st.depth - 1
+	writeLine(st, "}")
+}
+
+func emitStmtNode(st mut emitState, id dense.ID[StmtTag]) {
+	let kind = dense.Of(st.arena.StmtKind, id)
+	if kind == stmtWideBag || kind == stmtText || kind == stmtCheck || kind == stmtToggle || kind == stmtLeaf {
+		emitLeafLine(st, id)
+		return
+	}
+	if kind == stmtPressable || kind == stmtRow || kind == stmtIf || kind == stmtFieldset || kind == stmtSame {
+		emitBlockNode(st, id)
+		return
+	}
+	if kind == stmtStopBound || kind == stmtGateBound {
+		emitBoundNode(st, id)
+		return
+	}
+	emitCallNode(st, id)
+}
+
+func emitSeedComponents(st mut emitState, sid dense.ID[SeedTag]) {
+	st.seed = dense.Of(st.arena.SeedVal, sid)
+	let compRun = dense.Of(st.arena.SeedComps, sid)
+	for raw in dense.List(st.arena.Kids, compRun) {
+		let cid = dense.IDAt(st.arena.Comps, int(raw))
+		let cidx = dense.Of(st.arena.CompIdx, cid)
+		st.sb.WriteString("\nfunc s\(st.seed)c\(cidx)(f mut ui.Frame[int], a int, it Item) {\n")
+		st.depth = 1
+		emitStmtList(st, dense.Of(st.arena.CompStmts, cid))
+		st.sb.WriteString("}\n")
+	}
+	st.sb.WriteString("\nfunc s\(st.seed)view(f mut ui.Frame[int], s St) {\n")
+	st.sb.WriteString("\ts\(st.seed)c0(f, s.A, s.It)\n")
+	st.sb.WriteString("\tui.Column(f, ui.Plain()) {\n")
+	st.sb.WriteString("\t\tui.Each(f, s.Items, func(it Item) ui.Key { ui.ByInt(it.Id) }) func(it Item) {\n")
+	st.sb.WriteString("\t\t\ts\(st.seed)c1(f, s.A, it)\n")
+	st.sb.WriteString("\t\t}\n")
+	st.sb.WriteString("\t}\n")
+	st.sb.WriteString("\tcards(f, s.Items)\n")
+	st.sb.WriteString("}\n")
+}
+
+func formatItemLiteral(id uint32, text string, done bool) string {
+	let q = strconv.Quote(text)
+	let b = strconv.FormatBool(done)
+	"Item{Id: \(id), Text: \(q), Done: \(b)}"
+}
+
+func writePassItems(sb mut strings.Builder, a SkipArena, run dense.Run[uint32]) {
+	let rawList = dense.List(a.ItemRuns, run)
+	for idx in 0..len(rawList) {
+		if idx > 0 {
+			sb.WriteString(", ")
+		}
+		let itemRow = dense.IDAt(a.Items, int(rawList[idx]))
+		let itemID = dense.Of(a.ItemID, itemRow)
+		let itemText = dense.Text(a.StrPool, dense.Of(a.ItemText, itemRow))
+		let itemDone = dense.Of(a.ItemDone, itemRow)
+		sb.WriteString(formatItemLiteral(itemID, itemText, itemDone))
+	}
+}
+
+func writeSeedMain(sb mut strings.Builder, a SkipArena, sid dense.ID[SeedTag]) {
+	let seed = dense.Of(a.SeedVal, sid)
+	sb.WriteString("\tConsole.Println(\"seed \(seed)\")\n")
+	sb.WriteString("\tlet mut f\(seed) = ui.NewFrame[int]()\n")
+	for rawPass in dense.List(a.Kids, dense.Of(a.SeedPasses, sid)) {
+		let pid = dense.IDAt(a.Passes, int(rawPass))
+		let passA = dense.Of(a.PassA, pid)
+		let topText = dense.Text(a.StrPool, dense.Of(a.PassTopText, pid))
+		let qtop = strconv.Quote(topText)
+		let press = dense.Of(a.PassPress, pid)
+		let pressStr = if press == noPressMarker { "-1" } else { strconv.Itoa(int(press)) }
+		sb.WriteString("\tstep(&f\(seed), s\(seed)view, St{A: \(passA), It: Item{Id: 1, Text: \(qtop), Done: false}, Items: []Item{")
+		writePassItems(sb, a, dense.Of(a.PassItems, pid))
+		sb.WriteString("}}, \(pressStr))\n")
+	}
+	sb.WriteString("\tlet _ = ui.Render(&f\(seed), empty, St{A: 0, It: Item{Id: 0, Text: \"\", Done: false}, Items: []Item{}})\n")
+	sb.WriteString("\tConsole.Println(\"held \\(ui.GroupsKept(&f\(seed)))\")\n")
+	let ptrs = dense.List(a.Kids, dense.Of(a.SeedPtrs, sid))
+	sb.WriteString("\tpointers([]int{")
+	for idx in 0..len(ptrs) {
+		if idx > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(strconv.Itoa(int(ptrs[idx])))
+	}
+	sb.WriteString("})\n")
+}
+
+// Emit formats every generated seed and main entry in a into complete Ergo source.
+func Emit(a SkipArena) string {
+	let mut st = emitState{
+		arena: a,
+		sb:    strings.NewBuilder(),
+		seed:  uint64(0),
+		depth: 0,
+	}
+	st.sb.WriteString(CommonSource())
+	let totalSeeds = dense.Total(a.Seeds)
+	for i in 0..totalSeeds {
+		emitSeedComponents(&st, dense.IDAt(a.Seeds, i))
+	}
+	st.sb.WriteString("\nfunc main() needs Console {\n")
+	for i in 0..totalSeeds {
+		writeSeedMain(&st.sb, a, dense.IDAt(a.Seeds, i))
+	}
+	st.sb.WriteString("\tgaveBack()\n\tfixed()\n\tgrowth(8)\n\tgrowth(64)\n\telsewhere(50)\n\telsewhere(200)\n\tnested()\n\ttallied()\n\tallChange(50)\n\tallChange(200)\n\tsubset()\n\tcardsGuard(50)\n\tcardsGuard(200)\n\taliased()\n\tloopedTwice()\n\tcutTwice()\n\tshrunk(50)\n\tdropped(50)\n\ttrailed(50)\n}\n")
+	st.sb.String()
+}
+
+// Program emits the complete UI skipping property program over seeds.
+func Program(seeds []uint64) string {
+	let mut a = NewSkipArena()
+	let mut sc = NewScratch()
+	for seed in seeds {
+		let _ = Generate(&a, &sc, seed)
+	}
+	Emit(a)
+}
+
+law ProgramIsDeterministic(seed uint64) {
+	let p1 = Program([]uint64{seed})
+	let p2 = Program([]uint64{seed})
+	p1 == p2
+}
+
+test ProgramGeneratesValidSyntaxAndGuards {
+	let mut a = NewSkipArena()
+	let mut sc = NewScratch()
+	let s0 = Generate(&a, &sc, uint64(1))
+	let s1 = Generate(&a, &sc, uint64(8))
+	assert dense.Total(a.Seeds) == 2
+	assert len(dense.List(a.Kids, dense.Of(a.SeedComps, s0))) == 5
+	assert len(dense.List(a.Kids, dense.Of(a.SeedPasses, s1))) == 10
+	let src = Emit(a)
+	assert strings.Contains(src, "func s1view(f mut ui.Frame[int], s St)")
+	assert strings.Contains(src, "func s8view(f mut ui.Frame[int], s St)")
+	assert strings.Contains(src, "Console.Println(\"seed 8\")")
+	assert strings.Contains(src, "trailed(50)")
+	let mainIdx = strings.Index(src, "func main() needs Console")
+	assert mainIdx > 0 && strings.Contains(src[mainIdx:], ", -1)")
+	let parsed = syntax.Parse(src)
+	assert !parsed.Failed
+	assert Program([]uint64{uint64(1), uint64(8)}) == src
+}

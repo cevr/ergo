@@ -1,0 +1,721 @@
+import compiler/syntax
+import option
+import slices
+import strings
+
+// LawKindBool designates the bool law result kind.
+let LawKindBool = uint8(0)
+
+// LawKindFlag designates a user-defined bool type law result kind.
+let LawKindFlag = uint8(1)
+
+// LawKindInt designates the int law result kind.
+let LawKindInt = uint8(2)
+
+// LawKindString designates the string law result kind.
+let LawKindString = uint8(3)
+
+// LawKindNone designates a non-value trailing statement in a generated law.
+let LawKindNone = uint8(4)
+
+// LawDomainSeed fixes the differential checking domain seed for top-level vs member laws.
+let LawDomainSeed = uint64(20261104)
+
+// LawDomainSize fixes the number of laws generated across the differential law domain.
+let LawDomainSize = 2400
+
+// WantDiagnostic holds an expected diagnostic code and 1-based line extracted from `// want`.
+type WantDiagnostic {
+	Line int,
+	Code string,
+}
+
+// GenLaw holds one generated law's signature parameters, indented body lines,
+// and recorded exit expression kinds (with the trailing exit last).
+type GenLaw {
+	Params string,
+	Body   []string,
+	Exits  []uint8,
+}
+
+// LawKindBoolish reports whether k represents bool or a defined type over bool.
+func LawKindBoolish(k uint8) bool {
+	k == LawKindBool || k == LawKindFlag
+}
+
+// LawTopDecls returns the shared fixture declarations used by top-level law rule cases.
+func LawTopDecls() string {
+	`type Money { cents int }
+
+func add(a Money, b Money) Money {
+	Money{cents: a.cents + b.cents}
+}
+
+type Bad {}
+
+func valid(n int) bool fails Bad {
+	if n < 0 {
+		return Bad
+	}
+	true
+}
+
+type Store {
+	Get() string,
+}
+
+type Mem {} implements Store
+
+func Get(_ Mem) string {
+	"ok"
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+`
+}
+
+func lawTopSiteDecls() string {
+	`type A { Use() int }
+
+type Conn { V int } implements A, Closer
+
+func Use(c Conn) int { c.V }
+
+func Close(c Conn) {}
+
+func get() Conn { Conn{V: 1} }
+
+let Owned = context { A: get() }
+
+type R { ..Closer }
+
+type First {} implements R, Closer
+
+func Close(_ First) {}
+
+let Releasing = context { R: First }
+
+`
+}
+
+// LawTopProbe returns the canonical top-level law probe beside a test and main.
+func LawTopProbe() string {
+	`// law-top probe: a top-level law beside test (plan.md 11:45Z).
+type Money { cents int }
+
+func add(a Money, b Money) Money {
+	Money{cents: a.cents + b.cents}
+}
+
+law AddCommutes(a Money, b Money) {
+	add(a, b) == add(b, a)
+}
+
+test Adds {
+	assert add(Money{cents: 1}, Money{cents: 2}) == Money{cents: 3}
+}
+
+func main() {}
+`
+}
+
+// LawWrapperProbe returns the laws-only wrapper record fixture expecting S108.
+func LawWrapperProbe() string {
+	`// law-top probe: a type with laws and no operations (types.md Laws rule 1
+// admits it today; law-top makes it S108 "write it as a top-level law").
+type Money { cents int }
+
+func add(a Money, b Money) Money {
+	Money{cents: a.cents + b.cents}
+}
+
+type MoneyLaws { // want S108
+	law AddCommutes(a Money, b Money) { add(a, b) == add(b, a) },
+}
+
+func main() {}
+`
+}
+
+// LawDomainHelpers returns the package prelude declarations for generated laws.
+func LawDomainHelpers() string {
+	`import task
+
+type Money { cents int }
+
+type Flag bool
+
+type Bad {}
+
+type Store {
+	Get() string,
+}
+
+type Mem {} implements Store
+
+func Get(_ Mem) string {
+	"ok"
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+func valid(n int) bool fails Bad {
+	if n < 0 {
+		return Bad
+	}
+	true
+}
+
+func count(n int) int fails Bad {
+	if n < 0 {
+		return Bad
+	}
+	n
+}
+
+func keep(f own func(int) int) bool {
+	true
+}
+
+func apply(f func(int) int) bool {
+	f(1) == f(1)
+}
+
+func noop() {}
+
+func spawn() int {
+	let t = task.Go() { 1 }
+	t.Wait()
+}
+
+`
+}
+
+func lawTopNameCases(decls string) []Input {
+	[]Input{
+		Input{Name: "two top-level laws of one name", Src: decls + "law Same(a Money) { a == a }\n\nlaw Same(a Money) { a == a } // want S108\n"},
+		Input{Name: "a law, then a test of its name", Src: decls + "law Same(a Money) { a == a }\n\ntest Same { // want S108\n\tassert true\n}\n"},
+		Input{Name: "a test, then a law of its name", Src: decls + "test Same {\n\tassert true\n}\n\nlaw Same(a Money) { a == a } // want S108\n"},
+		Input{Name: "a law named like a function, a type and a member law", Src: decls + "law add(a Money, b Money) { add(a, b) == add(b, a) }\n\nlaw Money(a Money) { a == a }\n\ntype Codec {\n\tEncode(v int) string,\n\n\tlaw RoundTrip(v int) { Encode(v) == Encode(v) },\n}\n\nlaw RoundTrip(v Money) { v == v }\n"},
+		Input{Name: "a law named like a prelude function", Src: "law len(xs Ints) { len(xs) <= len(xs) + 1 }\n\ntype Ints []int\n"},
+		Input{Name: "a parameter named like a package function", Src: decls + "law Shadows(add Money) { add == add }\n"},
+		Input{Name: "a law's name called from a function", Src: decls + "law Holds(a Money) { a == a }\n\nfunc f() bool {\n\tHolds(Money{cents: 1}) // want S104\n}\n"},
+		Input{Name: "a law's name called from a law", Src: decls + "law A(a Money) { a == a }\n\nlaw B(a Money) { A(a) } // want S104\n"},
+		Input{Name: "a law's name used as a value", Src: decls + "law Holds(a Money) { a == a }\n\nfunc f() {\n\tlet g = Holds // want S104\n}\n"},
+		Input{Name: "a top-level law with type parameters", Src: "law L[T](x T) { true } // want S001\n"},
+	}
+}
+
+func lawTopBodyCases(decls string) []Input {
+	[]Input{
+		Input{Name: "a non-bool tail", Src: decls + "law Sum(a Money, b Money) { add(a, b) } // want S108\n"},
+		Input{Name: "a tail of a type over bool", Src: decls + "type Flag bool\n\nlaw Named(a Money) { Flag(a == a) }\n"},
+		Input{Name: "a body ending in a statement", Src: decls + "law Stmt(a Money) {\n\tassert a == a\n} // want S108\n"},
+		Input{Name: "an empty body", Src: "law Empty(n int) {\n} // want S108\n"},
+		Input{Name: "a value if of another type", Src: "law Branches(n int) {\n\tif n > 0 { 1 } else { 2 } // want S108\n}\n"},
+		Input{Name: "return in a law", Src: "law Early(n int) {\n\tif n < 0 {\n\t\treturn true\n\t}\n\tAbs(n) >= 0\n}\n\nfunc Abs(n int) int { if n < 0 { -n } else { n } }\n"},
+		Input{Name: "a return of another type", Src: "law Early(n int) {\n\tif n < 0 {\n\t\treturn 1 // want S108\n\t}\n\tn >= 0\n}\n"},
+		Input{Name: "an untried fallible tail", Src: decls + "law Untried(n int) { valid(n) } // want S105\n"},
+		Input{Name: "a tried fallible tail", Src: decls + "law Tried(n int) { try valid(n) }\n"},
+		Input{Name: "a caught fallible tail", Src: decls + "law Caught(n int) {\n\tvalid(n) catch {\n\tcase Bad:\n\t\tfalse\n\t}\n}\n"},
+		Input{Name: "a charging call outside a with", Src: decls + "law Charged() { read() == \"ok\" } // want S102\n"},
+		Input{Name: "a capability operation outside a with", Src: decls + "law Direct() { Store.Get() == \"ok\" } // want S102\n"},
+		Input{Name: "a charging call inside a with", Src: decls + "law Discharged() { with context { Store: Mem } { read() } == \"ok\" }\n"},
+		Input{Name: "assert in the body", Src: decls + "law Asserts(a Money) {\n\tassert a == a\n\ttrue\n}\n"},
+		Input{Name: "assert of a non-bool", Src: "law Asserts(n int) {\n\tassert 1 // want S108\n\ttrue\n}\n"},
+		Input{Name: "assert in a function literal in the body", Src: "law Lit(n int) {\n\tlet f = func() {\n\t\tassert true // want S108\n\t}\n\tf()\n\ttrue\n}\n"},
+		Input{Name: "a parameter named twice", Src: "law Twice(n int, n int) { true } // want S108\n"},
+		Input{Name: "a parameter without a type", Src: "law Untyped(n) { true } // want S104\n"},
+		Input{Name: "an unnamed parameter", Src: "law Unnamed(Count) { true }\n\ntype Count { n int }\n"},
+		Input{Name: "an unused local", Src: "law Unused(n int) {\n\tlet x = 1 // want S110\n\tn == n\n}\n"},
+		Input{Name: "a let mut never reassigned", Src: "law Never(n int) {\n\tlet mut x = n // want S110\n\tx == n\n}\n"},
+		Input{Name: "a non-escaping function parameter", Src: "func keep(f own func(int) int) bool {\n\ttrue\n}\n\nfunc apply(f func(int) int) bool {\n\tf(1) == f(1)\n}\n\nlaw Applies(f func(int) int) { apply(f) }\n\nlaw Keeps(f func(int) int) { keep(f) } // want S108\n\nlaw Escapes(f own func(int) int) { keep(f) }\n"},
+	}
+}
+
+func lawTopFrameCases(decls string) []Input {
+	let sites = lawTopSiteDecls()
+	[]Input{
+		Input{Name: "a task and an owning with in a law", Src: "import task\n\n" + sites + "law Spawns(n int) {\n\tlet t = task.Go() { Use(Conn{V: n}) }\n\tt.Wait() == n\n}\n\nlaw Owns() { with Owned { A.Use() == 1 } }\n"},
+		Input{Name: "a capability's Close in a law", Src: sites + "law Twice() { with Releasing { R.Close(); true } } // want S108\n"},
+		Input{Name: "a law alone uses an error type, a generic instance and a std package", Src: "import slices\n\ntype Gone {}\n\ntype Box[T] { V T }\n\nfunc wrap[T](v T) Box[T] {\n\tBox{V: v}\n}\n\nlaw Alone(n int, s string) {\n\tlet f = func() int fails Gone { return Gone }\n\tlet v = f() catch {\n\tcase Gone:\n\t\tn\n\t}\n\tlet xs = slices.WithCapacity[int](n)\n\tv == n && wrap(s).V == s && len(xs) == 0\n}\n"},
+		Input{Name: "a laws-only type whose law has its own error", Src: decls + "type Wrapper { // want S108\n\tlaw Sum(a Money, b Money) { add(a, b) }, // want S108\n\tlaw Fine(a Money) { a == a },\n}\n"},
+		Input{Name: "a laws-only generic type", Src: "type L[T] { // want S108\n\tlaw Holds(x T) { true },\n}\n"},
+		Input{Name: "a laws-only type used as a capability", Src: decls + "type Wrapper { // want S108\n\tlaw Fine(a Money) { a == a },\n}\n\nfunc uses() needs Wrapper {} // want S104\n"},
+		Input{Name: "a laws-only type declared twice", Src: "type W { // want S108\n\tlaw A() { true },\n}\n\ntype W { law B() { true } } // want S108\n"},
+	}
+}
+
+// LawTopCases returns all top-level law rule fixtures and diagnostic probes.
+func LawTopCases() []Input {
+	let decls = LawTopDecls()
+	let mut out = []Input{
+		Input{Name: "probe law-top", Src: LawTopProbe()},
+		Input{Name: "probe law-wrapper", Src: LawWrapperProbe()},
+		Input{Name: "a documented top-level law between two declarations", Src: decls + "func sub(a Money, b Money) Money {\n\tMoney{cents: a.cents - b.cents}\n}\n\n// AddThenSub: subtracting what was added gives the start back.\n// It holds for every pair of amounts.\nlaw AddThenSub(a Money, b Money) {\n\tsub(add(a, b), b) == a\n}\ntest Adds {\n\tassert add(Money{cents: 1}, Money{cents: 2}) == Money{cents: 3}\n}\n"},
+		Input{Name: "a documented top-level law first in the file", Src: "// Reflexive: every int equals itself.\nlaw Reflexive(n Count) { n == n }\n\n// Symmetric is the second law.\nlaw Symmetric(a Count, b Count) {\n\t(a == b) == (b == a)\n}\n\ntype Count { n int }\n"},
+	}
+	for c in lawTopNameCases(decls) {
+		out = out.Append(c)
+	}
+	for c in lawTopBodyCases(decls) {
+		out = out.Append(c)
+	}
+	for c in lawTopFrameCases(decls) {
+		out = out.Append(c)
+	}
+	out
+}
+
+// ExtractWantDiagnostics scans src for `// want CODE` line annotations.
+func ExtractWantDiagnostics(src string) []WantDiagnostic {
+	let mut out = []WantDiagnostic{}
+	let lines = strings.Split(src, "\n")
+	for idx in 0..len(lines) {
+		let rest = match strings.Cut(lines[idx], "// want ") {
+		case option.Some{Value: h}:
+			h.After
+		case option.None:
+			""
+		}
+		if rest == "" {
+			continue
+		}
+		let fields = strings.Fields(rest)
+		if len(fields) > 0 {
+			out = out.Append(WantDiagnostic{Line: idx + 1, Code: fields[0]})
+		}
+	}
+	out
+}
+
+let rolePlain = uint8(0)
+let roleMoney = uint8(1)
+let roleSlice = uint8(2)
+let roleFunc = uint8(3)
+let roleEscFunc = uint8(4)
+
+type genParamSpec {
+	name    string,
+	typ     string,
+	kind    uint8,
+	roleTag uint8,
+}
+
+type lawGenState {
+	rng    PCG,
+	params []genParamSpec,
+	names  []string,
+	kinds  []uint8,
+	next   int,
+	lines  []string,
+	exits  []uint8,
+}
+
+func lawParamMenu() []genParamSpec {
+	[]genParamSpec{
+		genParamSpec{name: "n", typ: "int", kind: LawKindInt, roleTag: rolePlain},
+		genParamSpec{name: "s", typ: "string", kind: LawKindString, roleTag: rolePlain},
+		genParamSpec{name: "b", typ: "bool", kind: LawKindBool, roleTag: rolePlain},
+		genParamSpec{name: "m", typ: "Money", kind: LawKindNone, roleTag: roleMoney},
+		genParamSpec{name: "xs", typ: "[]int", kind: LawKindNone, roleTag: roleSlice},
+		genParamSpec{name: "f", typ: "func(int) int", kind: LawKindNone, roleTag: roleFunc},
+		genParamSpec{name: "g", typ: "own func(int) int", kind: LawKindNone, roleTag: roleEscFunc},
+	}
+}
+
+func freshLawVar(g mut lawGenState) string {
+	g.next = g.next + 1
+	"x\(g.next)"
+}
+
+func pickParamByRole(g mut lawGenState, roleTag uint8) (string, bool) {
+	let mut matches = []string{}
+	for p in g.params {
+		if p.roleTag == roleTag {
+			matches = matches.Append(p.name)
+		}
+	}
+	if len(matches) == 0 {
+		return ("", false)
+	}
+	(matches[IntN(&g.rng, len(matches))], true)
+}
+
+func pickOperandByKind(g mut lawGenState, k uint8) (string, bool) {
+	let mut matches = []string{}
+	for p in g.params {
+		if p.kind == k && p.roleTag == rolePlain {
+			matches = matches.Append(p.name)
+		}
+	}
+	for i in 0..len(g.names) {
+		if g.kinds[i] == k {
+			matches = matches.Append(g.names[i])
+		}
+	}
+	if len(matches) == 0 {
+		return ("", false)
+	}
+	(matches[IntN(&g.rng, len(matches))], true)
+}
+
+func genBoolExpr(g mut lawGenState) string {
+	let choice = IntN(&g.rng, 6)
+	if choice == 0 {
+		return "true"
+	}
+	if choice == 1 {
+		let (x, ok) = pickOperandByKind(g, LawKindInt)
+		if ok {
+			return x + " > 0"
+		}
+	} else if choice == 2 {
+		let (p, ok) = pickParamByRole(g, roleMoney)
+		if ok {
+			return "\(p) == \(p)"
+		}
+	} else if choice == 3 {
+		let (pf, okf) = pickParamByRole(g, roleFunc)
+		if okf {
+			return "apply(\(pf))"
+		}
+		let (pe, oke) = pickParamByRole(g, roleEscFunc)
+		if oke {
+			return "keep(\(pe))"
+		}
+	} else if choice == 4 {
+		let (x, ok) = pickOperandByKind(g, LawKindBool)
+		if ok {
+			return x
+		}
+	} else {
+		return genPlainExpr(g, LawKindString) + " == \"ok\""
+	}
+	"false"
+}
+
+func genIntExpr(g mut lawGenState) string {
+	let choice = IntN(&g.rng, 5)
+	if choice == 0 {
+		let (x, ok) = pickOperandByKind(g, LawKindInt)
+		if ok {
+			return x
+		}
+	} else if choice == 1 {
+		let (p, ok) = pickParamByRole(g, roleSlice)
+		if ok {
+			return "len(\(p))"
+		}
+	} else if choice == 2 {
+		let (p, ok) = pickParamByRole(g, roleMoney)
+		if ok {
+			return p + ".cents"
+		}
+	} else if choice == 3 {
+		let (p, ok) = pickParamByRole(g, roleFunc)
+		if ok {
+			return p + "(1)"
+		}
+	}
+	"1"
+}
+
+func genStringExpr(g mut lawGenState) string {
+	let choice = IntN(&g.rng, 3)
+	if choice == 0 {
+		let (x, ok) = pickOperandByKind(g, LawKindString)
+		if ok {
+			return x
+		}
+	} else if choice == 1 {
+		return "Get(Mem{})"
+	}
+	"\"a\""
+}
+
+func genPlainExpr(g mut lawGenState, k uint8) string {
+	if k == LawKindBool {
+		return genBoolExpr(g)
+	}
+	if k == LawKindFlag {
+		return "Flag(" + genBoolExpr(g) + ")"
+	}
+	if k == LawKindInt {
+		return genIntExpr(g)
+	}
+	if k == LawKindString {
+		return genStringExpr(g)
+	}
+	"noop()"
+}
+
+func lawKindSuffix(k uint8) string {
+	if k == LawKindBool { return " bool" }
+	if k == LawKindFlag { return " Flag" }
+	if k == LawKindInt { return " int" }
+	" string"
+}
+
+func bindGenLocal(g mut lawGenState, k uint8, val string, typed bool) {
+	let nm = freshLawVar(g)
+	let suf = if typed { lawKindSuffix(k) } else { "" }
+	g.lines = g.lines.Append("\tlet \(nm)\(suf) = \(val)")
+	g.names = g.names.Append(nm)
+	g.kinds = g.kinds.Append(k)
+}
+
+func drawLawExitKind(g mut lawGenState) uint8 {
+	let c = IntN(&g.rng, 10)
+	if c == 0 { return LawKindInt }
+	if c == 1 { return LawKindString }
+	if c == 2 { return LawKindFlag }
+	LawKindBool
+}
+
+func appendLawSimpleStmt(g mut lawGenState, op int) {
+	if op <= 1 {
+		let ks = []uint8{LawKindBool, LawKindInt, LawKindString, LawKindFlag}
+		let k = ks[IntN(&g.rng, 4)]
+		let val = genPlainExpr(g, k)
+		bindGenLocal(g, k, val, IntN(&g.rng, 2) == 0)
+	} else if op == 2 {
+		let nm = freshLawVar(g)
+		g.lines = g.lines.Append("\tlet mut \(nm) = \(genIntExpr(g))")
+		if IntN(&g.rng, 3) > 0 {
+			g.lines = g.lines.Append("\t\(nm) = \(nm) + \(genIntExpr(g))")
+		}
+		g.names = g.names.Append(nm)
+		g.kinds = g.kinds.Append(LawKindInt)
+	} else if op == 3 {
+		let k = drawLawExitKind(g)
+		g.lines = g.lines.Append("\tif \(genBoolExpr(g)) {")
+		g.lines = g.lines.Append("\t\treturn \(genPlainExpr(g, k))")
+		g.lines = g.lines.Append("\t}")
+		g.exits = g.exits.Append(k)
+	} else if op == 4 {
+		bindGenLocal(g, LawKindBool, "try valid(\(genIntExpr(g)))", false)
+	} else if op == 5 {
+		bindGenLocal(g, LawKindInt, "try count(\(genIntExpr(g)))", false)
+	} else if op == 6 {
+		g.lines = g.lines.Append("\tvalid(\(genIntExpr(g)))")
+	} else {
+		let nm = freshLawVar(g)
+		g.lines = g.lines.Append("\tlet \(nm) = valid(\(genIntExpr(g))) catch {")
+		g.lines = g.lines.Append("\tcase Bad:")
+		g.lines = g.lines.Append("\t\tfalse")
+		g.lines = g.lines.Append("\t}")
+		g.names = g.names.Append(nm)
+		g.kinds = g.kinds.Append(LawKindBool)
+	}
+}
+
+func appendLawAdvancedStmt(g mut lawGenState, op int) {
+	if op == 8 {
+		let expr = if IntN(&g.rng, 2) == 0 { "read()" } else { "with context { Store: Mem } { read() }" }
+		bindGenLocal(g, LawKindString, expr, false)
+	} else if op == 9 {
+		g.lines = g.lines.Append("\tassert \(genBoolExpr(g))")
+	} else if op == 10 {
+		let nm = freshLawVar(g)
+		g.lines = g.lines.Append("\tlet \(nm) = func() {")
+		g.lines = g.lines.Append("\t\tassert \(genBoolExpr(g))")
+		g.lines = g.lines.Append("\t}")
+		if IntN(&g.rng, 2) == 0 {
+			g.lines = g.lines.Append("\t\(nm)()")
+		}
+	} else if op == 11 {
+		let nm = freshLawVar(g)
+		g.lines = g.lines.Append("\tlet \(nm) = task.Go() { \(genIntExpr(g)) }")
+		if IntN(&g.rng, 2) == 0 {
+			bindGenLocal(g, LawKindInt, "\(nm).Wait()", false)
+		}
+	} else if op == 12 {
+		let nm = freshLawVar(g)
+		g.lines = g.lines.Append("\tlet \(nm) = \(genIntExpr(g))")
+	} else if op == 13 {
+		let (pf, okf) = pickParamByRole(g, roleFunc)
+		if okf && IntN(&g.rng, 2) == 0 {
+			bindGenLocal(g, LawKindBool, "keep(\(pf))", false)
+			return
+		}
+		let (pe, oke) = pickParamByRole(g, roleEscFunc)
+		if oke {
+			bindGenLocal(g, LawKindBool, "keep(\(pe))", false)
+		} else {
+			g.lines = g.lines.Append("\tnoop()")
+		}
+	} else if op == 14 {
+		g.lines = g.lines.Append("\tnoop()")
+	} else {
+		g.lines = g.lines.Append("\twith context { Store: Mem } {")
+		g.lines = g.lines.Append("\t\tassert read() == \(genStringExpr(g))")
+		g.lines = g.lines.Append("\t}")
+	}
+}
+
+func appendLawTail(g mut lawGenState) {
+	let op = IntN(&g.rng, 10)
+	if op == 0 {
+		let s = if IntN(&g.rng, 2) == 0 { "assert \(genBoolExpr(g))" } else { "noop()" }
+		g.lines = g.lines.Append("\t\(s)")
+		g.exits = g.exits.Append(LawKindNone)
+	} else if op == 1 {
+		let k = drawLawExitKind(g)
+		g.lines = g.lines.Append("\tif \(genBoolExpr(g)) {")
+		g.lines = g.lines.Append("\t\t\(genPlainExpr(g, k))")
+		g.lines = g.lines.Append("\t} else {")
+		g.lines = g.lines.Append("\t\t\(genPlainExpr(g, k))")
+		g.lines = g.lines.Append("\t}")
+		g.exits = g.exits.Append(k)
+	} else if op == 2 {
+		let k = drawLawExitKind(g)
+		g.lines = g.lines.Append("\tmatch \(genIntExpr(g)) {")
+		g.lines = g.lines.Append("\tcase 1: \(genPlainExpr(g, k))")
+		g.lines = g.lines.Append("\tcase _: \(genPlainExpr(g, k))")
+		g.lines = g.lines.Append("\t}")
+		g.exits = g.exits.Append(k)
+	} else if op == 3 {
+		let k = drawLawExitKind(g)
+		g.lines = g.lines.Append("\treturn \(genPlainExpr(g, k))")
+		g.exits = g.exits.Append(k)
+	} else if op == 4 {
+		g.lines = g.lines.Append("\tvalid(\(genIntExpr(g)))")
+		g.exits = g.exits.Append(LawKindBool)
+	} else if op == 5 {
+		g.lines = g.lines.Append("\ttry valid(\(genIntExpr(g)))")
+		g.exits = g.exits.Append(LawKindBool)
+	} else if op == 6 {
+		g.lines = g.lines.Append("\twith context { Store: Mem } { read() } == \(genStringExpr(g))")
+		g.exits = g.exits.Append(LawKindBool)
+	} else if op == 7 {
+		g.lines = g.lines.Append("\tread() == \(genStringExpr(g))")
+		g.exits = g.exits.Append(LawKindBool)
+	} else {
+		let k = drawLawExitKind(g)
+		g.lines = g.lines.Append("\t\(genPlainExpr(g, k))")
+		g.exits = g.exits.Append(k)
+	}
+}
+
+func generateOneLaw(rng mut PCG) GenLaw {
+	let menu = lawParamMenu()
+	let perm = Perm(rng, len(menu))
+	let nParams = IntN(rng, 4)
+	let mut params = []genParamSpec{}
+	let mut paramDecls = []string{}
+	for i in 0..nParams {
+		let p = menu[perm[i]]
+		params = params.Append(p)
+		paramDecls = paramDecls.Append("\(p.name) \(p.typ)")
+	}
+	let mut st = lawGenState{
+		rng:    *rng,
+		params: params,
+		names:  []string{},
+		kinds:  []uint8{},
+		next:   0,
+		lines:  []string{},
+		exits:  []uint8{},
+	}
+	let nStmts = IntN(&st.rng, 5)
+	for _ in 0..nStmts {
+		let op = IntN(&st.rng, 16)
+		if op <= 7 {
+			appendLawSimpleStmt(&st, op)
+		} else {
+			appendLawAdvancedStmt(&st, op)
+		}
+	}
+	appendLawTail(&st)
+	*rng = st.rng
+	GenLaw{Params: strings.Join(paramDecls, ", "), Body: st.lines, Exits: st.exits}
+}
+
+// GenLaws deterministically generates n randomized law definitions from seed.
+func GenLaws(seed uint64, n int) []GenLaw {
+	let mut rng = NewPCG(seed, uint64(0x6c61))
+	let mut out = slices.WithCapacity[GenLaw](n)
+	for _ in 0..n {
+		out = out.Append(generateOneLaw(&rng))
+	}
+	out
+}
+
+func formatPlacedLaw(wrapMember bool, l GenLaw) (string, int) {
+	let params = if l.Params != "" { l.Params + ", _ Money" } else { "_ Money" }
+	let mut b = strings.NewBuilder()
+	b.WriteString(LawDomainHelpers())
+	let mut indent = ""
+	if wrapMember {
+		b.WriteString("type T {\n\tOp() int,\n\n")
+		indent = "\t"
+	}
+	let lawLine = strings.Count(b.String(), "\n") + 1
+	b.WriteString("\(indent)law L(\(params)) {\n")
+	for line in l.Body {
+		b.WriteString("\(indent)\(line)\n")
+	}
+	if wrapMember {
+		b.WriteString("\t},\n}\n")
+	} else {
+		b.WriteString("}\n")
+	}
+	(b.String(), lawLine)
+}
+
+// PlaceTopLaw wraps l as a standalone top-level law alongside LawDomainHelpers.
+func PlaceTopLaw(l GenLaw) (string, int) {
+	formatPlacedLaw(false, l)
+}
+
+// PlaceMemberLaw wraps l as a member law inside interface type T alongside LawDomainHelpers.
+func PlaceMemberLaw(l GenLaw) (string, int) {
+	formatPlacedLaw(true, l)
+}
+
+law GenLawsDeterministicAndValidSyntax(seed uint64) {
+	let a = GenLaws(seed, 3)
+	let b = GenLaws(seed, 3)
+	if len(a) != 3 || len(b) != 3 {
+		return false
+	}
+	for i in 0..3 {
+		if a[i].Params != b[i].Params || !slices.Equal(a[i].Body, b[i].Body) {
+			return false
+		}
+		let (topSrc, topLine) = PlaceTopLaw(a[i])
+		let (memSrc, memLine) = PlaceMemberLaw(a[i])
+		if topLine <= 0 || memLine <= topLine {
+			return false
+		}
+		let pt = syntax.Parse(topSrc)
+		let pm = syntax.Parse(memSrc)
+		if pt.Failed || pm.Failed {
+			return false
+		}
+	}
+	true
+}
+
+test LawTopCasesAndWantExtraction {
+	let cases = LawTopCases()
+	assert len(cases) > 30
+	assert LawKindBoolish(LawKindBool) && LawKindBoolish(LawKindFlag) && !LawKindBoolish(LawKindInt)
+	assert LawDomainSeed == uint64(20261104) && LawDomainSize == 2400
+	let mut wantCount = 0
+	for c in cases {
+		let ws = ExtractWantDiagnostics(c.Src)
+		wantCount = wantCount + len(ws)
+		if c.Name != "a top-level law with type parameters" {
+			let p = syntax.Parse(c.Src)
+			assert !p.Failed
+		}
+	}
+	assert wantCount > 15
+}

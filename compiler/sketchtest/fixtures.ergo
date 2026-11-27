@@ -1,0 +1,275 @@
+import compiler/syntax
+import slices
+import strings
+
+// GrammarFixture pairs a grammar production name with a positive Ergo test input.
+type GrammarFixture {
+	Name string,
+	Src  string,
+}
+
+// Malformed describes a negative test input that must trigger a located syntax error.
+type Malformed {
+	Name         string,
+	Src          string,
+	RepeatParens int,
+	Code         string,
+	Lines        []int,
+	Habit        string,
+}
+
+// MalformedSrc returns the source text for m, expanding repeated parenthesis generators when present.
+func MalformedSrc(m Malformed) string {
+	if m.RepeatParens > 0 {
+		return "let x = " + strings.Repeat("(", m.RepeatParens) + "1" + strings.Repeat(")", m.RepeatParens) + "\n"
+	}
+	m.Src
+}
+
+// GrammarFixtures returns decided grammar fixtures covering every production of the language.
+func GrammarFixtures() []GrammarFixture {
+	[]GrammarFixture{
+		GrammarFixture{Name: "SourceFile", Src: "import strings\n\nfunc main() needs Console {\n\tConsole.Println(strings.ToUpper(\"a\"))\n}\n"},
+		GrammarFixture{Name: "ImportDecl", Src: "import strings\nimport go net/http\nimport ourjson example.com/json\nimport go gohttp net/http\n"},
+		GrammarFixture{Name: "TopLevelDecl", Src: "type T {}\n\nfunc F() {}\n\nextern go strings.ToUpper func Upper(s string) string\n\ntest Works {\n\tassert true\n}\n\nlaw Holds(n int64) {\n\tn == n\n}\n\nlet Limit = 3\n"},
+		GrammarFixture{Name: "TypeDecl", Src: "type Celsius float64\n\ntype Card { Number string }\n\ntype Ascending[T ordered] { xs []T } where Ordered(it.xs)\n\ntype Payment = Pending{} | Paid{ID string}\n"},
+		GrammarFixture{Name: "TypeParams", Src: "type Pair[A, B] { First A, Second B }\n\nfunc Max[T ordered](a, b T) T {\n\tif a > b { a } else { b }\n}\n"},
+		GrammarFixture{Name: "TypeParam", Src: "type Table[K comparable, V] { Rows Map[K, V] }\n\ntype Both[A, B ordered] { X A, Y B }\n\ntype Index[E any, K comparable] { Keys []K, Items []E }\n"},
+		GrammarFixture{Name: "Members", Src: "type Card {\n\tNumber string,\n\tExpiry Date,\n}\n\ntype Empty {}\n"},
+		GrammarFixture{Name: "Member", Src: "type Store {\n\tFind(id string) Order fails NotFound,\n\n\tlaw Found(id string) { try Find(id) == Find(id) },\n}\n"},
+		GrammarFixture{Name: "FieldDecl", Src: "type Point { X, Y int64, NodeID int \"node_id\" }\n"},
+		GrammarFixture{Name: "LawDecl", Src: "// AddCommutes states that add does not depend on the order of its operands.\nlaw AddCommutes(a int64, b int64) {\n\tadd(a, b) == add(b, a)\n}\n\ntype Codec[T] {\n\tEncode(v T) []byte,\n\tDecode(b []byte) T fails Malformed,\n\n\tlaw RoundTrip(v T) { try Decode(Encode(v)) == v },\n}\n"},
+		GrammarFixture{Name: "MemberLaw", Src: "type Eq[T] {\n\tEqual(a, b T) bool,\n\n\tlaw Reflexive(x T) { Equal(x, x) },\n}\n"},
+		GrammarFixture{Name: "FunctionClaim", Src: "type Show {\n\tShow() string,\n}\n\nfunc ShowInt(x int) string implements Show {\n\t\"0\"\n}\n"},
+		GrammarFixture{Name: "UnionType", Src: "type Reason =\n\t| Fraud{Rule string}\n\t| Expired{}\n\ntype Short = A | B\n"},
+		GrammarFixture{Name: "Variant", Src: "type Option[T] = Some{Value T} | None{}\n\ntype ChargeError = Declined | timeout.Expired\n"},
+		GrammarFixture{Name: "MachineType", Src: "type Breaker machine[State, Signal] { initial: Closed{0}, step: Step }\n"},
+		GrammarFixture{Name: "MachineEntry", Src: "type Door machine[State, Event] {\n\tinitial: Shut{},\n\tstep:    Move,\n}\n"},
+		GrammarFixture{Name: "Type", Src: "func f(a int64, b []string, c mut Node, d func(int64) bool, e (int64, string), m Map[string, int64]) {}\n"},
+		GrammarFixture{Name: "TypeName", Src: "func f(a Order, b time.Duration, c go.Error) {}\n"},
+		GrammarFixture{Name: "TypeArgs", Src: "func f(r Result[Order, string], xs []Pair[int64, bool]) {}\n"},
+		GrammarFixture{Name: "SliceType", Src: "func f(xs [][]byte) []string {\n\t[]string{}\n}\n"},
+		GrammarFixture{Name: "TypeArgs", Src: "func f(w Context[Store | Log], t Task[int, NotFound | Declined]) {}\n"},
+		GrammarFixture{Name: "ArrayType", Src: "type Grid { cells [81]int }\n\nfunc f(xs [2][3]byte) [2]string {\n\tlet a [4]int = [4]int{}\n\t[2]string{\"a\", \"b\"}\n}\n"},
+		GrammarFixture{Name: "MutType", Src: "func bump(p mut Counter) {\n\tp.N += 1\n}\n"},
+		GrammarFixture{Name: "GoPointerType", Src: "extern go strings.NewReader func NewReader(s string) *Reader\n\nextern go strings.Reader.Reset func (r own *Reader) Reset(s string)\n"},
+		GrammarFixture{Name: "CapName", Src: "func f() needs Store[Job] | Log {\n\twith context { Store[Job], Tally[Job]: b } {\n\t\tStore[Job].Put(j)\n\t}\n}\n"},
+		GrammarFixture{Name: "FuncType", Src: "func apply(f func(int64) int64 fails E needs Clock | Console, g own func()) {}\n"},
+		GrammarFixture{Name: "FuncDecl", Src: "func Fee(o Order, rate int64) int64 {\n\to.Total * rate / 100\n}\n"},
+		GrammarFixture{Name: "ExternDecl", Src: "extern go example.com/json.Valid func Valid(b []byte) bool\n\nextern go net/http.Get func Fetch(url string) Response fails go.Error\n"},
+		GrammarFixture{Name: "TestDecl", Src: "test Addition {\n\tassert 1+1 == 2\n}\n\ntest Commutes(a int64, b int64) {\n\tassert a+b == b+a\n}\n"},
+		GrammarFixture{Name: "Signature", Src: "func Checkout(id string) Receipt fails NotFound | Declined needs Orders | Payments {\n\ttry Orders.Get(id)\n}\n"},
+		GrammarFixture{Name: "Params", Src: "func f(a, b int64, s string) {}\n"},
+		GrammarFixture{Name: "Param", Src: "func f(_ Store, id string) {}\n"},
+		GrammarFixture{Name: "FailsClause", Src: "func f() fails NotFound | Unavailable | retry.Exhausted[E] {}\n"},
+		GrammarFixture{Name: "NeedsClause", Src: "func f() needs Clock | go.Foreign {}\n"},
+		GrammarFixture{Name: "FactClause", Src: "func At[T](xs []T, i int) T given InRange(xs, i) gives InRange(xs, i) {\n\txs[i]\n}\n\nfunc Free[T](a mut Of[T], r Ref[T]) T fails Stale keeps Live(*a, x) when x != r {\n\ttry pop(a, r)\n}\n\ntype Queue {\n\tPop() int fails Empty given Len() > 0,\n}\n"},
+		GrammarFixture{Name: "Param", Src: "func Keep(f own File, g own File) Pair fails Full needs Clock {}\n\ntype Task[T] {\n\town Wait() T,\n\tPush(v own T) fails Closed,\n\tStop(),\n}\n\nfunc apply(h func(f own File), n int64) {}\n"},
+		GrammarFixture{Name: "Implements", Src: "type Mem { rows Map[int, Row] } implements domain.Store, Closer\n\ntype Pair[T] = Left[T]{V T} | Right[T]{V T} implements Sized\n\ntype Port int where it > 0 implements Text\n\ntype Conn {\n\t..Closer,\n\tNumber() int,\n}\n"},
+		GrammarFixture{Name: "LetDecl", Src: "let Names = []string{\"ada\"}\n\nfunc f(order Order) int64 {\n\tlet x = 1\n\tlet mut y int64 = 2\n\tlet q, r = DivMod(7, 2)\n\tlet (n, d) = DivMod(9, 4)\n\tlet Order{Total: t} = order\n\ty += x + q + r + n + d + t\n\ty\n}\n"},
+		GrammarFixture{Name: "ExpressionList", Src: "func f() {\n\tuse(1, 2, 3)\n\twith A, B { run() }\n}\n"},
+		GrammarFixture{Name: "ProvidesClause", Src: "let App = context provides Accounts | Ledger needs Clock {\n\tAccounts: Memory{},\n\tLedger:   Memory{},\n}\n"},
+		GrammarFixture{Name: "ContextBody", Src: "let Live = context {\n\tBase,\n\treplace Clock: Fixed{},\n\tLedger, Audit: Recorder{},\n}\n"},
+		GrammarFixture{Name: "ContextEntry", Src: "func f() {\n\tlet w = context { Clock: Fixed{} }\n\tuse(w)\n}\n"},
+		GrammarFixture{Name: "Block", Src: "func f() {\n\tg()\n\th()\n}\n"},
+		GrammarFixture{Name: "Statement", Src: "func f(xs []int64) int64 {\n\tlet mut n = 0\n\tn = n + 1\n\tfor x in xs {\n\t\tif x < 0 {\n\t\t\tbreak\n\t\t}\n\t\tcontinue\n\t}\n\tassert n > 0\n\treturn n\n}\n"},
+		GrammarFixture{Name: "Assignment", Src: "func f(p mut Point) {\n\tp.X = 1\n\tp.Y *= 2\n\tp.Z <<= 1\n}\n"},
+		GrammarFixture{Name: "ReturnStmt", Src: "func f(n int64) int64 {\n\tif n < 0 {\n\t\treturn 0\n\t}\n\treturn n\n}\n\nfunc g() {\n\treturn\n}\n"},
+		GrammarFixture{Name: "ForStmt", Src: "func f(xs []int64, m Map[string, int64]) {\n\tfor {\n\t\tbreak\n\t}\n\tfor len(xs) > 0 {\n\t\tbreak\n\t}\n\tfor x in xs {\n\t\tuse(x)\n\t}\n\tfor i, x in xs {\n\t\tuse(i, x)\n\t}\n\tfor k, v in m {\n\t\tuse(k, v)\n\t}\n\tfor i in 0..len(xs) {\n\t\tuse(i)\n\t}\n}\n"},
+		GrammarFixture{Name: "Expression", Src: "func f() int64 fails E {\n\tlet a = try g()\n\tlet b = try g() catch {\n\tcase E:\n\t\t0\n\t}\n\ta + b\n}\n"},
+		GrammarFixture{Name: "CatchExpr", Src: "func f(id string) string {\n\tFetch(id) catch {\n\tcase NotFound{ID: x}:\n\t\t\"missing \\(x)\"\n\tcase Timeout as t:\n\t\tt.Reason\n\tcase err:\n\t\t\"failed\"\n\t}\n}\n"},
+		GrammarFixture{Name: "Binary", Src: "func f(a, b int64, ok bool) bool {\n\ta*b+1 > a-b || !ok && a%2 == 0\n}\n"},
+		GrammarFixture{Name: "Unary", Src: "func f(a int64, p mut Point, ok bool) {\n\tuse(-a, !ok, ^a, &p.X, *p)\n}\n"},
+		GrammarFixture{Name: "Postfix", Src: "func f(m Market) {\n\tm.Orders[0].Lines[1:3].Len()\n}\n"},
+		GrammarFixture{Name: "Selector", Src: "func f(o Order) string {\n\to.Customer.Name\n}\n"},
+		GrammarFixture{Name: "Index", Src: "func f(xs []int64, m Map[string, int64]) int64 {\n\txs[0] + m[\"a\"] + slice.WithCapacity[int64](4)[0]\n}\n"},
+		GrammarFixture{Name: "Slice", Src: "func f(xs []int64) {\n\tuse(xs[1:], xs[:2], xs[1:2], xs[1:2:3])\n}\n"},
+		GrammarFixture{Name: "Call", Src: "func f() {\n\tg(1, 2)\n\ttask.Go() { work() }\n\ttimeout.After(2s) {\n\t\twork()\n\t}\n\teach(xs) func(x int) int {\n\t\tx * 2\n\t}\n}\n"},
+		GrammarFixture{Name: "Primary", Src: "func f(x int64) {\n\tuse(x, 1, Order{}, func(y) { y }, (x, x), (x))\n}\n"},
+		GrammarFixture{Name: "Literal", Src: "func f() {\n\tuse(42, 2.5, 'a', \"s\", `raw`, 500ms, 1e9, .5)\n}\n"},
+		GrammarFixture{Name: "CompositeLit", Src: "func f() {\n\tuse(Order{ID: \"1\", Total: 2}, []int64{1, 2}, Map[string, int64]{\"a\": 1}, Pair[int64, bool]{1, true})\n}\n"},
+		GrammarFixture{Name: "LiteralType", Src: "func f() {\n\tuse(json.Codec[Order]{MaxBytes: 4096}, [][]int64{{1}, {2, 3}})\n}\n"},
+		GrammarFixture{Name: "LiteralValue", Src: "func f() {\n\tlet o = Order{\n\t\tID:    \"1\",\n\t\tTotal: 2,\n\t}\n\tuse(o)\n}\n"},
+		GrammarFixture{Name: "LiteralValue", Src: "func f(o Order) {\n\tuse(Order{..o, Total: 3}, Box[int64]{..b, V: 1})\n\tuse(Order{\n\t\t..o,\n\t\tID:    \"2\",\n\t\tTotal: 4,\n\t})\n}\n"},
+		GrammarFixture{Name: "Element", Src: "func f() {\n\tuse([]Pair{{1, 2}, {First: 3, Second: 4}})\n}\n"},
+		GrammarFixture{Name: "FuncLit", Src: "func f(xs []int64) {\n\tuse(xs.Fold(0, func(acc, x) { acc + x }), func(a int64) int64 { a + 1 })\n}\n"},
+		GrammarFixture{Name: "LitParam", Src: "func f() {\n\tuse(func(x) { x }, func(a, b int64) int64 { a * b })\n}\n"},
+		GrammarFixture{Name: "IfExpr", Src: "func fee(gold bool, total int64) int64 {\n\tlet rate int64 = if gold { 0 } else { 3 }\n\tif total > 100 {\n\t\ttotal * rate\n\t} else if total > 10 {\n\t\ttotal\n\t} else {\n\t\t0\n\t}\n}\n"},
+		GrammarFixture{Name: "MatchExpr", Src: "func status(code int64) string {\n\tmatch code {\n\tcase 200, 204:\n\t\t\"ok\"\n\tcase -1:\n\t\t\"unknown\"\n\tcase _:\n\t\t\"error\"\n\t}\n}\n"},
+		GrammarFixture{Name: "CaseClause", Src: "func step(s State, e Event) State {\n\tmatch (s, e) {\n\tcase (Closed{Failures: n}, Failure{err}):\n\t\tOpen{err}\n\tcase (_, Retry):\n\t\ts\n\tcase _:\n\t\ts\n\t}\n}\n"},
+		GrammarFixture{Name: "WithExpr", Src: "func main() needs Console {\n\twith Live { run() }\n\tlet r = with Live, Test { run() } catch {\n\tcase E:\n\t\t0\n\t}\n\tuse(r)\n}\n"},
+		GrammarFixture{Name: "ContextLit", Src: "func f() {\n\twith context provides Clock needs Console { Clock: Fixed{} } { run() }\n}\n"},
+		GrammarFixture{Name: "Pattern", Src: "func f(p Payment) string {\n\tmatch p {\n\tcase Declined{Reason: Fraud{Rule: r} as f}:\n\t\tr\n\tcase Authorized as a:\n\t\ta.ID\n\tcase _:\n\t\t\"\"\n\t}\n}\n"},
+		GrammarFixture{Name: "PatternCore", Src: "func f(x Value) string {\n\tmatch x {\n\tcase Pending:\n\t\t\"p\"\n\tcase result.Ok[int64]{v}:\n\t\t\"ok\"\n\tcase (Box{1}):\n\t\t\"one\"\n\tcase other:\n\t\t\"other\"\n\t}\n}\n"},
+		GrammarFixture{Name: "AltPattern", Src: "func f(s Step, e Signal) Step {\n\tmatch (s, e) {\n\tcase (Plan | Supplies, Cancel):\n\t\tDone\n\tcase (Done, _), (_, Next | Cancel):\n\t\ts\n\t}\n}\n"},
+		GrammarFixture{Name: "FieldPattern", Src: "func f(o Order) int64 {\n\tlet Order{Total: t, Lines: ls} = o\n\tlet Some{v} = lookup()\n\tt + v + len(ls)\n}\n"},
+		GrammarFixture{Name: "interpolation", Src: "func greet(name string, n int64) string {\n\t\"hello \\(name), \\(n + 1) tries, \\(label(\"x \\(name)\")) \\\\(not interpolated)\"\n}\n"},
+		GrammarFixture{Name: "comments", Src: "// Package doc.\n\n// F does nothing.\nfunc F() {} // trailing\n\n/* block */\nfunc G() {\n\tlet x = 1 // x\n\tuse(x)    // used\n}\n"},
+	}
+}
+
+func malformedHabitsTable() []Malformed {
+	[]Malformed{
+		Malformed{Name: "package", Src: "package main\n\nfunc main() {}\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: "package p"},
+		Malformed{Name: "import-group", Src: "import (\n\t\"strings\"\n)\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: "import ( … )"},
+		Malformed{Name: "import-quoted", Src: "import \"strings\"\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: "import \"p\""},
+		Malformed{Name: "import-go-quoted", Src: "import go \"net/http\"\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: "import \"p\""},
+		Malformed{Name: "import-alias-quoted", Src: "import http \"net/http\"\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: "import \"p\""},
+		Malformed{Name: "define", Src: "func f() {\n\tx := 1\n\tuse(x)\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: "x := e"},
+		Malformed{Name: "var", Src: "var x = 1\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: "var x T"},
+		Malformed{Name: "var-local", Src: "func f() {\n\tvar x int64\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: "var x T"},
+		Malformed{Name: "const", Src: "const limit = 3\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: "const x = e"},
+		Malformed{Name: "if-init", Src: "func f() {\n\tif x := g(); x > 0 {\n\t}\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: "if x := f(); c"},
+		Malformed{Name: "if-init-assign", Src: "func f() {\n\tif x = g(); x > 0 {\n\t}\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: "if x := f(); c"},
+		Malformed{Name: "if-init-op-assign", Src: "func f() {\n\tif x += 1; x > 0 {\n\t}\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: "if x := f(); c"},
+		Malformed{Name: "match-init-op-assign", Src: "func f() {\n\tmatch x &^= 1; x {\n\t}\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: "if x := f(); c"},
+		Malformed{Name: "inc", Src: "func f(n int64) {\n\tn++\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: "x++, x--"},
+		Malformed{Name: "dec", Src: "func f(n int64) {\n\tn--\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: "x++, x--"},
+		Malformed{Name: "for-clause", Src: "func f() {\n\tfor i := 0; i < 3; i += 1 {\n\t}\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: "for i := 0; i < n; i++"},
+		Malformed{Name: "range", Src: "func f(xs []int64) {\n\tfor _, x := range xs {\n\t\tuse(x)\n\t}\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: "for k, v := range xs"},
+		Malformed{Name: "switch", Src: "func f(x int64) {\n\tswitch x {\n\t}\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: "switch"},
+		Malformed{Name: "type-switch", Src: "func f(v Value) {\n\tmatch v.(type) {\n\t}\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: "x.(type)"},
+		Malformed{Name: "type-assert", Src: "func f(v Value) {\n\tuse(v.(Order))\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: "x.(T)"},
+		Malformed{Name: "default", Src: "func f(x int64) {\n\tmatch x {\n\tdefault:\n\t}\n}\n", RepeatParens: 0, Code: "", Lines: []int{3}, Habit: "default:"},
+		Malformed{Name: "struct", Src: "type T struct {\n\tX int64\n}\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: "struct"},
+		Malformed{Name: "interface", Src: "type S interface {\n\tGet() int64\n}\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: "interface"},
+		Malformed{Name: "receiver", Src: "func (o Order) Fee() int64 { 0 }\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: "func (r T) M()"},
+		Malformed{Name: "error-result", Src: "func f() (Order, error) {\n\tOrder{}\n}\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: "(T, error)"},
+		Malformed{Name: "go", Src: "func f() {\n\tgo work()\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: "go f()"},
+		Malformed{Name: "defer", Src: "func f() {\n\tdefer close()\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: "defer f()"},
+		Malformed{Name: "chan", Src: "func f(c chan int64) {}\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: "chan T"},
+		Malformed{Name: "arrow", Src: "func f(c Queue) {\n\tuse(<-c)\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: "<-ch"},
+		Malformed{Name: "arrow-not-less-minus", Src: "func f(x int64, y int64) bool {\n\tx <-y\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: "<-ch"},
+		Malformed{Name: "select", Src: "func f() {\n\tselect {\n\t}\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: "select"},
+		Malformed{Name: "map", Src: "func f(m map[string]int64) {}\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: "map[K]V"},
+		Malformed{Name: "variadic", Src: "func f(xs ...int64) {}\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: "...T"},
+		Malformed{Name: "array", Src: "func f(xs [...]int64) {}\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: "[...]T"},
+		Malformed{Name: "array-length-name", Src: "func f(xs [N]int64) {}\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: ""},
+		Malformed{Name: "label", Src: "func f(xs []int64) {\nouter:\n\tfor x in xs {\n\t\tbreak outer\n\t}\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: "L:"},
+		Malformed{Name: "goto", Src: "func f() {\n\tgoto done\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: "goto"},
+		Malformed{Name: "fallthrough", Src: "func f(x int64) {\n\tmatch x {\n\tcase 1:\n\t\tfallthrough\n\t}\n}\n", RepeatParens: 0, Code: "", Lines: []int{4}, Habit: "fallthrough"},
+	}
+}
+
+func malformedSyntaxTable() []Malformed {
+	[]Malformed{
+		Malformed{Name: "error-row", Src: "func f() (Order, error[NotFound]) {\n\tOrder{}\n}\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: ""},
+		Malformed{Name: "error-row-only", Src: "func f() error[NotFound] {}\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: ""},
+		Malformed{Name: "wire-decl", Src: "wire Live {\n\tClock = Fixed{}\n}\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: ""},
+		Malformed{Name: "wire-decl-as-listed", Src: "wire Name { A = x }\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: ""},
+		Malformed{Name: "context-entry-assign", Src: "let Live = context {\n\tClock = Fixed{},\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: ""},
+		Malformed{Name: "catch-bind", Src: "func f() {\n\tg() catch e {\n\tcase E:\n\t}\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: ""},
+		Malformed{Name: "bodiless", Src: "func Upper(s string) string\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: ""},
+		Malformed{Name: "singleton-tuple", Src: "let t = (1,)\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: ""},
+		Malformed{Name: "singleton-tuple-type", Src: "func f(t (int64,)) {}\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: ""},
+		Malformed{Name: "singleton-tuple-pattern", Src: "func f(x T) {\n\tmatch x {\n\tcase (A,):\n\t}\n}\n", RepeatParens: 0, Code: "", Lines: []int{3}, Habit: ""},
+		Malformed{Name: "func-literal-parenthesised-needs", Src: "let f = func() needs (A, B) {\n\twork()\n}\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: ""},
+		Malformed{Name: "interpolation-line-comment", Src: "let s = \"x \\(a // c\n)\"\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: ""},
+		Malformed{Name: "interpolation-multi-line-comment", Src: "let s = \"x \\(a /* c\nd */)\"\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: ""},
+		Malformed{Name: "func-type-value", Src: "let x = func(int) int\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: ""},
+		Malformed{Name: "func-type-argument", Src: "func main() {\n\trun(func() int)\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: ""},
+		Malformed{Name: "escaping-func-type-value", Src: "let x = escaping func()\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: ""},
+		Malformed{Name: "slice-type-value", Src: "let x = []int\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: ""},
+		Malformed{Name: "slice-type-argument", Src: "func main() {\n\trun([]int)\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: ""},
+		Malformed{Name: "slice-type-conversion", Src: "let x = []byte(s)\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: ""},
+		Malformed{Name: "map-type-value", Src: "let m = Map[string, int]\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: ""},
+		Malformed{Name: "map-type-argument", Src: "func main() {\n\trun(Map[string, int])\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: ""},
+		Malformed{Name: "header-keyed-literal", Src: "func main() {\n\twith Cfg{Port: 1} {\n\t\tuse(1)\n\t}\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: ""},
+		Malformed{Name: "header-empty-literal", Src: "func main() {\n\tif c == cfg.Cfg{} {\n\t\tuse(1)\n\t}\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: ""},
+		Malformed{Name: "header-positional-literal", Src: "func main() {\n\tif x == Point{1, 2} {\n\t\tuse(1)\n\t}\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: ""},
+		Malformed{Name: "header-positional-names", Src: "func main() {\n\tif p == Point{a, b} {\n\t\tuse(1)\n\t}\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: ""},
+		Malformed{Name: "header-positional-one", Src: "func main() {\n\tif p == Box{1} {\n\t\tuse(1)\n\t}\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: ""},
+		Malformed{Name: "header-positional-unary", Src: "func f(p Point) {\n\tif p == Point{-1, 2} {\n\t\tuse(1)\n\t}\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: ""},
+		Malformed{Name: "header-positional-call", Src: "func f(p Point) {\n\tif p == Point{one(), 2} {\n\t\tuse(1)\n\t}\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: ""},
+		Malformed{Name: "header-positional-selector-index", Src: "func f(p Point) {\n\tif p == Point{a.b, c[0]} {\n\t\tuse(1)\n\t}\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: ""},
+		Malformed{Name: "header-positional-paren", Src: "func f(p Point) {\n\tif p == Point{(a + 1) * 2, -b.c(d, e)} {\n\t\tuse(1)\n\t}\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: ""},
+		Malformed{Name: "header-positional-one-call", Src: "func f(b Box) {\n\tif b == Box{one()} {\n\t\tuse(1)\n\t}\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: ""},
+		Malformed{Name: "uses", Src: "func f() uses Clock {}\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: ""},
+		Malformed{Name: "mixed-members", Src: "type Card { Number string, Valid() bool }\n", RepeatParens: 0, Code: "S108", Lines: []int{1}, Habit: ""},
+		Malformed{Name: "law-among-fields", Src: "type Card {\n\tNumber string,\n\tlaw L() { true },\n}\n", RepeatParens: 0, Code: "S108", Lines: []int{3}, Habit: ""},
+		Malformed{Name: "embedded-member", Src: "type Account { Balance int64, Base }\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: ""},
+		Malformed{Name: "variant-unnamed-field", Src: "type Opt = Some{T} | None{}\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: ""},
+		Malformed{Name: "union-tuple", Src: "type Pairs = (int64, string)\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: ""},
+		Malformed{Name: "union-trailing-bar", Src: "type U = A |\n", RepeatParens: 0, Code: "", Lines: []int{1, 2}, Habit: ""},
+		Malformed{Name: "funclit-mixed", Src: "func f(xs []int64) int64 {\n\txs.Fold(0, func(acc int64, x) { acc + x })\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: ""},
+		Malformed{Name: "funclit-unnamed-type", Src: "func f() {\n\tuse(func([]int64) { 1 })\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: ""},
+		Malformed{Name: "multi-assign", Src: "func f() {\n\tlet mut a, b = (1, 2)\n\ta, b = b, a\n}\n", RepeatParens: 0, Code: "", Lines: []int{3}, Habit: ""},
+		Malformed{Name: "return-list", Src: "func f(a, b int64) (int64, int64) {\n\treturn a, b\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: ""},
+		Malformed{Name: "spread-call", Src: "func f(xs []int64) {\n\tSum(xs...)\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: ""},
+		Malformed{Name: "case-expression", Src: "func f(x, limit int64) {\n\tmatch x {\n\tcase limit + 1:\n\t}\n}\n", RepeatParens: 0, Code: "", Lines: []int{3}, Habit: ""},
+		Malformed{Name: "range-chain", Src: "func f() {\n\tuse(1..2..3)\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: ""},
+		Malformed{Name: "update-positional", Src: "func f(p P) P {\n\tP{..p, 1}\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: ""},
+		Malformed{Name: "update-two-bases", Src: "func f(p P, q P) P {\n\tP{..p, ..q, A: 1}\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: ""},
+		Malformed{Name: "update-base-last", Src: "func f(p P) P {\n\tP{A: 1, ..p}\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: ""},
+		Malformed{Name: "update-slice", Src: "func f(xs []int64) []int64 {\n\t[]int64{..xs, 1}\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: ""},
+		Malformed{Name: "update-map", Src: "func f(m Map[string, int64]) Map[string, int64] {\n\tMap[string, int64]{..m, \"a\": 1}\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: ""},
+		Malformed{Name: "update-elided", Src: "func f(p P) []P {\n\t[]P{{..p, A: 1}}\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: ""},
+		Malformed{Name: "update-pattern", Src: "func f(p P) int64 {\n\tmatch p {\n\tcase P{..p}:\n\t\t1\n\t}\n}\n", RepeatParens: 0, Code: "", Lines: []int{3}, Habit: ""},
+		Malformed{Name: "bare-block", Src: "func f() {\n\t{\n\t\tg()\n\t}\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: ""},
+		Malformed{Name: "dot-import", Src: "import . strings\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: ""},
+		Malformed{Name: "extern-without-function", Src: "extern go strings func Upper(s string) string\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: ""},
+		Malformed{Name: "machine-unknown-entry", Src: "type M machine[S, E] { initial: Idle{}, start: Step }\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: ""},
+		Malformed{Name: "needs-parens-outside-list", Src: "func f() needs (A, B) {}\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: ""},
+		Malformed{Name: "anon-record", Src: "func f() {\n\tuse(struct{ X int64 }{1})\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: ""},
+		Malformed{Name: "statement-match-continued", Src: "func f(x int64) {\n\tmatch x {\n\tcase _:\n\t}.String()\n}\n", RepeatParens: 0, Code: "", Lines: []int{4}, Habit: ""},
+		Malformed{Name: "unterminated-string", Src: "func f() {\n\tlet x = \"abc\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: ""},
+		Malformed{Name: "unterminated-interpolation", Src: "func f(x int64) {\n\tuse(\"a \\(x\")\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: ""},
+		Malformed{Name: "unterminated-raw-string", Src: "let s = `abc\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: ""},
+		Malformed{Name: "unterminated-block-comment", Src: "/* open\nfunc f() {}\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: ""},
+		Malformed{Name: "nonletter-identifier", Src: "func f() {\n\tlet x⪪ = 1\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: ""},
+		Malformed{Name: "invalid-utf8", Src: "func f() {\n\tlet \xff = 1\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: ""},
+		Malformed{Name: "unknown-number-suffix", Src: "let d = 5kg\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: ""},
+		Malformed{Name: "imaginary", Src: "let d = 2i\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: ""},
+		Malformed{Name: "hex-float", Src: "let d = 0x1p4\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: ""},
+		Malformed{Name: "binary-digit", Src: "let d = 0b102\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: ""},
+		Malformed{Name: "misplaced-separator", Src: "let d = 1__000\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: ""},
+		Malformed{Name: "tilde", Src: "func f[T ~int]() {}\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: ""},
+		Malformed{Name: "mixed-keyed-positional", Src: "let o = Order{ID: \"1\", 2}\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: ""},
+		Malformed{Name: "import-after-declaration", Src: "func f() {}\n\nimport strings\n", RepeatParens: 0, Code: "", Lines: []int{3}, Habit: ""},
+		Malformed{Name: "unclosed-brace", Src: "func f() {\n\tg()\n", RepeatParens: 0, Code: "", Lines: []int{2, 3}, Habit: ""},
+		Malformed{Name: "stray-paren", Src: "func f() {\n\tg())\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: ""},
+		Malformed{Name: "bare-try", Src: "func f() {\n\tlet x = try\n}\n", RepeatParens: 0, Code: "", Lines: []int{2, 3}, Habit: ""},
+		Malformed{Name: "end-of-statement", Src: "func f() {\n\tlet x = 1 2\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: ""},
+		Malformed{Name: "unexpected-character", Src: "func f() {\n\tlet x = 1 # 2\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: ""},
+		Malformed{Name: "empty-type-parameters", Src: "func f[]() {}\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: ""},
+		Malformed{Name: "context-needs-before-provides", Src: "let App = context needs Config provides Account {\n\tStore: M{},\n}\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: ""},
+		Malformed{Name: "deep-nesting", Src: "", RepeatParens: 200000, Code: "", Lines: []int{1}, Habit: ""},
+	}
+}
+
+// MalformedTable returns all syntax and lexical negative fixtures.
+func MalformedTable() []Malformed {
+	let habits = malformedHabitsTable()
+	let syn = malformedSyntaxTable()
+	let mut out = slices.WithCapacity[Malformed](len(habits) + len(syn))
+	for m in habits {
+		out = out.Append(m)
+	}
+	for m in syn {
+		out = out.Append(m)
+	}
+	out
+}
+
+test GrammarFixturesLexAndParseCleanly {
+	let gs = GrammarFixtures()
+	assert len(gs) > 70
+	for g in gs {
+		let lx = LexAll(g.Src)
+		assert lx.ErrCount == uint32(0)
+		let p = syntax.Parse(g.Src)
+		assert !p.Failed
+	}
+}
+
+test MalformedTableIsRejectedByParser {
+	let ms = MalformedTable()
+	assert len(ms) > 100
+	for m in ms {
+		if m.RepeatParens == 0 && m.Code == "" {
+			let p = syntax.Parse(MalformedSrc(m))
+			assert p.Failed
+		}
+	}
+	assert MalformedSrc(Malformed{Name: "n", Src: "", RepeatParens: 3, Code: "", Lines: []int{1}, Habit: ""}) == "let x = (((1)))\n"
+}
