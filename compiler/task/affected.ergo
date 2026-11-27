@@ -1,0 +1,751 @@
+import compiler/lawcache
+import option
+import slices
+import strings
+import sync
+
+// TaskError reports an operational or planning failure inside task execution.
+type TaskError {
+	// Reason describes the task error.
+	Reason string,
+}
+
+// Affect names a generator node whose cache key moved relative to a base tree, and why.
+type Affect {
+	// Name is the affected generator's name.
+	Name string,
+	// Why explains the first detected cause of change.
+	Why string,
+}
+
+// BaseProvider supplies file-change status and base/working directory listings for ComputeAffected.
+type BaseProvider {
+	// Changed reports whether the file at slash path rel changed between base and working tree.
+	Changed(path string) bool,
+	// BaseListing returns the directory listing digest for dir at base (or Missing).
+	BaseListing(dir string) string fails TaskError,
+	// WorkingListing returns the current directory listing digest for dir at root (or Missing).
+	WorkingListing(root string, dir string) string fails TaskError,
+}
+
+// TreeDigestProvider reads current file content digests and directory listing digests at root.
+type TreeDigestProvider {
+	// Digest returns the SHA-256 hex digest of rel at root (or Missing).
+	Digest(root string, rel string) string fails TaskError,
+	// Listing returns the listing digest of dir at root (or Missing).
+	Listing(root string, dir string) string fails TaskError,
+}
+
+// GenHost provides runtime node execution, environment, stat snapshots, and --check copy operations.
+type GenHost {
+	// Env returns the deterministic environment key string for node index idx.
+	Env(idx int) string fails TaskError,
+	// Inputs discovers the file and directory inputs read by node idx under root.
+	Inputs(idx int, root string) Inputs fails TaskError,
+	// Digest returns the SHA-256 hex digest of rel under root (or Missing).
+	Digest(root string, rel string) string fails TaskError,
+	// Listing returns the directory listing digest of dir under root (or Missing).
+	Listing(root string, dir string) string fails TaskError,
+	// Snapshot returns the stat table of non-skipped files under root.
+	Snapshot(root string) StatTable fails TaskError,
+	// PrepareCheckCopy clones src into an isolated temporary root and returns its path.
+	PrepareCheckCopy(src string) string fails TaskError,
+	// CleanupCopy removes the temporary root created by PrepareCheckCopy.
+	CleanupCopy(dir string),
+	// Run executes generator node idx in root, returning failure diagnostic output on error.
+	Run(idx int, root string) fails TaskError,
+	// NotifyRan records that node name ran in root.
+	NotifyRan(name string, root string),
+}
+
+// GenReport summarizes the passes, runs, hits, stale outputs, and contradicted nodes of RunGen.
+type GenReport {
+	// Order lists node names in the final pass's graph order.
+	Order []string,
+	// NodeNames aligns with RanCounts and HitCounts in DoD SoA arrays.
+	NodeNames []string,
+	// RanCounts holds execution counts aligned with NodeNames.
+	RanCounts []int,
+	// HitCounts holds cache hit counts aligned with NodeNames.
+	HitCounts []int,
+	// Stale lists relative paths whose fresh Check output differed from the tree.
+	Stale []string,
+	// Contradicted lists Vouched node names whose Fresh run disagreed with stored outputs.
+	Contradicted []string,
+	// Lines holds the formatted trace lines emitted during RunGen.
+	Lines []string,
+	// Passes is the number of graph passes executed.
+	Passes int,
+}
+
+// ReportGenFailed reports whether any output was stale or any Vouched hit was contradicted.
+func ReportGenFailed(r GenReport) bool {
+	r.Stale.Len() > 0 || r.Contradicted.Len() > 0
+}
+
+// LookupRan returns the run count for node name in r.
+func LookupRan(r GenReport, name string) int {
+	for i in 0..r.NodeNames.Len() {
+		if r.NodeNames[i] == name {
+			return r.RanCounts[i]
+		}
+	}
+	0
+}
+
+// LookupHits returns the hit count for node name in r.
+func LookupHits(r GenReport, name string) int {
+	for i in 0..r.NodeNames.Len() {
+		if r.NodeNames[i] == name {
+			return r.HitCounts[i]
+		}
+	}
+	0
+}
+
+func recordMovedWhy(rec TaskRecord, root string, base BaseProvider) string fails TaskError {
+	for f in rec.In.Files {
+		if base.Changed(f) {
+			return "input \(f) changed"
+		}
+	}
+	for d in rec.In.Dirs {
+		let was = try base.BaseListing(d)
+		let now = try base.WorkingListing(root, d)
+		if was != now {
+			return "the names in folder \(d) changed"
+		}
+	}
+	for o in rec.Outs {
+		if base.Changed(o.Path) {
+			return "output \(o.Path) changed"
+		}
+	}
+	""
+}
+
+// ComputeAffected computes the affected generator nodes between base and the working tree at root,
+// propagated forward along dependency edges and ordered by GenGraph.Order.
+func ComputeAffected(nodes []NodeSpec, root string, store lawcache.Store, base BaseProvider) []Affect fails TaskError {
+	let g = BuildGenGraph(nodes, root, store)
+	let mut why = slices.WithCapacity[string](nodes.Len())
+	for n in nodes {
+		match lawcache.Get(store, LastKey(root, n.Name, n.Ident)) {
+		case option.None:
+			why = why.Append("no stored last run")
+		case option.Some{Value: text}:
+			let (rec, ok) = DecodeRecord(text)
+			if !ok {
+				why = why.Append("the stored last run does not read (an older format)")
+			} else {
+				why = why.Append(try recordMovedWhy(rec, root, base))
+			}
+		}
+	}
+	let mut changed = true
+	for changed {
+		changed = false
+		for ei in 0..g.EdgeFrom.Len() {
+			let a = int(g.EdgeFrom[ei])
+			let b = int(g.EdgeTo[ei])
+			if why[a] != "" && why[b] == "" {
+				why[b] = "runs after \(nodes[a].Name)"
+				changed = true
+			}
+		}
+	}
+	let mut out = []Affect{}
+	for idx in g.Order {
+		let i = int(idx)
+		if why[i] != "" {
+			out = out.Append(Affect{Name: nodes[i].Name, Why: why[i]})
+		}
+	}
+	out
+}
+
+// ContentKey computes the content-addressed store key and individual file/dir digest vectors
+// for node under env and discovered inputs in root.
+func ContentKey(node NodeSpec, env string, inp Inputs, root string, tree TreeDigestProvider) (string, []string, []string) fails TaskError {
+	let mut parts = []string{"task entry", node.Name, node.Ident, env}
+	let mut fileSums = slices.WithCapacity[string](inp.Files.Len())
+	for f in inp.Files {
+		let d = try tree.Digest(root, f)
+		fileSums = fileSums.Append(d)
+		parts = parts.Append("f \(f) \(d)")
+	}
+	let mut dirSums = slices.WithCapacity[string](inp.Dirs.Len())
+	for dir in inp.Dirs {
+		let l = try tree.Listing(root, dir)
+		dirSums = dirSums.Append(lawcache.Key([]string{l}))
+		parts = parts.Append("d \(dir) \(l)")
+	}
+	(lawcache.Key(parts), fileSums, dirSums)
+}
+
+// LookupGenNode looks up node's stored generator result using keyRoot for LastKey and
+// treeRoot for hashing inputs/outputs, returning outputs, hit status, and miss reason.
+func LookupGenNode(store lawcache.Store, keyRoot string, treeRoot string, node NodeSpec, env string, tree TreeDigestProvider) ([]OutputEntry, bool, string) fails TaskError {
+	let text = match lawcache.Get(store, LastKey(keyRoot, node.Name, node.Ident)) {
+	case option.None:
+		return ([]OutputEntry{}, false, "no stored last run")
+	case option.Some{Value: t}:
+		t
+	}
+	let (last, okLast) = DecodeRecord(text)
+	if !okLast {
+		return ([]OutputEntry{}, false, "the stored last run does not read (an older format)")
+	}
+	if last.Env != env {
+		return ([]OutputEntry{}, false, "the environment changed: \(FirstDiff(last.Env, env))")
+	}
+	let (key, fileSums, dirSums) = try ContentKey(node, env, last.In, treeRoot, tree)
+	let entryText = match lawcache.Get(store, key) {
+	case option.None:
+		for i in 0..last.In.Files.Len() {
+			if fileSums[i] != last.FileSums[i] {
+				return ([]OutputEntry{}, false, "input \(last.In.Files[i]) changed")
+			}
+		}
+		for i in 0..last.In.Dirs.Len() {
+			if dirSums[i] != last.DirSums[i] {
+				return ([]OutputEntry{}, false, "the names in folder \(last.In.Dirs[i]) changed")
+			}
+		}
+		return ([]OutputEntry{}, false, "no stored result for these inputs (the store dropped it)")
+	case option.Some{Value: et}:
+		et
+	}
+	let (entry, okEntry) = DecodeRecord(entryText)
+	if !okEntry {
+		return ([]OutputEntry{}, false, "the stored result does not read (an older format)")
+	}
+	for o in entry.Outs {
+		let d = try tree.Digest(treeRoot, o.Path)
+		if d != o.Digest {
+			return (entry.Outs, false, "output \(o.Path) no longer hashes as stored")
+		}
+	}
+	(entry.Outs, true, "")
+}
+
+type hostTreeProvider {
+	h GenHost,
+} implements TreeDigestProvider
+
+func Digest(p hostTreeProvider, root string, rel string) string fails TaskError {
+	p.h.Digest(root, rel)
+}
+
+func Listing(p hostTreeProvider, root string, dir string) string fails TaskError {
+	p.h.Listing(root, dir)
+}
+
+func runSingleNode(store lawcache.Store, origRoot string, curRoot string, node NodeSpec, nodeIdx int, env string, host GenHost) []OutputEntry fails TaskError {
+	let before = try host.Snapshot(curRoot)
+	host.NotifyRan(node.Name, curRoot)
+	try host.Run(nodeIdx, curRoot)
+	let after = try host.Snapshot(curRoot)
+	let written = ChangedPaths(before, after)
+	let mut paths = slices.Clone(written)
+	match lawcache.Get(store, LastKey(origRoot, node.Name, node.Ident)) {
+	case option.Some{Value: lastText}:
+		let (rec, ok) = DecodeRecord(lastText)
+		if ok {
+			let mut afterMap = Map[string, bool]{}
+			for p in after.Paths {
+				afterMap[p] = true
+			}
+			for o in rec.Outs {
+				match afterMap.Get(o.Path) {
+				case option.Some{Value: present}:
+					if present {
+						paths = paths.Append(o.Path)
+					}
+				case option.None:
+				}
+			}
+		}
+	case option.None:
+	}
+	paths = SortedUnique(paths)
+	let mut outs = slices.WithCapacity[OutputEntry](paths.Len())
+	for p in paths {
+		let d = try host.Digest(curRoot, p)
+		outs = outs.Append(OutputEntry{Path: p, Digest: d})
+	}
+	let mut inp = try host.Inputs(nodeIdx, curRoot)
+	inp = Inputs{Files: SortedUnique(inp.Files), Dirs: SortedUnique(inp.Dirs)}
+	let tp = hostTreeProvider{h: host}
+	let (key, fileSums, dirSums) = try ContentKey(node, env, inp, curRoot, tp)
+	let emptyIn = Inputs{Files: []string{}, Dirs: []string{}}
+	lawcache.Put(store, key, EncodeRecord(TaskRecord{Env: env, In: emptyIn, FileSums: []string{}, DirSums: []string{}, Outs: outs}))
+	lawcache.Put(store, LastKey(origRoot, node.Name, node.Ident), EncodeRecord(TaskRecord{Env: env, In: inp, FileSums: fileSums, DirSums: dirSums, Outs: outs}))
+	outs
+}
+
+// RunGen executes or checks generator nodes in topological pass order until convergence.
+func RunGen(store lawcache.Store, origRoot string, nodes []NodeSpec, check bool, fresh bool, host GenHost) GenReport fails TaskError {
+	let n = nodes.Len()
+	let mut nodeNames = slices.WithCapacity[string](n)
+	let mut ranCounts = slices.WithCapacity[int](n)
+	let mut hitCounts = slices.WithCapacity[int](n)
+	let mut nameIdx = Map[string, uint32]{}
+	for i in 0..n {
+		let name = nodes[i].Name
+		match nameIdx.Get(name) {
+		case option.Some:
+		case option.None:
+			nameIdx[name] = uint32(nodeNames.Len())
+			nodeNames = nodeNames.Append(name)
+			ranCounts = ranCounts.Append(0)
+			hitCounts = hitCounts.Append(0)
+		}
+	}
+	let mut envs = slices.WithCapacity[string](n)
+	for i in 0..n {
+		envs = envs.Append(try host.Env(i))
+	}
+	let mut curRoot = origRoot
+	let mut inCopy = false
+	if check && fresh {
+		curRoot = try host.PrepareCheckCopy(origRoot)
+		inCopy = true
+	}
+	let tp = hostTreeProvider{h: host}
+	let mut written = []string{}
+	let mut contradicted = []string{}
+	let mut lines = []string{}
+	let mut lastOrder = []string{}
+	let mut passes = 0
+	let mut running = 0
+	let mut pass = 1
+	for true {
+		if running > n+1 {
+			if inCopy {
+				host.CleanupCopy(curRoot)
+			}
+			return TaskError{Reason: "gen does not settle after \(running) passes"}
+		}
+		let g = BuildGenGraph(nodes, origRoot, store)
+		lastOrder = slices.WithCapacity[string](g.Order.Len())
+		for idx in g.Order {
+			lastOrder = lastOrder.Append(nodes[int(idx)].Name)
+		}
+		passes = pass
+		let mut k = 1
+		for ci in 0..CycleCount(g) {
+			if int(g.CycleLen[ci]) > k {
+				k = int(g.CycleLen[ci])
+			}
+		}
+		if running == k+1 {
+			let mut still = []string{}
+			for idx in g.Order {
+				let i = int(idx)
+				let (_, hit, _) = LookupGenNode(store, origRoot, curRoot, nodes[i], envs[i], tp) catch {
+				case TaskError:
+					([]OutputEntry{}, true, "")
+				}
+				if !hit {
+					still = still.Append(nodes[i].Name)
+				}
+			}
+			if still.Len() > 0 {
+				if inCopy {
+					host.CleanupCopy(curRoot)
+				}
+				return TaskError{Reason: "gen \(strings.Join(still, ", ")) keep changing what another reads: they still miss after \(running) passes, the most a cycle of \(k) settles in; a generator whose output never settles must not loop"}
+			}
+		}
+		let mut ranAny = false
+		for idx in g.Order {
+			let i = int(idx)
+			let node = nodes[i]
+			let (stored0, hit0, why0) = LookupGenNode(store, origRoot, curRoot, node, envs[i], tp) catch {
+			case TaskError as e:
+				if inCopy {
+					host.CleanupCopy(curRoot)
+				}
+				return TaskError{Reason: "gen \(node.Name): \(e.Reason)"}
+			}
+			if hit0 && !(fresh && pass == 1) {
+				match nameIdx.Get(node.Name) {
+				case option.Some{Value: ni}:
+					hitCounts[int(ni)] = hitCounts[int(ni)] + 1
+				case option.None:
+				}
+				lines = lines.Append("gen \(node.Name): hit (\(node.Class))")
+				continue
+			}
+			let mut stored = stored0
+			let mut hit = hit0
+			let mut why = why0
+			if check && !inCopy {
+				let copyDir = host.PrepareCheckCopy(origRoot) catch {
+				case TaskError as e:
+					return e
+				}
+				curRoot = copyDir
+				inCopy = true
+				let (stored1, hit1, why1) = LookupGenNode(store, origRoot, curRoot, node, envs[i], tp) catch {
+				case TaskError as e:
+					host.CleanupCopy(curRoot)
+					return TaskError{Reason: "gen \(node.Name): \(e.Reason)"}
+				}
+				stored = stored1
+				hit = hit1
+				why = why1
+			}
+			let outs = runSingleNode(store, origRoot, curRoot, node, i, envs[i], host) catch {
+			case TaskError as e:
+				if inCopy {
+					host.CleanupCopy(curRoot)
+				}
+				return e
+			}
+			match nameIdx.Get(node.Name) {
+			case option.Some{Value: ni}:
+				ranCounts[int(ni)] = ranCounts[int(ni)] + 1
+			case option.None:
+			}
+			ranAny = true
+			for o in outs {
+				written = written.Append(o.Path)
+			}
+			if hit && !SameOutputs(stored, outs) {
+				contradicted = contradicted.Append(node.Name)
+				lines = lines.Append("gen \(node.Name): a fresh run writes what its stored result does not (\(node.Class)): its declared reads are incomplete")
+				continue
+			}
+			if hit {
+				why = "--fresh"
+			}
+			lines = lines.Append("gen \(node.Name): ran (\(why))")
+		}
+		if !ranAny {
+			break
+		}
+		running = running + 1
+		pass = pass + 1
+	}
+	let mut stale = []string{}
+	if inCopy {
+		for p in SortedUnique(written) {
+			let freshDig = host.Digest(curRoot, p) catch {
+			case TaskError as e:
+				host.CleanupCopy(curRoot)
+				return e
+			}
+			let origDig = host.Digest(origRoot, p) catch {
+			case TaskError as e:
+				host.CleanupCopy(curRoot)
+				return e
+			}
+			if freshDig != origDig {
+				stale = stale.Append(p)
+			}
+		}
+		host.CleanupCopy(curRoot)
+	}
+	GenReport{
+		Order:        lastOrder,
+		NodeNames:    nodeNames,
+		RanCounts:    ranCounts,
+		HitCounts:    hitCounts,
+		Stale:        stale,
+		Contradicted: contradicted,
+		Lines:        lines,
+		Passes:       passes,
+	}
+}
+
+type fakeBase {
+	changed Map[string, bool],
+	baseDir Map[string, string],
+	workDir Map[string, string],
+} implements BaseProvider
+
+func Changed(b fakeBase, path string) bool {
+	match b.changed.Get(path) {
+	case option.Some{Value: v}:
+		v
+	case option.None:
+		false
+	}
+}
+
+func BaseListing(b fakeBase, dir string) string fails TaskError {
+	match b.baseDir.Get(dir) {
+	case option.Some{Value: v}:
+		v
+	case option.None:
+		Missing
+	}
+}
+
+func WorkingListing(b fakeBase, root string, dir string) string fails TaskError {
+	match b.workDir.Get(dir) {
+	case option.Some{Value: v}:
+		v
+	case option.None:
+		Missing
+	}
+}
+
+// AffectedPropagatesTransitively checks that any changed input marks downstream dependents affected.
+law AffectedPropagatesTransitively(rootFileChanged bool) {
+	let store = lawcache.Memory(StoreIdentity)
+	let genA = NodeSpec{Name: "a", Class: Derived, Ident: "idA"}
+	let genB = NodeSpec{Name: "b", Class: Derived, Ident: "idB"}
+	let recA = TaskRecord{
+		Env:      "E",
+		In:       Inputs{Files: []string{"in.txt"}, Dirs: []string{}},
+		FileSums: []string{"h1"},
+		DirSums:  []string{},
+		Outs:     []OutputEntry{OutputEntry{Path: "mid.txt", Digest: "hm"}},
+	}
+	let recB = TaskRecord{
+		Env:      "E",
+		In:       Inputs{Files: []string{"mid.txt"}, Dirs: []string{}},
+		FileSums: []string{"hm"},
+		DirSums:  []string{},
+		Outs:     []OutputEntry{OutputEntry{Path: "end.txt", Digest: "he"}},
+	}
+	lawcache.Put(store, LastKey("/r", genA.Name, genA.Ident), EncodeRecord(recA))
+	lawcache.Put(store, LastKey("/r", genB.Name, genB.Ident), EncodeRecord(recB))
+	let mut ch = Map[string, bool]{}
+	if rootFileChanged {
+		ch["in.txt"] = true
+	}
+	let base = fakeBase{changed: ch, baseDir: Map[string, string]{}, workDir: Map[string, string]{}}
+	let aff = ComputeAffected([]NodeSpec{genB, genA}, "/r", store, base) catch {
+	case TaskError:
+		return false
+	}
+	if rootFileChanged {
+		return aff.Len() == 2 && aff[0].Name == "a" && aff[1].Name == "b" && aff[1].Why == "runs after a"
+	}
+	aff.Len() == 0
+}
+
+type memGenTree {
+	root    string,
+	copy    string,
+	origIn  string,
+	copyIn  string,
+	origOut string,
+	copyOut string,
+}
+
+func memDigestText(text string) string {
+	ListingDigest([]TreeEntry{TreeEntry{Name: text, Dir: false}})
+}
+
+type memTreeState {
+	origFiles Map[string, string],
+	copyFiles Map[string, string],
+	origTimes Map[string, int],
+	copyTimes Map[string, int],
+	serial    int,
+	ranNodes  []string,
+	drift     bool,
+}
+
+type memGenHost {
+	st sync.Ref[memTreeState],
+} implements GenHost
+
+func Env(h memGenHost, idx int) string fails TaskError { "GO=1\n" }
+
+func Inputs(h memGenHost, idx int, root string) Inputs fails TaskError {
+	if idx == 1 {
+		return Inputs{Files: []string{"src.txt"}, Dirs: []string{}}
+	}
+	Inputs{Files: []string{"mid.txt"}, Dirs: []string{}}
+}
+
+func Digest(h memGenHost, root string, rel string) string fails TaskError {
+	let s = h.st.Get()
+	let files = if root == "/copy" { s.copyFiles } else { s.origFiles }
+	match files.Get(rel) {
+	case option.Some{Value: body}:
+		memDigestText(body)
+	case option.None:
+		Missing
+	}
+}
+
+func Listing(h memGenHost, root string, dir string) string fails TaskError { Missing }
+
+func Snapshot(h memGenHost, root string) StatTable fails TaskError {
+	let s = h.st.Get()
+	let files = if root == "/copy" { s.copyFiles } else { s.origFiles }
+	let times = if root == "/copy" { s.copyTimes } else { s.origTimes }
+	let mut t = EmptyStatTable()
+	for p in []string{"src.txt", "mid.txt", "end.txt"} {
+		match files.Get(p) {
+		case option.Some{Value: body}:
+			let ts = match times.Get(p) {
+			case option.Some{Value: m}:
+				m
+			case option.None:
+				1
+			}
+			let _ = AppendStat(&t, p, int64(body.Len()), int64(ts), int64(ts), uint64(1), uint32(0o644), memDigestText(body))
+		case option.None:
+		}
+	}
+	t
+}
+
+func PrepareCheckCopy(h memGenHost, src string) string fails TaskError {
+	let mut s = h.st.Get()
+	let mut cf = Map[string, string]{}
+	let mut ct = Map[string, int]{}
+	for p in []string{"src.txt", "mid.txt", "end.txt"} {
+		match s.origFiles.Get(p) {
+		case option.Some{Value: v}:
+			cf[p] = v
+		case option.None:
+		}
+		match s.origTimes.Get(p) {
+		case option.Some{Value: m}:
+			ct[p] = m
+		case option.None:
+		}
+	}
+	s.copyFiles = cf
+	s.copyTimes = ct
+	h.st.Set(s)
+	"/copy"
+}
+
+func CleanupCopy(h memGenHost, dir string) {}
+
+func Run(h memGenHost, idx int, root string) fails TaskError {
+	let mut s = h.st.Get()
+	s.serial = s.serial + 1
+	let bump = if s.drift { "-drifted-\(s.serial)" } else { "" }
+	let mut files = if root == "/copy" { s.copyFiles } else { s.origFiles }
+	let mut times = if root == "/copy" { s.copyTimes } else { s.origTimes }
+	if idx == 1 {
+		let src = match files.Get("src.txt") {
+		case option.Some{Value: v}:
+			v
+		case option.None:
+			""
+		}
+		files["mid.txt"] = "mid(\(src))\(bump)"
+		times["mid.txt"] = s.serial
+	} else {
+		let mid = match files.Get("mid.txt") {
+		case option.Some{Value: v}:
+			v
+		case option.None:
+			""
+		}
+		files["end.txt"] = "end(\(mid))\(bump)"
+		times["end.txt"] = s.serial
+	}
+	if root == "/copy" {
+		s.copyFiles = files
+		s.copyTimes = times
+	} else {
+		s.origFiles = files
+		s.origTimes = times
+	}
+	h.st.Set(s)
+}
+
+func NotifyRan(h memGenHost, name string, root string) {
+	let mut s = h.st.Get()
+	s.ranNodes = s.ranNodes.Append("\(name)@\(root)")
+	h.st.Set(s)
+}
+
+test GenLookupAndAffectedVerifyCacheReasons {
+	let store = lawcache.Memory(StoreIdentity)
+	let n = NodeSpec{Name: "genx", Class: Vouched, Ident: "go run ./x"}
+	let rec = TaskRecord{
+		Env:      "E=1\n",
+		In:       Inputs{Files: []string{"src.ergo"}, Dirs: []string{"dir"}},
+		FileSums: []string{memDigestText("v1")},
+		DirSums:  []string{lawcache.Key([]string{"d1"})},
+		Outs:     []OutputEntry{OutputEntry{Path: "out.go", Digest: memDigestText("o1")}},
+	}
+	let base = fakeBase{
+		changed: Map[string, bool]{"src.ergo": true},
+		baseDir: Map[string, string]{"dir": "d1"},
+		workDir: Map[string, string]{"dir": "d1"},
+	}
+	lawcache.Put(store, LastKey("/w", n.Name, n.Ident), EncodeRecord(rec))
+	let aff = ComputeAffected([]NodeSpec{n}, "/w", store, base) catch {
+	case TaskError as e:
+		assert e.Reason == ""
+		return
+	}
+	assert aff.Len() == 1
+	assert aff[0].Why == "input src.ergo changed"
+}
+
+test RunGenMultiPassCheckAndContradiction {
+	let store = lawcache.Memory(StoreIdentity)
+	let nodes = []NodeSpec{
+		NodeSpec{Name: "genB", Class: Vouched, Ident: "go run ./b"},
+		NodeSpec{Name: "genA", Class: Derived, Ident: "go run ./a"},
+	}
+	let host = memGenHost{
+		st: sync.NewRef(memTreeState{
+			origFiles: Map[string, string]{"src.txt": "v1"},
+			copyFiles: Map[string, string]{},
+			origTimes: Map[string, int]{"src.txt": 1},
+			copyTimes: Map[string, int]{},
+			serial:    1,
+			ranNodes:  []string{},
+			drift:     false,
+		}),
+	}
+	let r1 = RunGen(store, "/repo", nodes, false, false, host) catch {
+	case TaskError as e:
+		assert e.Reason == ""
+		return
+	}
+	assert !ReportGenFailed(r1)
+	assert LookupRan(r1, "genA") == 1 && LookupRan(r1, "genB") == 2
+	assert host.st.Get().origFiles.Get("end.txt") == option.Some[string]{Value: "end(mid(v1))"}
+
+	let r2 = RunGen(store, "/repo", nodes, false, false, host) catch {
+	case TaskError as e:
+		assert e.Reason == ""
+		return
+	}
+	assert r2.Order == []string{"genA", "genB"}
+	assert LookupRan(r2, "genA") == 0 && LookupHits(r2, "genA") == 1
+	assert LookupRan(r2, "genB") == 0 && LookupHits(r2, "genB") == 1
+
+	let mut st = host.st.Get()
+	st.drift = true
+	host.st.Set(st)
+	let rFresh = RunGen(store, "/repo", nodes, false, true, host) catch {
+	case TaskError as e:
+		assert e.Reason == ""
+		return
+	}
+	assert rFresh.Contradicted.Len() >= 1
+
+	let mut st2 = host.st.Get()
+	st2.drift = false
+	let mut orig2 = st2.origFiles
+	orig2["src.txt"] = "v2"
+	st2.origFiles = orig2
+	host.st.Set(st2)
+	let rCheck = RunGen(store, "/repo", nodes, true, false, host) catch {
+	case TaskError as e:
+		assert e.Reason == ""
+		return
+	}
+	assert ReportGenFailed(rCheck)
+	assert rCheck.Stale == []string{"end.txt", "mid.txt"}
+	assert host.st.Get().origFiles.Get("src.txt") == option.Some[string]{Value: "v2"}
+}

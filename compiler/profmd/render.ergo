@@ -1,0 +1,909 @@
+import option
+import slices
+import strconv
+import strings
+import zlib
+
+// Options controls Markdown profile rendering limits (defaults: Top=25, TopStacks=10).
+type Options {
+	// Top caps the number of rows in each function summary table.
+	Top int,
+	// TopStacks caps the number of rows in the hot call stacks table.
+	TopStacks int,
+}
+
+let defaultTop = 25
+let defaultTopStacks = 10
+let maxStackDepth = 6
+
+func normalizeOptions(opts Options) Options {
+	let top = if opts.Top <= 0 { defaultTop } else { opts.Top }
+	let topStacks = if opts.TopStacks <= 0 { defaultTopStacks } else { opts.TopStacks }
+	Options{Top: top, TopStacks: topStacks}
+}
+
+type resolvedFrameTable {
+	keys []string,
+	name []string,
+	loc  []string,
+}
+
+type cpuTable {
+	keyIdx   Map[string, uint32],
+	keys     []string,
+	names    []string,
+	locs     []string,
+	selfBits []uint64,
+	cumBits  []uint64,
+	seenGen  []uint32,
+	gen      uint32,
+}
+
+type stackTable {
+	keyIdx  Map[string, uint32],
+	stacks  []string,
+	valBits []uint64,
+}
+
+type heapTable {
+	keyIdx   Map[string, uint32],
+	keys     []string,
+	names    []string,
+	locs     []string,
+	allocSp  []uint64,
+	allocObj []uint64,
+	cumAlloc []uint64,
+	inuseSp  []uint64,
+	inuseObj []uint64,
+	cumInuse []uint64,
+	seenGen  []uint32,
+	gen      uint32,
+}
+
+func formatUint64Dec(v uint64) string {
+	strings.FromBytes(strconv.AppendUint([]byte{}, v, 10))
+}
+
+func formatHexLower(v uint64) string {
+	if v == uint64(0) {
+		return "0"
+	}
+	let digits = "0123456789abcdef"
+	let mut buf = []byte{}
+	let mut x = v
+	for x > uint64(0) {
+		let d = int(x & uint64(15))
+		buf = buf.Append(digits[d])
+		x = x >> uint64(4)
+	}
+	let mut rev = slices.WithCapacity[byte](buf.Len())
+	for i in 0..buf.Len() {
+		rev = rev.Append(buf[buf.Len()-1-i])
+	}
+	strings.FromBytes(rev)
+}
+
+func shortenPath(path string) string {
+	if path == "" {
+		return ""
+	}
+	let norm = strings.ReplaceAll(path, "\\", "/")
+	let parts = strings.Split(norm, "/")
+	if parts.Len() <= 3 {
+		return norm
+	}
+	strings.Join(parts[parts.Len()-3:parts.Len()], "/")
+}
+
+func formatLocation(file string, line int64) string {
+	let short = shortenPath(file)
+	if short == "" {
+		return "-"
+	}
+	if line > int64(0) {
+		return short + ":" + strconv.FormatInt(line, 10)
+	}
+	short
+}
+
+func escapeMarkdownCell(s string) string {
+	strings.ReplaceAll(strings.ReplaceAll(s, "|", "\\|"), "`", "'")
+}
+
+func formatPct(part int64, total int64) string {
+	if total <= int64(0) {
+		return "0.0%"
+	}
+	let pct = float64(part) * 100.0 / float64(total)
+	strconv.FormatFloat(pct, 'f', 1) + "%"
+}
+
+func formatDurationNanos(ns int64) string {
+	if ns <= int64(0) {
+		return "0ms"
+	}
+	if ns >= int64(1000000000) {
+		return strconv.FormatFloat(float64(ns)/1000000000.0, 'f', 2) + "s"
+	}
+	if ns >= int64(1000000) {
+		return strconv.FormatFloat(float64(ns)/1000000.0, 'f', 2) + "ms"
+	}
+	if ns >= int64(1000) {
+		return strconv.FormatFloat(float64(ns)/1000.0, 'f', 1) + "us"
+	}
+	strconv.FormatInt(ns, 10) + "ns"
+}
+
+func formatBytes(b int64) string {
+	let kib = int64(1024)
+	let mib = int64(1024) * kib
+	let gib = int64(1024) * mib
+	if b >= gib {
+		return strconv.FormatFloat(float64(b)/float64(gib), 'f', 2) + " GiB"
+	}
+	if b >= mib {
+		return strconv.FormatFloat(float64(b)/float64(mib), 'f', 2) + " MiB"
+	}
+	if b >= kib {
+		return strconv.FormatFloat(float64(b)/float64(kib), 'f', 2) + " KiB"
+	}
+	strconv.FormatInt(b, 10) + " B"
+}
+
+func findSampleType(p Profile, name string) int {
+	for i in 0..p.SampleTypeNames.Len() {
+		if p.SampleTypeNames[i] == name {
+			return i
+		}
+	}
+	-1
+}
+
+func sampleValAt(p Profile, sampleIdx int, typeIdx int) int64 {
+	if typeIdx < 0 {
+		return int64(0)
+	}
+	let n = int(p.SampleValLen[sampleIdx])
+	if typeIdx >= n {
+		return int64(0)
+	}
+	let start = int(p.SampleValStart[sampleIdx])
+	int64(p.SampleValBits[start+typeIdx])
+}
+
+func resolveFramesInto(p Profile, sampleIdx int, frames mut resolvedFrameTable) {
+	frames.keys = frames.keys[0:0]
+	frames.name = frames.name[0:0]
+	frames.loc = frames.loc[0:0]
+	let start = int(p.SampleLocStart[sampleIdx])
+	let n = int(p.SampleLocLen[sampleIdx])
+	for k in 0..n {
+		let locID = p.SampleLocIDs[start+k]
+		match LookupLocation(p, locID) {
+		case option.None:
+			frames.keys = frames.keys.Append("<unknown@" + formatUint64Dec(locID) + ">")
+			frames.name = frames.name.Append("<unknown>")
+			frames.loc = frames.loc.Append("0x" + formatHexLower(locID))
+		case option.Some{Value: li}:
+			let lineLen = int(p.LocLineLen[int(li)])
+			if lineLen == 0 {
+				frames.keys = frames.keys.Append("<unknown@" + formatUint64Dec(locID) + ">")
+				frames.name = frames.name.Append("<unknown>")
+				frames.loc = frames.loc.Append("0x" + formatHexLower(locID))
+				continue
+			}
+			let lineStart = int(p.LocLineStart[int(li)])
+			for j in 0..lineLen {
+				let fnID = p.LineFuncID[lineStart+j]
+				let mut lineNum = int64(p.LineNumBits[lineStart+j])
+				let mut name = "<unknown>"
+				let mut file = ""
+				match LookupFunction(p, fnID) {
+				case option.Some{Value: fi}:
+					let fIdx = int(fi)
+					if p.FuncName[fIdx] != "" {
+						name = p.FuncName[fIdx]
+					} else if p.FuncSysName[fIdx] != "" {
+						name = p.FuncSysName[fIdx]
+					}
+					file = p.FuncFilename[fIdx]
+					if lineNum == int64(0) {
+						lineNum = int64(p.FuncStartLineBits[fIdx])
+					}
+				case option.None:
+				}
+				let locStr = formatLocation(file, lineNum)
+				let key = name + "\x00" + shortenPath(file)
+				frames.keys = frames.keys.Append(key)
+				frames.name = frames.name.Append(name)
+				frames.loc = frames.loc.Append(locStr)
+			}
+		}
+	}
+}
+
+func getOrAddCPUStat(t mut cpuTable, key string, name string, loc string) uint32 {
+	match t.keyIdx.Get(key) {
+	case option.Some{Value: idx}:
+		idx
+	case option.None:
+		let idx = uint32(t.keys.Len())
+		t.keyIdx = t.keyIdx.Put(key, idx)
+		t.keys = t.keys.Append(key)
+		t.names = t.names.Append(name)
+		t.locs = t.locs.Append(loc)
+		t.selfBits = t.selfBits.Append(uint64(0))
+		t.cumBits = t.cumBits.Append(uint64(0))
+		t.seenGen = t.seenGen.Append(uint32(0))
+		idx
+	}
+}
+
+func getOrAddHeapStat(t mut heapTable, key string, name string, loc string) uint32 {
+	match t.keyIdx.Get(key) {
+	case option.Some{Value: idx}:
+		idx
+	case option.None:
+		let idx = uint32(t.keys.Len())
+		t.keyIdx = t.keyIdx.Put(key, idx)
+		t.keys = t.keys.Append(key)
+		t.names = t.names.Append(name)
+		t.locs = t.locs.Append(loc)
+		t.allocSp = t.allocSp.Append(uint64(0))
+		t.allocObj = t.allocObj.Append(uint64(0))
+		t.cumAlloc = t.cumAlloc.Append(uint64(0))
+		t.inuseSp = t.inuseSp.Append(uint64(0))
+		t.inuseObj = t.inuseObj.Append(uint64(0))
+		t.cumInuse = t.cumInuse.Append(uint64(0))
+		t.seenGen = t.seenGen.Append(uint32(0))
+		idx
+	}
+}
+
+func addHotStack(t mut stackTable, key string, v int64) {
+	match t.keyIdx.Get(key) {
+	case option.Some{Value: idx}:
+		let i = int(idx)
+		t.valBits[i] = uint64(int64(t.valBits[i]) + v)
+	case option.None:
+		let idx = uint32(t.stacks.Len())
+		t.keyIdx = t.keyIdx.Put(key, idx)
+		t.stacks = t.stacks.Append(key)
+		t.valBits = t.valBits.Append(uint64(v))
+	}
+}
+
+func formatHotStack(frames resolvedFrameTable) string {
+	let n = if frames.name.Len() > maxStackDepth { maxStackDepth } else { frames.name.Len() }
+	let mut parts = slices.WithCapacity[string](n)
+	for i in 0..n {
+		parts = parts.Append(frames.name[n-1-i])
+	}
+	strings.Join(parts, " -> ")
+}
+
+func formatCPUVal(v int64, isNanos bool, unit string) string {
+	if isNanos {
+		return formatDurationNanos(v)
+	}
+	strconv.FormatInt(v, 10) + " " + unit
+}
+
+// RenderCPUMarkdownFromProfile renders a decoded CPU profile as deterministic Markdown.
+func RenderCPUMarkdownFromProfile(p Profile, opts Options) string {
+	let opt = normalizeOptions(opts)
+	let mut cpuIdx = findSampleType(p, "cpu")
+	if cpuIdx < 0 {
+		cpuIdx = p.SampleTypeNames.Len() - 1
+	}
+	let samplesIdx = findSampleType(p, "samples")
+	let cpuUnit = p.SampleTypeUnits[cpuIdx]
+	let isNanos = cpuUnit == "nanoseconds"
+
+	let mut totalCPU = int64(0)
+	let mut totalSamples = int64(0)
+	let mut funcs = cpuTable{
+		keyIdx:   Map[string, uint32]{},
+		keys:     []string{},
+		names:    []string{},
+		locs:     []string{},
+		selfBits: []uint64{},
+		cumBits:  []uint64{},
+		seenGen:  []uint32{},
+		gen:      uint32(0),
+	}
+	let mut stacks = stackTable{
+		keyIdx:  Map[string, uint32]{},
+		stacks:  []string{},
+		valBits: []uint64{},
+	}
+	let mut frames = resolvedFrameTable{keys: []string{}, name: []string{}, loc: []string{}}
+
+	for si in 0..p.SampleLocStart.Len() {
+		if samplesIdx >= 0 && samplesIdx < int(p.SampleValLen[si]) {
+			totalSamples = totalSamples + sampleValAt(p, si, samplesIdx)
+		}
+		if cpuIdx >= int(p.SampleValLen[si]) {
+			continue
+		}
+		let v = sampleValAt(p, si, cpuIdx)
+		if v <= int64(0) {
+			continue
+		}
+		totalCPU = totalCPU + v
+
+		resolveFramesInto(p, si, &frames)
+		if frames.keys.Len() == 0 {
+			continue
+		}
+
+		let leafIdx = int(getOrAddCPUStat(&funcs, frames.keys[0], frames.name[0], frames.loc[0]))
+		funcs.selfBits[leafIdx] = uint64(int64(funcs.selfBits[leafIdx]) + v)
+
+		funcs.gen = funcs.gen + uint32(1)
+		let curGen = funcs.gen
+		for fi in 0..frames.keys.Len() {
+			let id = int(getOrAddCPUStat(&funcs, frames.keys[fi], frames.name[fi], frames.loc[fi]))
+			if funcs.seenGen[id] == curGen {
+				continue
+			}
+			funcs.seenGen[id] = curGen
+			funcs.cumBits[id] = uint64(int64(funcs.cumBits[id]) + v)
+		}
+
+		let stackKey = formatHotStack(frames)
+		addHotStack(&stacks, stackKey, v)
+	}
+
+	if samplesIdx < 0 {
+		totalSamples = int64(p.SampleLocStart.Len())
+	}
+
+	let mut bySelf = []uint32{}
+	let mut byCum = []uint32{}
+	for i in 0..funcs.keys.Len() {
+		if int64(funcs.selfBits[i]) > int64(0) {
+			bySelf = bySelf.Append(uint32(i))
+		}
+		if int64(funcs.cumBits[i]) > int64(0) {
+			byCum = byCum.Append(uint32(i))
+		}
+	}
+
+	bySelf = slices.SortFunc(bySelf, func(ai uint32, bi uint32) int {
+		let a = int(ai)
+		let b = int(bi)
+		let sa = int64(funcs.selfBits[a])
+		let sb = int64(funcs.selfBits[b])
+		if sa != sb {
+			return if sa > sb { -1 } else { 1 }
+		}
+		let ca = int64(funcs.cumBits[a])
+		let cb = int64(funcs.cumBits[b])
+		if ca != cb {
+			return if ca > cb { -1 } else { 1 }
+		}
+		if funcs.names[a] != funcs.names[b] {
+			return if funcs.names[a] < funcs.names[b] { -1 } else { 1 }
+		}
+		if funcs.locs[a] != funcs.locs[b] {
+			return if funcs.locs[a] < funcs.locs[b] { -1 } else { 1 }
+		}
+		0
+	})
+	byCum = slices.SortFunc(byCum, func(ai uint32, bi uint32) int {
+		let a = int(ai)
+		let b = int(bi)
+		let ca = int64(funcs.cumBits[a])
+		let cb = int64(funcs.cumBits[b])
+		if ca != cb {
+			return if ca > cb { -1 } else { 1 }
+		}
+		let sa = int64(funcs.selfBits[a])
+		let sb = int64(funcs.selfBits[b])
+		if sa != sb {
+			return if sa > sb { -1 } else { 1 }
+		}
+		if funcs.names[a] != funcs.names[b] {
+			return if funcs.names[a] < funcs.names[b] { -1 } else { 1 }
+		}
+		if funcs.locs[a] != funcs.locs[b] {
+			return if funcs.locs[a] < funcs.locs[b] { -1 } else { 1 }
+		}
+		0
+	})
+
+	if bySelf.Len() > opt.Top {
+		bySelf = bySelf[:opt.Top]
+	}
+	if byCum.Len() > opt.Top {
+		byCum = byCum[:opt.Top]
+	}
+
+	let mut hotStacks = slices.WithCapacity[uint32](stacks.stacks.Len())
+	for i in 0..stacks.stacks.Len() {
+		hotStacks = hotStacks.Append(uint32(i))
+	}
+	hotStacks = slices.SortFunc(hotStacks, func(ai uint32, bi uint32) int {
+		let a = int(ai)
+		let b = int(bi)
+		let va = int64(stacks.valBits[a])
+		let vb = int64(stacks.valBits[b])
+		if va != vb {
+			return if va > vb { -1 } else { 1 }
+		}
+		if stacks.stacks[a] != stacks.stacks[b] {
+			return if stacks.stacks[a] < stacks.stacks[b] { -1 } else { 1 }
+		}
+		0
+	})
+	if hotStacks.Len() > opt.TopStacks {
+		hotStacks = hotStacks[:opt.TopStacks]
+	}
+
+	let mut b = strings.NewBuilder()
+	b.WriteString("# CPU Profile\n\n")
+	b.WriteString("- **Duration:** " + formatDurationNanos(int64(p.DurationNanosBits)) + "\n")
+	b.WriteString("- **Total CPU:** " + formatCPUVal(totalCPU, isNanos, cpuUnit) + "\n")
+	b.WriteString("- **Samples:** " + strconv.FormatInt(totalSamples, 10) + "\n")
+	let period = int64(p.PeriodBits)
+	if period > int64(0) {
+		if p.PeriodType.Unit == "nanoseconds" {
+			let hz = 1000000000.0 / float64(period)
+			b.WriteString("- **Sample Period:** " + formatDurationNanos(period) + " (" + strconv.FormatFloat(hz, 'f', 0) + " Hz)\n")
+		} else {
+			b.WriteString("- **Sample Period:** " + strconv.FormatInt(period, 10) + " " + p.PeriodType.Unit + "\n")
+		}
+	}
+	b.WriteString("- **Unique Functions:** " + strconv.Itoa(funcs.keys.Len()) + "\n")
+
+	b.WriteString("\n## Top Functions by Self Time\n\n")
+	if bySelf.Len() == 0 {
+		b.WriteString("_No CPU samples recorded._\n")
+	} else {
+		b.WriteString("| Rank | Self% | Self | Cum% | Cum | Function | Location |\n")
+		b.WriteString("| ---: | ---: | ---: | ---: | ---: | --- | --- |\n")
+		for i, id in bySelf {
+			let idx = int(id)
+			let selfVal = int64(funcs.selfBits[idx])
+			let cumVal = int64(funcs.cumBits[idx])
+			b.WriteString("| \(i + 1) | \(formatPct(selfVal, totalCPU)) | \(formatCPUVal(selfVal, isNanos, cpuUnit)) | \(formatPct(cumVal, totalCPU)) | \(formatCPUVal(cumVal, isNanos, cpuUnit)) | `\(escapeMarkdownCell(funcs.names[idx]))` | `\(escapeMarkdownCell(funcs.locs[idx]))` |\n")
+		}
+	}
+
+	b.WriteString("\n## Top Functions by Cumulative Time\n\n")
+	if byCum.Len() == 0 {
+		b.WriteString("_No CPU samples recorded._\n")
+	} else {
+		b.WriteString("| Rank | Cum% | Cum | Self% | Self | Function | Location |\n")
+		b.WriteString("| ---: | ---: | ---: | ---: | ---: | --- | --- |\n")
+		for i, id in byCum {
+			let idx = int(id)
+			let cumVal = int64(funcs.cumBits[idx])
+			let selfVal = int64(funcs.selfBits[idx])
+			b.WriteString("| \(i + 1) | \(formatPct(cumVal, totalCPU)) | \(formatCPUVal(cumVal, isNanos, cpuUnit)) | \(formatPct(selfVal, totalCPU)) | \(formatCPUVal(selfVal, isNanos, cpuUnit)) | `\(escapeMarkdownCell(funcs.names[idx]))` | `\(escapeMarkdownCell(funcs.locs[idx]))` |\n")
+		}
+	}
+
+	b.WriteString("\n## Hot Call Stacks (caller -> leaf)\n\n")
+	if hotStacks.Len() == 0 {
+		b.WriteString("_No call stacks recorded._\n")
+	} else {
+		b.WriteString("| Rank | % | Time | Stack |\n")
+		b.WriteString("| ---: | ---: | ---: | --- |\n")
+		for i, id in hotStacks {
+			let idx = int(id)
+			let sv = int64(stacks.valBits[idx])
+			b.WriteString("| \(i + 1) | \(formatPct(sv, totalCPU)) | \(formatCPUVal(sv, isNanos, cpuUnit)) | `\(escapeMarkdownCell(stacks.stacks[idx]))` |\n")
+		}
+	}
+
+	b.String()
+}
+
+// RenderCPUMarkdown decodes a pprof CPU profile and renders an agent-readable Markdown summary.
+func RenderCPUMarkdown(pprofBytes []byte, opts Options) string fails ProfileError {
+	let p = try ParseProfile(pprofBytes)
+	RenderCPUMarkdownFromProfile(p, opts)
+}
+
+// RenderHeapMarkdownFromProfile renders a decoded heap profile as deterministic Markdown.
+func RenderHeapMarkdownFromProfile(p Profile, opts Options) string fails ProfileError {
+	let opt = normalizeOptions(opts)
+	let allocObjIdx = findSampleType(p, "alloc_objects")
+	let allocSpaceIdx = findSampleType(p, "alloc_space")
+	let inuseObjIdx = findSampleType(p, "inuse_objects")
+	let inuseSpaceIdx = findSampleType(p, "inuse_space")
+	if allocSpaceIdx < 0 && inuseSpaceIdx < 0 {
+		return MissingHeapSampleTypes
+	}
+
+	let mut totalAllocSpace = int64(0)
+	let mut totalAllocObjects = int64(0)
+	let mut totalInuseSpace = int64(0)
+	let mut totalInuseObjects = int64(0)
+	let mut funcs = heapTable{
+		keyIdx:   Map[string, uint32]{},
+		keys:     []string{},
+		names:    []string{},
+		locs:     []string{},
+		allocSp:  []uint64{},
+		allocObj: []uint64{},
+		cumAlloc: []uint64{},
+		inuseSp:  []uint64{},
+		inuseObj: []uint64{},
+		cumInuse: []uint64{},
+		seenGen:  []uint32{},
+		gen:      uint32(0),
+	}
+	let mut frames = resolvedFrameTable{keys: []string{}, name: []string{}, loc: []string{}}
+
+	for si in 0..p.SampleLocStart.Len() {
+		let allocSpace = sampleValAt(p, si, allocSpaceIdx)
+		let allocObj = sampleValAt(p, si, allocObjIdx)
+		let inuseSpace = sampleValAt(p, si, inuseSpaceIdx)
+		let inuseObj = sampleValAt(p, si, inuseObjIdx)
+
+		totalAllocSpace = totalAllocSpace + allocSpace
+		totalAllocObjects = totalAllocObjects + allocObj
+		totalInuseSpace = totalInuseSpace + inuseSpace
+		totalInuseObjects = totalInuseObjects + inuseObj
+
+		if allocSpace <= int64(0) && allocObj <= int64(0) && inuseSpace <= int64(0) && inuseObj <= int64(0) {
+			continue
+		}
+
+		resolveFramesInto(p, si, &frames)
+		if frames.keys.Len() == 0 {
+			continue
+		}
+
+		let leafIdx = int(getOrAddHeapStat(&funcs, frames.keys[0], frames.name[0], frames.loc[0]))
+		funcs.allocSp[leafIdx] = uint64(int64(funcs.allocSp[leafIdx]) + allocSpace)
+		funcs.allocObj[leafIdx] = uint64(int64(funcs.allocObj[leafIdx]) + allocObj)
+		funcs.inuseSp[leafIdx] = uint64(int64(funcs.inuseSp[leafIdx]) + inuseSpace)
+		funcs.inuseObj[leafIdx] = uint64(int64(funcs.inuseObj[leafIdx]) + inuseObj)
+
+		funcs.gen = funcs.gen + uint32(1)
+		let curGen = funcs.gen
+		for fi in 0..frames.keys.Len() {
+			let id = int(getOrAddHeapStat(&funcs, frames.keys[fi], frames.name[fi], frames.loc[fi]))
+			if funcs.seenGen[id] == curGen {
+				continue
+			}
+			funcs.seenGen[id] = curGen
+			funcs.cumAlloc[id] = uint64(int64(funcs.cumAlloc[id]) + allocSpace)
+			funcs.cumInuse[id] = uint64(int64(funcs.cumInuse[id]) + inuseSpace)
+		}
+	}
+
+	let mut byAlloc = []uint32{}
+	let mut byInuse = []uint32{}
+	for i in 0..funcs.keys.Len() {
+		if int64(funcs.allocSp[i]) > int64(0) {
+			byAlloc = byAlloc.Append(uint32(i))
+		}
+		if int64(funcs.inuseSp[i]) > int64(0) {
+			byInuse = byInuse.Append(uint32(i))
+		}
+	}
+
+	byAlloc = slices.SortFunc(byAlloc, func(ai uint32, bi uint32) int {
+		let a = int(ai)
+		let b = int(bi)
+		let sa = int64(funcs.allocSp[a])
+		let sb = int64(funcs.allocSp[b])
+		if sa != sb {
+			return if sa > sb { -1 } else { 1 }
+		}
+		let ca = int64(funcs.cumAlloc[a])
+		let cb = int64(funcs.cumAlloc[b])
+		if ca != cb {
+			return if ca > cb { -1 } else { 1 }
+		}
+		let oa = int64(funcs.allocObj[a])
+		let ob = int64(funcs.allocObj[b])
+		if oa != ob {
+			return if oa > ob { -1 } else { 1 }
+		}
+		if funcs.names[a] != funcs.names[b] {
+			return if funcs.names[a] < funcs.names[b] { -1 } else { 1 }
+		}
+		if funcs.locs[a] != funcs.locs[b] {
+			return if funcs.locs[a] < funcs.locs[b] { -1 } else { 1 }
+		}
+		0
+	})
+	byInuse = slices.SortFunc(byInuse, func(ai uint32, bi uint32) int {
+		let a = int(ai)
+		let b = int(bi)
+		let sa = int64(funcs.inuseSp[a])
+		let sb = int64(funcs.inuseSp[b])
+		if sa != sb {
+			return if sa > sb { -1 } else { 1 }
+		}
+		let ca = int64(funcs.cumInuse[a])
+		let cb = int64(funcs.cumInuse[b])
+		if ca != cb {
+			return if ca > cb { -1 } else { 1 }
+		}
+		let oa = int64(funcs.inuseObj[a])
+		let ob = int64(funcs.inuseObj[b])
+		if oa != ob {
+			return if oa > ob { -1 } else { 1 }
+		}
+		if funcs.names[a] != funcs.names[b] {
+			return if funcs.names[a] < funcs.names[b] { -1 } else { 1 }
+		}
+		if funcs.locs[a] != funcs.locs[b] {
+			return if funcs.locs[a] < funcs.locs[b] { -1 } else { 1 }
+		}
+		0
+	})
+
+	if byAlloc.Len() > opt.Top {
+		byAlloc = byAlloc[:opt.Top]
+	}
+	if byInuse.Len() > opt.Top {
+		byInuse = byInuse[:opt.Top]
+	}
+
+	let mut b = strings.NewBuilder()
+	b.WriteString("# Heap Profile\n\n")
+	b.WriteString("- **Alloc Space:** \(formatBytes(totalAllocSpace)) (\(strconv.FormatInt(totalAllocSpace, 10)) B)\n")
+	b.WriteString("- **Alloc Objects:** \(strconv.FormatInt(totalAllocObjects, 10))\n")
+	b.WriteString("- **In-Use Space:** \(formatBytes(totalInuseSpace)) (\(strconv.FormatInt(totalInuseSpace, 10)) B)\n")
+	b.WriteString("- **In-Use Objects:** \(strconv.FormatInt(totalInuseObjects, 10))\n")
+	b.WriteString("- **Unique Functions:** \(funcs.keys.Len())\n")
+
+	b.WriteString("\n## Top Allocators by Bytes (alloc_space)\n\n")
+	if byAlloc.Len() == 0 {
+		b.WriteString("_No allocations recorded._\n")
+	} else {
+		b.WriteString("| Rank | % | Alloc Bytes | Cum Bytes | Alloc Objects | Function | Location |\n")
+		b.WriteString("| ---: | ---: | ---: | ---: | ---: | --- | --- |\n")
+		for i, id in byAlloc {
+			let idx = int(id)
+			let sp = int64(funcs.allocSp[idx])
+			let cum = int64(funcs.cumAlloc[idx])
+			let obj = int64(funcs.allocObj[idx])
+			b.WriteString("| \(i + 1) | \(formatPct(sp, totalAllocSpace)) | \(formatBytes(sp)) | \(formatBytes(cum)) | \(strconv.FormatInt(obj, 10)) | `\(escapeMarkdownCell(funcs.names[idx]))` | `\(escapeMarkdownCell(funcs.locs[idx]))` |\n")
+		}
+	}
+
+	b.WriteString("\n## Top Live Heap (inuse_space)\n\n")
+	if byInuse.Len() == 0 {
+		b.WriteString("_No live heap objects recorded._\n")
+	} else {
+		b.WriteString("| Rank | % | In-Use Bytes | Cum Bytes | In-Use Objects | Function | Location |\n")
+		b.WriteString("| ---: | ---: | ---: | ---: | ---: | --- | --- |\n")
+		for i, id in byInuse {
+			let idx = int(id)
+			let sp = int64(funcs.inuseSp[idx])
+			let cum = int64(funcs.cumInuse[idx])
+			let obj = int64(funcs.inuseObj[idx])
+			b.WriteString("| \(i + 1) | \(formatPct(sp, totalInuseSpace)) | \(formatBytes(sp)) | \(formatBytes(cum)) | \(strconv.FormatInt(obj, 10)) | `\(escapeMarkdownCell(funcs.names[idx]))` | `\(escapeMarkdownCell(funcs.locs[idx]))` |\n")
+		}
+	}
+
+	b.String()
+}
+
+// RenderHeapMarkdown decodes a pprof heap profile and renders an agent-readable Markdown summary.
+func RenderHeapMarkdown(pprofBytes []byte, opts Options) string fails ProfileError {
+	let p = try ParseProfile(pprofBytes)
+	RenderHeapMarkdownFromProfile(p, opts)
+}
+
+type synthFunc {
+	id   uint64,
+	name string,
+	file string,
+	line uint64,
+}
+
+type synthSample {
+	funcIDs []uint64,
+	values  []uint64,
+}
+
+type synthSpec {
+	sampleTypes   [][]string,
+	durationNanos uint64,
+	periodType    []string,
+	period        uint64,
+	functions     []synthFunc,
+	samples       []synthSample,
+}
+
+func buildSynthProfile(spec synthSpec) []byte {
+	let mut strs = []string{""}
+	let mut idxMap Map[string, uint64] = Map[string, uint64]{"": uint64(0)}
+	let intern = func(s string) uint64 {
+		match idxMap.Get(s) {
+		case option.Some{Value: idx}:
+			idx
+		case option.None:
+			let idx = uint64(strs.Len())
+			strs = strs.Append(s)
+			idxMap = idxMap.Put(s, idx)
+			idx
+		}
+	}
+
+	let mut msg = []byte{}
+	for st in spec.sampleTypes {
+		let mut sub = []byte{}
+		sub = appendProtoVarintField(sub, uint64(1), intern(st[0]))
+		sub = appendProtoVarintField(sub, uint64(2), intern(st[1]))
+		msg = appendProtoBytesField(msg, uint64(1), sub)
+	}
+	for s in spec.samples {
+		let mut sub = []byte{}
+		let mut packedLocs = []byte{}
+		for id in s.funcIDs {
+			packedLocs = appendProtoVarintBytes(packedLocs, id)
+		}
+		sub = appendProtoBytesField(sub, uint64(1), packedLocs)
+		let mut packedVals = []byte{}
+		for v in s.values {
+			packedVals = appendProtoVarintBytes(packedVals, v)
+		}
+		sub = appendProtoBytesField(sub, uint64(2), packedVals)
+		msg = appendProtoBytesField(msg, uint64(2), sub)
+	}
+	for fn in spec.functions {
+		let mut lineMsg = []byte{}
+		lineMsg = appendProtoVarintField(lineMsg, uint64(1), fn.id)
+		lineMsg = appendProtoVarintField(lineMsg, uint64(2), fn.line)
+		let mut locMsg = []byte{}
+		locMsg = appendProtoVarintField(locMsg, uint64(1), fn.id)
+		locMsg = appendProtoBytesField(locMsg, uint64(4), lineMsg)
+		msg = appendProtoBytesField(msg, uint64(4), locMsg)
+
+		let mut fnMsg = []byte{}
+		fnMsg = appendProtoVarintField(fnMsg, uint64(1), fn.id)
+		fnMsg = appendProtoVarintField(fnMsg, uint64(2), intern(fn.name))
+		fnMsg = appendProtoVarintField(fnMsg, uint64(4), intern(fn.file))
+		fnMsg = appendProtoVarintField(fnMsg, uint64(5), fn.line)
+		msg = appendProtoBytesField(msg, uint64(5), fnMsg)
+	}
+	for s in strs {
+		msg = appendProtoBytesField(msg, uint64(6), s.Bytes())
+	}
+	if spec.durationNanos != uint64(0) {
+		msg = appendProtoVarintField(msg, uint64(10), spec.durationNanos)
+	}
+	if spec.periodType.Len() == 2 && spec.periodType[0] != "" {
+		let mut sub = []byte{}
+		sub = appendProtoVarintField(sub, uint64(1), intern(spec.periodType[0]))
+		sub = appendProtoVarintField(sub, uint64(2), intern(spec.periodType[1]))
+		msg = appendProtoBytesField(msg, uint64(11), sub)
+	}
+	if spec.period != uint64(0) {
+		msg = appendProtoVarintField(msg, uint64(12), spec.period)
+	}
+	zlib.Gzip(msg)
+}
+
+func extractMarkdownSection(md string, startHeading string, endHeading string) string {
+	let i = strings.Index(md, startHeading)
+	if i < 0 {
+		return ""
+	}
+	let mut rest = md[i+startHeading.Len() : md.Len()]
+	if endHeading != "" {
+		let j = strings.Index(rest, endHeading)
+		if j >= 0 {
+			rest = rest[0:j]
+		}
+	}
+	rest
+}
+
+func extractTableRows(section string) []string {
+	let mut rows = []string{}
+	for line in strings.Split(section, "\n") {
+		if !strings.HasPrefix(line, "| ") {
+			continue
+		}
+		if strings.HasPrefix(line, "| Rank ") || strings.HasPrefix(line, "| ---") {
+			continue
+		}
+		rows = rows.Append(line)
+	}
+	rows
+}
+
+test RenderCPUMarkdownAccountingAndTopLimit {
+	let raw = buildSynthProfile(synthSpec{
+		sampleTypes: [][]string{
+			[]string{"samples", "count"},
+			[]string{"cpu", "nanoseconds"},
+		},
+		durationNanos: uint64(100000000),
+		periodType:    []string{"cpu", "nanoseconds"},
+		period:        uint64(10000000),
+		functions:     []synthFunc{
+			synthFunc{id: uint64(1), name: "pkg.leafHot", file: "/repo/internal/hot/work.go", line: uint64(10)},
+			synthFunc{id: uint64(2), name: "pkg.midCaller", file: "/repo/internal/hot/mid.go", line: uint64(20)},
+			synthFunc{id: uint64(3), name: "pkg.rootCaller", file: "/repo/internal/hot/root.go", line: uint64(30)},
+			synthFunc{id: uint64(4), name: "pkg.leafRec", file: "/repo/internal/hot/rec.go", line: uint64(40)},
+			synthFunc{id: uint64(5), name: "pkg.leafSmall", file: "/repo/internal/hot/small.go", line: uint64(50)},
+		},
+		samples: []synthSample{
+			synthSample{funcIDs: []uint64{uint64(1), uint64(2), uint64(3)}, values: []uint64{uint64(7), uint64(70000000)}},
+			synthSample{funcIDs: []uint64{uint64(4), uint64(4), uint64(3)}, values: []uint64{uint64(2), uint64(20000000)}},
+			synthSample{funcIDs: []uint64{uint64(5), uint64(3)}, values: []uint64{uint64(1), uint64(10000000)}},
+		},
+	})
+	let md = try RenderCPUMarkdown(raw, Options{Top: 2, TopStacks: 2})
+	let selfSec = extractMarkdownSection(md, "## Top Functions by Self Time", "## Top Functions by Cumulative Time")
+	let selfRows = extractTableRows(selfSec)
+	assert selfRows.Len() == 2
+	assert strings.Contains(selfRows[0], "`pkg.leafHot`") && strings.Contains(selfRows[0], "70.0%")
+	assert strings.Contains(selfRows[1], "`pkg.leafRec`") && strings.Contains(selfRows[1], "| 20.0% | 20.00ms | 20.0% | 20.00ms |")
+
+	let cumSec = extractMarkdownSection(md, "## Top Functions by Cumulative Time", "## Hot Call Stacks (caller -> leaf)")
+	let cumRows = extractTableRows(cumSec)
+	assert cumRows.Len() == 2
+	assert strings.Contains(cumRows[0], "`pkg.rootCaller`") && strings.Contains(cumRows[0], "| 100.0% | 100.00ms | 0.0% | 0ms |")
+
+	let stackSec = extractMarkdownSection(md, "## Hot Call Stacks (caller -> leaf)", "")
+	let stackRows = extractTableRows(stackSec)
+	assert stackRows.Len() == 2
+	assert strings.Contains(stackRows[0], "`pkg.rootCaller -> pkg.midCaller -> pkg.leafHot`")
+}
+
+test RenderHeapMarkdownAllocVsInuse {
+	let raw = buildSynthProfile(synthSpec{
+		sampleTypes: [][]string{
+			[]string{"alloc_objects", "count"},
+			[]string{"alloc_space", "bytes"},
+			[]string{"inuse_objects", "count"},
+			[]string{"inuse_space", "bytes"},
+		},
+		durationNanos: uint64(0),
+		periodType:    []string{},
+		period:        uint64(0),
+		functions:     []synthFunc{
+			synthFunc{id: uint64(1), name: "pkg.allocHeavy", file: "/repo/a/heavy.go", line: uint64(12)},
+			synthFunc{id: uint64(2), name: "pkg.retainer", file: "/repo/a/retain.go", line: uint64(34)},
+			synthFunc{id: uint64(3), name: "pkg.tiny", file: "/repo/a/tiny.go", line: uint64(56)},
+		},
+		samples: []synthSample{
+			synthSample{funcIDs: []uint64{uint64(1)}, values: []uint64{uint64(400), uint64(4 * 1024 * 1024), uint64(0), uint64(0)}},
+			synthSample{funcIDs: []uint64{uint64(2)}, values: []uint64{uint64(10), uint64(1 * 1024 * 1024), uint64(10), uint64(1 * 1024 * 1024)}},
+			synthSample{funcIDs: []uint64{uint64(3)}, values: []uint64{uint64(2), uint64(2048), uint64(1), uint64(1024)}},
+		},
+	})
+	let md = try RenderHeapMarkdown(raw, Options{Top: 2, TopStacks: 0})
+	let allocSec = extractMarkdownSection(md, "## Top Allocators by Bytes (alloc_space)", "## Top Live Heap (inuse_space)")
+	let allocRows = extractTableRows(allocSec)
+	assert allocRows.Len() == 2
+	assert strings.Contains(allocRows[0], "`pkg.allocHeavy`") && strings.Contains(allocRows[0], "4.00 MiB")
+
+	let inuseSec = extractMarkdownSection(md, "## Top Live Heap (inuse_space)", "")
+	let inuseRows = extractTableRows(inuseSec)
+	assert inuseRows.Len() == 2
+	assert strings.Contains(inuseRows[0], "`pkg.retainer`") && strings.Contains(inuseRows[0], "1.00 MiB")
+	assert !strings.Contains(inuseSec, "`pkg.allocHeavy`")
+
+	let cpuOnly = buildSynthProfile(synthSpec{
+		sampleTypes:   [][]string{[]string{"cpu", "nanoseconds"}},
+		durationNanos: uint64(0),
+		periodType:    []string{},
+		period:        uint64(0),
+		functions:     []synthFunc{},
+		samples:       []synthSample{},
+	})
+	let mut heapErr = false
+	let _ = RenderHeapMarkdown(cpuOnly, Options{Top: 0, TopStacks: 0}) catch {
+	case MissingHeapSampleTypes:
+		heapErr = true
+		""
+	case _:
+		""
+	}
+	assert heapErr
+}

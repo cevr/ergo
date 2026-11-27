@@ -1,0 +1,1051 @@
+import compiler/ergobuild
+import compiler/lawcache
+import compiler/profmd
+import compiler/sizes
+import compiler/task
+import compiler/testwait
+import fs
+import fstest
+import io
+import json
+import option
+import os
+import slices
+import strconv
+import strings
+import sync
+import time
+
+// BuildIn holds the input payload for the ergobuild subcommand.
+type BuildIn {
+	Version string,
+	Out     string,
+	Pkg     string,
+	Flags   []string,
+	Env     []string,
+}
+
+// BuildOut holds the computed ergobuild outputs for parity comparison.
+type BuildOut {
+	Install string,
+	Flags   []string,
+	Program string,
+	Out     string,
+	Pkg     string,
+	Args    []string,
+	Env     []string,
+}
+
+// WaitOut holds testwait calculations in nanoseconds (int) for parity comparison.
+type WaitOut {
+	HasEnd           bool,
+	ReserveNs        int,
+	LeftNs           int,
+	ExpiredAtEnd     bool,
+	ExpiredBeforeEnd bool,
+	PollsNs          []int,
+}
+
+// SizePkgOut holds sizes.Package and sizes.LinkedPackage results.
+type SizePkgOut {
+	Pkg    string,
+	Linked bool,
+}
+
+// NameSizeOut pairs an ELF section name or package name with its byte count.
+type NameSizeOut {
+	Name  string,
+	Bytes uint64,
+}
+
+// SizeElfOut holds measured ELF metrics for parity comparison against Go sizes.MeasureBinary.
+type SizeElfOut {
+	Size        uint64,
+	Stripped    uint64,
+	MainSymbols int,
+	GoPackages  int,
+	SymbolCount int,
+	Sections    []NameSizeOut,
+	Text        []NameSizeOut,
+	SymbolsHead []string,
+}
+
+// BudgetCheckOut holds validated budget metadata and CheckBudget violation messages.
+type BudgetCheckOut {
+	Reason       string,
+	FixtureCount int,
+	Valid        bool,
+	LedgerError  string,
+	Problems     []string,
+}
+
+// SizeChecksIn holds inputs for sizes CheckReproducible and CheckDefectOutput.
+type SizeChecksIn {
+	Root         string,
+	Names        []string,
+	BodiesText   []string,
+	DebugExit    int,
+	DebugOut     string,
+	StrippedExit int,
+	StrippedOut  string,
+}
+
+// SizeChecksOut holds CheckReproducible problems and CheckDefectOutput result.
+type SizeChecksOut {
+	DefaultFixturesCount int,
+	ReproProblems        []string,
+	DefectError          string,
+}
+
+// KVStr pairs two strings for JSON payloads.
+type KVStr {
+	Key string,
+	Val string,
+}
+
+// TaskRecordIn describes one stored LastKey generator record.
+type TaskRecordIn {
+	Name     string,
+	Class    string,
+	Ident    string,
+	Env      string,
+	Files    []KVStr,
+	Dirs     []KVStr,
+	Outs     []KVStr,
+	EntryKey string,
+	RawText  string,
+}
+
+// TaskAffectedIn describes the inputs to task-affected.
+type TaskAffectedIn {
+	Root         string,
+	Records      []TaskRecordIn,
+	Changed      []string,
+	BaseDirs     []KVStr,
+	WorkDirs     []KVStr,
+	CurFiles     []KVStr,
+	CurEnv       string,
+	LookupIdx    int,
+	DiffA        string,
+	DiffB        string,
+	SeedStatText string,
+}
+
+// EdgeOut holds one directed graph edge (From, To).
+type EdgeOut {
+	From uint32,
+	To   uint32,
+}
+
+// AffectOut holds one affected node entry.
+type AffectOut {
+	Name string,
+	Why  string,
+}
+
+// TaskAffectedOut holds the graph, affected closure, lookup, and diff parity outputs.
+type TaskAffectedOut {
+	Order        []uint32,
+	Edges        []EdgeOut,
+	Cycles       [][]uint32,
+	Affected     []AffectOut,
+	LookupHit    bool,
+	LookupWhy    string,
+	FirstDiffOut string,
+	StatPaths    []string,
+}
+
+// TaskEnvIn holds inputs for task-env.
+type TaskEnvIn {
+	Host     []string,
+	Names    []string,
+	Extra    []string,
+	Root     string,
+	GoList   string,
+	GenName  string,
+	GenCmd   []string,
+	GenReads []string,
+}
+
+// TaskEnvOut holds parity outputs for StatedFrom, EnvKey, ChildEnviron, GoPackage, GoList.
+type TaskEnvOut {
+	Entries  []string,
+	EnvKey   string,
+	Environ  []string,
+	Pkg      string,
+	IsTest   bool,
+	Ident    string,
+	PkgError string,
+	InFiles  []string,
+	InDirs   []string,
+}
+
+// StepSpecIn holds one step specification and simulated outcomes for task-verdicts.
+type StepSpecIn {
+	Task        string,
+	Verb        string,
+	Member      string,
+	Class       string,
+	HasKey      bool,
+	Retry       bool,
+	After       []uint32,
+	Parts       []KVStr,
+	PostParts   []KVStr,
+	Paths       []string,
+	CustomPaths []string,
+	UseCustom   bool,
+	Outcomes    []bool,
+	Logs        []string,
+}
+
+// TaskVerdictsIn holds inputs for task-verdicts.
+type TaskVerdictsIn {
+	Root         string,
+	Fresh        bool,
+	Affected     bool,
+	Changed      []string,
+	RunWrites    []string,
+	PriorEntries []KVStr,
+	Steps        []StepSpecIn,
+}
+
+// StepResultOut holds serialized StepResult parity fields.
+type StepResultOut {
+	Task         string,
+	Step         string,
+	Member       string,
+	Verdict      string,
+	Replay       string,
+	Why          string,
+	Class        string,
+	Log          string,
+	Seed         string,
+	Contradicted bool,
+	BlockedBy    string,
+}
+
+// TaskVerdictsOut holds VerdictReport parity outputs.
+type TaskVerdictsOut {
+	Failed bool,
+	Steps  []StepResultOut,
+}
+
+// GenNodeIn describes a deterministic simulated generator for task-gen.
+type GenNodeIn {
+	Name   string,
+	Class  string,
+	Ident  string,
+	InFile string,
+	Out    string,
+	Drift  bool,
+}
+
+// TaskGenIn describes inputs to RunGen parity check.
+type TaskGenIn {
+	Root  string,
+	Files []KVStr,
+	Nodes []GenNodeIn,
+	Check bool,
+	Fresh bool,
+}
+
+// TaskGenOut describes outputs of RunGen parity check.
+type TaskGenOut {
+	Order        []string,
+	Passes       int,
+	Failed       bool,
+	Contradicted []string,
+	Stale        []string,
+	Lines        []string,
+	Files        []KVStr,
+}
+
+func failExit(msg string) string fails os.Exit {
+	os.Exit{Code: 1, Message: msg}
+}
+
+func readText(path string) string fails os.Exit needs fs.Files {
+	fs.Files.ReadFile(path) catch {
+	case fs.NotFound as e:
+		return failExit("not found: \(e.Path)")
+	case fs.Denied as e:
+		return failExit("denied: \(e.Path)")
+	case fs.Failed as e:
+		return failExit("read failed \(e.Path): \(e.Reason)")
+	}
+}
+
+func cmdErgoBuild(path string) string fails os.Exit needs fs.Files {
+	let raw = try readText(path)
+	let inp = json.Decode(json.Codec[BuildIn]{MaxBytes: 0, MaxDepth: 0}, raw) catch {
+	case json.Malformed, WireMissingField, WireWrongKind:
+		return failExit("bad ergobuild input json")
+	}
+	let cmd = ergobuild.Command(inp.Out, inp.Pkg, inp.Flags, inp.Env)
+	let out = BuildOut{
+		Install: ergobuild.InstallCommand(inp.Version),
+		Flags:   ergobuild.BuildFlags(),
+		Program: cmd.Program,
+		Out:     cmd.Out,
+		Pkg:     cmd.Pkg,
+		Args:    cmd.Args,
+		Env:     cmd.Env,
+	}
+	json.Encode(json.Codec[BuildOut]{MaxBytes: 0, MaxDepth: 0}, out)
+}
+
+func cmdTestWait(nowSecText string, offsetMsText string, pollCountText string) string fails os.Exit {
+	let nowSec = strconv.ParseInt(nowSecText, 10, 64) catch {
+	case _:
+		return failExit("bad nowSec")
+	}
+	let offMs = strconv.ParseInt(offsetMsText, 10, 64) catch {
+	case _:
+		return failExit("bad offsetMs")
+	}
+	let pollsN = strconv.Atoi(pollCountText) catch {
+	case _:
+		return failExit("bad pollCount")
+	}
+	let now = time.Unix(nowSec, int64(0))
+	let dl = if offMs < int64(0) {
+		option.None
+	} else {
+		option.Some[time.Time]{Value: now.Add(time.Times(1ms, int(offMs)))}
+	}
+	let endOpt = testwait.End(now, dl)
+	let (hasEnd, reserveNs, atEnd, beforeEnd) = match endOpt {
+	case option.Some{Value: e}:
+		let rawDl = now.Add(time.Times(1ms, int(offMs)))
+		let share = rawDl.Sub(e)
+		let b = testwait.ExpiredAt(e.Add(-1ns), endOpt)
+		(true, int(int64(share)), testwait.ExpiredAt(e, endOpt), b)
+	case option.None:
+		(false, 0, testwait.ExpiredAt(now, endOpt), false)
+	}
+	let left = testwait.Left(now, dl)
+	let sched = testwait.PollSchedule(uint32(pollsN))
+	let mut pollsNs = slices.WithCapacity[int](sched.Len())
+	for d in sched {
+		pollsNs = pollsNs.Append(int(int64(d)))
+	}
+	let out = WaitOut{
+		HasEnd:           hasEnd,
+		ReserveNs:        reserveNs,
+		LeftNs:           int(int64(left)),
+		ExpiredAtEnd:     atEnd,
+		ExpiredBeforeEnd: beforeEnd,
+		PollsNs:          pollsNs,
+	}
+	json.Encode(json.Codec[WaitOut]{MaxBytes: 0, MaxDepth: 0}, out)
+}
+
+func cmdSizesPkg(sym string) string {
+	let pkg = sizes.Package(sym)
+	let out = SizePkgOut{Pkg: pkg, Linked: sizes.LinkedPackage(pkg)}
+	json.Encode(json.Codec[SizePkgOut]{MaxBytes: 0, MaxDepth: 0}, out)
+}
+
+func sortedPairs(keys []string, vals []uint64) []NameSizeOut {
+	let mut idxMap = Map[string, uint32]{}
+	for i in 0..keys.Len() {
+		idxMap[keys[i]] = uint32(i)
+	}
+	let sorted = slices.Sort(slices.Clone(keys))
+	let mut out = slices.WithCapacity[NameSizeOut](sorted.Len())
+	for k in sorted {
+		match idxMap.Get(k) {
+		case option.Some{Value: idx}:
+			out = out.Append(NameSizeOut{Name: k, Bytes: vals[int(idx)]})
+		case option.None:
+		}
+	}
+	out
+}
+
+func validateBudgetMsg(b sizes.Budget) string {
+	sizes.ValidateBudget(b) catch {
+	case sizes.BudgetError as e:
+		return e.Reason
+	}
+	""
+}
+
+func cmdSizesElf(defPath string, stripPath string, goPkgsText string) string fails os.Exit needs fs.Files {
+	let gp = strconv.Atoi(goPkgsText) catch {
+	case _:
+		return failExit("bad goPackages")
+	}
+	let defText = try readText(defPath)
+	let strippedStat = fs.Files.Stat(stripPath) catch {
+	case fs.NotFound as e:
+		return failExit("not found: \(e.Path)")
+	case fs.Denied as e:
+		return failExit("denied: \(e.Path)")
+	case fs.Failed as e:
+		return failExit("stat failed \(e.Path): \(e.Reason)")
+	}
+	let mut bin = sizes.MeasureELFBytes(defPath, defText.Bytes(), uint64(strippedStat.Size)) catch {
+	case sizes.ELFError as e:
+		return failExit("elf measure \(e.Path): \(e.Reason)")
+	}
+	bin.GoPackages = gp
+	let headN = if bin.Symbols.Len() < 20 { bin.Symbols.Len() } else { 20 }
+	let out = SizeElfOut{
+		Size:        bin.Size,
+		Stripped:    bin.Stripped,
+		MainSymbols: bin.MainSymbols,
+		GoPackages:  bin.GoPackages,
+		SymbolCount: bin.Symbols.Len(),
+		Sections:    sortedPairs(bin.SectionNames, bin.SectionSizes),
+		Text:        sortedPairs(bin.TextPkgs, bin.TextBytes),
+		SymbolsHead: slices.Clone(bin.Symbols[0:headN]),
+	}
+	json.Encode(json.Codec[SizeElfOut]{MaxBytes: 0, MaxDepth: 0}, out)
+}
+
+func cmdSizesBudget(budgetPath string, receiptsPath string) string fails os.Exit needs fs.Files {
+	let bRaw = try readText(budgetPath)
+	let parsedB = sizes.ParseBudgetJSON(bRaw) catch {
+	case sizes.BudgetError as e:
+		return failExit("parse budget: \(e.Reason)")
+	}
+	let ledgerErr = validateBudgetMsg(parsedB)
+	let valid = ledgerErr == ""
+	let rRaw = try readText(receiptsPath)
+	let rVal = json.Decode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, rRaw) catch {
+	case json.Malformed, WireMissingField, WireWrongKind, WireUnknownTag:
+		return failExit("bad receipts json")
+	}
+	let items = match rVal {
+	case json.Array as arr:
+		arr.Items
+	case _:
+		return failExit("receipts json must be array")
+	}
+	let c = json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}
+	let mut receipts = slices.WithCapacity[sizes.Receipt](items.Len())
+	for item in items {
+		let rText = json.Encode(c, item)
+		let r = sizes.DecodeReceiptJSON(rText) catch {
+		case sizes.BudgetError as e:
+			return failExit("decode receipt: \(e.Reason)")
+		}
+		receipts = receipts.Append(r)
+	}
+	let probs = sizes.CheckBudget(parsedB, receipts)
+	let out = BudgetCheckOut{
+		Reason:       parsedB.Reason,
+		FixtureCount: parsedB.Names.Len(),
+		Valid:        valid,
+		LedgerError:  ledgerErr,
+		Problems:     probs,
+	}
+	json.Encode(json.Codec[BudgetCheckOut]{MaxBytes: 0, MaxDepth: 0}, out)
+}
+
+func cmdSizesChecks(path string) string fails os.Exit needs fs.Files {
+	let raw = try readText(path)
+	let inp = json.Decode(json.Codec[SizeChecksIn]{MaxBytes: 0, MaxDepth: 0}, raw) catch {
+	case json.Malformed, WireMissingField, WireWrongKind:
+		return failExit("bad sizes-checks json")
+	}
+	let mut bodies = slices.WithCapacity[[]byte](inp.BodiesText.Len())
+	for bt in inp.BodiesText {
+		bodies = bodies.Append(bt.Bytes())
+	}
+	let out = SizeChecksOut{
+		DefaultFixturesCount: sizes.DefaultFixtures().Len(),
+		ReproProblems:        sizes.CheckReproducible(inp.Root, inp.Names, bodies),
+		DefectError:          sizes.CheckDefectOutput(inp.DebugExit, inp.DebugOut, inp.StrippedExit, inp.StrippedOut),
+	}
+	json.Encode(json.Codec[SizeChecksOut]{MaxBytes: 0, MaxDepth: 0}, out)
+}
+
+func cmdProfmd(mode string, gzPath string, topText string, topStacksText string) string fails os.Exit needs fs.Files {
+	let top = strconv.Atoi(topText) catch {
+	case _:
+		return failExit("bad top")
+	}
+	let topStacks = strconv.Atoi(topStacksText) catch {
+	case _:
+		return failExit("bad topStacks")
+	}
+	let data = try readText(gzPath)
+	let opts = profmd.Options{Top: top, TopStacks: topStacks}
+	if mode == "cpu" {
+		let md = profmd.RenderCPUMarkdown(data.Bytes(), opts) catch {
+		case profmd.ProfileError as e:
+			return failExit(profmd.ProfileErrorMessage(e))
+		}
+		return md
+	}
+	if mode == "heap" {
+		let md = profmd.RenderHeapMarkdown(data.Bytes(), opts) catch {
+		case profmd.ProfileError as e:
+			return failExit(profmd.ProfileErrorMessage(e))
+		}
+		return md
+	}
+	failExit("unknown profmd mode: \(mode)")
+}
+
+type jsonBase {
+	changed Map[string, bool],
+	baseDir Map[string, string],
+	workDir Map[string, string],
+} implements task.BaseProvider
+
+func Changed(b jsonBase, path string) bool {
+	match b.changed.Get(path) {
+	case option.Some{Value: v}:
+		v
+	case option.None:
+		false
+	}
+}
+
+func BaseListing(b jsonBase, dir string) string fails task.TaskError {
+	match b.baseDir.Get(dir) {
+	case option.Some{Value: v}:
+		v
+	case option.None:
+		task.Missing
+	}
+}
+
+func WorkingListing(b jsonBase, root string, dir string) string fails task.TaskError {
+	match b.workDir.Get(dir) {
+	case option.Some{Value: v}:
+		v
+	case option.None:
+		task.Missing
+	}
+}
+
+type jsonTreeProvider {
+	files Map[string, string],
+	dirs  Map[string, string],
+} implements task.TreeDigestProvider
+
+func Digest(t jsonTreeProvider, root string, rel string) string fails task.TaskError {
+	match t.files.Get(rel) {
+	case option.Some{Value: body}:
+		task.ListingDigest([]task.TreeEntry{task.TreeEntry{Name: body, Dir: false}})
+	case option.None:
+		task.Missing
+	}
+}
+
+func Listing(t jsonTreeProvider, root string, dir string) string fails task.TaskError {
+	match t.dirs.Get(dir) {
+	case option.Some{Value: v}:
+		v
+	case option.None:
+		task.Missing
+	}
+}
+
+func cmdTaskAffected(path string) string fails os.Exit needs fs.Files {
+	let raw = try readText(path)
+	let inp = json.Decode(json.Codec[TaskAffectedIn]{MaxBytes: 0, MaxDepth: 0}, raw) catch {
+	case json.Malformed, WireMissingField, WireWrongKind:
+		return failExit("bad task-affected json")
+	}
+	let store = lawcache.Memory(task.StoreIdentity)
+	let mut nodes = slices.WithCapacity[task.NodeSpec](inp.Records.Len())
+	for recIn in inp.Records {
+		let spec = task.NodeSpec{Name: recIn.Name, Class: recIn.Class, Ident: recIn.Ident}
+		nodes = nodes.Append(spec)
+		if recIn.RawText != "" {
+			lawcache.Put(store, task.LastKey(inp.Root, spec.Name, spec.Ident), recIn.RawText)
+			continue
+		}
+		if recIn.Env != "" || recIn.Files.Len() > 0 || recIn.Dirs.Len() > 0 || recIn.Outs.Len() > 0 {
+			let mut inFiles = []string{}
+			let mut fSums = []string{}
+			for f in recIn.Files {
+				inFiles = inFiles.Append(f.Key)
+				fSums = fSums.Append(f.Val)
+			}
+			let mut inDirs = []string{}
+			let mut dSums = []string{}
+			for d in recIn.Dirs {
+				inDirs = inDirs.Append(d.Key)
+				dSums = dSums.Append(lawcache.Key([]string{d.Val}))
+			}
+			let mut outs = []task.OutputEntry{}
+			for o in recIn.Outs {
+				outs = outs.Append(task.OutputEntry{Path: o.Key, Digest: o.Val})
+			}
+			let tr = task.TaskRecord{
+				Env:      recIn.Env,
+				In:       task.Inputs{Files: inFiles, Dirs: inDirs},
+				FileSums: fSums,
+				DirSums:  dSums,
+				Outs:     outs,
+			}
+			lawcache.Put(store, task.LastKey(inp.Root, spec.Name, spec.Ident), task.EncodeRecord(tr))
+		}
+	}
+	let g = task.BuildGenGraph(nodes, inp.Root, store)
+	let mut ch = Map[string, bool]{}
+	for p in inp.Changed {
+		ch[p] = true
+	}
+	let mut bd = Map[string, string]{}
+	for kv in inp.BaseDirs {
+		bd[kv.Key] = kv.Val
+	}
+	let mut wd = Map[string, string]{}
+	for kv in inp.WorkDirs {
+		wd[kv.Key] = kv.Val
+	}
+	let base = jsonBase{changed: ch, baseDir: bd, workDir: wd}
+	let aff = task.ComputeAffected(nodes, inp.Root, store, base) catch {
+	case task.TaskError as e:
+		return failExit(e.Reason)
+	}
+	let mut edgesOut = slices.WithCapacity[EdgeOut](g.EdgeFrom.Len())
+	for i in 0..g.EdgeFrom.Len() {
+		edgesOut = edgesOut.Append(EdgeOut{From: g.EdgeFrom[i], To: g.EdgeTo[i]})
+	}
+	let mut cyclesOut = slices.WithCapacity[[]uint32](task.CycleCount(g))
+	for ci in 0..task.CycleCount(g) {
+		cyclesOut = cyclesOut.Append(task.CycleAt(g, ci))
+	}
+	let mut affOut = slices.WithCapacity[AffectOut](aff.Len())
+	for a in aff {
+		affOut = affOut.Append(AffectOut{Name: a.Name, Why: a.Why})
+	}
+	let mut cfMap = Map[string, string]{}
+	for kv in inp.CurFiles {
+		cfMap[kv.Key] = kv.Val
+	}
+	let tp = jsonTreeProvider{files: cfMap, dirs: wd}
+	let mut lHit = false
+	let mut lWhy = ""
+	if inp.LookupIdx >= 0 && inp.LookupIdx < nodes.Len() {
+		let (_, h, w) = task.LookupGenNode(store, inp.Root, inp.Root, nodes[inp.LookupIdx], inp.CurEnv, tp) catch {
+		case task.TaskError as e:
+			return failExit(e.Reason)
+		}
+		lHit = h
+		lWhy = w
+	}
+	let st = task.DecodeStatCache(inp.SeedStatText)
+	let out = TaskAffectedOut{
+		Order:        g.Order,
+		Edges:        edgesOut,
+		Cycles:       cyclesOut,
+		Affected:     affOut,
+		LookupHit:    lHit,
+		LookupWhy:    lWhy,
+		FirstDiffOut: task.FirstDiff(inp.DiffA, inp.DiffB),
+		StatPaths:    st.Paths,
+	}
+	json.Encode(json.Codec[TaskAffectedOut]{MaxBytes: 0, MaxDepth: 0}, out)
+}
+
+func cmdTaskEnv(path string) string fails os.Exit needs fs.Files {
+	let raw = try readText(path)
+	let inp = json.Decode(json.Codec[TaskEnvIn]{MaxBytes: 0, MaxDepth: 0}, raw) catch {
+	case json.Malformed, WireMissingField, WireWrongKind:
+		return failExit("bad task-env json")
+	}
+	let cenv = task.StatedFrom(inp.Host, inp.Names, inp.Extra)
+	let mut pkg = ""
+	let mut isTest = false
+	let mut pkgErr = ""
+	let gg = task.GoGen{Name: inp.GenName, Command: inp.GenCmd, Reads: inp.GenReads}
+	let (p, t) = task.GoPackage(gg) catch {
+	case task.TaskError as e:
+		pkgErr = e.Reason
+		("", false)
+	}
+	pkg = p
+	isTest = t
+	let goInp = task.ParseGoListOutput(inp.Root, inp.GoList)
+	let out = TaskEnvOut{
+		Entries:  cenv.Entries,
+		EnvKey:   task.EnvKey(cenv),
+		Environ:  task.ChildEnviron(cenv),
+		Pkg:      pkg,
+		IsTest:   isTest,
+		Ident:    task.GoGenIdent(gg),
+		PkgError: pkgErr,
+		InFiles:  goInp.Files,
+		InDirs:   goInp.Dirs,
+	}
+	json.Encode(json.Codec[TaskEnvOut]{MaxBytes: 0, MaxDepth: 0}, out)
+}
+
+type simVerdictState {
+	callCounts []int,
+	writeIdx   int,
+}
+
+type simVerdictHost {
+	specs []StepSpecIn,
+	st    sync.Ref[simVerdictState],
+} implements task.VerdictHost
+
+func Key(h simVerdictHost, stepIdx int) task.StepKey fails task.TaskError {
+	let sp = h.specs[stepIdx]
+	let s = h.st.Get()
+	let post = s.writeIdx > stepIdx
+	let src = if post && sp.PostParts.Len() > 0 { sp.PostParts } else { sp.Parts }
+	let mut parts = slices.WithCapacity[task.KeyPart](src.Len())
+	for p in src {
+		parts = parts.Append(task.KeyPart{Name: p.Key, Digest: p.Val})
+	}
+	task.StepKey{Parts: parts, Paths: sp.Paths}
+}
+
+func Paths(h simVerdictHost, stepIdx int) []string fails task.TaskError {
+	h.specs[stepIdx].CustomPaths
+}
+
+func HasCustomPaths(h simVerdictHost, stepIdx int) bool {
+	h.specs[stepIdx].UseCustom
+}
+
+func Run(h simVerdictHost, stepIdx int) task.StepRunOutcome fails task.TaskError {
+	let mut s = h.st.Get()
+	let n = s.callCounts[stepIdx]
+	s.callCounts[stepIdx] = n + 1
+	s.writeIdx = stepIdx + 1
+	h.st.Set(s)
+	let sp = h.specs[stepIdx]
+	let pass = if n < sp.Outcomes.Len() { sp.Outcomes[n] } else { true }
+	let logText = if n < sp.Logs.Len() { sp.Logs[n] } else { "" }
+	task.StepRunOutcome{Pass: pass, LogText: logText, MsBits: uint64(3)}
+}
+
+func WriteLog(h simVerdictHost, stepIdx int, contentKey string, logText string) string {
+	let sp = h.specs[stepIdx]
+	"\(task.SanitizeFileName(sp.Verb + "-" + sp.Member)).log"
+}
+
+func NoteFlaky(h simVerdictHost, res task.StepResult) {}
+
+func cmdTaskVerdicts(path string) string fails os.Exit needs fs.Files {
+	let raw = try readText(path)
+	let inp = json.Decode(json.Codec[TaskVerdictsIn]{MaxBytes: 0, MaxDepth: 0}, raw) catch {
+	case json.Malformed, WireMissingField, WireWrongKind:
+		return failExit("bad task-verdicts json")
+	}
+	let store = lawcache.Memory(task.StoreIdentity)
+	for pe in inp.PriorEntries {
+		lawcache.Put(store, pe.Key, pe.Val)
+	}
+	let mut specs = slices.WithCapacity[task.StepSpec](inp.Steps.Len())
+	let mut counts = slices.WithCapacity[int](inp.Steps.Len())
+	for sp in inp.Steps {
+		specs = specs.Append(task.StepSpec{
+			Task:   sp.Task,
+			Verb:   sp.Verb,
+			Member: sp.Member,
+			Class:  sp.Class,
+			HasKey: sp.HasKey,
+			Retry:  sp.Retry,
+			After:  sp.After,
+		})
+		counts = counts.Append(0)
+	}
+	let host = simVerdictHost{
+		specs: inp.Steps,
+		st:    sync.NewRef(simVerdictState{callCounts: counts, writeIdx: 0}),
+	}
+	let mode = task.VerdictMode{
+		Fresh:    inp.Fresh,
+		Changed:  inp.Changed,
+		Affected: inp.Affected,
+	}
+	let rep = task.RunVerdicts(store, inp.Root, specs, mode, host, inp.RunWrites) catch {
+	case task.TaskError as e:
+		return failExit(e.Reason)
+	}
+	let mut stepsOut = slices.WithCapacity[StepResultOut](rep.Steps.Len())
+	for sr in rep.Steps {
+		stepsOut = stepsOut.Append(StepResultOut{
+			Task:         sr.Task,
+			Step:         sr.Step,
+			Member:       sr.Member,
+			Verdict:      task.VerdictString(sr.Verdict),
+			Replay:       sr.Replay,
+			Why:          sr.Why,
+			Class:        sr.Class,
+			Log:          sr.Log,
+			Seed:         sr.Seed,
+			Contradicted: sr.Contradicted,
+			BlockedBy:    sr.BlockedBy,
+		})
+	}
+	let out = TaskVerdictsOut{
+		Failed: task.ReportVerdictsFailed(rep, inp.Fresh),
+		Steps:  stepsOut,
+	}
+	json.Encode(json.Codec[TaskVerdictsOut]{MaxBytes: 0, MaxDepth: 0}, out)
+}
+
+type simGenState {
+	origFiles Map[string, string],
+	copyFiles Map[string, string],
+	origTimes Map[string, int],
+	copyTimes Map[string, int],
+	serial    int,
+	fileNames []string,
+}
+
+type simGenHost {
+	nodes []GenNodeIn,
+	st    sync.Ref[simGenState],
+} implements task.GenHost
+
+func Env(h simGenHost, idx int) string fails task.TaskError { "SIM=1\n" }
+
+func Inputs(h simGenHost, idx int, root string) task.Inputs fails task.TaskError {
+	let gn = h.nodes[idx]
+	task.Inputs{Files: []string{gn.InFile}, Dirs: []string{}}
+}
+
+func Digest(h simGenHost, root string, rel string) string fails task.TaskError {
+	let s = h.st.Get()
+	let files = if strings.Contains(root, task.ScratchPrefix) { s.copyFiles } else { s.origFiles }
+	match files.Get(rel) {
+	case option.Some{Value: body}:
+		task.ListingDigest([]task.TreeEntry{task.TreeEntry{Name: body, Dir: false}})
+	case option.None:
+		task.Missing
+	}
+}
+
+func Listing(h simGenHost, root string, dir string) string fails task.TaskError { task.Missing }
+
+func Snapshot(h simGenHost, root string) task.StatTable fails task.TaskError {
+	let s = h.st.Get()
+	let isCopy = strings.Contains(root, task.ScratchPrefix)
+	let files = if isCopy { s.copyFiles } else { s.origFiles }
+	let times = if isCopy { s.copyTimes } else { s.origTimes }
+	let mut tbl = task.EmptyStatTable()
+	for p in s.fileNames {
+		match files.Get(p) {
+		case option.Some{Value: body}:
+			let ts = match times.Get(p) {
+			case option.Some{Value: t}:
+				t
+			case option.None:
+				1
+			}
+			let dig = task.ListingDigest([]task.TreeEntry{task.TreeEntry{Name: body, Dir: false}})
+			let _ = task.AppendStat(&tbl, p, int64(body.Len()), int64(ts), int64(ts), uint64(1), uint32(0o644), dig)
+		case option.None:
+		}
+	}
+	tbl
+}
+
+func PrepareCheckCopy(h simGenHost, src string) string fails task.TaskError {
+	let mut s = h.st.Get()
+	let mut cf = Map[string, string]{}
+	let mut ct = Map[string, int]{}
+	for p in s.fileNames {
+		match s.origFiles.Get(p) {
+		case option.Some{Value: v}:
+			cf[p] = v
+		case option.None:
+		}
+		match s.origTimes.Get(p) {
+		case option.Some{Value: t}:
+			ct[p] = t
+		case option.None:
+		}
+	}
+	s.copyFiles = cf
+	s.copyTimes = ct
+	h.st.Set(s)
+	"\(src)/\(task.ScratchPrefix)0"
+}
+
+func CleanupCopy(h simGenHost, dir string) {}
+
+func Run(h simGenHost, idx int, root string) fails task.TaskError {
+	let gn = h.nodes[idx]
+	let mut s = h.st.Get()
+	s.serial = s.serial + 1
+	let isCopy = strings.Contains(root, task.ScratchPrefix)
+	let mut files = if isCopy { s.copyFiles } else { s.origFiles }
+	let mut times = if isCopy { s.copyTimes } else { s.origTimes }
+	let inVal = match files.Get(gn.InFile) {
+	case option.Some{Value: v}:
+		v
+	case option.None:
+		"missing"
+	}
+	let extra = if gn.Drift { "-drift\(s.serial)" } else { "" }
+	files[gn.Out] = "\(gn.Name)(\(inVal))\(extra)"
+	times[gn.Out] = s.serial
+	if !slices.Contains(s.fileNames, gn.Out) {
+		s.fileNames = task.SortedUnique(s.fileNames.Append(gn.Out))
+	}
+	if isCopy {
+		s.copyFiles = files
+		s.copyTimes = times
+	} else {
+		s.origFiles = files
+		s.origTimes = times
+	}
+	h.st.Set(s)
+}
+
+func NotifyRan(h simGenHost, name string, root string) {}
+
+func cmdTaskGen(path string) string fails os.Exit needs fs.Files {
+	let raw = try readText(path)
+	let inp = json.Decode(json.Codec[TaskGenIn]{MaxBytes: 0, MaxDepth: 0}, raw) catch {
+	case json.Malformed, WireMissingField, WireWrongKind:
+		return failExit("bad task-gen json")
+	}
+	let store = lawcache.Memory(task.StoreIdentity)
+	let mut orig = Map[string, string]{}
+	let mut times = Map[string, int]{}
+	let mut names = []string{}
+	for kv in inp.Files {
+		orig[kv.Key] = kv.Val
+		times[kv.Key] = 1
+		names = names.Append(kv.Key)
+	}
+	names = task.SortedUnique(names)
+	let mut specs = slices.WithCapacity[task.NodeSpec](inp.Nodes.Len())
+	for gn in inp.Nodes {
+		specs = specs.Append(task.NodeSpec{Name: gn.Name, Class: gn.Class, Ident: gn.Ident})
+	}
+	let host = simGenHost{
+		nodes: inp.Nodes,
+		st:    sync.NewRef(simGenState{
+			origFiles: orig,
+			copyFiles: Map[string, string]{},
+			origTimes: times,
+			copyTimes: Map[string, int]{},
+			serial:    1,
+			fileNames: names,
+		}),
+	}
+	let rep = task.RunGen(store, inp.Root, specs, inp.Check, inp.Fresh, host) catch {
+	case task.TaskError as e:
+		return failExit(e.Reason)
+	}
+	let st = host.st.Get()
+	let mut outFiles = slices.WithCapacity[KVStr](st.fileNames.Len())
+	for fn in st.fileNames {
+		match st.origFiles.Get(fn) {
+		case option.Some{Value: v}:
+			outFiles = outFiles.Append(KVStr{Key: fn, Val: v})
+		case option.None:
+		}
+	}
+	let out = TaskGenOut{
+		Order:        rep.Order,
+		Passes:       rep.Passes,
+		Failed:       task.ReportGenFailed(rep),
+		Contradicted: rep.Contradicted,
+		Stale:        rep.Stale,
+		Lines:        rep.Lines,
+		Files:        outFiles,
+	}
+	json.Encode(json.Codec[TaskGenOut]{MaxBytes: 0, MaxDepth: 0}, out)
+}
+
+// RunArgs executes a single taskprofmddump CLI invocation and returns stdout payload.
+func RunArgs(args []string) string fails os.Exit needs fs.Files {
+	if args.Len() == 0 {
+		return failExit("usage: taskprofmddump <cmd> [args...]")
+	}
+	let cmd = args[0]
+	if cmd == "ergobuild" && args.Len() == 2 {
+		return cmdErgoBuild(args[1])
+	}
+	if cmd == "testwait" && args.Len() == 4 {
+		return cmdTestWait(args[1], args[2], args[3])
+	}
+	if cmd == "sizes-pkg" && args.Len() == 2 {
+		return cmdSizesPkg(args[1])
+	}
+	if cmd == "sizes-elf" && args.Len() == 4 {
+		return cmdSizesElf(args[1], args[2], args[3])
+	}
+	if cmd == "sizes-budget" && args.Len() == 3 {
+		return cmdSizesBudget(args[1], args[2])
+	}
+	if cmd == "sizes-checks" && args.Len() == 2 {
+		return cmdSizesChecks(args[1])
+	}
+	if cmd == "profmd" && args.Len() == 5 {
+		return cmdProfmd(args[1], args[2], args[3], args[4])
+	}
+	if cmd == "task-affected" && args.Len() == 2 {
+		return cmdTaskAffected(args[1])
+	}
+	if cmd == "task-env" && args.Len() == 2 {
+		return cmdTaskEnv(args[1])
+	}
+	if cmd == "task-verdicts" && args.Len() == 2 {
+		return cmdTaskVerdicts(args[1])
+	}
+	if cmd == "task-gen" && args.Len() == 2 {
+		return cmdTaskGen(args[1])
+	}
+	failExit("unknown subcommand or arg count for \(cmd)")
+}
+
+func main() fails os.Exit needs os.Ambient {
+	let fhost = fs.NewHost()
+	with context { os.Process: os.NewHost(), fs.Files: fhost, io.Stdout: io.NewHost() } {
+		let mut args = os.Process.Args()
+		if args.Len() > 0 && args[0] == "--" {
+			args = args[1:args.Len()]
+		}
+		let res = try RunArgs(args)
+		io.Stdout.Print(res)
+	}
+}
+
+test TestTaskProfmdDumpMemFS {
+	let mem = fstest.NewMemory()
+	mem.MkdirAll("/in") catch {
+	case fs.Denied, fs.Failed:
+		assert false
+	}
+	let buildInJson = json.Encode(json.Codec[BuildIn]{MaxBytes: 0, MaxDepth: 0}, BuildIn{
+		Version: "v0.1.0",
+		Out:     "/tmp/ergo",
+		Pkg:     "./cmd/ergo",
+		Flags:   []string{"-v"},
+		Env:     []string{"HOME=/h", "CGO_ENABLED=1"},
+	})
+	mem.WriteFile("/in/build.json", buildInJson) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+	with context { fs.Files: mem } {
+		let bOut = RunArgs([]string{"ergobuild", "/in/build.json"}) catch {
+		case os.Exit:
+			assert false
+			return
+		}
+		assert strings.Contains(bOut, "CGO_ENABLED=0")
+		let wOut = RunArgs([]string{"testwait", "1000", "2000", "4"}) catch {
+		case os.Exit:
+			assert false
+			return
+		}
+		assert strings.Contains(wOut, "\"hasEnd\":true")
+		let spOut = RunArgs([]string{"sizes-pkg", "time.Time.String"}) catch {
+		case os.Exit:
+			assert false
+			return
+		}
+		assert strings.Contains(spOut, "\"pkg\":\"time\"")
+	}
+}

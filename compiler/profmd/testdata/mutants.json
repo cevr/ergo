@@ -1,0 +1,45 @@
+{
+  "about": "compiler/profmd: gzip pprof protobuf decoder, open-addressed SoA lookup tables, CPU/Heap accounting, and Markdown rendering (SELFHOST-TASK-PROFMD-SIZES).",
+  "mutants": [
+    {
+      "name": "selfhost-profmd-empty-input-rejected",
+      "origin": "wf10 SELFHOST-TASK-PROFMD-SIZES",
+      "file": "compiler/profmd/pprof.ergo",
+      "decl": "ParseProfileLimit",
+      "from": "\tif pprofBytes.Len() == 0 {\n\t\treturn EmptyInput\n\t}\n",
+      "to": "\tif false && pprofBytes.Len() == 0 {\n\t\treturn EmptyInput\n\t}\n",
+      "rule": "ParseProfileLimit must fail with EmptyInput on empty input slices.",
+      "killers": ["compiler/profmd:ParseProfileRejectsInvalidInputs"]
+    },
+    {
+      "name": "selfhost-profmd-hash-lookup-probe",
+      "origin": "wf10 SELFHOST-TASK-PROFMD-SIZES",
+      "file": "compiler/profmd/pprof.ergo",
+      "decl": "lookupHash",
+      "from": "\tfor vals[at] != uint32(0) {\n\t\tif keys[at] == k {\n\t\t\treturn option.Some[uint32]{Value: vals[at] - uint32(1)}\n\t\t}\n",
+      "to": "\tfor vals[at] != uint32(0) {\n\t\tif keys[at] == k {\n\t\t\treturn option.Some[uint32]{Value: vals[at]}\n\t\t}\n",
+      "rule": "lookupHash must subtract the +1 occupied sentinel offset when returning dense row indices.",
+      "killers": ["compiler/profmd:law:HashIndexRoundTrips"]
+    },
+    {
+      "name": "selfhost-profmd-cpu-dedup-recursive-cum",
+      "origin": "wf10 SELFHOST-TASK-PROFMD-SIZES",
+      "file": "compiler/profmd/render.ergo",
+      "decl": "RenderCPUMarkdownFromProfile",
+      "from": "\t\t\tif funcs.seenGen[id] == curGen {\n\t\t\t\tcontinue\n\t\t\t}\n",
+      "to": "\t\t\tif false && funcs.seenGen[id] == curGen {\n\t\t\t\tcontinue\n\t\t\t}\n",
+      "rule": "RenderCPUMarkdownFromProfile must attribute cumulative CPU time once per function per sample even across recursive frames.",
+      "killers": ["compiler/profmd:RenderCPUMarkdownAccountingAndTopLimit"]
+    },
+    {
+      "name": "selfhost-profmd-heap-missing-sample-types",
+      "origin": "wf10 SELFHOST-TASK-PROFMD-SIZES",
+      "file": "compiler/profmd/render.ergo",
+      "decl": "RenderHeapMarkdownFromProfile",
+      "from": "\tif allocSpaceIdx < 0 && inuseSpaceIdx < 0 {\n\t\treturn MissingHeapSampleTypes\n\t}\n",
+      "to": "\tif false && allocSpaceIdx < 0 && inuseSpaceIdx < 0 {\n\t\treturn MissingHeapSampleTypes\n\t}\n",
+      "rule": "RenderHeapMarkdownFromProfile must fail MissingHeapSampleTypes when neither alloc_space nor inuse_space exists.",
+      "killers": ["compiler/profmd:RenderHeapMarkdownAllocVsInuse"]
+    }
+  ]
+}
