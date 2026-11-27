@@ -631,7 +631,7 @@ test GobinddumpGofactsAndRequest {
 	}
 	let out = io.Text(rec)
 	assert strings.Contains(out, "ledger_issues 0\n")
-	assert strings.Contains(out, "ledger_summary 172 172 0 0 0\n")
+	assert strings.Contains(out, "ledger_summary 173 173 0 0 0\n")
 
 	let reqJSON = "{\"mode\":\"stale\",\"pkgPath\":\"\",\"pkgName\":\"\",\"goVersion\":\"\",\"toolchain\":\"\",\"moduleStamp\":\"\",\"ledgerText\":\"\",\"platforms\":[],\"facts\":[],\"bindTargets\":[],\"committed\":[{\"path\":\"bytes\",\"text\":\"old\"}],\"written\":[{\"path\":\"bytes\",\"text\":\"new\"}],\"dirRoot\":\"\",\"stdRaw\":[],\"goVersionRaw\":\"\",\"rootCheckPath\":\"\",\"rootCheckName\":\"\"}"
 	let rec2 = io.NewRecorder()
