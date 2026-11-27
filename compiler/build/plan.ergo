@@ -1,0 +1,443 @@
+import compiler/driver
+import compiler/fingerprint
+import compiler/report
+import slices
+import strconv
+import strings
+import tasks
+
+// ActCompile tags a package compilation action.
+let ActCompile = uint8(1)
+
+// ActTest tags a package test run action.
+let ActTest = uint8(2)
+
+// ActLaw tags a property law execution action.
+let ActLaw = uint8(3)
+
+// ActLink tags a final executable link action.
+let ActLink = uint8(4)
+
+// ActCover tags a coverage instrumentation copy/build action.
+let ActCover = uint8(5)
+
+// StatusPending tags an unscheduled build action.
+let StatusPending = uint8(0)
+
+// StatusCached tags an action satisfied from cache without execution.
+let StatusCached = uint8(1)
+
+// StatusReady tags an action whose dependencies are satisfied.
+let StatusReady = uint8(2)
+
+// StatusDone tags a successfully completed build action.
+let StatusDone = uint8(3)
+
+// StatusFailed tags a failed build action.
+let StatusFailed = uint8(4)
+
+// CoverConfig configures package coverage instrumentation and archive mapping.
+type CoverConfig {
+	Enabled  bool,
+	Dir      string,
+	Mode     string,
+	PkgPaths []string,
+}
+
+// PlanGraph stores a wave-scheduled build action DAG in flat SoA columns indexed by uint32 IDs.
+type PlanGraph {
+	Count       uint32,
+	Kinds       []uint8,
+	PkgPaths    []string,
+	ActionKeys  []string,
+	Outputs     []string,
+	IfacePrints []string,
+	Statuses    []uint8,
+	Waves       []uint32,
+	EarlyCutoff []bool,
+	CachedHits  []bool,
+	WaveCount   int,
+	WaveStarts  []uint32,
+	WaveLens    []uint32,
+	WaveActions []uint32,
+	DepStart    []uint32,
+	DepLen      []uint32,
+	Deps        []uint32,
+}
+
+// BuildDiag captures a normalized compiler or build diagnostic for rollup reporting.
+type BuildDiag {
+	PkgPath  string,
+	File     string,
+	Line     int,
+	Col      int,
+	Severity string,
+	Code     string,
+	Message  string,
+}
+
+// BuildReport summarizes execution counts and sorted diagnostics across a build plan.
+type BuildReport {
+	Actions  int,
+	Compiled int,
+	Cached   int,
+	Cutoff   int,
+	Passed   int,
+	Failed   int,
+	Skipped  int,
+	Diags    []BuildDiag,
+}
+
+// PlanBuild builds a deterministic topological wave plan from package summaries and
+// dependency adjacency lists, applying early-cutoff pruning against prevTable.
+func PlanBuild(summaries []Summary, rawDeps [][]uint32, prevTable InputTable, cover CoverConfig, tc Toolchain) PlanGraph fails BuildError {
+	try ValidateToolchain(tc)
+	let n = summaries.Len()
+	let mut paths = slices.WithCapacity[string](n)
+	let mut curTable = NewInputTable()
+	let mut inputs = slices.WithCapacity[Input](n)
+	let mut pkgTable = fingerprint.NewPkgTable()
+
+	for i in 0..n {
+		let s = summaries[i]
+		paths = paths.Append(s.PkgPath)
+		let inp = BuildInput(s)
+		inputs = inputs.Append(inp)
+		let _ = AddInput(&curTable, inp)
+		let mut deps = []fingerprint.DepPrint{}
+		if i < rawDeps.Len() {
+			for k in 0..rawDeps[i].Len() {
+				let depIdx = int(rawDeps[i][k])
+				if depIdx >= 0 && depIdx < n {
+					deps = deps.Append(fingerprint.DepPrint{
+						Path:      summaries[depIdx].PkgPath,
+						Interface: summaries[depIdx].IfacePrint,
+					})
+				}
+			}
+		}
+		let _ = fingerprint.AddPackage(&pkgTable, fingerprint.Package{
+			Path:      s.PkgPath,
+			Source:    s.SrcPrint,
+			Interface: s.IfacePrint,
+			Deps:      deps,
+		})
+	}
+	fingerprint.SealTable(&pkgTable)
+
+	let csr = driver.BuildCSRFromEdges(paths, rawDeps)
+	let ws = driver.ScheduleWaves(csr) catch {
+	case driver.CycleError as c:
+		let tgt = if c.Chain.Len() > 0 { c.Chain[0] } else { "" }
+		return BuildError{Op: "plan-schedule", Target: tgt, Reason: driver.FormatCycle(c)}
+	}
+
+	let mut prevPkgTable = fingerprint.NewPkgTable()
+	for i in 0..prevTable.Paths.Len() {
+		let _ = fingerprint.AddPackage(&prevPkgTable, fingerprint.Package{
+			Path:      prevTable.Paths[i],
+			Source:    prevTable.SrcPrints[i],
+			Interface: prevTable.IfacePrints[i],
+			Deps:      []fingerprint.DepPrint{},
+		})
+	}
+	fingerprint.SealTable(&prevPkgTable)
+	let mut sc = fingerprint.NewScratch()
+	let dirty = fingerprint.ComputeDirty(prevPkgTable, pkgTable, &sc)
+
+	let mut kinds = slices.WithCapacity[uint8](n)
+	let mut keys = slices.WithCapacity[string](n)
+	let mut outputs = slices.WithCapacity[string](n)
+	let mut ifaces = slices.WithCapacity[string](n)
+	let mut statuses = slices.WithCapacity[uint8](n)
+	let mut cutoffs = slices.WithCapacity[bool](n)
+	let mut cached = slices.WithCapacity[bool](n)
+	let mut waves = slices.WithCapacity[uint32](n)
+	for _ in 0..n {
+		waves = waves.Append(uint32(0))
+	}
+
+	let mut depStart = slices.WithCapacity[uint32](n)
+	let mut depLen = slices.WithCapacity[uint32](n)
+	let mut flatDeps = []uint32{}
+
+	for i in 0..n {
+		let s = summaries[i]
+		let inp = inputs[i]
+		let kind = if cover.Enabled && slices.Contains(cover.PkgPaths, s.PkgPath) { ActCover } else { ActCompile }
+		kinds = kinds.Append(kind)
+		keys = keys.Append(inp.Key)
+		outputs = outputs.Append(s.PkgPath + ".a")
+		ifaces = ifaces.Append(s.IfacePrint)
+
+		let prevIdx = FindInput(prevTable, s.PkgPath)
+		let exactHit = prevIdx != NoInput && prevTable.Keys[int(prevIdx)] == inp.Key
+		let ifaceHit = prevIdx != NoInput && prevTable.IfacePrints[int(prevIdx)] == s.IfacePrint && !dirty[i]
+		let isCutoff = !exactHit && ifaceHit
+		cached = cached.Append(exactHit || isCutoff)
+		cutoffs = cutoffs.Append(isCutoff)
+		statuses = statuses.Append(if exactHit || isCutoff { StatusCached } else { StatusReady })
+
+		let dStart = uint32(flatDeps.Len())
+		depStart = depStart.Append(dStart)
+		let mut dCount = uint32(0)
+		if i < rawDeps.Len() {
+			for k in 0..rawDeps[i].Len() {
+				flatDeps = flatDeps.Append(rawDeps[i][k])
+				dCount = dCount + uint32(1)
+			}
+		}
+		depLen = depLen.Append(dCount)
+	}
+
+	let waveCount = int(ws.WaveCount)
+	let mut waveLens = slices.WithCapacity[uint32](waveCount)
+	for wi in 0..waveCount {
+		let start = int(ws.WaveStart[wi])
+		let end = int(ws.WaveStart[wi+1])
+		waveLens = waveLens.Append(uint32(end - start))
+		for k in start..end {
+			let act = ws.Order[k]
+			waves[int(act)] = uint32(wi)
+		}
+	}
+
+	PlanGraph{
+		Count:       uint32(n),
+		Kinds:       kinds,
+		PkgPaths:    paths,
+		ActionKeys:  keys,
+		Outputs:     outputs,
+		IfacePrints: ifaces,
+		Statuses:    statuses,
+		Waves:       waves,
+		EarlyCutoff: cutoffs,
+		CachedHits:  cached,
+		WaveCount:   waveCount,
+		WaveStarts:  ws.WaveStart,
+		WaveLens:    waveLens,
+		WaveActions: ws.Order,
+		DepStart:    depStart,
+		DepLen:      depLen,
+		Deps:        flatDeps,
+	}
+}
+
+// ExecuteWavesParallel runs pending actions wave-by-wave using tasks.Transform
+// bounded by SlotConcurrency, keeping cached actions skipped.
+func ExecuteWavesParallel(plan PlanGraph, procs int, runAction own func(actionID uint32) bool) []bool {
+	let n = int(plan.Count)
+	let mut ok = slices.WithCapacity[bool](n)
+	for i in 0..n {
+		ok = ok.Append(plan.CachedHits[i])
+	}
+	for wi in 0..plan.WaveCount {
+		let start = int(plan.WaveStarts[wi])
+		let count = int(plan.WaveLens[wi])
+		let mut pending = []uint32{}
+		for k in 0..count {
+			let id = plan.WaveActions[start+k]
+			if !plan.CachedHits[int(id)] {
+				pending = pending.Append(id)
+			}
+		}
+		if pending.Len() == 0 {
+			continue
+		}
+		let workers = SlotConcurrency(procs, pending.Len())
+		let results = tasks.Transform(pending, workers, func(id uint32) bool {
+			runAction(id)
+		})
+		for i in 0..pending.Len() {
+			ok[int(pending[i])] = results[i]
+		}
+	}
+	ok
+}
+
+// CompileArgs returns deterministic Go compiler flags for compiling pkgPath into outFile.
+func CompileArgs(pkgPath string, outFile string, importCfgPath string, flags []string, concurrency int) []string {
+	let mut args = []string{"tool", "compile", "-p", pkgPath, "-pack", "-complete"}
+	if concurrency > 1 {
+		args = args.Append("-c")
+		args = args.Append(strconv.Itoa(concurrency))
+	}
+	if importCfgPath != "" {
+		args = args.Append("-importcfg")
+		args = args.Append(importCfgPath)
+	}
+	for i in 0..flags.Len() {
+		args = args.Append(flags[i])
+	}
+	args = args.Append("-o")
+	args = args.Append(outFile)
+	args
+}
+
+// LinkArgs returns deterministic linker arguments linking mainArchive into outExe.
+func LinkArgs(outExe string, mainArchive string, importCfgPath string, ldflags []string) []string {
+	let mut args = []string{"tool", "link", "-o", outExe}
+	if importCfgPath != "" {
+		args = args.Append("-importcfg")
+		args = args.Append(importCfgPath)
+	}
+	for i in 0..ldflags.Len() {
+		args = args.Append(ldflags[i])
+	}
+	args = args.Append(mainArchive)
+	args
+}
+
+// ModInfoText formats canonical buildinfo metadata matching Go module link metadata.
+func ModInfoText(modPath string, modVersion string, sumDigest string) string {
+	let ver = if modVersion == "" { "(devel)" } else { modVersion }
+	"path\t" + modPath + "\nmod\t" + modPath + "\t" + ver + "\t" + sumDigest + "\n"
+}
+
+// CoverGoMod generates a minimal synthetic go.mod covering the instrumented module path.
+func CoverGoMod(modulePath string, goVer string) string {
+	let gv = if goVer == "" { "1.27" } else { strings.TrimPrefix(goVer, "go") }
+	"module " + modulePath + "\n\ngo " + gv + "\n"
+}
+
+// CoverActionKey derives a distinct coverage build key for package sum under cover cfg.
+func CoverActionKey(sum Summary, cfg CoverConfig) string {
+	fingerprint.Of([]string{"cover", ActionKey(sum), cfg.Mode, cfg.Dir})
+}
+
+// RollupReport aggregates execution outcomes and sorted diagnostics into a BuildReport.
+func RollupReport(plan PlanGraph, results []bool, diags []BuildDiag) BuildReport {
+	let n = int(plan.Count)
+	let mut compiled = 0
+	let mut cached = 0
+	let mut cutoff = 0
+	let mut passed = 0
+	let mut failed = 0
+	let mut skipped = 0
+	for i in 0..n {
+		if plan.EarlyCutoff[i] {
+			cutoff = cutoff + 1
+		}
+		if plan.CachedHits[i] {
+			cached = cached + 1
+		} else {
+			compiled = compiled + 1
+		}
+		if i < results.Len() {
+			if results[i] {
+				passed = passed + 1
+			} else {
+				failed = failed + 1
+			}
+		} else {
+			skipped = skipped + 1
+		}
+	}
+	let sortedDiags = slices.SortFunc(slices.Clone(diags), func(a BuildDiag, b BuildDiag) int {
+		let pc = strings.Compare(a.PkgPath, b.PkgPath)
+		if pc != 0 {
+			return pc
+		}
+		let fc = strings.Compare(a.File, b.File)
+		if fc != 0 {
+			return fc
+		}
+		if a.Line != b.Line {
+			return if a.Line < b.Line { -1 } else { 1 }
+		}
+		if a.Col != b.Col {
+			return if a.Col < b.Col { -1 } else { 1 }
+		}
+		strings.Compare(a.Message, b.Message)
+	})
+	BuildReport{
+		Actions:  n,
+		Compiled: compiled,
+		Cached:   cached,
+		Cutoff:   cutoff,
+		Passed:   passed,
+		Failed:   failed,
+		Skipped:  skipped,
+		Diags:    sortedDiags,
+	}
+}
+
+// FormatBuildReport renders r into human-readable summary and diagnostic lines.
+func FormatBuildReport(r BuildReport) string {
+	let status = report.EvaluationStatus([]string{if r.Failed == 0 { "pass" } else { "fail" }})
+	let mut b = strings.NewBuilder()
+	b.WriteString("build " + status + ": actions=" + strconv.Itoa(r.Actions) + " compiled=" + strconv.Itoa(r.Compiled) + " cached=" + strconv.Itoa(r.Cached) + " cutoff=" + strconv.Itoa(r.Cutoff) + " passed=" + strconv.Itoa(r.Passed) + " failed=" + strconv.Itoa(r.Failed) + "\n")
+	for i in 0..r.Diags.Len() {
+		let d = r.Diags[i]
+		b.WriteString(d.Severity + " [" + d.Code + "] " + d.File + ":" + strconv.Itoa(d.Line) + ":" + strconv.Itoa(d.Col) + ": " + d.Message + "\n")
+	}
+	b.String()
+}
+
+// PlanWaveRespectsDepsAndCutoff checks that PlanBuild schedules dependencies strictly
+// before dependents and preserves downstream cache hits under early interface cutoff.
+law PlanWaveRespectsDepsAndCutoff(srcEdit string) {
+	let leafSrc = if srcEdit == "" { "sp1" } else { srcEdit }
+	let tc = Toolchain{GoRoot: "/go", Go: "go", GoOS: "linux", GoArch: "amd64", ErgoVer: "1", GoVer: "go1.27.4", BuildTags: "", Cgo: false}
+	let sLeafPrev = Summary{PkgPath: "leaf", Target: "linux/amd64", Compiler: "c1", SrcPrint: "sp0", IfacePrint: "leaf-iface", Files: []FileDigest{}, DepKeys: []string{}, Flags: []string{}, Environ: []string{}, Experiments: []string{}}
+	let iLeafPrev = BuildInput(sLeafPrev)
+	let sAppPrev = Summary{PkgPath: "app", Target: "linux/amd64", Compiler: "c1", SrcPrint: "app-sp", IfacePrint: "app-iface", Files: []FileDigest{}, DepKeys: []string{iLeafPrev.Key}, Flags: []string{}, Environ: []string{}, Experiments: []string{}}
+	let mut prev = NewInputTable()
+	let _ = AddInput(&prev, iLeafPrev)
+	let _ = AddInput(&prev, BuildInput(sAppPrev))
+
+	let sLeafCur = Summary{PkgPath: "leaf", Target: "linux/amd64", Compiler: "c1", SrcPrint: leafSrc, IfacePrint: "leaf-iface", Files: []FileDigest{}, DepKeys: []string{}, Flags: []string{}, Environ: []string{}, Experiments: []string{}}
+	let sAppCur = Summary{PkgPath: "app", Target: "linux/amd64", Compiler: "c1", SrcPrint: "app-sp", IfacePrint: "app-iface", Files: []FileDigest{}, DepKeys: []string{iLeafPrev.Key}, Flags: []string{}, Environ: []string{}, Experiments: []string{}}
+	let plan = PlanBuild([]Summary{sAppCur, sLeafCur}, [][]uint32{[]uint32{uint32(1)}, []uint32{}}, prev, CoverConfig{Enabled: false, Dir: "", Mode: "", PkgPaths: []string{}}, tc) catch {
+	case BuildError:
+		return false
+	}
+	let waveOK = plan.Waves[1] < plan.Waves[0]
+	let appCached = plan.CachedHits[0]
+	waveOK && appCached
+}
+
+// CoverGoModPreservesHeader verifies that CoverGoMod emits a valid module and go directive.
+law CoverGoModPreservesHeader(modName string) {
+	let m = if modName == "" { "example.com/cov" } else { strings.ReplaceAll(modName, "\n", "") }
+	let text = CoverGoMod(m, "go1.27.4")
+	strings.Contains(text, "module "+m) && strings.Contains(text, "go 1.27.4")
+}
+
+test PlanBuildWavesAndParallelRollup {
+	let tc = Toolchain{GoRoot: "/go", Go: "go", GoOS: "linux", GoArch: "amd64", ErgoVer: "1", GoVer: "go1.27.4", BuildTags: "", Cgo: false}
+	let leaf = Summary{PkgPath: "leaf", Target: "linux/amd64", Compiler: "c1", SrcPrint: "s1", IfacePrint: "i1", Files: []FileDigest{}, DepKeys: []string{}, Flags: []string{}, Environ: []string{}, Experiments: []string{}}
+	let midA = Summary{PkgPath: "midA", Target: "linux/amd64", Compiler: "c1", SrcPrint: "s2", IfacePrint: "i2", Files: []FileDigest{}, DepKeys: []string{}, Flags: []string{}, Environ: []string{}, Experiments: []string{}}
+	let midB = Summary{PkgPath: "midB", Target: "linux/amd64", Compiler: "c1", SrcPrint: "s3", IfacePrint: "i3", Files: []FileDigest{}, DepKeys: []string{}, Flags: []string{}, Environ: []string{}, Experiments: []string{}}
+	let app = Summary{PkgPath: "app", Target: "linux/amd64", Compiler: "c1", SrcPrint: "s4", IfacePrint: "i4", Files: []FileDigest{}, DepKeys: []string{}, Flags: []string{}, Environ: []string{}, Experiments: []string{}}
+	let deps = [][]uint32{
+		[]uint32{},
+		[]uint32{uint32(0)},
+		[]uint32{uint32(0)},
+		[]uint32{uint32(1), uint32(2)},
+	}
+	let cov = CoverConfig{Enabled: true, Dir: "/cov", Mode: "set", PkgPaths: []string{"app"}}
+	let plan = PlanBuild([]Summary{leaf, midA, midB, app}, deps, NewInputTable(), cov, tc) catch {
+	case BuildError:
+		assert false
+		return
+	}
+	assert plan.WaveCount == 3
+	assert plan.Waves[0] == uint32(0)
+	assert plan.Waves[1] == uint32(1) && plan.Waves[2] == uint32(1)
+	assert plan.Waves[3] == uint32(2)
+	assert plan.Kinds[3] == ActCover
+
+	let res = ExecuteWavesParallel(plan, 4, func(id uint32) bool {
+		let _ = id
+		true
+	})
+	let rep = RollupReport(plan, res, []BuildDiag{BuildDiag{PkgPath: "app", File: "a.ergo", Line: 3, Col: 1, Severity: "note", Code: "B001", Message: "built"}})
+	assert rep.Actions == 4 && rep.Passed == 4 && rep.Failed == 0
+	assert strings.Contains(FormatBuildReport(rep), "compiled=4")
+	assert CoverActionKey(app, cov) != ActionKey(app)
+	let args = CompileArgs("app", "app.a", "importcfg", []string{}, 2)
+	assert slices.Contains(args, "-c")
+	assert slices.Contains(LinkArgs("app.exe", "app.a", "importcfg", []string{}), "-o")
+	assert strings.Contains(ModInfoText("app", "", "h1"), "path\tapp")
+}

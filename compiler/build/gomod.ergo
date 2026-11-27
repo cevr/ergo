@@ -1,0 +1,170 @@
+import compiler/driver
+import option
+import slices
+import strconv
+import strings
+
+// InvalidGoVersion is returned when a go version string fails Go toolchain syntax.
+type InvalidGoVersion {
+	Raw string,
+}
+
+// GoVersion holds parsed semantic components of a Go release string.
+type GoVersion {
+	Major int,
+	Minor int,
+	Patch int,
+}
+
+// ModuleResolution holds parsed go.mod state and resolved local module replacements.
+type ModuleResolution {
+	MainModule  string,
+	GoVer       string,
+	ToolchainOK bool,
+	Requires    []driver.GoRequire,
+	Replaces    []driver.LocalReplace,
+}
+
+// ParseGoVersion parses strings like "go1.27.4" or "1.27" into a GoVersion record.
+func ParseGoVersion(raw string) GoVersion fails InvalidGoVersion {
+	let mut s = strings.TrimSpace(raw)
+	if strings.HasPrefix(s, "go") {
+		s = s[2:s.Len()]
+	}
+	if s == "" {
+		return InvalidGoVersion{Raw: raw}
+	}
+	let parts = strings.Split(s, ".")
+	if parts.Len() < 2 || parts.Len() > 3 {
+		return InvalidGoVersion{Raw: raw}
+	}
+	let maj = strconv.Atoi(parts[0]) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return InvalidGoVersion{Raw: raw}
+	}
+	let min = strconv.Atoi(parts[1]) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return InvalidGoVersion{Raw: raw}
+	}
+	let mut pat = 0
+	if parts.Len() == 3 {
+		pat = strconv.Atoi(parts[2]) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return InvalidGoVersion{Raw: raw}
+		}
+	}
+	if maj < 0 || min < 0 || pat < 0 {
+		return InvalidGoVersion{Raw: raw}
+	}
+	GoVersion{Major: maj, Minor: min, Patch: pat}
+}
+
+// CompareGoVersion compares a and b numerically returning -1, 0, or +1.
+func CompareGoVersion(a GoVersion, b GoVersion) int {
+	if a.Major != b.Major {
+		return if a.Major < b.Major { -1 } else { 1 }
+	}
+	if a.Minor != b.Minor {
+		return if a.Minor < b.Minor { -1 } else { 1 }
+	}
+	if a.Patch != b.Patch {
+		return if a.Patch < b.Patch { -1 } else { 1 }
+	}
+	0
+}
+
+// Within reports whether moduleGo is compatible with (less than or equal to) toolchainGo.
+func Within(moduleGo string, toolchainGo string) bool {
+	if moduleGo == "" {
+		return true
+	}
+	let m = ParseGoVersion(moduleGo) catch {
+	case InvalidGoVersion:
+		return false
+	}
+	let t = ParseGoVersion(toolchainGo) catch {
+	case InvalidGoVersion:
+		return false
+	}
+	CompareGoVersion(m, t) <= 0
+}
+
+// IsStdPackage reports whether importPath denotes a Go standard library or Ergo
+// builtin std package rather than a domain-qualified external module path.
+func IsStdPackage(importPath string) bool {
+	if importPath == "" {
+		return false
+	}
+	if strings.HasPrefix(importPath, "./") || strings.HasPrefix(importPath, "../") || importPath == "." || importPath == ".." {
+		return false
+	}
+	let slash = strings.IndexByte(importPath, '/')
+	let head = if slash < 0 { importPath } else { importPath[0:slash] }
+	!strings.Contains(head, ".")
+}
+
+// ResolveModuleGraph parses go.mod text via driver.ParseGoMod, validates toolchain
+// compatibility, and resolves local replace directories relative to modDir.
+func ResolveModuleGraph(modText string, modFile string, modDir string, toolchainGo string) ModuleResolution fails BuildError {
+	let gm = driver.ParseGoMod(modText, modFile) catch {
+	case driver.ParseError as e:
+		return BuildError{Op: "gomod", Target: e.File, Reason: e.Message}
+	}
+	let ok = Within(gm.Go, toolchainGo)
+	if !ok {
+		return BuildError{Op: "gomod", Target: modFile, Reason: "module requires Go " + gm.Go + " > toolchain " + toolchainGo}
+	}
+	let reps = driver.LocalReplaces(modDir, gm)
+	ModuleResolution{
+		MainModule:  gm.Module,
+		GoVer:       gm.Go,
+		ToolchainOK: ok,
+		Requires:    slices.Clone(gm.Require),
+		Replaces:    reps,
+	}
+}
+
+// LookupReplacedDir resolves modPath (and optional reqVersion) through resolved replacements.
+func LookupReplacedDir(res ModuleResolution, modPath string, reqVersion string) option.Option[string] {
+	driver.ResolveReplacedDir(res.Replaces, modPath, reqVersion)
+}
+
+// GoVersionWithinOrdering checks that CompareGoVersion is antisymmetric and Within
+// agrees with numeric ordering.
+law GoVersionWithinOrdering(maj1 int, min1 int, maj2 int, min2 int) {
+	let aMaj = ((maj1%5)+5)%5 + 1
+	let aMin = ((min1 % 30) + 30) % 30
+	let bMaj = ((maj2%5)+5)%5 + 1
+	let bMin = ((min2 % 30) + 30) % 30
+	let a = GoVersion{Major: aMaj, Minor: aMin, Patch: 0}
+	let b = GoVersion{Major: bMaj, Minor: bMin, Patch: 0}
+	let cmp = CompareGoVersion(a, b)
+	cmp == -CompareGoVersion(b, a) && Within("go\(aMaj).\(aMin)", "go\(bMaj).\(bMin)") == (cmp <= 0)
+}
+
+// StdPackageExcludesDomains verifies that domain-qualified paths are never classified
+// as standard library packages while simple root packages are.
+law StdPackageExcludesDomains(seg string) {
+	let s = if seg == "" || strings.Contains(seg, ".") || strings.Contains(seg, "/") { "pkg" } else { seg }
+	IsStdPackage(s) && !IsStdPackage("example.com/"+s) && !IsStdPackage("./"+s)
+}
+
+test ResolveGoModWithReplacesAndLimits {
+	let src = "module example.com/app\n\ngo 1.27\n\nrequire (\n\texample.com/dep v1.2.0\n)\n\nreplace example.com/dep => ../dep\n"
+	let res = ResolveModuleGraph(src, "/repo/app/go.mod", "/repo/app", "go1.27.4") catch {
+	case BuildError:
+		assert false
+		return
+	}
+	assert res.MainModule == "example.com/app"
+	assert res.ToolchainOK
+	assert LookupReplacedDir(res, "example.com/dep", "v1.2.0") == option.Some{Value: "/repo/dep"}
+
+	let mut rejected = false
+	let _ = ResolveModuleGraph("module x\ngo 1.29\n", "go.mod", "/repo", "go1.27.4") catch {
+	case BuildError:
+		rejected = true
+		ModuleResolution{MainModule: "", GoVer: "", ToolchainOK: false, Requires: []driver.GoRequire{}, Replaces: []driver.LocalReplace{}}
+	}
+	assert rejected
+}

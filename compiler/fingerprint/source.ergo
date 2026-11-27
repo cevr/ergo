@@ -1,0 +1,222 @@
+import compiler/syntax
+import dense
+import option
+import slices
+import strconv
+import strings
+
+// TokenText returns the canonical comment-free and layout-normalized token
+// stream of src.
+func TokenText(src string) string {
+	let sc = syntax.Scan(src)
+	let t = sc.Toks
+	let n = syntax.NumToks(t)
+	let mut b = strings.NewBuilder()
+	for i in 0..n {
+		let id = syntax.TokAt(t, i)
+		let k = syntax.Kind(t, id)
+		if k == syntax.Comment || k == syntax.EOF {
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteByte(' ')
+		}
+		b.WriteString(strconv.Itoa(int(k)))
+		b.WriteByte(':')
+		if k == syntax.Semicolon {
+			b.WriteByte(';')
+		} else {
+			let start = syntax.Start(t, id)
+			let end = syntax.End(src, k, start)
+			if end >= start && end <= src.Len() {
+				b.WriteString(src[start:end])
+			}
+		}
+	}
+	if sc.Failed {
+		b.WriteString(" !fail:")
+		b.WriteString(sc.Message)
+	}
+	b.String()
+}
+
+// MarkerText extracts canonical token markers from src up to limit tokens.
+func MarkerText(src string, limit int) string {
+	let sc = syntax.Scan(src)
+	let t = sc.Toks
+	let n = syntax.NumToks(t)
+	let cap = if limit <= 0 || limit > n { n } else { limit }
+	let mut b = strings.NewBuilder()
+	let mut count = 0
+	for i in 0..n {
+		if count >= cap {
+			break
+		}
+		let id = syntax.TokAt(t, i)
+		let k = syntax.Kind(t, id)
+		if k == syntax.Comment || k == syntax.EOF || k == syntax.Semicolon {
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteByte(' ')
+		}
+		let start = syntax.Start(t, id)
+		let end = syntax.End(src, k, start)
+		if end >= start && end <= src.Len() {
+			b.WriteString(src[start:end])
+		}
+		count = count + 1
+	}
+	b.String()
+}
+
+// InterfaceText returns the canonical exported interface projection of src,
+// excluding comments, private declarations, tests, and function bodies.
+func InterfaceText(src string) string {
+	let p = syntax.Parse(src)
+	if p.Failed {
+		return "parse-failed:" + TokenText(src)
+	}
+	let root = syntax.Root(p.Tree)
+	let file = syntax.FileOf(p.Tree, root)
+	let n = syntax.Len(file.Decls)
+	let mut declParts = []string{}
+	for i in 0..n {
+		let d = syntax.Item(p.Tree, file.Decls, i)
+		let k = syntax.KindOf(p.Tree, d)
+		if k == syntax.KFuncDecl {
+			let fd = syntax.FuncDeclOf(p.Tree, d)
+			let name = identString(p, fd.Name)
+			if !isExported(name) {
+				continue
+			}
+			let start = syntax.NodePos(p, d)
+			let end = optBodyStart(p, d, fd.Body)
+			declParts = declParts.Append("func:" + name + ":" + tokenSpanText(src, start, end))
+		} else if k == syntax.KTypeDecl {
+			let td = syntax.TypeDeclOf(p.Tree, d)
+			let name = identString(p, td.Name)
+			if !isExported(name) {
+				continue
+			}
+			let start = syntax.NodePos(p, d)
+			let end = syntax.NodeEnd(p, d)
+			declParts = declParts.Append("type:" + name + ":" + tokenSpanText(src, start, end))
+		} else if k == syntax.KVarDecl {
+			let vd = syntax.VarDeclOf(p.Tree, d)
+			let vs = syntax.VarSpecOf(p.Tree, vd.Spec)
+			let mut hasPub = false
+			let mut names = ""
+			for j in 0..syntax.Len(vs.Names) {
+				let nid = syntax.Item(p.Tree, vs.Names, j)
+				let nm = identString(p, nid)
+				if isExported(nm) {
+					hasPub = true
+				}
+				if j > 0 {
+					names = names + ","
+				}
+				names = names + nm
+			}
+			if !hasPub {
+				continue
+			}
+			let start = syntax.NodePos(p, d)
+			let end = syntax.NodeEnd(p, d)
+			declParts = declParts.Append("var:" + names + ":" + tokenSpanText(src, start, end))
+		} else if k == syntax.KContextDecl {
+			let cd = syntax.ContextDeclOf(p.Tree, d)
+			let name = identString(p, cd.Name)
+			if !isExported(name) {
+				continue
+			}
+			let start = syntax.NodePos(p, d)
+			let end = syntax.NodePos(p, cd.Body)
+			declParts = declParts.Append("context:" + name + ":" + tokenSpanText(src, start, end))
+		} else if k == syntax.KLawDecl {
+			let ld = syntax.LawDeclOf(p.Tree, d)
+			let name = identString(p, ld.Name)
+			if !isExported(name) {
+				continue
+			}
+			let start = syntax.NodePos(p, d)
+			let end = optBodyStart(p, d, ld.Body)
+			declParts = declParts.Append("law:" + name + ":" + tokenSpanText(src, start, end))
+		}
+	}
+	let sortedParts = slices.Sort(declParts)
+	let mut b = strings.NewBuilder()
+	for i in 0..sortedParts.Len() {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(sortedParts[i])
+	}
+	b.String()
+}
+
+// SourceFingerprint computes the content-addressed digest of src's normalized tokens.
+func SourceFingerprint(src string) string {
+	Of([]string{"source", TokenText(src)})
+}
+
+// InterfaceFingerprint computes the content-addressed digest of src's exported interface.
+func InterfaceFingerprint(src string) string {
+	Of([]string{"interface", InterfaceText(src)})
+}
+
+func optBodyStart(p syntax.Parsed, d dense.ID[syntax.Node], body dense.Opt[syntax.Node]) int {
+	match dense.Unpack(body) {
+	case option.Some{Value: b}:
+		syntax.NodePos(p, b)
+	case option.None:
+		syntax.NodeEnd(p, d)
+	}
+}
+
+func identString(p syntax.Parsed, id dense.ID[syntax.Node]) string {
+	let nm = syntax.NameOf(p.Tree, id)
+	syntax.TokText(p, nm.Tok)
+}
+
+func isExported(name string) bool {
+	if name.Len() == 0 {
+		return false
+	}
+	let c = name[0]
+	c >= 'A' && c <= 'Z'
+}
+
+func tokenSpanText(src string, start int, end int) string {
+	if start < 0 || end <= start || end > src.Len() {
+		return ""
+	}
+	TokenText(src[start:end])
+}
+
+// TokenTextIgnoresCommentsAndSpace checks that inserting comments or extra spaces
+// leaves both TokenText and SourceFingerprint unchanged.
+law TokenTextIgnoresCommentsAndSpace(x int) {
+	let a = "func Foo(n int) int {\n\tlet k = n + 1\n\tk\n}\n"
+	let b = "// comment \(x)\nfunc   Foo( n  int )  int  {\n\n\tlet k = n  +  1 // inline\n\tk\n}\n"
+	TokenText(a) == TokenText(b) && SourceFingerprint(a) == SourceFingerprint(b)
+}
+
+// InterfaceTextIgnoresPrivateAndBodies checks that edits to function bodies or
+// unexported helpers alter SourceFingerprint while keeping InterfaceFingerprint identical.
+law InterfaceTextIgnoresPrivateAndBodies(k int) {
+	let a = "func helper(x int) int { x + 1 }\nfunc Pub(x int) int { helper(x) }\n"
+	let b = "func helperPriv(x int, y int) int { x + y + \(k) }\nfunc Pub(x int) int { x + \(k + 2) }\n"
+	InterfaceText(a) == InterfaceText(b) && InterfaceFingerprint(a) == InterfaceFingerprint(b)
+}
+
+test InterfaceAndSourceFingerprints {
+	let s1 = "func Pub(x int) int { x + 1 }\nfunc priv() int { 1 }\n"
+	let s2 = "func Pub(x int) int { x + 99 }\nfunc priv() int { 2 }\n"
+	let s3 = "func Pub(x string) int { 1 }\n"
+	assert InterfaceFingerprint(s1) == InterfaceFingerprint(s2)
+	assert SourceFingerprint(s1) != SourceFingerprint(s2)
+	assert InterfaceFingerprint(s1) != InterfaceFingerprint(s3)
+	assert MarkerText(s1, 3) == "func Pub ("
+	assert TokenText("let x = a + b") != TokenText("let x = ab")
+}

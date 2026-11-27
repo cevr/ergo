@@ -1,0 +1,45 @@
+{
+  "about": "compiler/graphrows mutants covering node/edge sorting, NoNode -1 JSON encoding, schema validation, and workspace collection",
+  "mutants": [
+    {
+      "name": "selfhost-build-graph-remap-drop-parent",
+      "origin": "wf10 SELFHOST-BUILD",
+      "file": "compiler/graphrows/graphrows.ergo",
+      "decl": "Sorted",
+      "from": "\t\t\tParent:  remapID(remap, n.Parent),\n",
+      "to": "\t\t\tParent:  n.Parent,\n",
+      "rule": "Sorted must remap Parent node IDs through the new sorted permutation so parent references remain invariant across insertion orders.",
+      "killers": ["compiler/graphrows:law:SortedOrderInvariance"]
+    },
+    {
+      "name": "selfhost-build-graph-json-nonode-zero",
+      "origin": "wf10 SELFHOST-BUILD",
+      "file": "compiler/graphrows/json.ergo",
+      "decl": "encodeOptID",
+      "from": "\tif id == NoNode {\n\t\treturn -1\n\t}\n",
+      "to": "\tif id == NoNode {\n\t\treturn 0\n\t}\n",
+      "rule": "encodeOptID must encode absent node IDs (NoNode) as -1 in JSON v2 wire format.",
+      "killers": ["compiler/graphrows:law:JSONRoundtripPreservesTable"]
+    },
+    {
+      "name": "selfhost-build-graph-json-ignore-version",
+      "origin": "wf10 SELFHOST-BUILD",
+      "file": "compiler/graphrows/json.ergo",
+      "decl": "DecodeJSON",
+      "from": "\tif w.Version != Version {\n\t\treturn MalformedJSON{Reason: \"unsupported graphrows version \" + strconv.Itoa(w.Version)}\n\t}\n",
+      "to": "",
+      "rule": "DecodeJSON must refuse graphrows documents whose wire Version differs from Version (2).",
+      "killers": ["compiler/graphrows:DecodeJSONRejectsBadInputs"]
+    },
+    {
+      "name": "selfhost-build-graph-skip-imports-edge",
+      "origin": "wf10 SELFHOST-BUILD",
+      "file": "compiler/graphrows/workspace.ergo",
+      "decl": "collectFileEdges",
+      "from": "\t\tAddEdge(t, Edge{Kind: EdgeImports, How: Intern(t, \"import\"), From: pkgID, To: targetPkgID, Pos: pos})\n",
+      "to": "",
+      "rule": "collectFileEdges must emit package-level EdgeImports edges for every import declaration.",
+      "killers": ["compiler/graphrows:BuildWorkspaceDiscoverAndGraph"]
+    }
+  ]
+}

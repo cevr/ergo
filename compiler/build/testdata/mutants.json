@@ -1,0 +1,125 @@
+{
+  "about": "compiler/build mutants covering toolchain identity, action keys, gomod limits, pinsets, embed safety, store/locks, slots, root test guard, cache/lease/exec verification, trim bounds, and parallel wave planning",
+  "mutants": [
+    {
+      "name": "selfhost-build-toolchain-drop-exe-digest",
+      "origin": "wf10 SELFHOST-BUILD",
+      "file": "compiler/build/toolchain.ergo",
+      "decl": "CompilerIdentityKey",
+      "from": "\t\tcachekey.Field{Name: \"exe\", Value: id.ExeDigest},\n",
+      "to": "\t\tcachekey.Field{Name: \"exe\", Value: \"\"},\n",
+      "rule": "CompilerIdentityKey must include the compiler executable digest so different compiler binaries never share cache entries.",
+      "killers": ["compiler/build:law:CompilerIdentityKeySensitive"]
+    },
+    {
+      "name": "selfhost-build-input-unsorted-files",
+      "origin": "wf10 SELFHOST-BUILD",
+      "file": "compiler/build/input.ergo",
+      "decl": "CanonicalFiles",
+      "from": "\tslices.SortFunc(out, func(a FileDigest, b FileDigest) int { strings.Compare(a.Path, b.Path) })\n",
+      "to": "\tout\n",
+      "rule": "CanonicalFiles must sort file digests by path so file input order never changes ActionKey.",
+      "killers": ["compiler/build:law:ActionKeyIgnoresFileOrder"]
+    },
+    {
+      "name": "selfhost-build-gomod-ignore-version-limit",
+      "origin": "wf10 SELFHOST-BUILD",
+      "file": "compiler/build/gomod.ergo",
+      "decl": "ResolveModuleGraph",
+      "from": "\tif !ok {\n\t\treturn BuildError{Op: \"gomod\", Target: modFile, Reason: \"module requires Go \" + gm.Go + \" > toolchain \" + toolchainGo}\n\t}\n",
+      "to": "",
+      "rule": "ResolveModuleGraph must reject go.mod versions exceeding the pinned Go toolchain release.",
+      "killers": ["compiler/build:ResolveGoModWithReplacesAndLimits"]
+    },
+    {
+      "name": "selfhost-build-pin-unsorted-key",
+      "origin": "wf10 SELFHOST-BUILD",
+      "file": "compiler/build/pin.ergo",
+      "decl": "PinKey",
+      "from": "\tlet sorted = sortPinEntries(lock.Entries)\n",
+      "to": "\tlet sorted = lock.Entries\n",
+      "rule": "PinKey must sort entries before hashing so lock entry ordering is canonical.",
+      "killers": ["compiler/build:law:PinLockRoundtripPreservesEntries"]
+    },
+    {
+      "name": "selfhost-build-embed-allow-hidden",
+      "origin": "wf10 SELFHOST-BUILD",
+      "file": "compiler/build/embed.ergo",
+      "decl": "matchEmbedPattern",
+      "from": "\t\tif !includeHidden && hasHiddenSegment(rel) && !explicitlyMatchesHidden(pat, rel) {\n\t\t\tcontinue\n\t\t}\n",
+      "to": "",
+      "rule": "matchEmbedPattern must skip dot- and underscore-prefixed hidden files unless prefixed with all: or explicitly named.",
+      "killers": ["compiler/build:EmbedResolvesAllAndSkipsHidden"]
+    },
+    {
+      "name": "selfhost-build-store-overwrite-if-missing",
+      "origin": "wf10 SELFHOST-BUILD",
+      "file": "compiler/build/store_cap.ergo",
+      "decl": "WriteAtomicIfMissing",
+      "from": "\tif findMemIdx(st, clean) >= 0 {\n\t\treturn false\n\t}\n",
+      "to": "\tif findMemIdx(st, clean) < 0 && false {\n\t\treturn false\n\t}\n",
+      "rule": "WriteAtomicIfMissing must return false without overwriting when the target path already exists.",
+      "killers": ["compiler/build:MemoryStoreLocksAndClock"]
+    },
+    {
+      "name": "selfhost-build-locks-ignore-busy",
+      "origin": "wf10 SELFHOST-BUILD",
+      "file": "compiler/build/store_cap.ergo",
+      "decl": "memAcquire",
+      "from": "\t\tif st.LockPaths[i] == clean && (exclusive || st.LockExcl[i]) {\n\t\t\treturn LockBusy{Path: clean}\n\t\t}\n",
+      "to": "\t\tif st.LockPaths[i] != clean && (exclusive && st.LockExcl[i]) {\n\t\t\treturn LockBusy{Path: clean}\n\t\t}\n",
+      "rule": "Acquire must refuse conflicting exclusive locks on the same lock path with LockBusy.",
+      "killers": ["compiler/build:law:LocksAcquireReleaseRoundTrips", "compiler/build:MemoryStoreLocksAndClock"]
+    },
+    {
+      "name": "selfhost-build-slot-ignore-busy-lock",
+      "origin": "wf10 SELFHOST-BUILD",
+      "file": "compiler/build/slot.ergo",
+      "decl": "AcquireSlot",
+      "from": "\t\tcase LockBusy:\n\t\t\tcontinue\n",
+      "to": "\t\tcase LockBusy:\n\t\t\tLockHandle{Path: lockPath, Token: uint64(0), Exclusive: true}\n",
+      "rule": "AcquireSlot must skip busy slots instead of granting two callers the same build slot.",
+      "killers": ["compiler/build:SlotAcquireReleaseAndExhaustion"]
+    },
+    {
+      "name": "selfhost-build-root-allow-user-cache-in-test",
+      "origin": "wf10 SELFHOST-BUILD",
+      "file": "compiler/build/root.ergo",
+      "decl": "ResolveRoot",
+      "from": "\tif underTest {\n\t\treturn BuildError{Op: \"root\", Target: RootVariable, Reason: \"refusing user cache under the Go test without \" + RootVariable}\n\t}\n",
+      "to": "",
+      "rule": "ResolveRoot must refuse falling back to the shared user cache directory when running under a Go test without ERGO_CACHE.",
+      "killers": ["compiler/build:law:ResolveRootRespectsPrivateVarAndTestGuard"]
+    },
+    {
+      "name": "selfhost-build-cache-skip-digest-verify",
+      "origin": "wf10 SELFHOST-BUILD",
+      "file": "compiler/build/cache.ergo",
+      "decl": "VerifyModule",
+      "from": "\thex.Encode(sha256.Sum(arcBytes.Text())) == strings.TrimSpace(digBytes.Text())\n",
+      "to": "\thex.Encode(sha256.Sum(arcBytes.Text())) != \"\" && strings.TrimSpace(digBytes.Text()) != \"\"\n",
+      "rule": "VerifyModule must check the SHA-256 digest of archived bytes before admitting a cached module hit.",
+      "killers": ["compiler/build:law:ModulePublishLookupVerifyLaw"]
+    },
+    {
+      "name": "selfhost-build-trim-evict-leased",
+      "origin": "wf10 SELFHOST-BUILD",
+      "file": "compiler/build/trim.ergo",
+      "decl": "TrimPass",
+      "from": "\t\tif slices.Contains(leased, it.Name) {\n\t\t\tkeptLeased = keptLeased + 1\n\t\t\tcontinue\n\t\t}\n",
+      "to": "\t\tif keptRecent < 0 && slices.Contains(leased, it.Name) {\n\t\t\tkeptLeased = keptLeased + 1\n\t\t\tcontinue\n\t\t}\n",
+      "rule": "TrimPass must never evict cache entries covered by an active lease.",
+      "killers": ["compiler/build:TrimRespectsLeasesAgeBudgetAndCap"]
+    },
+    {
+      "name": "selfhost-build-plan-skip-wave-order",
+      "origin": "wf10 SELFHOST-BUILD",
+      "file": "compiler/build/plan.ergo",
+      "decl": "PlanBuild",
+      "from": "\t\t\twaves[int(act)] = uint32(wi)\n",
+      "to": "\t\t\twaves[int(act)] = uint32(0)\n",
+      "rule": "PlanBuild must assign each action to its topological dependency wave so dependencies execute strictly before dependents.",
+      "killers": ["compiler/build:law:PlanWaveRespectsDepsAndCutoff", "compiler/build:PlanBuildWavesAndParallelRollup"]
+    }
+  ]
+}

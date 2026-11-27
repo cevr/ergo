@@ -1,0 +1,184 @@
+import filepath
+import slices
+import strconv
+import time
+
+// SlotLease represents one acquired worker compilation slot and its advisory lock.
+type SlotLease {
+	Dir       string,
+	Index     int,
+	Lock      LockHandle,
+	TokenPath string,
+}
+
+// SlotPool tracks dense slot allocations across [0..Capacity) using flat SoA arrays.
+type SlotPool {
+	Dir       string,
+	Capacity  int,
+	Occupied  []bool,
+	Owners    []string,
+	HeldSince []int64,
+}
+
+// NewSlotPool allocates an empty flat SlotPool table of capacity cap.
+func NewSlotPool(dir string, cap int) SlotPool {
+	let n = if cap < 1 { 1 } else { cap }
+	let mut occ = slices.WithCapacity[bool](n)
+	let mut own = slices.WithCapacity[string](n)
+	let mut ts = slices.WithCapacity[int64](n)
+	for _ in 0..n {
+		occ = occ.Append(false)
+		own = own.Append("")
+		ts = ts.Append(int64(0))
+	}
+	SlotPool{
+		Dir:       filepath.Clean(dir),
+		Capacity:  n,
+		Occupied:  occ,
+		Owners:    own,
+		HeldSince: ts,
+	}
+}
+
+// SlotConcurrency calculates bounded per-action compiler parallelism from procs
+// and concurrent package action count: 1 for sequential, else clamped to [2, 4]
+// and bounded above by procs.
+func SlotConcurrency(procs int, actions int) int {
+	if procs <= 1 || actions <= 0 {
+		return 1
+	}
+	let raw = procs / actions
+	let clamped = if raw < 2 { 2 } else if raw > 4 { 4 } else { raw }
+	if clamped > procs {
+		return procs
+	}
+	clamped
+}
+
+// SlotFlag returns ["-c", N] when SlotConcurrency exceeds 1, else an empty slice.
+func SlotFlag(procs int, actions int) []string {
+	let n = SlotConcurrency(procs, actions)
+	if n <= 1 {
+		return []string{}
+	}
+	[]string{"-c", strconv.Itoa(n)}
+}
+
+// AcquireSlot claims the lowest free slot in [0..cap) using advisory locking and
+// records ownership metadata under dir.
+func AcquireSlot(dir string, cap int, owner string) SlotLease fails BuildError needs Store | Locks | Clock {
+	let cleanDir = filepath.Clean(dir)
+	Store.MkdirAll(cleanDir) catch {
+	case StoreError as e:
+		return BuildError{Op: "slot-mkdir", Target: cleanDir, Reason: storeErrMsg(e)}
+	}
+	let limit = if cap < 1 { 1 } else { cap }
+	let now = time.UnixSeconds(Clock.Now())
+	for idx in 0..limit {
+		let lockPath = cleanDir + "/slot-" + strconv.Itoa(idx) + ".lock"
+		let tokPath = cleanDir + "/slot-" + strconv.Itoa(idx) + ".owner"
+		let h = Locks.Acquire(lockPath, true, false) catch {
+		case LockBusy:
+			continue
+		case LockFailed as e:
+			return BuildError{Op: "slot-lock", Target: lockPath, Reason: e.Reason}
+		}
+		let meta = owner + "\t" + strconv.FormatInt(now, 10) + "\n"
+		Store.WriteAtomic(tokPath, meta.Bytes(), 420) catch {
+		case StoreError as e:
+			Locks.Release(h)
+			return BuildError{Op: "slot-write", Target: tokPath, Reason: storeErrMsg(e)}
+		}
+		return SlotLease{Dir: cleanDir, Index: idx, Lock: h, TokenPath: tokPath}
+	}
+	BuildError{Op: "slot-acquire", Target: cleanDir, Reason: "all build slots busy"}
+}
+
+// ReleaseSlot releases an acquired slot's owner token and advisory lock.
+func ReleaseSlot(lease SlotLease) needs Store | Locks {
+	Store.Remove(lease.TokenPath) catch {
+	case StoreError:
+	}
+	Locks.Release(lease.Lock)
+}
+
+// AcquirePoolSlot reserves the first free slot index in pool and returns it, or -1 if full.
+func AcquirePoolSlot(pool mut SlotPool, owner string) int needs Clock {
+	let now = time.UnixSeconds(Clock.Now())
+	for i in 0..pool.Capacity {
+		if !pool.Occupied[i] {
+			pool.Occupied[i] = true
+			pool.Owners[i] = owner
+			pool.HeldSince[i] = now
+			return i
+		}
+	}
+	-1
+}
+
+// ReleasePoolSlot frees slot idx in pool.
+func ReleasePoolSlot(pool mut SlotPool, idx int) {
+	if idx < 0 || idx >= pool.Capacity {
+		return
+	}
+	pool.Occupied[idx] = false
+	pool.Owners[idx] = ""
+	pool.HeldSince[idx] = int64(0)
+}
+
+func storeErrMsg(e StoreError) string {
+	match e {
+	case StoreNotFound as nf:
+		"not found: " + nf.Path
+	case StoreDenied as d:
+		"denied: " + d.Path
+	case StoreExists as ex:
+		"exists: " + ex.Path
+	case StoreIO as io:
+		io.Reason
+	}
+}
+
+// SlotConcurrencyWithinBounds verifies that SlotConcurrency always lies within [1, min(4, max(1, procs))].
+law SlotConcurrencyWithinBounds(procs int, actions int) {
+	let c = SlotConcurrency(procs, actions)
+	let maxAllowed = if procs <= 1 || actions <= 0 { 1 } else if procs < 4 { procs } else { 4 }
+	c >= 1 && c <= maxAllowed
+}
+
+test SlotAcquireReleaseAndExhaustion {
+	let m = NewMemoryEnv(2000)
+	let st = StoreProvider(m)
+	let lk = LocksProvider(m)
+	let ck = ClockProvider(m)
+	with context { Store: st, Locks: lk, Clock: ck } {
+		let l0 = AcquireSlot("/slots", 2, "w0") catch {
+		case BuildError:
+			assert false
+			return
+		}
+		assert l0.Index == 0
+		let l1 = AcquireSlot("/slots", 2, "w1") catch {
+		case BuildError:
+			assert false
+			return
+		}
+		assert l1.Index == 1
+		let mut exhausted = false
+		let _ = AcquireSlot("/slots", 2, "w2") catch {
+		case BuildError:
+			exhausted = true
+			SlotLease{Dir: "", Index: -1, Lock: LockHandle{Path: "", Token: uint64(0), Exclusive: false}, TokenPath: ""}
+		}
+		assert exhausted
+		ReleaseSlot(l0)
+		let l0Again = AcquireSlot("/slots", 2, "w2") catch {
+		case BuildError:
+			assert false
+			return
+		}
+		assert l0Again.Index == 0
+		ReleaseSlot(l1)
+		ReleaseSlot(l0Again)
+	}
+}

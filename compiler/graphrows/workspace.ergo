@@ -1,0 +1,728 @@
+import compiler/driver
+import compiler/fingerprint
+import compiler/syntax
+import dense
+import filepath
+import fs
+import fstest
+import option
+import slices
+import strings
+
+// SourceInput describes one source file belonging to a module and package.
+type SourceInput {
+	ModPath  string,
+	PkgPath  string,
+	FilePath string,
+	Source   string,
+}
+
+// GraphError reports failures while discovering or building a workspace graph.
+type GraphError {
+	Path   string,
+	Reason string,
+}
+
+type declIndex {
+	PkgIdx  []uint32,
+	Name    []string,
+	NodeID  []uint32,
+	Buckets []uint32,
+}
+
+type pkgIndex {
+	Path    []string,
+	NodeID  []uint32,
+	ModNode []uint32,
+	Buckets []uint32,
+}
+
+// BuildPackages constructs a canonical Sorted graphrows Table from explicit
+// SourceInput entries, extracting module/package/file/declaration/task nodes
+// and contains/imports/calls/refers/uses/requires edges.
+func BuildPackages(inputs []SourceInput) Table {
+	let mut t = NewTable()
+	let mut pIdx = newPkgIndex()
+	let mut dIdx = newDeclIndex()
+	let mut parsedList = slices.WithCapacity[syntax.Parsed](inputs.Len())
+	let mut linesList = slices.WithCapacity[syntax.Lines](inputs.Len())
+	let mut fileNodeIDs = slices.WithCapacity[uint32](inputs.Len())
+	let mut pkgNodeIDs = slices.WithCapacity[uint32](inputs.Len())
+
+	for i in 0..inputs.Len() {
+		let srcItem = inputs[i]
+		let modName = if srcItem.ModPath == "" { "workspace" } else { srcItem.ModPath }
+		let pkgName = if srcItem.PkgPath == "" { modName } else { srcItem.PkgPath }
+		let modID = ensureModuleNode(&t, &pIdx, modName)
+		let (pkgID, pSlot) = ensurePackageNode(&t, &pIdx, modID, pkgName)
+		let p = syntax.Parse(srcItem.Source)
+		let ls = syntax.LinesOf(srcItem.Source)
+		let lineCount = syntax.NumLines(ls)
+		let fp = fingerprint.SourceFingerprint(srcItem.Source)
+		let fileID = AddNode(&t, Node{
+			ID:      uint32(0),
+			Kind:    KindFile,
+			Sub:     SubNone,
+			Parent:  pkgID,
+			Name:    Intern(&t, srcItem.FilePath),
+			Digest:  Intern(&t, fp),
+			Subject: NoNode,
+			Lines:   lineCount,
+			Pos:     NoPos(),
+		})
+		AddEdge(&t, Edge{Kind: EdgeContains, How: uint32(0), From: pkgID, To: fileID, Pos: NoPos()})
+		parsedList = parsedList.Append(p)
+		linesList = linesList.Append(ls)
+		fileNodeIDs = fileNodeIDs.Append(fileID)
+		pkgNodeIDs = pkgNodeIDs.Append(pSlot)
+
+		if !p.Failed {
+			collectFileDecls(&t, &dIdx, pSlot, pkgID, fileID, p, ls, srcItem.Source)
+		}
+	}
+
+	for i in 0..inputs.Len() {
+		let p = parsedList[i]
+		if p.Failed {
+			continue
+		}
+		let ls = linesList[i]
+		let fileID = fileNodeIDs[i]
+		let pSlot = pkgNodeIDs[i]
+		let pkgID = pIdx.NodeID[int(pSlot)]
+		collectFileEdges(&t, &pIdx, dIdx, pSlot, pkgID, fileID, p, ls)
+	}
+
+	Sorted(t)
+}
+
+// BuildWorkspace discovers modules and Ergo packages under root via fs.Files
+// and returns a canonical Sorted graphrows Table.
+func BuildWorkspace(root string) Table fails GraphError needs fs.Files {
+	let st = driver.DiscoverWorkspaceMembers(root) catch {
+	case driver.DiscoverError as e:
+		return GraphError{Path: e.Path, Reason: e.Reason}
+	case driver.ParseError as e:
+		return GraphError{Path: e.File, Reason: e.Message}
+	case fs.NotFound:
+		return GraphError{Path: root, Reason: "workspace path not found"}
+	case fs.Denied:
+		return GraphError{Path: root, Reason: "workspace path denied"}
+	case fs.Failed as e:
+		return GraphError{Path: root, Reason: e.Reason}
+	}
+	let pkgCount = int(driver.PackageCount(st))
+	let mut inputs = []SourceInput{}
+	for pi in 0..pkgCount {
+		let pid = uint32(pi)
+		let pkgPath = driver.PackagePath(st, pid)
+		let modID = int(st.PkgModID[pi])
+		let modPath = if modID >= 0 && modID < st.ModNames.Len() { st.ModNames[modID] } else { pkgPath }
+		let files = driver.PackageFiles(st, pid)
+		for fi in 0..files.Len() {
+			let full = files[fi]
+			let relFile = filepath.Base(full)
+			let src = fs.Files.ReadFile(full) catch {
+			case fs.NotFound:
+				return GraphError{Path: full, Reason: "source file not found"}
+			case fs.Denied:
+				return GraphError{Path: full, Reason: "source file denied"}
+			case fs.Failed as e:
+				return GraphError{Path: full, Reason: e.Reason}
+			}
+			inputs = inputs.Append(SourceInput{
+				ModPath:  modPath,
+				PkgPath:  pkgPath,
+				FilePath: relFile,
+				Source:   src,
+			})
+		}
+	}
+	BuildPackages(inputs)
+}
+
+func collectFileDecls(t mut Table, dIdx mut declIndex, pkgSlot uint32, pkgID uint32, fileID uint32, p syntax.Parsed, ls syntax.Lines, src string) {
+	let root = syntax.Root(p.Tree)
+	let file = syntax.FileOf(p.Tree, root)
+	for i in 0..syntax.Len(file.Decls) {
+		let d = syntax.Item(p.Tree, file.Decls, i)
+		let k = syntax.KindOf(p.Tree, d)
+		let off = syntax.NodePos(p, d)
+		let endOff = syntax.NodeEnd(p, d)
+		let pos = makePos(fileID, ls, off)
+		let endPos = makePos(fileID, ls, endOff)
+		let lineSpan = if endPos.Line >= pos.Line { endPos.Line - pos.Line + 1 } else { 1 }
+		let fp = if off >= 0 && endOff > off && endOff <= src.Len() {
+			fingerprint.Of([]string{"decl", fingerprint.TokenText(src[off:endOff])})
+		} else {
+			""
+		}
+		if k == syntax.KFuncDecl {
+			let fd = syntax.FuncDeclOf(p.Tree, d)
+			let nm = identText(p, fd.Name)
+			let nid = addDeclNode(t, pkgID, SubFunc, nm, fp, lineSpan, pos)
+			registerDecl(dIdx, pkgSlot, nm, nid)
+		} else if k == syntax.KTypeDecl {
+			let td = syntax.TypeDeclOf(p.Tree, d)
+			let nm = identText(p, td.Name)
+			let nid = addDeclNode(t, pkgID, SubType, nm, fp, lineSpan, pos)
+			registerDecl(dIdx, pkgSlot, nm, nid)
+			match dense.Unpack(td.Spec) {
+			case option.Some{Value: sp}:
+				if syntax.KindOf(p.Tree, sp) == syntax.KStructType {
+					let st = syntax.StructTypeOf(p.Tree, sp)
+					collectStructFields(t, nid, fileID, p, ls, st.Fields)
+				}
+			case option.None:
+			}
+		} else if k == syntax.KVarDecl {
+			let vd = syntax.VarDeclOf(p.Tree, d)
+			let sub = if vd.Mut < 0 { SubConst } else { SubVar }
+			if syntax.KindOf(p.Tree, vd.Spec) == syntax.KVarSpec {
+				let vs = syntax.VarSpecOf(p.Tree, vd.Spec)
+				for j in 0..syntax.Len(vs.Names) {
+					let idNode = syntax.Item(p.Tree, vs.Names, j)
+					let nm = identText(p, idNode)
+					let nid = addDeclNode(t, pkgID, sub, nm, fp, lineSpan, pos)
+					registerDecl(dIdx, pkgSlot, nm, nid)
+				}
+			}
+		} else if k == syntax.KContextDecl {
+			let cd = syntax.ContextDeclOf(p.Tree, d)
+			let nm = identText(p, cd.Name)
+			let nid = addDeclNode(t, pkgID, SubContext, nm, fp, lineSpan, pos)
+			registerDecl(dIdx, pkgSlot, nm, nid)
+		} else if k == syntax.KTestDecl {
+			let td = syntax.TestDeclOf(p.Tree, d)
+			let nm = identText(p, td.Name)
+			let nid = addDeclNode(t, pkgID, SubTest, nm, fp, lineSpan, pos)
+			registerDecl(dIdx, pkgSlot, nm, nid)
+			let taskID = AddNode(t, Node{
+				ID:      uint32(0),
+				Kind:    KindTask,
+				Sub:     SubTaskTestRun,
+				Parent:  pkgID,
+				Name:    Intern(t, "test:"+nm),
+				Digest:  uint32(0),
+				Subject: nid,
+				Lines:   0,
+				Pos:     pos,
+			})
+			AddEdge(t, Edge{Kind: EdgeContains, How: uint32(0), From: pkgID, To: taskID, Pos: NoPos()})
+			AddEdge(t, Edge{Kind: EdgeRequires, How: Intern(t, "test"), From: taskID, To: nid, Pos: pos})
+		} else if k == syntax.KLawDecl {
+			let ld = syntax.LawDeclOf(p.Tree, d)
+			let nm = identText(p, ld.Name)
+			let nid = addDeclNode(t, pkgID, SubLaw, nm, fp, lineSpan, pos)
+			registerDecl(dIdx, pkgSlot, nm, nid)
+			let taskID = AddNode(t, Node{
+				ID:      uint32(0),
+				Kind:    KindTask,
+				Sub:     SubTaskLawRun,
+				Parent:  pkgID,
+				Name:    Intern(t, "law:"+nm),
+				Digest:  uint32(0),
+				Subject: nid,
+				Lines:   0,
+				Pos:     pos,
+			})
+			AddEdge(t, Edge{Kind: EdgeContains, How: uint32(0), From: pkgID, To: taskID, Pos: NoPos()})
+			AddEdge(t, Edge{Kind: EdgeRequires, How: Intern(t, "law"), From: taskID, To: nid, Pos: pos})
+		}
+	}
+}
+
+func collectStructFields(t mut Table, ownerID uint32, fileID uint32, p syntax.Parsed, ls syntax.Lines, flID dense.ID[syntax.Node]) {
+	if syntax.KindOf(p.Tree, flID) != syntax.KFieldList {
+		return
+	}
+	let fl = syntax.FieldListOf(p.Tree, flID)
+	for i in 0..syntax.Len(fl.List) {
+		let fNode = syntax.Item(p.Tree, fl.List, i)
+		if syntax.KindOf(p.Tree, fNode) != syntax.KField {
+			continue
+		}
+		let fld = syntax.FieldOf(p.Tree, fNode)
+		let fPos = makePos(fileID, ls, syntax.NodePos(p, fNode))
+		for j in 0..syntax.Len(fld.Names) {
+			let nm = identText(p, syntax.Item(p.Tree, fld.Names, j))
+			let fid = AddNode(t, Node{
+				ID:      uint32(0),
+				Kind:    KindDecl,
+				Sub:     SubField,
+				Parent:  ownerID,
+				Name:    Intern(t, nm),
+				Digest:  uint32(0),
+				Subject: NoNode,
+				Lines:   1,
+				Pos:     fPos,
+			})
+			AddEdge(t, Edge{Kind: EdgeContains, How: uint32(0), From: ownerID, To: fid, Pos: fPos})
+		}
+	}
+}
+
+func collectFileEdges(t mut Table, pIdx mut pkgIndex, dIdx declIndex, pkgSlot uint32, pkgID uint32, fileID uint32, p syntax.Parsed, ls syntax.Lines) {
+	let root = syntax.Root(p.Tree)
+	let file = syntax.FileOf(p.Tree, root)
+	let mut aliasNames = []string{}
+	let mut aliasPkgSlots = []uint32{}
+
+	for i in 0..syntax.Len(file.Decls) {
+		let d = syntax.Item(p.Tree, file.Decls, i)
+		if syntax.KindOf(p.Tree, d) != syntax.KImportDecl {
+			continue
+		}
+		let imp = syntax.ImportDeclOf(p.Tree, d)
+		let spec = syntax.ImportSpecOf(p.Tree, imp.Spec)
+		let rawPath = trimImportQuotes(basicLitText(p, spec.Path))
+		if rawPath == "" {
+			continue
+		}
+		let pos = makePos(fileID, ls, syntax.NodePos(p, d))
+		let (targetPkgID, targetSlot) = ensureExternalPackageNode(t, pIdx, rawPath)
+		AddEdge(t, Edge{Kind: EdgeImports, How: Intern(t, "import"), From: pkgID, To: targetPkgID, Pos: pos})
+		AddEdge(t, Edge{Kind: EdgeImports, How: Intern(t, "import"), From: fileID, To: targetPkgID, Pos: pos})
+		let alias = match dense.Unpack(spec.Name) {
+		case option.Some{Value: nid}:
+			identText(p, nid)
+		case option.None:
+			defaultAlias(rawPath)
+		}
+		if alias != "" && alias != "_" && alias != "." {
+			aliasNames = aliasNames.Append(alias)
+			aliasPkgSlots = aliasPkgSlots.Append(targetSlot)
+		}
+	}
+
+	for i in 0..syntax.Len(file.Decls) {
+		let d = syntax.Item(p.Tree, file.Decls, i)
+		let k = syntax.KindOf(p.Tree, d)
+		if k == syntax.KImportDecl {
+			continue
+		}
+		let declName = declPrimaryName(p, d)
+		if declName == "" {
+			continue
+		}
+		let fromID = findDecl(dIdx, pkgSlot, declName)
+		if fromID == NoNode {
+			continue
+		}
+		let mut stack = []uint32{uint32(dense.Index(d))}
+		let mut kids = []uint32{}
+		for stack.Len() > 0 {
+			let cur = stack[stack.Len()-1]
+			stack = stack[:stack.Len()-1]
+			let curID = syntax.NodeAt(p.Tree, int(cur))
+			let ck = syntax.KindOf(p.Tree, curID)
+			if ck == syntax.KCallExpr {
+				let ce = syntax.CallExprOf(p.Tree, curID)
+				let pos = makePos(fileID, ls, syntax.NodePos(p, curID))
+				emitTargetRef(t, dIdx, pkgSlot, aliasNames, aliasPkgSlots, fromID, p, ce.Fun, EdgeCalls, "call", pos)
+			} else if ck == syntax.KSelectorExpr {
+				let pos = makePos(fileID, ls, syntax.NodePos(p, curID))
+				emitTargetRef(t, dIdx, pkgSlot, aliasNames, aliasPkgSlots, fromID, p, curID, EdgeUses, "selector", pos)
+			} else if ck == syntax.KIdent && cur != uint32(dense.Index(d)) {
+				let nm = identText(p, curID)
+				let target = findDecl(dIdx, pkgSlot, nm)
+				if target != NoNode && target != fromID {
+					let pos = makePos(fileID, ls, syntax.NodePos(p, curID))
+					AddEdge(t, Edge{Kind: EdgeRefers, How: Intern(t, "ident"), From: fromID, To: target, Pos: pos})
+				}
+			}
+			kids = syntax.Children(p.Tree, curID, kids[:0])
+			for ki in 0..kids.Len() {
+				stack = stack.Append(kids[ki])
+			}
+		}
+	}
+}
+
+func emitTargetRef(t mut Table, dIdx declIndex, pkgSlot uint32, aliasNames []string, aliasPkgSlots []uint32, fromID uint32, p syntax.Parsed, expr dense.ID[syntax.Node], edgeKind uint8, how string, pos Pos) {
+	let ek = syntax.KindOf(p.Tree, expr)
+	if ek == syntax.KIdent {
+		let nm = identText(p, expr)
+		let target = findDecl(dIdx, pkgSlot, nm)
+		if target != NoNode && target != fromID {
+			AddEdge(t, Edge{Kind: edgeKind, How: Intern(t, how), From: fromID, To: target, Pos: pos})
+		}
+		return
+	}
+	if ek == syntax.KSelectorExpr {
+		let se = syntax.SelectorExprOf(p.Tree, expr)
+		if syntax.KindOf(p.Tree, se.X) != syntax.KIdent || syntax.KindOf(p.Tree, se.Sel) != syntax.KIdent {
+			return
+		}
+		let pkgAlias = identText(p, se.X)
+		let symName = identText(p, se.Sel)
+		for i in 0..aliasNames.Len() {
+			if aliasNames[i] == pkgAlias {
+				let target = findDecl(dIdx, aliasPkgSlots[i], symName)
+				if target != NoNode {
+					AddEdge(t, Edge{Kind: edgeKind, How: Intern(t, how), From: fromID, To: target, Pos: pos})
+					if edgeKind != EdgeUses {
+						AddEdge(t, Edge{Kind: EdgeUses, How: Intern(t, "qualified"), From: fromID, To: target, Pos: pos})
+					}
+				}
+				return
+			}
+		}
+	}
+}
+
+func addDeclNode(t mut Table, pkgID uint32, sub uint8, name string, digest string, lines int, pos Pos) uint32 {
+	let nid = AddNode(t, Node{
+		ID:      uint32(0),
+		Kind:    KindDecl,
+		Sub:     sub,
+		Parent:  pkgID,
+		Name:    Intern(t, name),
+		Digest:  Intern(t, digest),
+		Subject: NoNode,
+		Lines:   lines,
+		Pos:     pos,
+	})
+	AddEdge(t, Edge{Kind: EdgeContains, How: uint32(0), From: pkgID, To: nid, Pos: pos})
+	nid
+}
+
+func makePos(fileID uint32, ls syntax.Lines, offset int) Pos {
+	if offset < 0 {
+		return Pos{File: fileID, Offset: 0, Line: 1, Column: 1}
+	}
+	let lp = syntax.PositionOf(ls, offset)
+	Pos{File: fileID, Offset: offset, Line: lp.Line, Column: lp.Column}
+}
+
+func declPrimaryName(p syntax.Parsed, d dense.ID[syntax.Node]) string {
+	let k = syntax.KindOf(p.Tree, d)
+	if k == syntax.KFuncDecl {
+		return identText(p, syntax.FuncDeclOf(p.Tree, d).Name)
+	}
+	if k == syntax.KTypeDecl {
+		return identText(p, syntax.TypeDeclOf(p.Tree, d).Name)
+	}
+	if k == syntax.KContextDecl {
+		return identText(p, syntax.ContextDeclOf(p.Tree, d).Name)
+	}
+	if k == syntax.KTestDecl {
+		return identText(p, syntax.TestDeclOf(p.Tree, d).Name)
+	}
+	if k == syntax.KLawDecl {
+		return identText(p, syntax.LawDeclOf(p.Tree, d).Name)
+	}
+	if k == syntax.KVarDecl {
+		let vd = syntax.VarDeclOf(p.Tree, d)
+		if syntax.KindOf(p.Tree, vd.Spec) == syntax.KVarSpec {
+			let vs = syntax.VarSpecOf(p.Tree, vd.Spec)
+			if syntax.Len(vs.Names) > 0 {
+				return identText(p, syntax.Item(p.Tree, vs.Names, 0))
+			}
+		}
+	}
+	""
+}
+
+func identText(p syntax.Parsed, id dense.ID[syntax.Node]) string {
+	let nm = syntax.NameOf(p.Tree, id)
+	syntax.TokText(p, nm.Tok)
+}
+
+func basicLitText(p syntax.Parsed, id dense.ID[syntax.Node]) string {
+	let bl = syntax.BasicLitOf(p.Tree, id)
+	syntax.TokText(p, bl.Tok)
+}
+
+func trimImportQuotes(raw string) string {
+	if raw.Len() >= 2 && (raw[0] == '"' || raw[0] == '`') {
+		return raw[1 : raw.Len()-1]
+	}
+	raw
+}
+
+func defaultAlias(path string) string {
+	let i = strings.LastIndex(path, "/")
+	if i < 0 {
+		return path
+	}
+	path[i+1 : path.Len()]
+}
+
+func newPkgIndex() pkgIndex {
+	pkgIndex{
+		Path:    []string{},
+		NodeID:  []uint32{},
+		ModNode: []uint32{},
+		Buckets: seedEmptyBucket(64),
+	}
+}
+
+func findPkgSlot(pIdx pkgIndex, path string) uint32 {
+	let mask = uint32(pIdx.Buckets.Len() - 1)
+	let mut slot = hashStr(path) & mask
+	for _ in 0..pIdx.Buckets.Len() {
+		let v = pIdx.Buckets[int(slot)]
+		if v == uint32(0) {
+			return NoNode
+		}
+		let idx = v - uint32(1)
+		if pIdx.Path[int(idx)] == path {
+			return idx
+		}
+		slot = (slot + uint32(1)) & mask
+	}
+	NoNode
+}
+
+func insertPkgSlot(pIdx mut pkgIndex, path string, nodeID uint32, modNode uint32) uint32 {
+	let existing = findPkgSlot(*pIdx, path)
+	if existing != NoNode {
+		return existing
+	}
+	let idx = uint32(pIdx.Path.Len())
+	pIdx.Path = pIdx.Path.Append(path)
+	pIdx.NodeID = pIdx.NodeID.Append(nodeID)
+	pIdx.ModNode = pIdx.ModNode.Append(modNode)
+	if pIdx.Path.Len()*2 >= pIdx.Buckets.Len() {
+		pIdx.Buckets = seedEmptyBucket(pIdx.Buckets.Len() * 2)
+		for i in 0..pIdx.Path.Len() {
+			placePkgBucket(pIdx, pIdx.Path[i], uint32(i))
+		}
+	} else {
+		placePkgBucket(pIdx, path, idx)
+	}
+	idx
+}
+
+func placePkgBucket(pIdx mut pkgIndex, path string, idx uint32) {
+	let mask = uint32(pIdx.Buckets.Len() - 1)
+	let mut slot = hashStr(path) & mask
+	for _ in 0..pIdx.Buckets.Len() {
+		if pIdx.Buckets[int(slot)] == uint32(0) {
+			pIdx.Buckets[int(slot)] = idx + uint32(1)
+			return
+		}
+		slot = (slot + uint32(1)) & mask
+	}
+}
+
+func ensureModuleNode(t mut Table, pIdx mut pkgIndex, modPath string) uint32 {
+	let key = "mod:" + modPath
+	let found = findPkgSlot(*pIdx, key)
+	if found != NoNode {
+		return pIdx.NodeID[int(found)]
+	}
+	let nid = AddNode(t, Node{
+		ID:      uint32(0),
+		Kind:    KindModule,
+		Sub:     SubNone,
+		Parent:  NoNode,
+		Name:    Intern(t, modPath),
+		Digest:  uint32(0),
+		Subject: NoNode,
+		Lines:   0,
+		Pos:     NoPos(),
+	})
+	let _ = insertPkgSlot(pIdx, key, nid, nid)
+	nid
+}
+
+func ensurePackageNode(t mut Table, pIdx mut pkgIndex, modID uint32, pkgPath string) (uint32, uint32) {
+	let key = "pkg:" + pkgPath
+	let found = findPkgSlot(*pIdx, key)
+	if found != NoNode {
+		return (pIdx.NodeID[int(found)], found)
+	}
+	let nid = AddNode(t, Node{
+		ID:      uint32(0),
+		Kind:    KindPackage,
+		Sub:     SubNone,
+		Parent:  modID,
+		Name:    Intern(t, pkgPath),
+		Digest:  uint32(0),
+		Subject: NoNode,
+		Lines:   0,
+		Pos:     NoPos(),
+	})
+	AddEdge(t, Edge{Kind: EdgeContains, How: uint32(0), From: modID, To: nid, Pos: NoPos()})
+	let slot = insertPkgSlot(pIdx, key, nid, modID)
+	(nid, slot)
+}
+
+func ensureExternalPackageNode(t mut Table, pIdx mut pkgIndex, pkgPath string) (uint32, uint32) {
+	let key = "pkg:" + pkgPath
+	let found = findPkgSlot(*pIdx, key)
+	if found != NoNode {
+		return (pIdx.NodeID[int(found)], found)
+	}
+	let nid = AddNode(t, Node{
+		ID:      uint32(0),
+		Kind:    KindPackage,
+		Sub:     SubNone,
+		Parent:  NoNode,
+		Name:    Intern(t, pkgPath),
+		Digest:  uint32(0),
+		Subject: NoNode,
+		Lines:   0,
+		Pos:     NoPos(),
+	})
+	let slot = insertPkgSlot(pIdx, key, nid, NoNode)
+	(nid, slot)
+}
+
+func newDeclIndex() declIndex {
+	declIndex{
+		PkgIdx:  []uint32{},
+		Name:    []string{},
+		NodeID:  []uint32{},
+		Buckets: seedEmptyBucket(128),
+	}
+}
+
+func hashDeclKey(pkgSlot uint32, name string) uint32 {
+	let mut h = (uint32(2166136261) ^ pkgSlot) * uint32(16777619)
+	for i in 0..name.Len() {
+		h = (h ^ uint32(name[i])) * uint32(16777619)
+	}
+	h
+}
+
+func registerDecl(dIdx mut declIndex, pkgSlot uint32, name string, nodeID uint32) {
+	if name == "" {
+		return
+	}
+	if findDecl(*dIdx, pkgSlot, name) != NoNode {
+		return
+	}
+	let idx = uint32(dIdx.PkgIdx.Len())
+	dIdx.PkgIdx = dIdx.PkgIdx.Append(pkgSlot)
+	dIdx.Name = dIdx.Name.Append(name)
+	dIdx.NodeID = dIdx.NodeID.Append(nodeID)
+	if dIdx.PkgIdx.Len()*2 >= dIdx.Buckets.Len() {
+		dIdx.Buckets = seedEmptyBucket(dIdx.Buckets.Len() * 2)
+		for i in 0..dIdx.PkgIdx.Len() {
+			placeDeclBucket(dIdx, dIdx.PkgIdx[i], dIdx.Name[i], uint32(i))
+		}
+	} else {
+		placeDeclBucket(dIdx, pkgSlot, name, idx)
+	}
+}
+
+func placeDeclBucket(dIdx mut declIndex, pkgSlot uint32, name string, idx uint32) {
+	let mask = uint32(dIdx.Buckets.Len() - 1)
+	let mut slot = hashDeclKey(pkgSlot, name) & mask
+	for _ in 0..dIdx.Buckets.Len() {
+		if dIdx.Buckets[int(slot)] == uint32(0) {
+			dIdx.Buckets[int(slot)] = idx + uint32(1)
+			return
+		}
+		slot = (slot + uint32(1)) & mask
+	}
+}
+
+func findDecl(dIdx declIndex, pkgSlot uint32, name string) uint32 {
+	if name == "" || dIdx.Buckets.Len() == 0 {
+		return NoNode
+	}
+	let mask = uint32(dIdx.Buckets.Len() - 1)
+	let mut slot = hashDeclKey(pkgSlot, name) & mask
+	for _ in 0..dIdx.Buckets.Len() {
+		let v = dIdx.Buckets[int(slot)]
+		if v == uint32(0) {
+			return NoNode
+		}
+		let idx = int(v - uint32(1))
+		if dIdx.PkgIdx[idx] == pkgSlot && dIdx.Name[idx] == name {
+			return dIdx.NodeID[idx]
+		}
+		slot = (slot + uint32(1)) & mask
+	}
+	NoNode
+}
+
+// WorkspaceInputOrderInvariance verifies that BuildPackages emits identical
+// canonical graphs regardless of the input slice order.
+law WorkspaceInputOrderInvariance(n int) {
+	let modName = "example.com/ws"
+	let a = SourceInput{
+		ModPath:  modName,
+		PkgPath:  modName + "/leaf",
+		FilePath: "leaf.ergo",
+		Source:   "func LeafVal(x int) int { x + \(n) }\n",
+	}
+	let b = SourceInput{
+		ModPath:  modName,
+		PkgPath:  modName + "/app",
+		FilePath: "app.ergo",
+		Source:   "import example.com/ws/leaf\nfunc Run() int { leaf.LeafVal(1) }\ntest Smoke { assert Run() > 0 }\n",
+	}
+	let g1 = BuildPackages([]SourceInput{a, b})
+	let g2 = BuildPackages([]SourceInput{b, a})
+	FormatText(g1) == FormatText(g2) && EncodeJSON(g1) == EncodeJSON(g2)
+}
+
+test BuildWorkspaceDiscoverAndGraph {
+	let mem = fstest.NewMemory()
+	mem.MkdirAll("/repo/leaf") catch {
+	case fs.Denied, fs.Failed:
+		assert false
+		return
+	}
+	mem.MkdirAll("/repo/app") catch {
+	case fs.Denied, fs.Failed:
+		assert false
+		return
+	}
+	mem.WriteFile("/repo/ergo.mod", "module example.com/repo\nergo 1\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+		return
+	}
+	mem.WriteFile("/repo/leaf/leaf.ergo", "type Box struct { Value int }\nfunc helper(x int) int { x + 1 }\nfunc Compute(x int) int { helper(x) }\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+		return
+	}
+	mem.WriteFile("/repo/app/app.ergo", "import example.com/repo/leaf\nfunc Run(n int) int { leaf.Compute(n) }\ntest RunWorks { assert Run(2) == 3 }\nlaw RunPositive(n int) { Run(n) == n + 1 }\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+		return
+	}
+	let mut ok = true
+	let g = with context { fs.Files: mem } {
+		BuildWorkspace("/repo") catch {
+		case GraphError:
+			ok = false
+			NewTable()
+		}
+	}
+	assert ok
+	assert NodeCount(g) >= 8
+	assert EdgeCount(g) >= 8
+	let mut hasPkgImport = false
+	let mut hasDeclCall = false
+	let mut hasTaskReq = false
+	for i in 0..EdgeCount(g) {
+		let e = EdgeAt(g, i)
+		if e.Kind == EdgeImports && g.NodeKind[int(e.From)] == KindPackage && g.NodeKind[int(e.To)] == KindPackage {
+			hasPkgImport = true
+		}
+		if e.Kind == EdgeCalls && g.NodeKind[int(e.From)] == KindDecl && g.NodeKind[int(e.To)] == KindDecl {
+			hasDeclCall = true
+		}
+		if e.Kind == EdgeRequires && g.NodeKind[int(e.From)] == KindTask && g.NodeKind[int(e.To)] == KindDecl {
+			hasTaskReq = true
+		}
+	}
+	assert hasPkgImport
+	assert hasDeclCall
+	assert hasTaskReq
+	let js = EncodeJSON(g)
+	let dec = DecodeJSON(js) catch {
+	case MalformedJSON:
+		assert false
+		return
+	}
+	assert FormatText(dec) == FormatText(g)
+}
