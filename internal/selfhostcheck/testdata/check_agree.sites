@@ -1036,6 +1036,7 @@ case internal/sketch/std/codegraph
 case internal/sketch/std/collections
 case internal/sketch/std/color
 case internal/sketch/std/config
+case internal/sketch/std/content
 case internal/sketch/std/core
 case internal/sketch/std/crc32
 case internal/sketch/std/cron
@@ -1099,6 +1100,7 @@ case internal/sketch/std/queue
 case internal/sketch/std/rand
 case internal/sketch/std/ratelimit
 case internal/sketch/std/ratelimit/memory
+case internal/sketch/std/regex
 case internal/sketch/std/rpc
 case internal/sketch/std/schedule
 case internal/sketch/std/scope
@@ -1324,6 +1326,7 @@ case unused internal/sketch/std/codec/codec.ergo
 case unused internal/sketch/std/codegraph/codegraph.ergo
 case unused internal/sketch/std/collections/collections.ergo
 case unused internal/sketch/std/color/names.ergo
+case unused internal/sketch/std/content/content.ergo
 case unused internal/sketch/std/crc32/crc32.ergo
 case unused internal/sketch/std/cron/expr.ergo
 case unused internal/sketch/std/decimal/u128.ergo
@@ -1367,6 +1370,7 @@ case unused internal/sketch/std/proof/proof.ergo
 case unused internal/sketch/std/pubsub/pubsub.ergo
 case unused internal/sketch/std/ratelimit/memory/memory.ergo
 case unused internal/sketch/std/ratelimit/ratelimit.ergo
+case unused internal/sketch/std/regex/ast.ergo
 case unused internal/sketch/std/schedule/schedule.ergo
 case unused internal/sketch/std/semver/semver.ergo
 case unused internal/sketch/std/session/file/file.ergo
