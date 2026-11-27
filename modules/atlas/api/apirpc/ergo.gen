@@ -1,0 +1,5 @@
+kind rpc
+generator ergo gen rpc
+subject github.com/cevr/ergo/modules/atlas/api.Api
+contract sha256:9d9d19d61838432c5e1e01c5602eb95e9c4ca0cc40bb609776a9e287486da15f
+digest sha256:873fed2998d58f34e320118cea748eebf83617d51f8585232f93597f38ac52ca

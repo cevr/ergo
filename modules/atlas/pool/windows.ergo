@@ -1,0 +1,731 @@
+import cmp
+import github.com/cevr/ergo/modules/atlas/session
+import option
+import slices
+import strings
+
+// PpmScale is 100% represented in parts-per-million.
+func PpmScale() int64 { int64(1000000) }
+
+// PctToPpm converts a whole percentage into parts-per-million.
+func PctToPpm(pct int) int64 {
+	int64(pct) * int64(10000)
+}
+
+// ClampPpm clamps a parts-per-million ratio to [0, PpmScale()].
+func ClampPpm(ppm int64) int64 {
+	if ppm < int64(0) {
+		return int64(0)
+	}
+	if ppm > PpmScale() {
+		return PpmScale()
+	}
+	ppm
+}
+
+// PpmToPctRound converts a parts-per-million ratio into a clamped whole percentage.
+func PpmToPctRound(ppm int64) int {
+	let clamped = ClampPpm(ppm)
+	int((clamped + int64(5000)) / int64(10000))
+}
+
+// FiveHourWindowMs is the duration of a 5-hour quota window in milliseconds.
+func FiveHourWindowMs() int64 { int64(18000000) }
+
+// WeekWindowMs is the duration of a 7-day quota window in milliseconds.
+func WeekWindowMs() int64 { int64(604800000) }
+
+// StaleAfterMs is the default age after which a quota reading is considered stale.
+func StaleAfterMs() int64 { int64(1800000) }
+
+// UnreadRetryMs is the backoff duration when pool readings have an evidence gap.
+func UnreadRetryMs() int64 { int64(60000) }
+
+// ResetSlackMs is the small slack buffer around reset timestamps.
+func ResetSlackMs() int64 { int64(60000) }
+
+// FreshWindowMs is the freshness window for reset dispatch eligibility.
+func FreshWindowMs() int64 { int64(900000) }
+
+// NaturalHorizonMs is the 30-minute natural reset bucket size and horizon.
+func NaturalHorizonMs() int64 { int64(1800000) }
+
+// ExpiringHorizonMs is the 24-hour expiring quota lookahead horizon.
+func ExpiringHorizonMs() int64 { int64(86400000) }
+
+// WinReported captures a reported quota utilization ratio and reset timestamp.
+type WinReported {
+	UsedPpm   int64,
+	ResetAtMs int64,
+}
+
+// WinUnknown captures an unreported or unreadable quota window.
+type WinUnknown {}
+
+// WinAbsent captures a quota window that does not apply to this account tier.
+type WinAbsent {}
+
+// WindowStatus represents the observation state of a quota window.
+type WindowStatus = WinReported | WinUnknown | WinAbsent
+
+// ModelQuota binds a normalized model scope name to its weekly window status.
+type ModelQuota {
+	Scope  string,
+	Status WindowStatus,
+}
+
+// LimitsModel holds normalized quota window readings for one pool account.
+type LimitsModel {
+	Primary5h    WindowStatus,
+	Weekly7d     WindowStatus,
+	ModelWindows []ModelQuota,
+	ReadAtMs     int64,
+	RateLimited  bool,
+}
+
+// PacePlan records an explicit claim rebase point that raises but never lowers the pace line.
+type PacePlan {
+	RebaseAtMs int64,
+	BasePpm    int64,
+	Withheld   bool,
+}
+
+// AccountConfig stores static and policy metadata for one registered pool account.
+type AccountConfig {
+	ID              session.AccountID,
+	Provider        string,
+	Model           string,
+	Label           string,
+	Priority        int,
+	Healthy         bool,
+	PaceWithheld    bool,
+	SupportedScopes []string,
+}
+
+// AccountEntry pairs account configuration with its latest carried limits, pace plan, and hold expiry.
+type AccountEntry {
+	Config      AccountConfig,
+	Limits      option.Option[LimitsModel],
+	Pace        option.Option[PacePlan],
+	HoldUntilMs int64,
+}
+
+// Registry is a deterministic value store of registered pool accounts keyed by AccountID string.
+type Registry {
+	Accounts Map[string, AccountEntry],
+	Order    []string,
+}
+
+// GapNoAccounts indicates no matching pool accounts are configured for the request.
+type GapNoAccounts {}
+
+// GapNoReadings indicates no quota limit reading has been recorded yet.
+type GapNoReadings {}
+
+// GapStale indicates the latest quota reading exceeded the freshness threshold.
+type GapStale {
+	AgeMs int64,
+}
+
+// GapMissingWindow indicates a required quota window is missing from the reading.
+type GapMissingWindow {
+	Window string,
+}
+
+// GapRateLimited indicates the provider explicitly reported a rate limit state.
+type GapRateLimited {}
+
+// GapReason classifies why pool admission cannot safely evaluate an account without fresh readings.
+type GapReason = GapNoAccounts | GapNoReadings | GapStale | GapMissingWindow | GapRateLimited
+
+// NormalizeScope canonicalizes a model scope key by trimming, lowercasing, and removing any "7d:" prefix.
+func NormalizeScope(raw string) string {
+	let lower = strings.ToLower(strings.TrimSpace(raw))
+	strings.TrimPrefix(lower, "7d:")
+}
+
+// RequiredScopes returns the model-scoped 7d window keys required for a provider and model pair.
+func RequiredScopes(provider string, model string) []string {
+	let p = strings.ToLower(strings.TrimSpace(provider))
+	let m = strings.ToLower(strings.TrimSpace(model))
+	if m == "" {
+		return []string{}
+	}
+	if p == "openai" || strings.Contains(m, "gpt") || strings.Contains(m, "codex") || strings.Contains(m, "spark") {
+		if strings.Contains(m, "spark") {
+			return []string{"spark"}
+		}
+		return []string{}
+	}
+	if p == "anthropic" || strings.Contains(m, "claude") {
+		if strings.Contains(m, "opus") {
+			return []string{"opus"}
+		}
+		if strings.Contains(m, "sonnet") {
+			return []string{"sonnet"}
+		}
+		if strings.Contains(m, "haiku") {
+			return []string{"haiku"}
+		}
+		return []string{}
+	}
+	if p == "google" || strings.Contains(m, "gemini") {
+		if strings.Contains(m, "pro") {
+			return []string{"pro"}
+		}
+		if strings.Contains(m, "flash") {
+			return []string{"flash"}
+		}
+		return []string{}
+	}
+	[]string{}
+}
+
+// MatchesModelScope reports whether a candidate window scope matches a target scope or model name.
+func MatchesModelScope(scope string, target string) bool {
+	let ns = NormalizeScope(scope)
+	let nt = NormalizeScope(target)
+	if ns == "" || nt == "" {
+		return false
+	}
+	ns == nt || strings.Contains(nt, ns) || strings.Contains(ns, nt)
+}
+
+// FindModelWindow resolves the status for a normalized scope, returning WinUnknown if absent.
+func FindModelWindow(models []ModelQuota, scope string) WindowStatus {
+	let target = NormalizeScope(scope)
+	if target == "" {
+		return WinUnknown
+	}
+	for _, mq in models {
+		if MatchesModelScope(mq.Scope, target) {
+			return mq.Status
+		}
+	}
+	WinUnknown
+}
+
+// UpsertModelWindow inserts or updates a normalized model-scoped window reading.
+func UpsertModelWindow(models []ModelQuota, scope string, status WindowStatus) []ModelQuota {
+	let norm = NormalizeScope(scope)
+	if norm == "" {
+		return models
+	}
+	let mut out = []ModelQuota{}
+	let mut replaced = false
+	for _, mq in models {
+		if NormalizeScope(mq.Scope) == norm {
+			if !replaced {
+				out = out.Append(ModelQuota{Scope: norm, Status: status})
+				replaced = true
+			}
+		} else {
+			out = out.Append(ModelQuota{Scope: NormalizeScope(mq.Scope), Status: mq.Status})
+		}
+	}
+	if !replaced {
+		out = out.Append(ModelQuota{Scope: norm, Status: status})
+	}
+	out
+}
+
+func carryWindowStatus(prev WindowStatus, next WindowStatus, nowMs int64) WindowStatus {
+	match next {
+	case WinUnknown:
+		match prev {
+		case WinReported as r:
+			if r.ResetAtMs > nowMs {
+				return prev
+			}
+			WinUnknown
+		case WinUnknown:
+			WinUnknown
+		case WinAbsent:
+			WinAbsent
+		}
+	case WinReported, WinAbsent:
+		next
+	}
+}
+
+func carryModelWindows(prevModels []ModelQuota, nextModels []ModelQuota, nowMs int64) []ModelQuota {
+	let mut merged = []ModelQuota{}
+	for _, nm in nextModels {
+		let prevWin = FindModelWindow(prevModels, nm.Scope)
+		merged = UpsertModelWindow(merged, nm.Scope, carryWindowStatus(prevWin, nm.Status, nowMs))
+	}
+	for _, pm in prevModels {
+		let existing = FindModelWindow(merged, pm.Scope)
+		match existing {
+		case WinUnknown:
+			let carried = carryWindowStatus(pm.Status, WinUnknown, nowMs)
+			match carried {
+			case WinReported, WinAbsent:
+				merged = UpsertModelWindow(merged, pm.Scope, carried)
+			case WinUnknown:
+				let _ = carried
+			}
+		case WinReported, WinAbsent:
+			let _ = existing
+		}
+	}
+	merged
+}
+
+// CarryOverAccountReading merges partial quota readings while never reviving expired pre-reset windows.
+func CarryOverAccountReading(prev option.Option[LimitsModel], next LimitsModel, nowMs int64) LimitsModel {
+	match prev {
+	case option.None:
+		let mut normalized = []ModelQuota{}
+		for _, mq in next.ModelWindows {
+			normalized = UpsertModelWindow(normalized, mq.Scope, mq.Status)
+		}
+		LimitsModel{
+			Primary5h:    next.Primary5h,
+			Weekly7d:     next.Weekly7d,
+			ModelWindows: normalized,
+			ReadAtMs:     next.ReadAtMs,
+			RateLimited:  next.RateLimited,
+		}
+	case option.Some as priorWrap:
+		let prior = priorWrap.Value
+		let primary = carryWindowStatus(prior.Primary5h, next.Primary5h, nowMs)
+		let weekly = carryWindowStatus(prior.Weekly7d, next.Weekly7d, nowMs)
+		let models = carryModelWindows(prior.ModelWindows, next.ModelWindows, nowMs)
+		let readAt = if next.ReadAtMs > int64(0) { next.ReadAtMs } else { prior.ReadAtMs }
+		LimitsModel{
+			Primary5h:    primary,
+			Weekly7d:     weekly,
+			ModelWindows: models,
+			ReadAtMs:     readAt,
+			RateLimited:  next.RateLimited,
+		}
+	}
+}
+
+func checkPrimaryAndWeekly(r LimitsModel, requiredScopes []string, nowMs int64, staleAfterMs int64) option.Option[GapReason] {
+	if r.RateLimited {
+		return option.Some[GapReason]{Value: GapRateLimited}
+	}
+	if r.ReadAtMs <= int64(0) {
+		return option.Some[GapReason]{Value: GapNoReadings}
+	}
+	let age = nowMs - r.ReadAtMs
+	if age > staleAfterMs {
+		return option.Some[GapReason]{Value: GapStale{AgeMs: cmp.Max(int64(0), age)}}
+	}
+	match r.Primary5h {
+	case WinUnknown:
+		return option.Some[GapReason]{Value: GapMissingWindow{Window: "5h"}}
+	case WinReported, WinAbsent:
+		let _ = r.Primary5h
+	}
+	match r.Weekly7d {
+	case WinUnknown:
+		return option.Some[GapReason]{Value: GapMissingWindow{Window: "7d"}}
+	case WinReported, WinAbsent:
+		let _ = r.Weekly7d
+	}
+	for _, scope in requiredScopes {
+		let ns = NormalizeScope(scope)
+		let mw = FindModelWindow(r.ModelWindows, ns)
+		match mw {
+		case WinUnknown:
+			return option.Some[GapReason]{Value: GapMissingWindow{Window: "7d:\(ns)"}}
+		case WinReported, WinAbsent:
+			let _ = mw
+		}
+	}
+	option.None
+}
+
+// CheckNoAccountsGap returns the evidence gap when zero configured accounts match the request.
+func CheckNoAccountsGap() GapReason {
+	GapNoAccounts
+}
+
+// CheckEvidenceGap verifies that account limit evidence is present, fresh, and covers every required window.
+func CheckEvidenceGap(reading option.Option[LimitsModel], requiredScopes []string, nowMs int64, staleAfterMs int64) option.Option[GapReason] {
+	match reading {
+	case option.None:
+		option.Some[GapReason]{Value: GapNoReadings}
+	case option.Some as rWrap:
+		checkPrimaryAndWeekly(rWrap.Value, requiredScopes, nowMs, staleAfterMs)
+	}
+}
+
+// AccountSupportsModel checks provider compatibility and optional declared scope allowlists on an account.
+func AccountSupportsModel(cfg AccountConfig, provider string, model string) bool {
+	let pReq = strings.ToLower(strings.TrimSpace(provider))
+	let pAcc = strings.ToLower(strings.TrimSpace(cfg.Provider))
+	if pReq != "" && pAcc != "" && pReq != pAcc {
+		return false
+	}
+	if cfg.SupportedScopes.Len() == 0 {
+		return true
+	}
+	let reqScopes = RequiredScopes(provider, model)
+	if reqScopes.Len() == 0 {
+		return true
+	}
+	for _, need in reqScopes {
+		let mut ok = false
+		for _, sup in cfg.SupportedScopes {
+			if MatchesModelScope(sup, need) {
+				ok = true
+			}
+		}
+		if !ok {
+			return false
+		}
+	}
+	true
+}
+
+// NewRegistry returns an empty pool account registry.
+func NewRegistry() Registry {
+	Registry{Accounts: Map[string, AccountEntry]{}, Order: []string{}}
+}
+
+// UpsertAccount stores or replaces an account entry in the registry.
+func UpsertAccount(reg Registry, entry AccountEntry) Registry {
+	let key = string(entry.Config.ID)
+	let had = reg.Accounts.Get(key)
+	let nextMap = reg.Accounts.Put(key, entry)
+	let nextOrder = match had {
+	case option.Some:
+		reg.Order
+	case option.None:
+		reg.Order.Append(key)
+	}
+	Registry{Accounts: nextMap, Order: nextOrder}
+}
+
+// RemoveAccount removes an account entry by ID from the registry.
+func RemoveAccount(reg Registry, id session.AccountID) Registry {
+	let key = string(id)
+	let nextMap = reg.Accounts.Delete(key)
+	let mut nextOrder = []string{}
+	for _, cur in reg.Order {
+		if cur != key {
+			nextOrder = nextOrder.Append(cur)
+		}
+	}
+	Registry{Accounts: nextMap, Order: nextOrder}
+}
+
+// GetAccount fetches a registered account entry by ID if present.
+func GetAccount(reg Registry, id session.AccountID) option.Option[AccountEntry] {
+	reg.Accounts.Get(string(id))
+}
+
+// ListAccounts returns all registered account entries ordered deterministically by Priority then AccountID.
+func ListAccounts(reg Registry) []AccountEntry {
+	let mut items = []AccountEntry{}
+	for _, k in reg.Order {
+		match reg.Accounts.Get(k) {
+		case option.None:
+			let _ = k
+		case option.Some as wrap:
+			items = items.Append(wrap.Value)
+		}
+	}
+	slices.SortFunc(items, func(a AccountEntry, b AccountEntry) int {
+		if a.Config.Priority != b.Config.Priority {
+			return cmp.Compare(a.Config.Priority, b.Config.Priority)
+		}
+		cmp.Compare(string(a.Config.ID), string(b.Config.ID))
+	})
+}
+
+// RecordLimits merges new quota readings for an account using carry-over across unexpired windows.
+func RecordLimits(reg Registry, id session.AccountID, next LimitsModel, nowMs int64) Registry {
+	match reg.Accounts.Get(string(id)) {
+	case option.None:
+		reg
+	case option.Some as curWrap:
+		let cur = curWrap.Value
+		let merged = CarryOverAccountReading(cur.Limits, next, nowMs)
+		let updated = AccountEntry{
+			Config:      cur.Config,
+			Limits:      option.Some[LimitsModel]{Value: merged},
+			Pace:        cur.Pace,
+			HoldUntilMs: cur.HoldUntilMs,
+		}
+		UpsertAccount(reg, updated)
+	}
+}
+
+// SetAccountHold sets or clears the cooldown hold timestamp for an account.
+func SetAccountHold(reg Registry, id session.AccountID, untilMs int64) Registry {
+	match reg.Accounts.Get(string(id)) {
+	case option.None:
+		reg
+	case option.Some as curWrap:
+		let cur = curWrap.Value
+		UpsertAccount(reg, AccountEntry{
+			Config:      cur.Config,
+			Limits:      cur.Limits,
+			Pace:        cur.Pace,
+			HoldUntilMs: untilMs,
+		})
+	}
+}
+
+// SetAccountHealthy updates the operational health flag for a registered account.
+func SetAccountHealthy(reg Registry, id session.AccountID, healthy bool) Registry {
+	match reg.Accounts.Get(string(id)) {
+	case option.None:
+		reg
+	case option.Some as curWrap:
+		let cur = curWrap.Value
+		let nextCfg = AccountConfig{
+			ID:              cur.Config.ID,
+			Provider:        cur.Config.Provider,
+			Model:           cur.Config.Model,
+			Label:           cur.Config.Label,
+			Priority:        cur.Config.Priority,
+			Healthy:         healthy,
+			PaceWithheld:    cur.Config.PaceWithheld,
+			SupportedScopes: cur.Config.SupportedScopes,
+		}
+		UpsertAccount(reg, AccountEntry{
+			Config:      nextCfg,
+			Limits:      cur.Limits,
+			Pace:        cur.Pace,
+			HoldUntilMs: cur.HoldUntilMs,
+		})
+	}
+}
+
+// SetAccountPacePlan updates or clears an account's explicit rebase pace plan.
+func SetAccountPacePlan(reg Registry, id session.AccountID, plan option.Option[PacePlan]) Registry {
+	match reg.Accounts.Get(string(id)) {
+	case option.None:
+		reg
+	case option.Some as curWrap:
+		let cur = curWrap.Value
+		UpsertAccount(reg, AccountEntry{
+			Config:      cur.Config,
+			Limits:      cur.Limits,
+			Pace:        plan,
+			HoldUntilMs: cur.HoldUntilMs,
+		})
+	}
+}
+
+// CarryOverNeverRevivesExpiredWindow proves partial updates preserve active windows while dropping expired pre-reset ones.
+law CarryOverNeverRevivesExpiredWindow(
+	baseNow int64 where baseNow >= 100000 && baseNow <= 10000000000,
+	activeUsed int where activeUsed >= 0 && activeUsed <= 100,
+	expiredUsed int where expiredUsed >= 0 && expiredUsed <= 100,
+) {
+	let activePpm = PctToPpm(activeUsed)
+	let expiredPpm = PctToPpm(expiredUsed)
+	let prior = LimitsModel{
+		Primary5h:    WinReported{UsedPpm: expiredPpm, ResetAtMs: baseNow - int64(1)},
+		Weekly7d:     WinReported{UsedPpm: activePpm, ResetAtMs: baseNow + int64(50000)},
+		ModelWindows: []ModelQuota{
+			ModelQuota{Scope: "7d:spark", Status: WinReported{UsedPpm: activePpm, ResetAtMs: baseNow + int64(60000)}},
+			ModelQuota{Scope: "opus", Status: WinReported{UsedPpm: expiredPpm, ResetAtMs: baseNow}},
+		},
+		ReadAtMs:    baseNow - int64(10000),
+		RateLimited: false,
+	}
+	let next = LimitsModel{
+		Primary5h:    WinUnknown,
+		Weekly7d:     WinUnknown,
+		ModelWindows: []ModelQuota{},
+		ReadAtMs:     baseNow,
+		RateLimited:  false,
+	}
+	let merged = CarryOverAccountReading(option.Some[LimitsModel]{Value: prior}, next, baseNow)
+	let p5Ok = match merged.Primary5h {
+	case WinUnknown:
+		true
+	case WinReported, WinAbsent:
+		false
+	}
+	let w7Ok = match merged.Weekly7d {
+	case WinReported as rw:
+		rw.UsedPpm == activePpm
+	case WinUnknown, WinAbsent:
+		false
+	}
+	let sparkOk = match FindModelWindow(merged.ModelWindows, "spark") {
+	case WinReported as rs:
+		rs.UsedPpm == activePpm
+	case WinUnknown, WinAbsent:
+		false
+	}
+	let opusOk = match FindModelWindow(merged.ModelWindows, "opus") {
+	case WinUnknown:
+		true
+	case WinReported, WinAbsent:
+		false
+	}
+	p5Ok && w7Ok && sparkOk && opusOk
+}
+
+// UnreadGapRefusesMissingOrStaleReading proves evidence gaps reject missing, stale, and missing-scope readings while allowing WinAbsent.
+law UnreadGapRefusesMissingOrStaleReading(
+	nowMs int64 where nowMs >= 5000000 && nowMs <= 10000000000,
+	ageExtra int64 where ageExtra >= 1 && ageExtra <= 1000000,
+) {
+	let fresh = LimitsModel{
+		Primary5h:    WinReported{UsedPpm: PctToPpm(10), ResetAtMs: nowMs + int64(10000)},
+		Weekly7d:     WinReported{UsedPpm: PctToPpm(20), ResetAtMs: nowMs + int64(20000)},
+		ModelWindows: []ModelQuota{ModelQuota{Scope: "spark", Status: WinAbsent}},
+		ReadAtMs:     nowMs - int64(1000),
+		RateLimited:  false,
+	}
+	let staleAfter = StaleAfterMs()
+	let freshOk = match CheckEvidenceGap(option.Some[LimitsModel]{Value: fresh}, []string{"spark"}, nowMs, staleAfter) {
+	case option.None:
+		true
+	case option.Some:
+		false
+	}
+	let stale = LimitsModel{
+		Primary5h:    fresh.Primary5h,
+		Weekly7d:     fresh.Weekly7d,
+		ModelWindows: fresh.ModelWindows,
+		ReadAtMs:     nowMs - staleAfter - ageExtra,
+		RateLimited:  false,
+	}
+	let staleBad = match CheckEvidenceGap(option.Some[LimitsModel]{Value: stale}, []string{}, nowMs, staleAfter) {
+	case option.Some as gw:
+		match gw.Value {
+		case GapStale:
+			true
+		case GapNoAccounts, GapNoReadings, GapMissingWindow, GapRateLimited:
+			false
+		}
+	case option.None:
+		false
+	}
+	let missingSpark = LimitsModel{
+		Primary5h:    fresh.Primary5h,
+		Weekly7d:     fresh.Weekly7d,
+		ModelWindows: []ModelQuota{},
+		ReadAtMs:     nowMs,
+		RateLimited:  false,
+	}
+	let sparkBad = match CheckEvidenceGap(option.Some[LimitsModel]{Value: missingSpark}, []string{"spark"}, nowMs, staleAfter) {
+	case option.Some as gw:
+		match gw.Value {
+		case GapMissingWindow as mw:
+			mw.Window == "7d:spark"
+		case GapNoAccounts, GapNoReadings, GapStale, GapRateLimited:
+			false
+		}
+	case option.None:
+		false
+	}
+	freshOk && staleBad && sparkBad
+}
+
+test AccountRegistryWindowsAndCarryOver {
+	let now = int64(10000000)
+	let mut reg = NewRegistry()
+	let acc1 = AccountEntry{
+		Config: AccountConfig{
+			ID:              session.AccountID("acc-1"),
+			Provider:        "openai",
+			Model:           "gpt-5.3-codex-spark",
+			Label:           "primary",
+			Priority:        1,
+			Healthy:         true,
+			PaceWithheld:    false,
+			SupportedScopes: []string{"spark"},
+		},
+		Limits:      option.None,
+		Pace:        option.None,
+		HoldUntilMs: int64(0),
+	}
+	let acc2 = AccountEntry{
+		Config: AccountConfig{
+			ID:              session.AccountID("acc-2"),
+			Provider:        "anthropic",
+			Model:           "claude-opus-4-6",
+			Label:           "claude",
+			Priority:        2,
+			Healthy:         true,
+			PaceWithheld:    false,
+			SupportedScopes: []string{"opus"},
+		},
+		Limits:      option.None,
+		Pace:        option.None,
+		HoldUntilMs: int64(0),
+	}
+	reg = UpsertAccount(reg, acc2)
+	reg = UpsertAccount(reg, acc1)
+	let listed = ListAccounts(reg)
+	assert listed.Len() == 2
+	assert listed[0].Config.ID == session.AccountID("acc-1")
+	assert RequiredScopes("openai", "gpt-5.3-codex-spark") == []string{"spark"}
+	assert RequiredScopes("anthropic", "claude-opus-4-6") == []string{"opus"}
+	assert RequiredScopes("anthropic", "claude-sonnet-4-5") == []string{"sonnet"}
+	assert AccountSupportsModel(acc1.Config, "openai", "gpt-5.3-codex-spark")
+	assert !AccountSupportsModel(acc1.Config, "anthropic", "claude-opus-4-6")
+
+	let dayReset = now + int64(86400000)
+	let p25 = PctToPpm(25)
+	let p30 = PctToPpm(30)
+	let staleAfter = StaleAfterMs()
+	let initial = LimitsModel{
+		Primary5h:    WinReported{UsedPpm: p25, ResetAtMs: now + int64(600000)},
+		Weekly7d:     WinReported{UsedPpm: PctToPpm(40), ResetAtMs: dayReset},
+		ModelWindows: []ModelQuota{
+			ModelQuota{Scope: "7d:spark", Status: WinReported{UsedPpm: p30, ResetAtMs: dayReset}},
+		},
+		ReadAtMs:    now,
+		RateLimited: false,
+	}
+	reg = RecordLimits(reg, session.AccountID("acc-1"), initial, now)
+
+	let p42 = PctToPpm(42)
+	let partial = LimitsModel{
+		Primary5h:    WinUnknown,
+		Weekly7d:     WinReported{UsedPpm: p42, ResetAtMs: dayReset},
+		ModelWindows: []ModelQuota{},
+		ReadAtMs:     now + int64(30000),
+		RateLimited:  false,
+	}
+	reg = RecordLimits(reg, session.AccountID("acc-1"), partial, now+int64(30000))
+	let fetched = GetAccount(reg, session.AccountID("acc-1"))
+	match fetched {
+	case option.None:
+		assert false
+	case option.Some as entryWrap:
+		let entry = entryWrap.Value
+		let gap = CheckEvidenceGap(entry.Limits, []string{"spark"}, now+int64(30000), staleAfter)
+		assert gap == option.None
+		match entry.Limits {
+		case option.None:
+			assert false
+		case option.Some as lWrap:
+			let l = lWrap.Value
+			assert l.Primary5h == WinReported{UsedPpm: p25, ResetAtMs: now + int64(600000)}
+			assert l.Weekly7d == WinReported{UsedPpm: p42, ResetAtMs: dayReset}
+			assert FindModelWindow(l.ModelWindows, "spark") == WinReported{UsedPpm: p30, ResetAtMs: dayReset}
+		}
+	}
+
+	assert CheckNoAccountsGap() == GapNoAccounts
+	assert CheckEvidenceGap(option.None, []string{}, now, staleAfter) == option.Some[GapReason]{Value: GapNoReadings}
+	let limited = LimitsModel{
+		Primary5h:    WinUnknown,
+		Weekly7d:     WinUnknown,
+		ModelWindows: []ModelQuota{},
+		ReadAtMs:     now,
+		RateLimited:  true,
+	}
+	let gapLim = CheckEvidenceGap(option.Some[LimitsModel]{Value: limited}, []string{}, now, staleAfter)
+	assert gapLim == option.Some[GapReason]{Value: GapRateLimited}
+	reg = SetAccountHold(reg, session.AccountID("acc-1"), now+int64(5000))
+	reg = SetAccountHealthy(reg, session.AccountID("acc-1"), false)
+	reg = SetAccountPacePlan(reg, session.AccountID("acc-1"), option.Some[PacePlan]{Value: PacePlan{RebaseAtMs: now, BasePpm: PctToPpm(50), Withheld: false}})
+	reg = RemoveAccount(reg, session.AccountID("acc-2"))
+	assert ListAccounts(reg).Len() == 1
+}

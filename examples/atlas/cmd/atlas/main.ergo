@@ -1,0 +1,216 @@
+import atlas/settings
+import core
+import ergoapi api
+import fs
+import github.com/cevr/ergo/modules/atlas/api
+import github.com/cevr/ergo/modules/atlas/api/apimcp
+import github.com/cevr/ergo/modules/atlas/api/serve
+import github.com/cevr/ergo/modules/atlas/memory
+import github.com/cevr/ergo/modules/atlas/sqlite
+import http
+import io
+import json
+import mcp
+import mcp/httpmcp
+import mcp/stdio
+import option
+import os
+import os/host
+import rand
+import scope
+import signal
+import strings
+import task
+import time
+
+func parseExitCode(code int) os.Code {
+	os.ParseCode(code) catch {
+	case core.Unsatisfied:
+		os.Code(1)
+	}
+}
+
+func failExit(code int, msg string) os.Exit {
+	os.Exit{Code: parseExitCode(code), Message: msg}
+}
+
+func resolveClock(process os.Host) (func() int64) fails os.Exit needs os.Ambient {
+	let nowOpt = settings.ParseNowEnv(process.Getenv("ATLAS_NOW")) catch {
+	case settings.ConfigError as e:
+		return failExit(2, "atlas: \(e.Field): \(e.Reason)")
+	}
+	match nowOpt {
+	case option.Some[int64] as fixed:
+		let ts = fixed.Value
+		func() int64 { ts }
+	case option.None:
+		let clk = time.NewHost()
+		func() int64 {
+			let t = clk.Now()
+			time.UnixSeconds(t)*int64(1000) + time.Nanosecond(t)/int64(1000000)
+		}
+	}
+}
+
+func resolveCapacity(process os.Host) api.HostCapacity fails os.Exit needs os.Ambient {
+	let envVal = process.Getenv("ATLAS_HOST_STATIC")
+	match envVal {
+	case option.Some[string] as raw:
+		if strings.TrimSpace(raw.Value) != "" {
+			let built = settings.BuildCapacityFromStatic(raw.Value) catch {
+			case settings.ConfigError as e:
+				return failExit(2, "atlas: \(e.Field): \(e.Reason)")
+			}
+			return built
+		}
+	case option.None:
+	}
+	api.NewHostCapacity(host.NewHost())
+}
+
+func defaultDBPath(process os.Host) string fails os.Exit needs os.Ambient {
+	match process.Getenv("XDG_STATE_HOME") {
+	case option.Some[string] as d:
+		let trimmed = strings.TrimSpace(d.Value)
+		if trimmed != "" {
+			return trimmed + "/atlas/state.db"
+		}
+	case option.None:
+	}
+	let home = process.HomeDir() catch {
+	case os.NoDir:
+		return failExit(1, "atlas: cannot determine state directory; pass --store PATH")
+	}
+	home + "/.local/state/atlas/state.db"
+}
+
+func parentDir(path string) string {
+	let idx = strings.LastIndex(path, "/")
+	if idx <= 0 {
+		return ""
+	}
+	strings.Slice(path, 0, idx)
+}
+
+func openStore(process os.Host, parsed settings.ParsedArgs) sqlite.Store fails os.Exit needs os.Ambient | go.Foreign {
+	let path = if parsed.HasStoreFlag { parsed.StorePath } else { try defaultDBPath(process) }
+	if path == "" {
+		return failExit(2, "atlas: --store path must not be empty")
+	}
+	if path == ":memory:" {
+		let mem = sqlite.OpenMemory() catch {
+		case memory.StoreFailed as e:
+			return failExit(1, "atlas: store error: \(e.Reason)")
+		}
+		return mem
+	}
+	let dir = parentDir(path)
+	if dir != "" {
+		let hostFS = fs.NewHost()
+		hostFS.MkdirAll(dir) catch {
+		case fs.Denied, fs.Failed:
+			return failExit(1, "atlas: cannot create store directory '\(dir)'")
+		}
+	}
+	let opened = sqlite.Open(path) catch {
+	case memory.StoreFailed as e:
+		return failExit(1, "atlas: store error: \(e.Reason)")
+	}
+	opened
+}
+
+func runWellnessCLI(srv serve.AtlasServer, asJSON bool) int needs os.Ambient | io.Console {
+	let rep = serve.TickWellness(srv)
+	let out = io.NewHost()
+	if asJSON {
+		out.Println(json.Encode(json.Codec[api.WellnessReport]{MaxBytes: 0, MaxDepth: 0}, rep))
+	} else {
+		out.Println("status=\(rep.Status) healthy=\(rep.Healthy) threads=\(rep.ThreadCount) active_turns=\(rep.ActiveTurnCount) open_calls=\(rep.OpenCallCount) dead_owner_calls=\(rep.DeadOwnerCallCount) due_holds=\(rep.DueHoldCount) cores=\(rep.Host.Cores) mem_avail_gib=\(rep.Host.MemAvailGiB)")
+	}
+	if rep.Status == "unhealthy" { 1 } else { 0 }
+}
+
+func runServeHTTP(srv serve.AtlasServer, addr string) fails os.Exit needs os.Ambient | io.Console {
+	serve.ValidateBindAddr(addr) catch {
+	case serve.BindRefused as e:
+		return failExit(2, "atlas serve: \(e.Reason)")
+	}
+	let limits = http.Limits{
+		MaxBodyBytes:      1048576,
+		MaxHeaderBytes:    65536,
+		IdleTimeout:       30s,
+		ReadHeaderTimeout: 5s,
+		ReadBodyTimeout:   15s,
+	}
+	let stops = signal.Watch([]signal.Stop{signal.Interrupt, signal.Terminate})
+	scope.OnExit() {
+		signal.Unwatch(stops)
+		httpmcp.CloseAllStreams(srv.Sessions)
+	}
+	let _ = with context { time.Scheduler: time.NewLiveScheduler() } {
+		signal.UntilStop(stops, func() int fails http.InvalidLimits | http.ListenFailed needs os.Ambient | io.Console | time.Scheduler {
+			let listener = try http.Listen(addr)
+			io.NewErrors().Eprintln("atlas serve listening on http://\(addr)")
+			let ticker = task.Go() {
+				for {
+					let _ = serve.TickWellness(srv)
+					time.Scheduler.Sleep(15s)
+				}
+			}
+			scope.OnExit() { ticker.Stop() }
+			try http.Serve(listener, limits, func(req http.Request) http.Response needs http.Streaming {
+				serve.HandleHTTP(srv, req)
+			})
+			0
+		})
+	} catch {
+	case signal.Stopped as st:
+		return os.Exit{Code: signal.StatusOf(st.Kind), Message: ""}
+	case http.ListenFailed as e:
+		return failExit(1, "atlas serve: listen \(e.Addr) failed: \(e.Reason)")
+	case http.InvalidLimits as e:
+		return failExit(1, "atlas serve: invalid limits max_body=\(e.MaxBodyBytes)")
+	}
+}
+
+func main() fails os.Exit needs os.Ambient | io.Console | go.Foreign {
+	let process = os.NewHost()
+	let parsed = settings.ParseTopArgs(process.Args()) catch {
+	case settings.ConfigError as e:
+		return failExit(2, "atlas: \(e.Field): \(e.Reason)")
+	}
+	let nowFn = try resolveClock(process)
+	let cap = try resolveCapacity(process)
+	let store = try openStore(process, parsed)
+	scope.OnExit() {
+		store.Close() catch {
+		case memory.StoreFailed:
+		}
+	}
+	let rng = rand.NewSecureHost()
+	let srvCfg = serve.ServerConfig{
+		Cap:    cap,
+		Auth:   api.NewMcpAuthStore(rng),
+		Policy: api.DefaultWellnessPolicy(),
+		Rng:    rng,
+	}
+	let srv = serve.NewAtlasServer(store, srvCfg, nowFn)
+
+	match parsed.Command {
+	case settings.CmdMCP:
+		let full = with context { api.Api: srv.Service } {
+			mcp.WithResources(mcp.Server{Name: "atlas", Version: "1.0", Tools: apimcp.Tools()}, serve.ResourcesOf(srv))
+		}
+		let _ = mcp.ServeFull(full, mcp.NewNotifier(256), stdio.New())
+	case settings.CmdWellness:
+		let code = runWellnessCLI(srv, parsed.JSONOutput)
+		if code != 0 {
+			return failExit(code, "")
+		}
+	case settings.CmdServe:
+		try runServeHTTP(srv, parsed.HTTPAddr)
+	case settings.CmdCLI:
+		let out = serve.RunCLI(srv, parsed.Rest)
+		try ergoapi.Exit(out)
+	}
+}

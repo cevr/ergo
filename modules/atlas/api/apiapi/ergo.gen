@@ -1,0 +1,5 @@
+kind api
+generator ergo gen api
+subject github.com/cevr/ergo/modules/atlas/api.Api
+contract sha256:9d9d19d61838432c5e1e01c5602eb95e9c4ca0cc40bb609776a9e287486da15f
+digest sha256:13024f8be8b1078e5805b16598904facf3798cb2cf824933e9b64bf26ecbfc6a

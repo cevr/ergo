@@ -1,0 +1,5 @@
+--store
+:memory:
+--json
+thread-get
+-thread-id=missing-thread

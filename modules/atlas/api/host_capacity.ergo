@@ -1,0 +1,229 @@
+import option
+import os/host
+import slices
+
+// HostVolume reports capacity metrics in bytes for one mounted filesystem path.
+type HostVolume {
+	Path           string,
+	TotalBytes     int64,
+	FreeBytes      int64,
+	AvailableBytes int64,
+	UsedBytes      int64,
+}
+
+// HostCapacityReport captures non-blocking CPU, load, memory, and volume headroom metrics.
+type HostCapacityReport {
+	Cores             int,
+	LoadOne           float64,
+	LoadFive          float64,
+	LoadFifteen       float64,
+	RunningProcs      int,
+	TotalEntities     int,
+	MemTotalBytes     int64,
+	MemAvailableBytes int64,
+	MemAvailGiB       float64,
+	Volumes           []HostVolume,
+}
+
+// HostCapacityFailed reports an unavailable or invalid non-blocking host telemetry read.
+type HostCapacityFailed {
+	Target string,
+	Reason string,
+}
+
+// HostCapacity reads non-blocking host CPU, memory, load, and volume headroom without spawning processes.
+type HostCapacity {
+	// Measure collects current host capacity telemetry for every requested volume path.
+	Measure(volumes []string) HostCapacityReport fails HostCapacityFailed,
+
+	// MeasurePreservesVolumeCount ensures successful measurements return one entry per requested volume.
+	law MeasurePreservesVolumeCount(volumes []string) {
+		let empty = Measure([]string{}) catch {
+		case HostCapacityFailed:
+			return true
+		}
+		if !IsValidCapacityReport(empty) || empty.Volumes.Len() != 0 {
+			return false
+		}
+		let measured = Measure(volumes) catch {
+		case HostCapacityFailed:
+			return true
+		}
+		IsValidCapacityReport(measured) && measured.Volumes.Len() == volumes.Len()
+	},
+}
+
+// IsValidCapacityReport verifies non-negativity and total/available byte bounds on r.
+func IsValidCapacityReport(r HostCapacityReport) bool {
+	if r.Cores < 0 || r.LoadOne < 0.0 || r.LoadFive < 0.0 || r.LoadFifteen < 0.0 {
+		return false
+	}
+	if r.RunningProcs < 0 || r.TotalEntities < 0 {
+		return false
+	}
+	if r.MemTotalBytes < int64(0) || r.MemAvailableBytes < int64(0) || r.MemAvailableBytes > r.MemTotalBytes || r.MemAvailGiB < 0.0 {
+		return false
+	}
+	for _, v in r.Volumes {
+		if v.TotalBytes < int64(0) || v.FreeBytes < int64(0) || v.AvailableBytes < int64(0) || v.UsedBytes < int64(0) {
+			return false
+		}
+		if v.FreeBytes > v.TotalBytes || v.AvailableBytes > v.TotalBytes {
+			return false
+		}
+	}
+	true
+}
+
+// MaxVolumeUsedPct returns the highest used percentage across measured volumes, or 0 when none are non-empty.
+func MaxVolumeUsedPct(r HostCapacityReport) float64 {
+	let mut worst = 0.0
+	for _, v in r.Volumes {
+		if v.TotalBytes > int64(0) {
+			let used = v.TotalBytes - v.AvailableBytes
+			let pct = (float64(used) * 100.0) / float64(v.TotalBytes)
+			if pct > worst {
+				worst = pct
+			}
+		}
+	}
+	worst
+}
+
+// LoadPerCore returns 1-minute load divided by logical CPU cores (minimum divisor 1).
+func LoadPerCore(r HostCapacityReport) float64 {
+	let cores = if r.Cores > 0 { r.Cores } else { 1 }
+	r.LoadOne / float64(cores)
+}
+
+// SystemHostCapacity implements HostCapacity directly over a std/os/host.System provider.
+type SystemHostCapacity {
+	sys host.System,
+} implements HostCapacity
+
+// Measure collects capacity telemetry from s.sys without spawning external commands.
+func Measure(s SystemHostCapacity, volumes []string) HostCapacityReport fails HostCapacityFailed {
+	let st = s.sys.Status(volumes) catch {
+	case host.Unavailable as u:
+		return HostCapacityFailed{Target: u.Target, Reason: u.Reason}
+	case host.Malformed as m:
+		return HostCapacityFailed{Target: m.Source, Reason: m.Reason}
+	}
+	let mut outVols = slices.WithCapacity[HostVolume](st.Volumes.Len())
+	for _, v in st.Volumes {
+		outVols = outVols.Append(HostVolume{
+			Path:           v.Path,
+			TotalBytes:     v.TotalBytes,
+			FreeBytes:      v.FreeBytes,
+			AvailableBytes: v.AvailableBytes,
+			UsedBytes:      v.UsedBytes,
+		})
+	}
+	let gibDiv = 1073741824.0
+	let report = HostCapacityReport{
+		Cores:             st.Cores,
+		LoadOne:           st.Load.One,
+		LoadFive:          st.Load.Five,
+		LoadFifteen:       st.Load.Fifteen,
+		RunningProcs:      st.Load.Running,
+		TotalEntities:     st.Load.Entities,
+		MemTotalBytes:     st.Memory.TotalBytes,
+		MemAvailableBytes: st.Memory.AvailableBytes,
+		MemAvailGiB:       float64(st.Memory.AvailableBytes) / gibDiv,
+		Volumes:           outVols,
+	}
+	if !IsValidCapacityReport(report) {
+		return HostCapacityFailed{Target: "host", Reason: "host telemetry violated capacity report invariants"}
+	}
+	report
+}
+
+// NewHostCapacity wraps any os/host.System as a HostCapacity provider.
+func NewHostCapacity(sys host.System) HostCapacity {
+	SystemHostCapacity{sys: sys}
+}
+
+// NewStaticHostCapacity builds a deterministic pure-memory HostCapacity provider from status.
+func NewStaticHostCapacity(status host.Status) HostCapacity fails HostCapacityFailed {
+	let st = host.NewStatic(status, []host.Process{}) catch {
+	case host.Malformed as m:
+		return HostCapacityFailed{Target: m.Source, Reason: m.Reason}
+	}
+	SystemHostCapacity{sys: st}
+}
+
+let overDeterministicHost = context fails HostCapacityFailed {
+	HostCapacity: try NewStaticHostCapacity(HealthyHostStatus([]string{"/", "/workspaces"})),
+}
+
+// HealthyHostStatus builds a deterministic healthy host snapshot across volumes for pure-memory tests.
+func HealthyHostStatus(volumes []string) host.Status {
+	let gib = int64(1073741824)
+	let mut vols = slices.WithCapacity[host.Volume](volumes.Len())
+	for _, p in volumes {
+		vols = vols.Append(host.Volume{
+			Path:           p,
+			TotalBytes:     int64(200) * gib,
+			FreeBytes:      int64(120) * gib,
+			AvailableBytes: int64(110) * gib,
+			UsedBytes:      int64(80) * gib,
+		})
+	}
+	host.Status{
+		Cores:   16,
+		Load:    host.LoadAvg{One: 1.5, Five: 1.25, Fifteen: 1.0, Running: 2, Entities: 120},
+		Memory:  host.Memory{TotalBytes: int64(64) * gib, AvailableBytes: int64(40) * gib, FreeBytes: int64(20) * gib, UsedBytes: int64(24) * gib},
+		Volumes: vols,
+	}
+}
+
+test HostCapacityStaticAndFailuresWork {
+	let cap = try NewStaticHostCapacity(HealthyHostStatus([]string{"/workspaces"}))
+	with context { HostCapacity: cap } {
+		let rep = try HostCapacity.Measure([]string{"/workspaces"})
+		assert rep.Cores == 16 && rep.MemAvailGiB == 40.0 && rep.Volumes.Len() == 1
+		let pct = MaxVolumeUsedPct(rep)
+		assert pct >= 44.0 && pct <= 46.0 && LoadPerCore(rep) < 0.2
+		let missing = tryOptionMeasure(cap, []string{"/nonexistent-volume"})
+		assert missing != option.None
+	}
+}
+
+func tryOptionMeasure(cap HostCapacity, vols []string) option.Option[HostCapacityFailed] {
+	let _ = cap.Measure(vols) catch {
+	case HostCapacityFailed as err:
+		return option.Some[HostCapacityFailed]{Value: err}
+	}
+	option.None
+}
+
+// HostCapacityRejectsInvalidStaticStatus verifies invalid capacity report bounds and malformed static statuses are rejected.
+law HostCapacityRejectsInvalidStaticStatus() {
+	let bad = host.Status{
+		Cores:   4,
+		Load:    host.LoadAvg{One: 0.5, Five: 0.5, Fifteen: 0.5, Running: 1, Entities: 10},
+		Memory:  host.Memory{TotalBytes: int64(100), AvailableBytes: int64(200), FreeBytes: int64(100), UsedBytes: int64(0)},
+		Volumes: []host.Volume{},
+	}
+	let badRep = HostCapacityReport{
+		Cores:             4,
+		LoadOne:           0.5,
+		LoadFive:          0.5,
+		LoadFifteen:       0.5,
+		RunningProcs:      1,
+		TotalEntities:     10,
+		MemTotalBytes:     int64(100),
+		MemAvailableBytes: int64(200),
+		MemAvailGiB:       0.0,
+		Volumes:           []HostVolume{},
+	}
+	tryNewStaticHostCapacity(bad) != option.None && !IsValidCapacityReport(badRep)
+}
+
+func tryNewStaticHostCapacity(st host.Status) option.Option[HostCapacityFailed] {
+	let _ = NewStaticHostCapacity(st) catch {
+	case HostCapacityFailed as err:
+		return option.Some[HostCapacityFailed]{Value: err}
+	}
+	option.None
+}

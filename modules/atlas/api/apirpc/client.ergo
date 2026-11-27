@@ -1,0 +1,2200 @@
+import rpc
+import github.com/cevr/ergo/modules/atlas/api
+import github.com/cevr/ergo/modules/atlas/api/apiapi
+import github.com/cevr/ergo/modules/atlas/memory
+
+// Client is api.Api over the wire: each operation is one call to the
+// server its Conn names. <Op>Checked fails the wire's failures as typed
+// failures: rpc.Unrepresentable for an int the wire cannot carry (an
+// operation that carries one), rpc.Transport for a lost server, a refused
+// call or an answer that is not the contract's. <Op> provides the
+// operation type, whose row cannot name them, so there they are defects.
+type Client { conn rpc.Conn } implements api.Api
+
+// NewClient is the api.Api that conn serves.
+func NewClient(conn rpc.Conn) Client { Client{conn: conn} }
+
+// ThreadCreateChecked calls api.Api's ThreadCreate on the server; the wire's failures are
+// typed failures.
+func ThreadCreateChecked(client Client, input api.ThreadCreateInput) api.ThreadSnapshot fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed | rpc.Unrepresentable | rpc.Transport {
+	let p = apiapi.ThreadCreateRequest{Input: input}
+	try exactThreadCreateRequest(p)
+	let text = try rpc.Call(client.conn, "ThreadCreate", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "NotFound":
+			let e = try rpc.Decode[memory.NotFound]("failure", f.Text)
+			return e
+		case "AlreadyExists":
+			let e = try rpc.Decode[memory.AlreadyExists]("failure", f.Text)
+			return e
+		case "InvalidTransition":
+			let e = try rpc.Decode[memory.InvalidTransition]("failure", f.Text)
+			return e
+		case "CommandReused":
+			let e = try rpc.Decode[memory.CommandReused]("failure", f.Text)
+			return e
+		case "InvalidInput":
+			let e = try rpc.Decode[memory.InvalidInput]("failure", f.Text)
+			return e
+		case "LeaseFenced":
+			let e = try rpc.Decode[memory.LeaseFenced]("failure", f.Text)
+			try exactMemoryLeaseFenced(e)
+			return e
+		case "ThreadDomainErr":
+			let e = try rpc.Decode[memory.ThreadDomainErr]("failure", f.Text)
+			return e
+		case "SubagentDomainErr":
+			let e = try rpc.Decode[memory.SubagentDomainErr]("failure", f.Text)
+			try exactMemorySubagentDomainErr(e)
+			return e
+		case "HandleDomainErr":
+			let e = try rpc.Decode[memory.HandleDomainErr]("failure", f.Text)
+			return e
+		case "LimitDomainErr":
+			let e = try rpc.Decode[memory.LimitDomainErr]("failure", f.Text)
+			try exactMemoryLimitDomainErr(e)
+			return e
+		case "RequestDomainErr":
+			let e = try rpc.Decode[memory.RequestDomainErr]("failure", f.Text)
+			return e
+		case "CutoverDomainErr":
+			let e = try rpc.Decode[memory.CutoverDomainErr]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[memory.StoreFailed]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "ThreadCreate failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[api.ThreadSnapshot]("value", text)
+	try exactApiThreadSnapshot(v)
+	v
+}
+
+// ThreadCreate calls api.Api's ThreadCreate on the server, as ThreadCreateChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func ThreadCreate(client Client, input api.ThreadCreateInput) api.ThreadSnapshot fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	try ThreadCreateChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[api.ThreadSnapshot](u)
+	case rpc.Transport as t:
+		return rpc.Lost[api.ThreadSnapshot](t)
+	}
+}
+
+// ThreadGetChecked calls api.Api's ThreadGet on the server; the wire's failures are
+// typed failures.
+func ThreadGetChecked(client Client, input api.ThreadTargetInput) api.ThreadSnapshot fails memory.NotFound | memory.InvalidInput | memory.StoreFailed | rpc.Unrepresentable | rpc.Transport {
+	let p = apiapi.ThreadGetRequest{Input: input}
+	let text = try rpc.Call(client.conn, "ThreadGet", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "NotFound":
+			let e = try rpc.Decode[memory.NotFound]("failure", f.Text)
+			return e
+		case "InvalidInput":
+			let e = try rpc.Decode[memory.InvalidInput]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[memory.StoreFailed]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "ThreadGet failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[api.ThreadSnapshot]("value", text)
+	try exactApiThreadSnapshot(v)
+	v
+}
+
+// ThreadGet calls api.Api's ThreadGet on the server, as ThreadGetChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func ThreadGet(client Client, input api.ThreadTargetInput) api.ThreadSnapshot fails memory.NotFound | memory.InvalidInput | memory.StoreFailed {
+	try ThreadGetChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[api.ThreadSnapshot](u)
+	case rpc.Transport as t:
+		return rpc.Lost[api.ThreadSnapshot](t)
+	}
+}
+
+// ThreadListChecked calls api.Api's ThreadList on the server; the wire's failures are
+// typed failures.
+func ThreadListChecked(client Client, input api.ThreadListInput) api.ThreadListOutput fails memory.InvalidInput | memory.StoreFailed | rpc.Unrepresentable | rpc.Transport {
+	let p = apiapi.ThreadListRequest{Input: input}
+	try exactThreadListRequest(p)
+	let text = try rpc.Call(client.conn, "ThreadList", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "InvalidInput":
+			let e = try rpc.Decode[memory.InvalidInput]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[memory.StoreFailed]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "ThreadList failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[api.ThreadListOutput]("value", text)
+	try exactApiThreadListOutput(v)
+	v
+}
+
+// ThreadList calls api.Api's ThreadList on the server, as ThreadListChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func ThreadList(client Client, input api.ThreadListInput) api.ThreadListOutput fails memory.InvalidInput | memory.StoreFailed {
+	try ThreadListChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[api.ThreadListOutput](u)
+	case rpc.Transport as t:
+		return rpc.Lost[api.ThreadListOutput](t)
+	}
+}
+
+// ThreadArchiveChecked calls api.Api's ThreadArchive on the server; the wire's failures are
+// typed failures.
+func ThreadArchiveChecked(client Client, input api.ThreadArchiveInput) api.ThreadSnapshot fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed | rpc.Unrepresentable | rpc.Transport {
+	let p = apiapi.ThreadArchiveRequest{Input: input}
+	try exactThreadArchiveRequest(p)
+	let text = try rpc.Call(client.conn, "ThreadArchive", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "NotFound":
+			let e = try rpc.Decode[memory.NotFound]("failure", f.Text)
+			return e
+		case "AlreadyExists":
+			let e = try rpc.Decode[memory.AlreadyExists]("failure", f.Text)
+			return e
+		case "InvalidTransition":
+			let e = try rpc.Decode[memory.InvalidTransition]("failure", f.Text)
+			return e
+		case "CommandReused":
+			let e = try rpc.Decode[memory.CommandReused]("failure", f.Text)
+			return e
+		case "InvalidInput":
+			let e = try rpc.Decode[memory.InvalidInput]("failure", f.Text)
+			return e
+		case "LeaseFenced":
+			let e = try rpc.Decode[memory.LeaseFenced]("failure", f.Text)
+			try exactMemoryLeaseFenced(e)
+			return e
+		case "ThreadDomainErr":
+			let e = try rpc.Decode[memory.ThreadDomainErr]("failure", f.Text)
+			return e
+		case "SubagentDomainErr":
+			let e = try rpc.Decode[memory.SubagentDomainErr]("failure", f.Text)
+			try exactMemorySubagentDomainErr(e)
+			return e
+		case "HandleDomainErr":
+			let e = try rpc.Decode[memory.HandleDomainErr]("failure", f.Text)
+			return e
+		case "LimitDomainErr":
+			let e = try rpc.Decode[memory.LimitDomainErr]("failure", f.Text)
+			try exactMemoryLimitDomainErr(e)
+			return e
+		case "RequestDomainErr":
+			let e = try rpc.Decode[memory.RequestDomainErr]("failure", f.Text)
+			return e
+		case "CutoverDomainErr":
+			let e = try rpc.Decode[memory.CutoverDomainErr]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[memory.StoreFailed]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "ThreadArchive failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[api.ThreadSnapshot]("value", text)
+	try exactApiThreadSnapshot(v)
+	v
+}
+
+// ThreadArchive calls api.Api's ThreadArchive on the server, as ThreadArchiveChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func ThreadArchive(client Client, input api.ThreadArchiveInput) api.ThreadSnapshot fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	try ThreadArchiveChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[api.ThreadSnapshot](u)
+	case rpc.Transport as t:
+		return rpc.Lost[api.ThreadSnapshot](t)
+	}
+}
+
+// DriverSwitchChecked calls api.Api's DriverSwitch on the server; the wire's failures are
+// typed failures.
+func DriverSwitchChecked(client Client, input api.DriverSwitchInput) api.ThreadSnapshot fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed | rpc.Unrepresentable | rpc.Transport {
+	let p = apiapi.DriverSwitchRequest{Input: input}
+	try exactDriverSwitchRequest(p)
+	let text = try rpc.Call(client.conn, "DriverSwitch", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "NotFound":
+			let e = try rpc.Decode[memory.NotFound]("failure", f.Text)
+			return e
+		case "AlreadyExists":
+			let e = try rpc.Decode[memory.AlreadyExists]("failure", f.Text)
+			return e
+		case "InvalidTransition":
+			let e = try rpc.Decode[memory.InvalidTransition]("failure", f.Text)
+			return e
+		case "CommandReused":
+			let e = try rpc.Decode[memory.CommandReused]("failure", f.Text)
+			return e
+		case "InvalidInput":
+			let e = try rpc.Decode[memory.InvalidInput]("failure", f.Text)
+			return e
+		case "LeaseFenced":
+			let e = try rpc.Decode[memory.LeaseFenced]("failure", f.Text)
+			try exactMemoryLeaseFenced(e)
+			return e
+		case "ThreadDomainErr":
+			let e = try rpc.Decode[memory.ThreadDomainErr]("failure", f.Text)
+			return e
+		case "SubagentDomainErr":
+			let e = try rpc.Decode[memory.SubagentDomainErr]("failure", f.Text)
+			try exactMemorySubagentDomainErr(e)
+			return e
+		case "HandleDomainErr":
+			let e = try rpc.Decode[memory.HandleDomainErr]("failure", f.Text)
+			return e
+		case "LimitDomainErr":
+			let e = try rpc.Decode[memory.LimitDomainErr]("failure", f.Text)
+			try exactMemoryLimitDomainErr(e)
+			return e
+		case "RequestDomainErr":
+			let e = try rpc.Decode[memory.RequestDomainErr]("failure", f.Text)
+			return e
+		case "CutoverDomainErr":
+			let e = try rpc.Decode[memory.CutoverDomainErr]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[memory.StoreFailed]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "DriverSwitch failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[api.ThreadSnapshot]("value", text)
+	try exactApiThreadSnapshot(v)
+	v
+}
+
+// DriverSwitch calls api.Api's DriverSwitch on the server, as DriverSwitchChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func DriverSwitch(client Client, input api.DriverSwitchInput) api.ThreadSnapshot fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	try DriverSwitchChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[api.ThreadSnapshot](u)
+	case rpc.Transport as t:
+		return rpc.Lost[api.ThreadSnapshot](t)
+	}
+}
+
+// PromptEnqueueChecked calls api.Api's PromptEnqueue on the server; the wire's failures are
+// typed failures.
+func PromptEnqueueChecked(client Client, input api.PromptEnqueueInput) api.ThreadSnapshot fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed | rpc.Unrepresentable | rpc.Transport {
+	let p = apiapi.PromptEnqueueRequest{Input: input}
+	try exactPromptEnqueueRequest(p)
+	let text = try rpc.Call(client.conn, "PromptEnqueue", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "NotFound":
+			let e = try rpc.Decode[memory.NotFound]("failure", f.Text)
+			return e
+		case "AlreadyExists":
+			let e = try rpc.Decode[memory.AlreadyExists]("failure", f.Text)
+			return e
+		case "InvalidTransition":
+			let e = try rpc.Decode[memory.InvalidTransition]("failure", f.Text)
+			return e
+		case "CommandReused":
+			let e = try rpc.Decode[memory.CommandReused]("failure", f.Text)
+			return e
+		case "InvalidInput":
+			let e = try rpc.Decode[memory.InvalidInput]("failure", f.Text)
+			return e
+		case "LeaseFenced":
+			let e = try rpc.Decode[memory.LeaseFenced]("failure", f.Text)
+			try exactMemoryLeaseFenced(e)
+			return e
+		case "ThreadDomainErr":
+			let e = try rpc.Decode[memory.ThreadDomainErr]("failure", f.Text)
+			return e
+		case "SubagentDomainErr":
+			let e = try rpc.Decode[memory.SubagentDomainErr]("failure", f.Text)
+			try exactMemorySubagentDomainErr(e)
+			return e
+		case "HandleDomainErr":
+			let e = try rpc.Decode[memory.HandleDomainErr]("failure", f.Text)
+			return e
+		case "LimitDomainErr":
+			let e = try rpc.Decode[memory.LimitDomainErr]("failure", f.Text)
+			try exactMemoryLimitDomainErr(e)
+			return e
+		case "RequestDomainErr":
+			let e = try rpc.Decode[memory.RequestDomainErr]("failure", f.Text)
+			return e
+		case "CutoverDomainErr":
+			let e = try rpc.Decode[memory.CutoverDomainErr]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[memory.StoreFailed]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "PromptEnqueue failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[api.ThreadSnapshot]("value", text)
+	try exactApiThreadSnapshot(v)
+	v
+}
+
+// PromptEnqueue calls api.Api's PromptEnqueue on the server, as PromptEnqueueChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func PromptEnqueue(client Client, input api.PromptEnqueueInput) api.ThreadSnapshot fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	try PromptEnqueueChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[api.ThreadSnapshot](u)
+	case rpc.Transport as t:
+		return rpc.Lost[api.ThreadSnapshot](t)
+	}
+}
+
+// PromptDequeueChecked calls api.Api's PromptDequeue on the server; the wire's failures are
+// typed failures.
+func PromptDequeueChecked(client Client, input api.PromptDequeueInput) api.ThreadSnapshot fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed | rpc.Unrepresentable | rpc.Transport {
+	let p = apiapi.PromptDequeueRequest{Input: input}
+	try exactPromptDequeueRequest(p)
+	let text = try rpc.Call(client.conn, "PromptDequeue", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "NotFound":
+			let e = try rpc.Decode[memory.NotFound]("failure", f.Text)
+			return e
+		case "AlreadyExists":
+			let e = try rpc.Decode[memory.AlreadyExists]("failure", f.Text)
+			return e
+		case "InvalidTransition":
+			let e = try rpc.Decode[memory.InvalidTransition]("failure", f.Text)
+			return e
+		case "CommandReused":
+			let e = try rpc.Decode[memory.CommandReused]("failure", f.Text)
+			return e
+		case "InvalidInput":
+			let e = try rpc.Decode[memory.InvalidInput]("failure", f.Text)
+			return e
+		case "LeaseFenced":
+			let e = try rpc.Decode[memory.LeaseFenced]("failure", f.Text)
+			try exactMemoryLeaseFenced(e)
+			return e
+		case "ThreadDomainErr":
+			let e = try rpc.Decode[memory.ThreadDomainErr]("failure", f.Text)
+			return e
+		case "SubagentDomainErr":
+			let e = try rpc.Decode[memory.SubagentDomainErr]("failure", f.Text)
+			try exactMemorySubagentDomainErr(e)
+			return e
+		case "HandleDomainErr":
+			let e = try rpc.Decode[memory.HandleDomainErr]("failure", f.Text)
+			return e
+		case "LimitDomainErr":
+			let e = try rpc.Decode[memory.LimitDomainErr]("failure", f.Text)
+			try exactMemoryLimitDomainErr(e)
+			return e
+		case "RequestDomainErr":
+			let e = try rpc.Decode[memory.RequestDomainErr]("failure", f.Text)
+			return e
+		case "CutoverDomainErr":
+			let e = try rpc.Decode[memory.CutoverDomainErr]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[memory.StoreFailed]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "PromptDequeue failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[api.ThreadSnapshot]("value", text)
+	try exactApiThreadSnapshot(v)
+	v
+}
+
+// PromptDequeue calls api.Api's PromptDequeue on the server, as PromptDequeueChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func PromptDequeue(client Client, input api.PromptDequeueInput) api.ThreadSnapshot fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	try PromptDequeueChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[api.ThreadSnapshot](u)
+	case rpc.Transport as t:
+		return rpc.Lost[api.ThreadSnapshot](t)
+	}
+}
+
+// TurnStartChecked calls api.Api's TurnStart on the server; the wire's failures are
+// typed failures.
+func TurnStartChecked(client Client, input api.TurnStartInput) api.ThreadSnapshot fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed | rpc.Unrepresentable | rpc.Transport {
+	let p = apiapi.TurnStartRequest{Input: input}
+	try exactTurnStartRequest(p)
+	let text = try rpc.Call(client.conn, "TurnStart", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "NotFound":
+			let e = try rpc.Decode[memory.NotFound]("failure", f.Text)
+			return e
+		case "AlreadyExists":
+			let e = try rpc.Decode[memory.AlreadyExists]("failure", f.Text)
+			return e
+		case "InvalidTransition":
+			let e = try rpc.Decode[memory.InvalidTransition]("failure", f.Text)
+			return e
+		case "CommandReused":
+			let e = try rpc.Decode[memory.CommandReused]("failure", f.Text)
+			return e
+		case "InvalidInput":
+			let e = try rpc.Decode[memory.InvalidInput]("failure", f.Text)
+			return e
+		case "LeaseFenced":
+			let e = try rpc.Decode[memory.LeaseFenced]("failure", f.Text)
+			try exactMemoryLeaseFenced(e)
+			return e
+		case "ThreadDomainErr":
+			let e = try rpc.Decode[memory.ThreadDomainErr]("failure", f.Text)
+			return e
+		case "SubagentDomainErr":
+			let e = try rpc.Decode[memory.SubagentDomainErr]("failure", f.Text)
+			try exactMemorySubagentDomainErr(e)
+			return e
+		case "HandleDomainErr":
+			let e = try rpc.Decode[memory.HandleDomainErr]("failure", f.Text)
+			return e
+		case "LimitDomainErr":
+			let e = try rpc.Decode[memory.LimitDomainErr]("failure", f.Text)
+			try exactMemoryLimitDomainErr(e)
+			return e
+		case "RequestDomainErr":
+			let e = try rpc.Decode[memory.RequestDomainErr]("failure", f.Text)
+			return e
+		case "CutoverDomainErr":
+			let e = try rpc.Decode[memory.CutoverDomainErr]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[memory.StoreFailed]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "TurnStart failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[api.ThreadSnapshot]("value", text)
+	try exactApiThreadSnapshot(v)
+	v
+}
+
+// TurnStart calls api.Api's TurnStart on the server, as TurnStartChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func TurnStart(client Client, input api.TurnStartInput) api.ThreadSnapshot fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	try TurnStartChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[api.ThreadSnapshot](u)
+	case rpc.Transport as t:
+		return rpc.Lost[api.ThreadSnapshot](t)
+	}
+}
+
+// TurnStepChecked calls api.Api's TurnStep on the server; the wire's failures are
+// typed failures.
+func TurnStepChecked(client Client, input api.TurnStepInput) api.ThreadSnapshot fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed | rpc.Unrepresentable | rpc.Transport {
+	let p = apiapi.TurnStepRequest{Input: input}
+	try exactTurnStepRequest(p)
+	let text = try rpc.Call(client.conn, "TurnStep", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "NotFound":
+			let e = try rpc.Decode[memory.NotFound]("failure", f.Text)
+			return e
+		case "AlreadyExists":
+			let e = try rpc.Decode[memory.AlreadyExists]("failure", f.Text)
+			return e
+		case "InvalidTransition":
+			let e = try rpc.Decode[memory.InvalidTransition]("failure", f.Text)
+			return e
+		case "CommandReused":
+			let e = try rpc.Decode[memory.CommandReused]("failure", f.Text)
+			return e
+		case "InvalidInput":
+			let e = try rpc.Decode[memory.InvalidInput]("failure", f.Text)
+			return e
+		case "LeaseFenced":
+			let e = try rpc.Decode[memory.LeaseFenced]("failure", f.Text)
+			try exactMemoryLeaseFenced(e)
+			return e
+		case "ThreadDomainErr":
+			let e = try rpc.Decode[memory.ThreadDomainErr]("failure", f.Text)
+			return e
+		case "SubagentDomainErr":
+			let e = try rpc.Decode[memory.SubagentDomainErr]("failure", f.Text)
+			try exactMemorySubagentDomainErr(e)
+			return e
+		case "HandleDomainErr":
+			let e = try rpc.Decode[memory.HandleDomainErr]("failure", f.Text)
+			return e
+		case "LimitDomainErr":
+			let e = try rpc.Decode[memory.LimitDomainErr]("failure", f.Text)
+			try exactMemoryLimitDomainErr(e)
+			return e
+		case "RequestDomainErr":
+			let e = try rpc.Decode[memory.RequestDomainErr]("failure", f.Text)
+			return e
+		case "CutoverDomainErr":
+			let e = try rpc.Decode[memory.CutoverDomainErr]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[memory.StoreFailed]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "TurnStep failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[api.ThreadSnapshot]("value", text)
+	try exactApiThreadSnapshot(v)
+	v
+}
+
+// TurnStep calls api.Api's TurnStep on the server, as TurnStepChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func TurnStep(client Client, input api.TurnStepInput) api.ThreadSnapshot fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	try TurnStepChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[api.ThreadSnapshot](u)
+	case rpc.Transport as t:
+		return rpc.Lost[api.ThreadSnapshot](t)
+	}
+}
+
+// SubagentTreeInitChecked calls api.Api's SubagentTreeInit on the server; the wire's failures are
+// typed failures.
+func SubagentTreeInitChecked(client Client, input api.SubagentTreeInitInput) api.SubagentTreeOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed | rpc.Unrepresentable | rpc.Transport {
+	let p = apiapi.SubagentTreeInitRequest{Input: input}
+	try exactSubagentTreeInitRequest(p)
+	let text = try rpc.Call(client.conn, "SubagentTreeInit", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "NotFound":
+			let e = try rpc.Decode[memory.NotFound]("failure", f.Text)
+			return e
+		case "AlreadyExists":
+			let e = try rpc.Decode[memory.AlreadyExists]("failure", f.Text)
+			return e
+		case "InvalidTransition":
+			let e = try rpc.Decode[memory.InvalidTransition]("failure", f.Text)
+			return e
+		case "CommandReused":
+			let e = try rpc.Decode[memory.CommandReused]("failure", f.Text)
+			return e
+		case "InvalidInput":
+			let e = try rpc.Decode[memory.InvalidInput]("failure", f.Text)
+			return e
+		case "LeaseFenced":
+			let e = try rpc.Decode[memory.LeaseFenced]("failure", f.Text)
+			try exactMemoryLeaseFenced(e)
+			return e
+		case "ThreadDomainErr":
+			let e = try rpc.Decode[memory.ThreadDomainErr]("failure", f.Text)
+			return e
+		case "SubagentDomainErr":
+			let e = try rpc.Decode[memory.SubagentDomainErr]("failure", f.Text)
+			try exactMemorySubagentDomainErr(e)
+			return e
+		case "HandleDomainErr":
+			let e = try rpc.Decode[memory.HandleDomainErr]("failure", f.Text)
+			return e
+		case "LimitDomainErr":
+			let e = try rpc.Decode[memory.LimitDomainErr]("failure", f.Text)
+			try exactMemoryLimitDomainErr(e)
+			return e
+		case "RequestDomainErr":
+			let e = try rpc.Decode[memory.RequestDomainErr]("failure", f.Text)
+			return e
+		case "CutoverDomainErr":
+			let e = try rpc.Decode[memory.CutoverDomainErr]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[memory.StoreFailed]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "SubagentTreeInit failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[api.SubagentTreeOutput]("value", text)
+	try exactApiSubagentTreeOutput(v)
+	v
+}
+
+// SubagentTreeInit calls api.Api's SubagentTreeInit on the server, as SubagentTreeInitChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func SubagentTreeInit(client Client, input api.SubagentTreeInitInput) api.SubagentTreeOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	try SubagentTreeInitChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[api.SubagentTreeOutput](u)
+	case rpc.Transport as t:
+		return rpc.Lost[api.SubagentTreeOutput](t)
+	}
+}
+
+// SubagentSpawnChecked calls api.Api's SubagentSpawn on the server; the wire's failures are
+// typed failures.
+func SubagentSpawnChecked(client Client, input api.SubagentSpawnInput) api.SubagentTreeOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed | rpc.Unrepresentable | rpc.Transport {
+	let p = apiapi.SubagentSpawnRequest{Input: input}
+	try exactSubagentSpawnRequest(p)
+	let text = try rpc.Call(client.conn, "SubagentSpawn", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "NotFound":
+			let e = try rpc.Decode[memory.NotFound]("failure", f.Text)
+			return e
+		case "AlreadyExists":
+			let e = try rpc.Decode[memory.AlreadyExists]("failure", f.Text)
+			return e
+		case "InvalidTransition":
+			let e = try rpc.Decode[memory.InvalidTransition]("failure", f.Text)
+			return e
+		case "CommandReused":
+			let e = try rpc.Decode[memory.CommandReused]("failure", f.Text)
+			return e
+		case "InvalidInput":
+			let e = try rpc.Decode[memory.InvalidInput]("failure", f.Text)
+			return e
+		case "LeaseFenced":
+			let e = try rpc.Decode[memory.LeaseFenced]("failure", f.Text)
+			try exactMemoryLeaseFenced(e)
+			return e
+		case "ThreadDomainErr":
+			let e = try rpc.Decode[memory.ThreadDomainErr]("failure", f.Text)
+			return e
+		case "SubagentDomainErr":
+			let e = try rpc.Decode[memory.SubagentDomainErr]("failure", f.Text)
+			try exactMemorySubagentDomainErr(e)
+			return e
+		case "HandleDomainErr":
+			let e = try rpc.Decode[memory.HandleDomainErr]("failure", f.Text)
+			return e
+		case "LimitDomainErr":
+			let e = try rpc.Decode[memory.LimitDomainErr]("failure", f.Text)
+			try exactMemoryLimitDomainErr(e)
+			return e
+		case "RequestDomainErr":
+			let e = try rpc.Decode[memory.RequestDomainErr]("failure", f.Text)
+			return e
+		case "CutoverDomainErr":
+			let e = try rpc.Decode[memory.CutoverDomainErr]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[memory.StoreFailed]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "SubagentSpawn failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[api.SubagentTreeOutput]("value", text)
+	try exactApiSubagentTreeOutput(v)
+	v
+}
+
+// SubagentSpawn calls api.Api's SubagentSpawn on the server, as SubagentSpawnChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func SubagentSpawn(client Client, input api.SubagentSpawnInput) api.SubagentTreeOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	try SubagentSpawnChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[api.SubagentTreeOutput](u)
+	case rpc.Transport as t:
+		return rpc.Lost[api.SubagentTreeOutput](t)
+	}
+}
+
+// SubagentControlHandleChecked calls api.Api's SubagentControlHandle on the server; the wire's failures are
+// typed failures.
+func SubagentControlHandleChecked(client Client, input api.SubagentControlHandleInput) api.SubagentTreeOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed | rpc.Unrepresentable | rpc.Transport {
+	let p = apiapi.SubagentControlHandleRequest{Input: input}
+	try exactSubagentControlHandleRequest(p)
+	let text = try rpc.Call(client.conn, "SubagentControlHandle", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "NotFound":
+			let e = try rpc.Decode[memory.NotFound]("failure", f.Text)
+			return e
+		case "AlreadyExists":
+			let e = try rpc.Decode[memory.AlreadyExists]("failure", f.Text)
+			return e
+		case "InvalidTransition":
+			let e = try rpc.Decode[memory.InvalidTransition]("failure", f.Text)
+			return e
+		case "CommandReused":
+			let e = try rpc.Decode[memory.CommandReused]("failure", f.Text)
+			return e
+		case "InvalidInput":
+			let e = try rpc.Decode[memory.InvalidInput]("failure", f.Text)
+			return e
+		case "LeaseFenced":
+			let e = try rpc.Decode[memory.LeaseFenced]("failure", f.Text)
+			try exactMemoryLeaseFenced(e)
+			return e
+		case "ThreadDomainErr":
+			let e = try rpc.Decode[memory.ThreadDomainErr]("failure", f.Text)
+			return e
+		case "SubagentDomainErr":
+			let e = try rpc.Decode[memory.SubagentDomainErr]("failure", f.Text)
+			try exactMemorySubagentDomainErr(e)
+			return e
+		case "HandleDomainErr":
+			let e = try rpc.Decode[memory.HandleDomainErr]("failure", f.Text)
+			return e
+		case "LimitDomainErr":
+			let e = try rpc.Decode[memory.LimitDomainErr]("failure", f.Text)
+			try exactMemoryLimitDomainErr(e)
+			return e
+		case "RequestDomainErr":
+			let e = try rpc.Decode[memory.RequestDomainErr]("failure", f.Text)
+			return e
+		case "CutoverDomainErr":
+			let e = try rpc.Decode[memory.CutoverDomainErr]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[memory.StoreFailed]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "SubagentControlHandle failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[api.SubagentTreeOutput]("value", text)
+	try exactApiSubagentTreeOutput(v)
+	v
+}
+
+// SubagentControlHandle calls api.Api's SubagentControlHandle on the server, as SubagentControlHandleChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func SubagentControlHandle(client Client, input api.SubagentControlHandleInput) api.SubagentTreeOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	try SubagentControlHandleChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[api.SubagentTreeOutput](u)
+	case rpc.Transport as t:
+		return rpc.Lost[api.SubagentTreeOutput](t)
+	}
+}
+
+// SubagentSettleHandleChecked calls api.Api's SubagentSettleHandle on the server; the wire's failures are
+// typed failures.
+func SubagentSettleHandleChecked(client Client, input api.SubagentSettleHandleInput) api.SubagentTreeOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed | rpc.Unrepresentable | rpc.Transport {
+	let p = apiapi.SubagentSettleHandleRequest{Input: input}
+	try exactSubagentSettleHandleRequest(p)
+	let text = try rpc.Call(client.conn, "SubagentSettleHandle", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "NotFound":
+			let e = try rpc.Decode[memory.NotFound]("failure", f.Text)
+			return e
+		case "AlreadyExists":
+			let e = try rpc.Decode[memory.AlreadyExists]("failure", f.Text)
+			return e
+		case "InvalidTransition":
+			let e = try rpc.Decode[memory.InvalidTransition]("failure", f.Text)
+			return e
+		case "CommandReused":
+			let e = try rpc.Decode[memory.CommandReused]("failure", f.Text)
+			return e
+		case "InvalidInput":
+			let e = try rpc.Decode[memory.InvalidInput]("failure", f.Text)
+			return e
+		case "LeaseFenced":
+			let e = try rpc.Decode[memory.LeaseFenced]("failure", f.Text)
+			try exactMemoryLeaseFenced(e)
+			return e
+		case "ThreadDomainErr":
+			let e = try rpc.Decode[memory.ThreadDomainErr]("failure", f.Text)
+			return e
+		case "SubagentDomainErr":
+			let e = try rpc.Decode[memory.SubagentDomainErr]("failure", f.Text)
+			try exactMemorySubagentDomainErr(e)
+			return e
+		case "HandleDomainErr":
+			let e = try rpc.Decode[memory.HandleDomainErr]("failure", f.Text)
+			return e
+		case "LimitDomainErr":
+			let e = try rpc.Decode[memory.LimitDomainErr]("failure", f.Text)
+			try exactMemoryLimitDomainErr(e)
+			return e
+		case "RequestDomainErr":
+			let e = try rpc.Decode[memory.RequestDomainErr]("failure", f.Text)
+			return e
+		case "CutoverDomainErr":
+			let e = try rpc.Decode[memory.CutoverDomainErr]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[memory.StoreFailed]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "SubagentSettleHandle failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[api.SubagentTreeOutput]("value", text)
+	try exactApiSubagentTreeOutput(v)
+	v
+}
+
+// SubagentSettleHandle calls api.Api's SubagentSettleHandle on the server, as SubagentSettleHandleChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func SubagentSettleHandle(client Client, input api.SubagentSettleHandleInput) api.SubagentTreeOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	try SubagentSettleHandleChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[api.SubagentTreeOutput](u)
+	case rpc.Transport as t:
+		return rpc.Lost[api.SubagentTreeOutput](t)
+	}
+}
+
+// SubagentHandBackChecked calls api.Api's SubagentHandBack on the server; the wire's failures are
+// typed failures.
+func SubagentHandBackChecked(client Client, input api.SubagentHandBackInput) api.SubagentTreeOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed | rpc.Unrepresentable | rpc.Transport {
+	let p = apiapi.SubagentHandBackRequest{Input: input}
+	try exactSubagentHandBackRequest(p)
+	let text = try rpc.Call(client.conn, "SubagentHandBack", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "NotFound":
+			let e = try rpc.Decode[memory.NotFound]("failure", f.Text)
+			return e
+		case "AlreadyExists":
+			let e = try rpc.Decode[memory.AlreadyExists]("failure", f.Text)
+			return e
+		case "InvalidTransition":
+			let e = try rpc.Decode[memory.InvalidTransition]("failure", f.Text)
+			return e
+		case "CommandReused":
+			let e = try rpc.Decode[memory.CommandReused]("failure", f.Text)
+			return e
+		case "InvalidInput":
+			let e = try rpc.Decode[memory.InvalidInput]("failure", f.Text)
+			return e
+		case "LeaseFenced":
+			let e = try rpc.Decode[memory.LeaseFenced]("failure", f.Text)
+			try exactMemoryLeaseFenced(e)
+			return e
+		case "ThreadDomainErr":
+			let e = try rpc.Decode[memory.ThreadDomainErr]("failure", f.Text)
+			return e
+		case "SubagentDomainErr":
+			let e = try rpc.Decode[memory.SubagentDomainErr]("failure", f.Text)
+			try exactMemorySubagentDomainErr(e)
+			return e
+		case "HandleDomainErr":
+			let e = try rpc.Decode[memory.HandleDomainErr]("failure", f.Text)
+			return e
+		case "LimitDomainErr":
+			let e = try rpc.Decode[memory.LimitDomainErr]("failure", f.Text)
+			try exactMemoryLimitDomainErr(e)
+			return e
+		case "RequestDomainErr":
+			let e = try rpc.Decode[memory.RequestDomainErr]("failure", f.Text)
+			return e
+		case "CutoverDomainErr":
+			let e = try rpc.Decode[memory.CutoverDomainErr]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[memory.StoreFailed]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "SubagentHandBack failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[api.SubagentTreeOutput]("value", text)
+	try exactApiSubagentTreeOutput(v)
+	v
+}
+
+// SubagentHandBack calls api.Api's SubagentHandBack on the server, as SubagentHandBackChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func SubagentHandBack(client Client, input api.SubagentHandBackInput) api.SubagentTreeOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	try SubagentHandBackChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[api.SubagentTreeOutput](u)
+	case rpc.Transport as t:
+		return rpc.Lost[api.SubagentTreeOutput](t)
+	}
+}
+
+// SubagentTreeGetChecked calls api.Api's SubagentTreeGet on the server; the wire's failures are
+// typed failures.
+func SubagentTreeGetChecked(client Client, input api.SubagentTreeGetInput) api.SubagentTreeOutput fails memory.NotFound | memory.InvalidInput | memory.StoreFailed | rpc.Unrepresentable | rpc.Transport {
+	let p = apiapi.SubagentTreeGetRequest{Input: input}
+	let text = try rpc.Call(client.conn, "SubagentTreeGet", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "NotFound":
+			let e = try rpc.Decode[memory.NotFound]("failure", f.Text)
+			return e
+		case "InvalidInput":
+			let e = try rpc.Decode[memory.InvalidInput]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[memory.StoreFailed]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "SubagentTreeGet failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[api.SubagentTreeOutput]("value", text)
+	try exactApiSubagentTreeOutput(v)
+	v
+}
+
+// SubagentTreeGet calls api.Api's SubagentTreeGet on the server, as SubagentTreeGetChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func SubagentTreeGet(client Client, input api.SubagentTreeGetInput) api.SubagentTreeOutput fails memory.NotFound | memory.InvalidInput | memory.StoreFailed {
+	try SubagentTreeGetChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[api.SubagentTreeOutput](u)
+	case rpc.Transport as t:
+		return rpc.Lost[api.SubagentTreeOutput](t)
+	}
+}
+
+// HandleOpenChecked calls api.Api's HandleOpen on the server; the wire's failures are
+// typed failures.
+func HandleOpenChecked(client Client, input api.HandleOpenInput) api.HandleEntryView fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed | rpc.Unrepresentable | rpc.Transport {
+	let p = apiapi.HandleOpenRequest{Input: input}
+	try exactHandleOpenRequest(p)
+	let text = try rpc.Call(client.conn, "HandleOpen", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "NotFound":
+			let e = try rpc.Decode[memory.NotFound]("failure", f.Text)
+			return e
+		case "AlreadyExists":
+			let e = try rpc.Decode[memory.AlreadyExists]("failure", f.Text)
+			return e
+		case "InvalidTransition":
+			let e = try rpc.Decode[memory.InvalidTransition]("failure", f.Text)
+			return e
+		case "CommandReused":
+			let e = try rpc.Decode[memory.CommandReused]("failure", f.Text)
+			return e
+		case "InvalidInput":
+			let e = try rpc.Decode[memory.InvalidInput]("failure", f.Text)
+			return e
+		case "LeaseFenced":
+			let e = try rpc.Decode[memory.LeaseFenced]("failure", f.Text)
+			try exactMemoryLeaseFenced(e)
+			return e
+		case "ThreadDomainErr":
+			let e = try rpc.Decode[memory.ThreadDomainErr]("failure", f.Text)
+			return e
+		case "SubagentDomainErr":
+			let e = try rpc.Decode[memory.SubagentDomainErr]("failure", f.Text)
+			try exactMemorySubagentDomainErr(e)
+			return e
+		case "HandleDomainErr":
+			let e = try rpc.Decode[memory.HandleDomainErr]("failure", f.Text)
+			return e
+		case "LimitDomainErr":
+			let e = try rpc.Decode[memory.LimitDomainErr]("failure", f.Text)
+			try exactMemoryLimitDomainErr(e)
+			return e
+		case "RequestDomainErr":
+			let e = try rpc.Decode[memory.RequestDomainErr]("failure", f.Text)
+			return e
+		case "CutoverDomainErr":
+			let e = try rpc.Decode[memory.CutoverDomainErr]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[memory.StoreFailed]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "HandleOpen failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[api.HandleEntryView]("value", text)
+	v
+}
+
+// HandleOpen calls api.Api's HandleOpen on the server, as HandleOpenChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func HandleOpen(client Client, input api.HandleOpenInput) api.HandleEntryView fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	try HandleOpenChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[api.HandleEntryView](u)
+	case rpc.Transport as t:
+		return rpc.Lost[api.HandleEntryView](t)
+	}
+}
+
+// HandleSettleChecked calls api.Api's HandleSettle on the server; the wire's failures are
+// typed failures.
+func HandleSettleChecked(client Client, input api.HandleSettleInput) api.HandleEntryView fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed | rpc.Unrepresentable | rpc.Transport {
+	let p = apiapi.HandleSettleRequest{Input: input}
+	try exactHandleSettleRequest(p)
+	let text = try rpc.Call(client.conn, "HandleSettle", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "NotFound":
+			let e = try rpc.Decode[memory.NotFound]("failure", f.Text)
+			return e
+		case "AlreadyExists":
+			let e = try rpc.Decode[memory.AlreadyExists]("failure", f.Text)
+			return e
+		case "InvalidTransition":
+			let e = try rpc.Decode[memory.InvalidTransition]("failure", f.Text)
+			return e
+		case "CommandReused":
+			let e = try rpc.Decode[memory.CommandReused]("failure", f.Text)
+			return e
+		case "InvalidInput":
+			let e = try rpc.Decode[memory.InvalidInput]("failure", f.Text)
+			return e
+		case "LeaseFenced":
+			let e = try rpc.Decode[memory.LeaseFenced]("failure", f.Text)
+			try exactMemoryLeaseFenced(e)
+			return e
+		case "ThreadDomainErr":
+			let e = try rpc.Decode[memory.ThreadDomainErr]("failure", f.Text)
+			return e
+		case "SubagentDomainErr":
+			let e = try rpc.Decode[memory.SubagentDomainErr]("failure", f.Text)
+			try exactMemorySubagentDomainErr(e)
+			return e
+		case "HandleDomainErr":
+			let e = try rpc.Decode[memory.HandleDomainErr]("failure", f.Text)
+			return e
+		case "LimitDomainErr":
+			let e = try rpc.Decode[memory.LimitDomainErr]("failure", f.Text)
+			try exactMemoryLimitDomainErr(e)
+			return e
+		case "RequestDomainErr":
+			let e = try rpc.Decode[memory.RequestDomainErr]("failure", f.Text)
+			return e
+		case "CutoverDomainErr":
+			let e = try rpc.Decode[memory.CutoverDomainErr]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[memory.StoreFailed]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "HandleSettle failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[api.HandleEntryView]("value", text)
+	v
+}
+
+// HandleSettle calls api.Api's HandleSettle on the server, as HandleSettleChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func HandleSettle(client Client, input api.HandleSettleInput) api.HandleEntryView fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	try HandleSettleChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[api.HandleEntryView](u)
+	case rpc.Transport as t:
+		return rpc.Lost[api.HandleEntryView](t)
+	}
+}
+
+// HandleListChecked calls api.Api's HandleList on the server; the wire's failures are
+// typed failures.
+func HandleListChecked(client Client, input api.HandleListInput) api.HandleViewOutput fails memory.InvalidInput | memory.StoreFailed | rpc.Unrepresentable | rpc.Transport {
+	let p = apiapi.HandleListRequest{Input: input}
+	try exactHandleListRequest(p)
+	let text = try rpc.Call(client.conn, "HandleList", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "InvalidInput":
+			let e = try rpc.Decode[memory.InvalidInput]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[memory.StoreFailed]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "HandleList failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[api.HandleViewOutput]("value", text)
+	try exactApiHandleViewOutput(v)
+	v
+}
+
+// HandleList calls api.Api's HandleList on the server, as HandleListChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func HandleList(client Client, input api.HandleListInput) api.HandleViewOutput fails memory.InvalidInput | memory.StoreFailed {
+	try HandleListChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[api.HandleViewOutput](u)
+	case rpc.Transport as t:
+		return rpc.Lost[api.HandleViewOutput](t)
+	}
+}
+
+// OwnerCallsRetireChecked calls api.Api's OwnerCallsRetire on the server; the wire's failures are
+// typed failures.
+func OwnerCallsRetireChecked(client Client, input api.OwnerCallsRetireInput) api.RetiredCallsOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed | rpc.Unrepresentable | rpc.Transport {
+	let p = apiapi.OwnerCallsRetireRequest{Input: input}
+	try exactOwnerCallsRetireRequest(p)
+	let text = try rpc.Call(client.conn, "OwnerCallsRetire", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "NotFound":
+			let e = try rpc.Decode[memory.NotFound]("failure", f.Text)
+			return e
+		case "AlreadyExists":
+			let e = try rpc.Decode[memory.AlreadyExists]("failure", f.Text)
+			return e
+		case "InvalidTransition":
+			let e = try rpc.Decode[memory.InvalidTransition]("failure", f.Text)
+			return e
+		case "CommandReused":
+			let e = try rpc.Decode[memory.CommandReused]("failure", f.Text)
+			return e
+		case "InvalidInput":
+			let e = try rpc.Decode[memory.InvalidInput]("failure", f.Text)
+			return e
+		case "LeaseFenced":
+			let e = try rpc.Decode[memory.LeaseFenced]("failure", f.Text)
+			try exactMemoryLeaseFenced(e)
+			return e
+		case "ThreadDomainErr":
+			let e = try rpc.Decode[memory.ThreadDomainErr]("failure", f.Text)
+			return e
+		case "SubagentDomainErr":
+			let e = try rpc.Decode[memory.SubagentDomainErr]("failure", f.Text)
+			try exactMemorySubagentDomainErr(e)
+			return e
+		case "HandleDomainErr":
+			let e = try rpc.Decode[memory.HandleDomainErr]("failure", f.Text)
+			return e
+		case "LimitDomainErr":
+			let e = try rpc.Decode[memory.LimitDomainErr]("failure", f.Text)
+			try exactMemoryLimitDomainErr(e)
+			return e
+		case "RequestDomainErr":
+			let e = try rpc.Decode[memory.RequestDomainErr]("failure", f.Text)
+			return e
+		case "CutoverDomainErr":
+			let e = try rpc.Decode[memory.CutoverDomainErr]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[memory.StoreFailed]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "OwnerCallsRetire failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[api.RetiredCallsOutput]("value", text)
+	v
+}
+
+// OwnerCallsRetire calls api.Api's OwnerCallsRetire on the server, as OwnerCallsRetireChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func OwnerCallsRetire(client Client, input api.OwnerCallsRetireInput) api.RetiredCallsOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	try OwnerCallsRetireChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[api.RetiredCallsOutput](u)
+	case rpc.Transport as t:
+		return rpc.Lost[api.RetiredCallsOutput](t)
+	}
+}
+
+// QuestionAskChecked calls api.Api's QuestionAsk on the server; the wire's failures are
+// typed failures.
+func QuestionAskChecked(client Client, input api.QuestionAskInput) api.AsyncQuestionView fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed | rpc.Unrepresentable | rpc.Transport {
+	let p = apiapi.QuestionAskRequest{Input: input}
+	try exactQuestionAskRequest(p)
+	let text = try rpc.Call(client.conn, "QuestionAsk", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "NotFound":
+			let e = try rpc.Decode[memory.NotFound]("failure", f.Text)
+			return e
+		case "AlreadyExists":
+			let e = try rpc.Decode[memory.AlreadyExists]("failure", f.Text)
+			return e
+		case "InvalidTransition":
+			let e = try rpc.Decode[memory.InvalidTransition]("failure", f.Text)
+			return e
+		case "CommandReused":
+			let e = try rpc.Decode[memory.CommandReused]("failure", f.Text)
+			return e
+		case "InvalidInput":
+			let e = try rpc.Decode[memory.InvalidInput]("failure", f.Text)
+			return e
+		case "LeaseFenced":
+			let e = try rpc.Decode[memory.LeaseFenced]("failure", f.Text)
+			try exactMemoryLeaseFenced(e)
+			return e
+		case "ThreadDomainErr":
+			let e = try rpc.Decode[memory.ThreadDomainErr]("failure", f.Text)
+			return e
+		case "SubagentDomainErr":
+			let e = try rpc.Decode[memory.SubagentDomainErr]("failure", f.Text)
+			try exactMemorySubagentDomainErr(e)
+			return e
+		case "HandleDomainErr":
+			let e = try rpc.Decode[memory.HandleDomainErr]("failure", f.Text)
+			return e
+		case "LimitDomainErr":
+			let e = try rpc.Decode[memory.LimitDomainErr]("failure", f.Text)
+			try exactMemoryLimitDomainErr(e)
+			return e
+		case "RequestDomainErr":
+			let e = try rpc.Decode[memory.RequestDomainErr]("failure", f.Text)
+			return e
+		case "CutoverDomainErr":
+			let e = try rpc.Decode[memory.CutoverDomainErr]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[memory.StoreFailed]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "QuestionAsk failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[api.AsyncQuestionView]("value", text)
+	try exactApiAsyncQuestionView(v)
+	v
+}
+
+// QuestionAsk calls api.Api's QuestionAsk on the server, as QuestionAskChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func QuestionAsk(client Client, input api.QuestionAskInput) api.AsyncQuestionView fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	try QuestionAskChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[api.AsyncQuestionView](u)
+	case rpc.Transport as t:
+		return rpc.Lost[api.AsyncQuestionView](t)
+	}
+}
+
+// QuestionAnswerChecked calls api.Api's QuestionAnswer on the server; the wire's failures are
+// typed failures.
+func QuestionAnswerChecked(client Client, input api.QuestionAnswerInput) api.AsyncQuestionView fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed | rpc.Unrepresentable | rpc.Transport {
+	let p = apiapi.QuestionAnswerRequest{Input: input}
+	try exactQuestionAnswerRequest(p)
+	let text = try rpc.Call(client.conn, "QuestionAnswer", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "NotFound":
+			let e = try rpc.Decode[memory.NotFound]("failure", f.Text)
+			return e
+		case "AlreadyExists":
+			let e = try rpc.Decode[memory.AlreadyExists]("failure", f.Text)
+			return e
+		case "InvalidTransition":
+			let e = try rpc.Decode[memory.InvalidTransition]("failure", f.Text)
+			return e
+		case "CommandReused":
+			let e = try rpc.Decode[memory.CommandReused]("failure", f.Text)
+			return e
+		case "InvalidInput":
+			let e = try rpc.Decode[memory.InvalidInput]("failure", f.Text)
+			return e
+		case "LeaseFenced":
+			let e = try rpc.Decode[memory.LeaseFenced]("failure", f.Text)
+			try exactMemoryLeaseFenced(e)
+			return e
+		case "ThreadDomainErr":
+			let e = try rpc.Decode[memory.ThreadDomainErr]("failure", f.Text)
+			return e
+		case "SubagentDomainErr":
+			let e = try rpc.Decode[memory.SubagentDomainErr]("failure", f.Text)
+			try exactMemorySubagentDomainErr(e)
+			return e
+		case "HandleDomainErr":
+			let e = try rpc.Decode[memory.HandleDomainErr]("failure", f.Text)
+			return e
+		case "LimitDomainErr":
+			let e = try rpc.Decode[memory.LimitDomainErr]("failure", f.Text)
+			try exactMemoryLimitDomainErr(e)
+			return e
+		case "RequestDomainErr":
+			let e = try rpc.Decode[memory.RequestDomainErr]("failure", f.Text)
+			return e
+		case "CutoverDomainErr":
+			let e = try rpc.Decode[memory.CutoverDomainErr]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[memory.StoreFailed]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "QuestionAnswer failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[api.AsyncQuestionView]("value", text)
+	try exactApiAsyncQuestionView(v)
+	v
+}
+
+// QuestionAnswer calls api.Api's QuestionAnswer on the server, as QuestionAnswerChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func QuestionAnswer(client Client, input api.QuestionAnswerInput) api.AsyncQuestionView fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	try QuestionAnswerChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[api.AsyncQuestionView](u)
+	case rpc.Transport as t:
+		return rpc.Lost[api.AsyncQuestionView](t)
+	}
+}
+
+// QuestionWithdrawChecked calls api.Api's QuestionWithdraw on the server; the wire's failures are
+// typed failures.
+func QuestionWithdrawChecked(client Client, input api.QuestionWithdrawInput) api.AsyncQuestionView fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed | rpc.Unrepresentable | rpc.Transport {
+	let p = apiapi.QuestionWithdrawRequest{Input: input}
+	try exactQuestionWithdrawRequest(p)
+	let text = try rpc.Call(client.conn, "QuestionWithdraw", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "NotFound":
+			let e = try rpc.Decode[memory.NotFound]("failure", f.Text)
+			return e
+		case "AlreadyExists":
+			let e = try rpc.Decode[memory.AlreadyExists]("failure", f.Text)
+			return e
+		case "InvalidTransition":
+			let e = try rpc.Decode[memory.InvalidTransition]("failure", f.Text)
+			return e
+		case "CommandReused":
+			let e = try rpc.Decode[memory.CommandReused]("failure", f.Text)
+			return e
+		case "InvalidInput":
+			let e = try rpc.Decode[memory.InvalidInput]("failure", f.Text)
+			return e
+		case "LeaseFenced":
+			let e = try rpc.Decode[memory.LeaseFenced]("failure", f.Text)
+			try exactMemoryLeaseFenced(e)
+			return e
+		case "ThreadDomainErr":
+			let e = try rpc.Decode[memory.ThreadDomainErr]("failure", f.Text)
+			return e
+		case "SubagentDomainErr":
+			let e = try rpc.Decode[memory.SubagentDomainErr]("failure", f.Text)
+			try exactMemorySubagentDomainErr(e)
+			return e
+		case "HandleDomainErr":
+			let e = try rpc.Decode[memory.HandleDomainErr]("failure", f.Text)
+			return e
+		case "LimitDomainErr":
+			let e = try rpc.Decode[memory.LimitDomainErr]("failure", f.Text)
+			try exactMemoryLimitDomainErr(e)
+			return e
+		case "RequestDomainErr":
+			let e = try rpc.Decode[memory.RequestDomainErr]("failure", f.Text)
+			return e
+		case "CutoverDomainErr":
+			let e = try rpc.Decode[memory.CutoverDomainErr]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[memory.StoreFailed]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "QuestionWithdraw failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[api.AsyncQuestionView]("value", text)
+	try exactApiAsyncQuestionView(v)
+	v
+}
+
+// QuestionWithdraw calls api.Api's QuestionWithdraw on the server, as QuestionWithdrawChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func QuestionWithdraw(client Client, input api.QuestionWithdrawInput) api.AsyncQuestionView fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	try QuestionWithdrawChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[api.AsyncQuestionView](u)
+	case rpc.Transport as t:
+		return rpc.Lost[api.AsyncQuestionView](t)
+	}
+}
+
+// QuestionListChecked calls api.Api's QuestionList on the server; the wire's failures are
+// typed failures.
+func QuestionListChecked(client Client, input api.QuestionListInput) api.AsyncQuestionListOutput fails memory.InvalidInput | memory.StoreFailed | rpc.Unrepresentable | rpc.Transport {
+	let p = apiapi.QuestionListRequest{Input: input}
+	let text = try rpc.Call(client.conn, "QuestionList", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "InvalidInput":
+			let e = try rpc.Decode[memory.InvalidInput]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[memory.StoreFailed]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "QuestionList failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[api.AsyncQuestionListOutput]("value", text)
+	try exactApiAsyncQuestionListOutput(v)
+	v
+}
+
+// QuestionList calls api.Api's QuestionList on the server, as QuestionListChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func QuestionList(client Client, input api.QuestionListInput) api.AsyncQuestionListOutput fails memory.InvalidInput | memory.StoreFailed {
+	try QuestionListChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[api.AsyncQuestionListOutput](u)
+	case rpc.Transport as t:
+		return rpc.Lost[api.AsyncQuestionListOutput](t)
+	}
+}
+
+// PoolAccountUpsertChecked calls api.Api's PoolAccountUpsert on the server; the wire's failures are
+// typed failures.
+func PoolAccountUpsertChecked(client Client, input api.PoolAccountUpsertInput) api.PoolViewOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed | rpc.Unrepresentable | rpc.Transport {
+	let p = apiapi.PoolAccountUpsertRequest{Input: input}
+	try exactPoolAccountUpsertRequest(p)
+	let text = try rpc.Call(client.conn, "PoolAccountUpsert", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "NotFound":
+			let e = try rpc.Decode[memory.NotFound]("failure", f.Text)
+			return e
+		case "AlreadyExists":
+			let e = try rpc.Decode[memory.AlreadyExists]("failure", f.Text)
+			return e
+		case "InvalidTransition":
+			let e = try rpc.Decode[memory.InvalidTransition]("failure", f.Text)
+			return e
+		case "CommandReused":
+			let e = try rpc.Decode[memory.CommandReused]("failure", f.Text)
+			return e
+		case "InvalidInput":
+			let e = try rpc.Decode[memory.InvalidInput]("failure", f.Text)
+			return e
+		case "LeaseFenced":
+			let e = try rpc.Decode[memory.LeaseFenced]("failure", f.Text)
+			try exactMemoryLeaseFenced(e)
+			return e
+		case "ThreadDomainErr":
+			let e = try rpc.Decode[memory.ThreadDomainErr]("failure", f.Text)
+			return e
+		case "SubagentDomainErr":
+			let e = try rpc.Decode[memory.SubagentDomainErr]("failure", f.Text)
+			try exactMemorySubagentDomainErr(e)
+			return e
+		case "HandleDomainErr":
+			let e = try rpc.Decode[memory.HandleDomainErr]("failure", f.Text)
+			return e
+		case "LimitDomainErr":
+			let e = try rpc.Decode[memory.LimitDomainErr]("failure", f.Text)
+			try exactMemoryLimitDomainErr(e)
+			return e
+		case "RequestDomainErr":
+			let e = try rpc.Decode[memory.RequestDomainErr]("failure", f.Text)
+			return e
+		case "CutoverDomainErr":
+			let e = try rpc.Decode[memory.CutoverDomainErr]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[memory.StoreFailed]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "PoolAccountUpsert failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[api.PoolViewOutput]("value", text)
+	try exactApiPoolViewOutput(v)
+	v
+}
+
+// PoolAccountUpsert calls api.Api's PoolAccountUpsert on the server, as PoolAccountUpsertChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func PoolAccountUpsert(client Client, input api.PoolAccountUpsertInput) api.PoolViewOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	try PoolAccountUpsertChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[api.PoolViewOutput](u)
+	case rpc.Transport as t:
+		return rpc.Lost[api.PoolViewOutput](t)
+	}
+}
+
+// PoolHoldOpenChecked calls api.Api's PoolHoldOpen on the server; the wire's failures are
+// typed failures.
+func PoolHoldOpenChecked(client Client, input api.PoolHoldOpenInput) api.PoolViewOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed | rpc.Unrepresentable | rpc.Transport {
+	let p = apiapi.PoolHoldOpenRequest{Input: input}
+	try exactPoolHoldOpenRequest(p)
+	let text = try rpc.Call(client.conn, "PoolHoldOpen", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "NotFound":
+			let e = try rpc.Decode[memory.NotFound]("failure", f.Text)
+			return e
+		case "AlreadyExists":
+			let e = try rpc.Decode[memory.AlreadyExists]("failure", f.Text)
+			return e
+		case "InvalidTransition":
+			let e = try rpc.Decode[memory.InvalidTransition]("failure", f.Text)
+			return e
+		case "CommandReused":
+			let e = try rpc.Decode[memory.CommandReused]("failure", f.Text)
+			return e
+		case "InvalidInput":
+			let e = try rpc.Decode[memory.InvalidInput]("failure", f.Text)
+			return e
+		case "LeaseFenced":
+			let e = try rpc.Decode[memory.LeaseFenced]("failure", f.Text)
+			try exactMemoryLeaseFenced(e)
+			return e
+		case "ThreadDomainErr":
+			let e = try rpc.Decode[memory.ThreadDomainErr]("failure", f.Text)
+			return e
+		case "SubagentDomainErr":
+			let e = try rpc.Decode[memory.SubagentDomainErr]("failure", f.Text)
+			try exactMemorySubagentDomainErr(e)
+			return e
+		case "HandleDomainErr":
+			let e = try rpc.Decode[memory.HandleDomainErr]("failure", f.Text)
+			return e
+		case "LimitDomainErr":
+			let e = try rpc.Decode[memory.LimitDomainErr]("failure", f.Text)
+			try exactMemoryLimitDomainErr(e)
+			return e
+		case "RequestDomainErr":
+			let e = try rpc.Decode[memory.RequestDomainErr]("failure", f.Text)
+			return e
+		case "CutoverDomainErr":
+			let e = try rpc.Decode[memory.CutoverDomainErr]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[memory.StoreFailed]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "PoolHoldOpen failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[api.PoolViewOutput]("value", text)
+	try exactApiPoolViewOutput(v)
+	v
+}
+
+// PoolHoldOpen calls api.Api's PoolHoldOpen on the server, as PoolHoldOpenChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func PoolHoldOpen(client Client, input api.PoolHoldOpenInput) api.PoolViewOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	try PoolHoldOpenChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[api.PoolViewOutput](u)
+	case rpc.Transport as t:
+		return rpc.Lost[api.PoolViewOutput](t)
+	}
+}
+
+// PoolHoldTransitionChecked calls api.Api's PoolHoldTransition on the server; the wire's failures are
+// typed failures.
+func PoolHoldTransitionChecked(client Client, input api.PoolHoldTransitionInput) api.PoolViewOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed | rpc.Unrepresentable | rpc.Transport {
+	let p = apiapi.PoolHoldTransitionRequest{Input: input}
+	try exactPoolHoldTransitionRequest(p)
+	let text = try rpc.Call(client.conn, "PoolHoldTransition", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "NotFound":
+			let e = try rpc.Decode[memory.NotFound]("failure", f.Text)
+			return e
+		case "AlreadyExists":
+			let e = try rpc.Decode[memory.AlreadyExists]("failure", f.Text)
+			return e
+		case "InvalidTransition":
+			let e = try rpc.Decode[memory.InvalidTransition]("failure", f.Text)
+			return e
+		case "CommandReused":
+			let e = try rpc.Decode[memory.CommandReused]("failure", f.Text)
+			return e
+		case "InvalidInput":
+			let e = try rpc.Decode[memory.InvalidInput]("failure", f.Text)
+			return e
+		case "LeaseFenced":
+			let e = try rpc.Decode[memory.LeaseFenced]("failure", f.Text)
+			try exactMemoryLeaseFenced(e)
+			return e
+		case "ThreadDomainErr":
+			let e = try rpc.Decode[memory.ThreadDomainErr]("failure", f.Text)
+			return e
+		case "SubagentDomainErr":
+			let e = try rpc.Decode[memory.SubagentDomainErr]("failure", f.Text)
+			try exactMemorySubagentDomainErr(e)
+			return e
+		case "HandleDomainErr":
+			let e = try rpc.Decode[memory.HandleDomainErr]("failure", f.Text)
+			return e
+		case "LimitDomainErr":
+			let e = try rpc.Decode[memory.LimitDomainErr]("failure", f.Text)
+			try exactMemoryLimitDomainErr(e)
+			return e
+		case "RequestDomainErr":
+			let e = try rpc.Decode[memory.RequestDomainErr]("failure", f.Text)
+			return e
+		case "CutoverDomainErr":
+			let e = try rpc.Decode[memory.CutoverDomainErr]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[memory.StoreFailed]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "PoolHoldTransition failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[api.PoolViewOutput]("value", text)
+	try exactApiPoolViewOutput(v)
+	v
+}
+
+// PoolHoldTransition calls api.Api's PoolHoldTransition on the server, as PoolHoldTransitionChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func PoolHoldTransition(client Client, input api.PoolHoldTransitionInput) api.PoolViewOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	try PoolHoldTransitionChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[api.PoolViewOutput](u)
+	case rpc.Transport as t:
+		return rpc.Lost[api.PoolViewOutput](t)
+	}
+}
+
+// PoolViewChecked calls api.Api's PoolView on the server; the wire's failures are
+// typed failures.
+func PoolViewChecked(client Client, input api.PoolViewInput) api.PoolViewOutput fails memory.InvalidInput | memory.StoreFailed | rpc.Unrepresentable | rpc.Transport {
+	let p = apiapi.PoolViewRequest{Input: input}
+	try exactPoolViewRequest(p)
+	let text = try rpc.Call(client.conn, "PoolView", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "InvalidInput":
+			let e = try rpc.Decode[memory.InvalidInput]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[memory.StoreFailed]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "PoolView failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[api.PoolViewOutput]("value", text)
+	try exactApiPoolViewOutput(v)
+	v
+}
+
+// PoolView calls api.Api's PoolView on the server, as PoolViewChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func PoolView(client Client, input api.PoolViewInput) api.PoolViewOutput fails memory.InvalidInput | memory.StoreFailed {
+	try PoolViewChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[api.PoolViewOutput](u)
+	case rpc.Transport as t:
+		return rpc.Lost[api.PoolViewOutput](t)
+	}
+}
+
+// KernelSnapshotSaveChecked calls api.Api's KernelSnapshotSave on the server; the wire's failures are
+// typed failures.
+func KernelSnapshotSaveChecked(client Client, input api.KernelSnapshotSaveInput) api.KernelViewOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed | rpc.Unrepresentable | rpc.Transport {
+	let p = apiapi.KernelSnapshotSaveRequest{Input: input}
+	try exactKernelSnapshotSaveRequest(p)
+	let text = try rpc.Call(client.conn, "KernelSnapshotSave", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "NotFound":
+			let e = try rpc.Decode[memory.NotFound]("failure", f.Text)
+			return e
+		case "AlreadyExists":
+			let e = try rpc.Decode[memory.AlreadyExists]("failure", f.Text)
+			return e
+		case "InvalidTransition":
+			let e = try rpc.Decode[memory.InvalidTransition]("failure", f.Text)
+			return e
+		case "CommandReused":
+			let e = try rpc.Decode[memory.CommandReused]("failure", f.Text)
+			return e
+		case "InvalidInput":
+			let e = try rpc.Decode[memory.InvalidInput]("failure", f.Text)
+			return e
+		case "LeaseFenced":
+			let e = try rpc.Decode[memory.LeaseFenced]("failure", f.Text)
+			try exactMemoryLeaseFenced(e)
+			return e
+		case "ThreadDomainErr":
+			let e = try rpc.Decode[memory.ThreadDomainErr]("failure", f.Text)
+			return e
+		case "SubagentDomainErr":
+			let e = try rpc.Decode[memory.SubagentDomainErr]("failure", f.Text)
+			try exactMemorySubagentDomainErr(e)
+			return e
+		case "HandleDomainErr":
+			let e = try rpc.Decode[memory.HandleDomainErr]("failure", f.Text)
+			return e
+		case "LimitDomainErr":
+			let e = try rpc.Decode[memory.LimitDomainErr]("failure", f.Text)
+			try exactMemoryLimitDomainErr(e)
+			return e
+		case "RequestDomainErr":
+			let e = try rpc.Decode[memory.RequestDomainErr]("failure", f.Text)
+			return e
+		case "CutoverDomainErr":
+			let e = try rpc.Decode[memory.CutoverDomainErr]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[memory.StoreFailed]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "KernelSnapshotSave failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[api.KernelViewOutput]("value", text)
+	try exactApiKernelViewOutput(v)
+	v
+}
+
+// KernelSnapshotSave calls api.Api's KernelSnapshotSave on the server, as KernelSnapshotSaveChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func KernelSnapshotSave(client Client, input api.KernelSnapshotSaveInput) api.KernelViewOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	try KernelSnapshotSaveChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[api.KernelViewOutput](u)
+	case rpc.Transport as t:
+		return rpc.Lost[api.KernelViewOutput](t)
+	}
+}
+
+// KernelCutRecordChecked calls api.Api's KernelCutRecord on the server; the wire's failures are
+// typed failures.
+func KernelCutRecordChecked(client Client, input api.KernelCutRecordInput) api.KernelViewOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed | rpc.Unrepresentable | rpc.Transport {
+	let p = apiapi.KernelCutRecordRequest{Input: input}
+	try exactKernelCutRecordRequest(p)
+	let text = try rpc.Call(client.conn, "KernelCutRecord", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "NotFound":
+			let e = try rpc.Decode[memory.NotFound]("failure", f.Text)
+			return e
+		case "AlreadyExists":
+			let e = try rpc.Decode[memory.AlreadyExists]("failure", f.Text)
+			return e
+		case "InvalidTransition":
+			let e = try rpc.Decode[memory.InvalidTransition]("failure", f.Text)
+			return e
+		case "CommandReused":
+			let e = try rpc.Decode[memory.CommandReused]("failure", f.Text)
+			return e
+		case "InvalidInput":
+			let e = try rpc.Decode[memory.InvalidInput]("failure", f.Text)
+			return e
+		case "LeaseFenced":
+			let e = try rpc.Decode[memory.LeaseFenced]("failure", f.Text)
+			try exactMemoryLeaseFenced(e)
+			return e
+		case "ThreadDomainErr":
+			let e = try rpc.Decode[memory.ThreadDomainErr]("failure", f.Text)
+			return e
+		case "SubagentDomainErr":
+			let e = try rpc.Decode[memory.SubagentDomainErr]("failure", f.Text)
+			try exactMemorySubagentDomainErr(e)
+			return e
+		case "HandleDomainErr":
+			let e = try rpc.Decode[memory.HandleDomainErr]("failure", f.Text)
+			return e
+		case "LimitDomainErr":
+			let e = try rpc.Decode[memory.LimitDomainErr]("failure", f.Text)
+			try exactMemoryLimitDomainErr(e)
+			return e
+		case "RequestDomainErr":
+			let e = try rpc.Decode[memory.RequestDomainErr]("failure", f.Text)
+			return e
+		case "CutoverDomainErr":
+			let e = try rpc.Decode[memory.CutoverDomainErr]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[memory.StoreFailed]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "KernelCutRecord failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[api.KernelViewOutput]("value", text)
+	try exactApiKernelViewOutput(v)
+	v
+}
+
+// KernelCutRecord calls api.Api's KernelCutRecord on the server, as KernelCutRecordChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func KernelCutRecord(client Client, input api.KernelCutRecordInput) api.KernelViewOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	try KernelCutRecordChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[api.KernelViewOutput](u)
+	case rpc.Transport as t:
+		return rpc.Lost[api.KernelViewOutput](t)
+	}
+}
+
+// KernelViewChecked calls api.Api's KernelView on the server; the wire's failures are
+// typed failures.
+func KernelViewChecked(client Client, input api.KernelViewInput) api.KernelViewOutput fails memory.InvalidInput | memory.StoreFailed | rpc.Unrepresentable | rpc.Transport {
+	let p = apiapi.KernelViewRequest{Input: input}
+	let text = try rpc.Call(client.conn, "KernelView", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "InvalidInput":
+			let e = try rpc.Decode[memory.InvalidInput]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[memory.StoreFailed]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "KernelView failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[api.KernelViewOutput]("value", text)
+	try exactApiKernelViewOutput(v)
+	v
+}
+
+// KernelView calls api.Api's KernelView on the server, as KernelViewChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func KernelView(client Client, input api.KernelViewInput) api.KernelViewOutput fails memory.InvalidInput | memory.StoreFailed {
+	try KernelViewChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[api.KernelViewOutput](u)
+	case rpc.Transport as t:
+		return rpc.Lost[api.KernelViewOutput](t)
+	}
+}
+
+// LeaseAcquireChecked calls api.Api's LeaseAcquire on the server; the wire's failures are
+// typed failures.
+func LeaseAcquireChecked(client Client, input api.LeaseAcquireInput) api.BootLeaseOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed | rpc.Unrepresentable | rpc.Transport {
+	let p = apiapi.LeaseAcquireRequest{Input: input}
+	try exactLeaseAcquireRequest(p)
+	let text = try rpc.Call(client.conn, "LeaseAcquire", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "NotFound":
+			let e = try rpc.Decode[memory.NotFound]("failure", f.Text)
+			return e
+		case "AlreadyExists":
+			let e = try rpc.Decode[memory.AlreadyExists]("failure", f.Text)
+			return e
+		case "InvalidTransition":
+			let e = try rpc.Decode[memory.InvalidTransition]("failure", f.Text)
+			return e
+		case "CommandReused":
+			let e = try rpc.Decode[memory.CommandReused]("failure", f.Text)
+			return e
+		case "InvalidInput":
+			let e = try rpc.Decode[memory.InvalidInput]("failure", f.Text)
+			return e
+		case "LeaseFenced":
+			let e = try rpc.Decode[memory.LeaseFenced]("failure", f.Text)
+			try exactMemoryLeaseFenced(e)
+			return e
+		case "ThreadDomainErr":
+			let e = try rpc.Decode[memory.ThreadDomainErr]("failure", f.Text)
+			return e
+		case "SubagentDomainErr":
+			let e = try rpc.Decode[memory.SubagentDomainErr]("failure", f.Text)
+			try exactMemorySubagentDomainErr(e)
+			return e
+		case "HandleDomainErr":
+			let e = try rpc.Decode[memory.HandleDomainErr]("failure", f.Text)
+			return e
+		case "LimitDomainErr":
+			let e = try rpc.Decode[memory.LimitDomainErr]("failure", f.Text)
+			try exactMemoryLimitDomainErr(e)
+			return e
+		case "RequestDomainErr":
+			let e = try rpc.Decode[memory.RequestDomainErr]("failure", f.Text)
+			return e
+		case "CutoverDomainErr":
+			let e = try rpc.Decode[memory.CutoverDomainErr]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[memory.StoreFailed]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "LeaseAcquire failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[api.BootLeaseOutput]("value", text)
+	try exactApiBootLeaseOutput(v)
+	v
+}
+
+// LeaseAcquire calls api.Api's LeaseAcquire on the server, as LeaseAcquireChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func LeaseAcquire(client Client, input api.LeaseAcquireInput) api.BootLeaseOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	try LeaseAcquireChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[api.BootLeaseOutput](u)
+	case rpc.Transport as t:
+		return rpc.Lost[api.BootLeaseOutput](t)
+	}
+}
+
+// BootReconcileChecked calls api.Api's BootReconcile on the server; the wire's failures are
+// typed failures.
+func BootReconcileChecked(client Client, input api.BootReconcileInput) api.BootLeaseOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed | rpc.Unrepresentable | rpc.Transport {
+	let p = apiapi.BootReconcileRequest{Input: input}
+	try exactBootReconcileRequest(p)
+	let text = try rpc.Call(client.conn, "BootReconcile", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "NotFound":
+			let e = try rpc.Decode[memory.NotFound]("failure", f.Text)
+			return e
+		case "AlreadyExists":
+			let e = try rpc.Decode[memory.AlreadyExists]("failure", f.Text)
+			return e
+		case "InvalidTransition":
+			let e = try rpc.Decode[memory.InvalidTransition]("failure", f.Text)
+			return e
+		case "CommandReused":
+			let e = try rpc.Decode[memory.CommandReused]("failure", f.Text)
+			return e
+		case "InvalidInput":
+			let e = try rpc.Decode[memory.InvalidInput]("failure", f.Text)
+			return e
+		case "LeaseFenced":
+			let e = try rpc.Decode[memory.LeaseFenced]("failure", f.Text)
+			try exactMemoryLeaseFenced(e)
+			return e
+		case "ThreadDomainErr":
+			let e = try rpc.Decode[memory.ThreadDomainErr]("failure", f.Text)
+			return e
+		case "SubagentDomainErr":
+			let e = try rpc.Decode[memory.SubagentDomainErr]("failure", f.Text)
+			try exactMemorySubagentDomainErr(e)
+			return e
+		case "HandleDomainErr":
+			let e = try rpc.Decode[memory.HandleDomainErr]("failure", f.Text)
+			return e
+		case "LimitDomainErr":
+			let e = try rpc.Decode[memory.LimitDomainErr]("failure", f.Text)
+			try exactMemoryLimitDomainErr(e)
+			return e
+		case "RequestDomainErr":
+			let e = try rpc.Decode[memory.RequestDomainErr]("failure", f.Text)
+			return e
+		case "CutoverDomainErr":
+			let e = try rpc.Decode[memory.CutoverDomainErr]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[memory.StoreFailed]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "BootReconcile failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[api.BootLeaseOutput]("value", text)
+	try exactApiBootLeaseOutput(v)
+	v
+}
+
+// BootReconcile calls api.Api's BootReconcile on the server, as BootReconcileChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func BootReconcile(client Client, input api.BootReconcileInput) api.BootLeaseOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	try BootReconcileChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[api.BootLeaseOutput](u)
+	case rpc.Transport as t:
+		return rpc.Lost[api.BootLeaseOutput](t)
+	}
+}
+
+// BootStatusChecked calls api.Api's BootStatus on the server; the wire's failures are
+// typed failures.
+func BootStatusChecked(client Client, input api.BootStatusInput) api.BootLeaseOutput fails memory.InvalidInput | memory.StoreFailed | rpc.Unrepresentable | rpc.Transport {
+	let p = apiapi.BootStatusRequest{Input: input}
+	try exactBootStatusRequest(p)
+	let text = try rpc.Call(client.conn, "BootStatus", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "InvalidInput":
+			let e = try rpc.Decode[memory.InvalidInput]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[memory.StoreFailed]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "BootStatus failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[api.BootLeaseOutput]("value", text)
+	try exactApiBootLeaseOutput(v)
+	v
+}
+
+// BootStatus calls api.Api's BootStatus on the server, as BootStatusChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func BootStatus(client Client, input api.BootStatusInput) api.BootLeaseOutput fails memory.InvalidInput | memory.StoreFailed {
+	try BootStatusChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[api.BootLeaseOutput](u)
+	case rpc.Transport as t:
+		return rpc.Lost[api.BootLeaseOutput](t)
+	}
+}
+
+// HostCapacityGetChecked calls api.Api's HostCapacityGet on the server; the wire's failures are
+// typed failures.
+func HostCapacityGetChecked(client Client, input api.HostCapacityInput) api.HostCapacityReport fails memory.InvalidInput | api.HostCapacityFailed | rpc.Unrepresentable | rpc.Transport {
+	let p = apiapi.HostCapacityGetRequest{Input: input}
+	let text = try rpc.Call(client.conn, "HostCapacityGet", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "InvalidInput":
+			let e = try rpc.Decode[memory.InvalidInput]("failure", f.Text)
+			return e
+		case "HostCapacityFailed":
+			let e = try rpc.Decode[api.HostCapacityFailed]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "HostCapacityGet failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[api.HostCapacityReport]("value", text)
+	try exactApiHostCapacityReport(v)
+	v
+}
+
+// HostCapacityGet calls api.Api's HostCapacityGet on the server, as HostCapacityGetChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func HostCapacityGet(client Client, input api.HostCapacityInput) api.HostCapacityReport fails memory.InvalidInput | api.HostCapacityFailed {
+	try HostCapacityGetChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[api.HostCapacityReport](u)
+	case rpc.Transport as t:
+		return rpc.Lost[api.HostCapacityReport](t)
+	}
+}
+
+// WellnessReportGetChecked calls api.Api's WellnessReportGet on the server; the wire's failures are
+// typed failures.
+func WellnessReportGetChecked(client Client, input api.WellnessReportInput) api.WellnessReport fails memory.InvalidInput | rpc.Unrepresentable | rpc.Transport {
+	let p = apiapi.WellnessReportGetRequest{Input: input}
+	try exactWellnessReportGetRequest(p)
+	let text = try rpc.Call(client.conn, "WellnessReportGet", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "InvalidInput":
+			let e = try rpc.Decode[memory.InvalidInput]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "WellnessReportGet failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[api.WellnessReport]("value", text)
+	try exactApiWellnessReport(v)
+	v
+}
+
+// WellnessReportGet calls api.Api's WellnessReportGet on the server, as WellnessReportGetChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func WellnessReportGet(client Client, input api.WellnessReportInput) api.WellnessReport fails memory.InvalidInput {
+	try WellnessReportGetChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[api.WellnessReport](u)
+	case rpc.Transport as t:
+		return rpc.Lost[api.WellnessReport](t)
+	}
+}
+
+// McpTokenMintChecked calls api.Api's McpTokenMint on the server; the wire's failures are
+// typed failures.
+func McpTokenMintChecked(client Client, input api.McpTokenMintInput) api.MintedToken fails memory.NotFound | memory.InvalidInput | memory.StoreFailed | api.McpAuthDenied | rpc.Unrepresentable | rpc.Transport {
+	let p = apiapi.McpTokenMintRequest{Input: input}
+	try exactMcpTokenMintRequest(p)
+	let text = try rpc.Call(client.conn, "McpTokenMint", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "NotFound":
+			let e = try rpc.Decode[memory.NotFound]("failure", f.Text)
+			return e
+		case "InvalidInput":
+			let e = try rpc.Decode[memory.InvalidInput]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[memory.StoreFailed]("failure", f.Text)
+			return e
+		case "McpAuthDenied":
+			let e = try rpc.Decode[api.McpAuthDenied]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "McpTokenMint failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[api.MintedToken]("value", text)
+	try exactApiMintedToken(v)
+	v
+}
+
+// McpTokenMint calls api.Api's McpTokenMint on the server, as McpTokenMintChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func McpTokenMint(client Client, input api.McpTokenMintInput) api.MintedToken fails memory.NotFound | memory.InvalidInput | memory.StoreFailed | api.McpAuthDenied {
+	try McpTokenMintChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[api.MintedToken](u)
+	case rpc.Transport as t:
+		return rpc.Lost[api.MintedToken](t)
+	}
+}
+
+// McpTokenRevokeChecked calls api.Api's McpTokenRevoke on the server; the wire's failures are
+// typed failures.
+func McpTokenRevokeChecked(client Client, input api.McpTokenRevokeInput) api.McpTokenRevokeOutput fails memory.InvalidInput | rpc.Unrepresentable | rpc.Transport {
+	let p = apiapi.McpTokenRevokeRequest{Input: input}
+	let text = try rpc.Call(client.conn, "McpTokenRevoke", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "InvalidInput":
+			let e = try rpc.Decode[memory.InvalidInput]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "McpTokenRevoke failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[api.McpTokenRevokeOutput]("value", text)
+	try exactApiMcpTokenRevokeOutput(v)
+	v
+}
+
+// McpTokenRevoke calls api.Api's McpTokenRevoke on the server, as McpTokenRevokeChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func McpTokenRevoke(client Client, input api.McpTokenRevokeInput) api.McpTokenRevokeOutput fails memory.InvalidInput {
+	try McpTokenRevokeChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[api.McpTokenRevokeOutput](u)
+	case rpc.Transport as t:
+		return rpc.Lost[api.McpTokenRevokeOutput](t)
+	}
+}
+
+// McpTokenListChecked calls api.Api's McpTokenList on the server; the wire's failures are
+// typed failures.
+func McpTokenListChecked(client Client, input api.McpTokenListInput) api.McpTokenListOutput fails memory.InvalidInput | rpc.Unrepresentable | rpc.Transport {
+	let p = apiapi.McpTokenListRequest{Input: input}
+	let text = try rpc.Call(client.conn, "McpTokenList", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "InvalidInput":
+			let e = try rpc.Decode[memory.InvalidInput]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "McpTokenList failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[api.McpTokenListOutput]("value", text)
+	try exactApiMcpTokenListOutput(v)
+	v
+}
+
+// McpTokenList calls api.Api's McpTokenList on the server, as McpTokenListChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func McpTokenList(client Client, input api.McpTokenListInput) api.McpTokenListOutput fails memory.InvalidInput {
+	try McpTokenListChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[api.McpTokenListOutput](u)
+	case rpc.Transport as t:
+		return rpc.Lost[api.McpTokenListOutput](t)
+	}
+}

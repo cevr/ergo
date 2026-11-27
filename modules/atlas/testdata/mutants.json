@@ -641,6 +641,423 @@
       "killers": [
         "modules/atlas/sqlite:law:PersistenceChecks.CrashReopenPreservesLeasesWakesHoldsAndJournals"
       ]
+    },
+    {
+      "name": "atlas-api-hmac-equal-skipped",
+      "origin": "ATLAS-API",
+      "file": "modules/atlas/api/mcp_auth.ergo",
+      "from": "\t\t\tif rec.Value.Digest.Len() == 32 && hmac.Equal(candidateDigest, rec.Value.Digest) {\n",
+      "to": "\t\t\tif rec.Value.Digest.Len() == 32 || hmac.Equal(candidateDigest, rec.Value.Digest) {\n",
+      "rule": "Bearer authentication must verify SHA-256 token digests with constant-time hmac.Equal rather than accepting any 32-byte digest record.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/api:law:McpAuthDigestScopingIdleExpiryRevokeAndRotation",
+          "modules/atlas/api:law:McpHttpEndpointEnforcesBearerAndAudiences"
+        ]
+      },
+      "killers": [
+        "modules/atlas/api:law:McpAuthDigestScopingIdleExpiryRevokeAndRotation",
+        "modules/atlas/api:law:McpHttpEndpointEnforcesBearerAndAudiences"
+      ]
+    },
+    {
+      "name": "atlas-api-revoked-token-accepted",
+      "origin": "ATLAS-API",
+      "file": "modules/atlas/api/mcp_auth.ergo",
+      "from": "\tif rec.Revoked {\n\t\treturn McpHttpRejection{Status: 401, Code: \"token_revoked\", Reason: \"bearer token has been revoked\"}\n\t}\n",
+      "to": "\tif false && rec.Revoked {\n\t\treturn McpHttpRejection{Status: 401, Code: \"token_revoked\", Reason: \"bearer token has been revoked\"}\n\t}\n",
+      "rule": "Revoked /mcp bearer tokens must be rejected with HTTP 401 token_revoked after rotation or close.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/api:law:McpAuthDigestScopingIdleExpiryRevokeAndRotation",
+          "modules/atlas/api/serve:law:MemorySurfacesAndHttpMcpWork"
+        ]
+      },
+      "killers": [
+        "modules/atlas/api:law:McpAuthDigestScopingIdleExpiryRevokeAndRotation",
+        "modules/atlas/api/serve:law:MemorySurfacesAndHttpMcpWork"
+      ]
+    },
+    {
+      "name": "atlas-api-wrong-thread-bypass",
+      "origin": "ATLAS-API",
+      "file": "modules/atlas/api/mcp_auth.ergo",
+      "from": "\t\tif rec.ThreadID != target.Value {\n\t\t\treturn McpHttpRejection{Status: 403, Code: \"wrong_thread\", Reason: \"bearer token is not scoped to requested thread\"}\n\t\t}\n",
+      "to": "\t\tif false && rec.ThreadID != target.Value {\n\t\t\treturn McpHttpRejection{Status: 403, Code: \"wrong_thread\", Reason: \"bearer token is not scoped to requested thread\"}\n\t\t}\n",
+      "rule": "Per-thread /mcp routes must reject bearer tokens issued for any other thread with HTTP 403 wrong_thread.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/api:law:McpAuthDigestScopingIdleExpiryRevokeAndRotation",
+          "modules/atlas/api:law:McpHttpEndpointEnforcesBearerAndAudiences"
+        ]
+      },
+      "killers": [
+        "modules/atlas/api:law:McpAuthDigestScopingIdleExpiryRevokeAndRotation",
+        "modules/atlas/api:law:McpHttpEndpointEnforcesBearerAndAudiences"
+      ]
+    },
+    {
+      "name": "atlas-api-idle-24h-not-enforced",
+      "origin": "ATLAS-API",
+      "file": "modules/atlas/api/mcp_auth.ergo",
+      "from": "\tif nowMs-rec.LastTouchedMs >= session.McpTokenIdleExpiryMs() {\n\t\treturn McpHttpRejection{Status: 401, Code: \"token_idle_expired\", Reason: \"bearer token expired after 24h without a turn\"}\n\t}\n",
+      "to": "\tif false && nowMs-rec.LastTouchedMs >= session.McpTokenIdleExpiryMs() {\n\t\treturn McpHttpRejection{Status: 401, Code: \"token_idle_expired\", Reason: \"bearer token expired after 24h without a turn\"}\n\t}\n",
+      "rule": "D11: /mcp bearer credentials must expire after 24h without turn execution and must not be extended by /mcp requests alone.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/api:law:McpAuthDigestScopingIdleExpiryRevokeAndRotation",
+          "modules/atlas/api/serve:law:MemorySurfacesAndHttpMcpWork"
+        ]
+      },
+      "killers": [
+        "modules/atlas/api:law:McpAuthDigestScopingIdleExpiryRevokeAndRotation",
+        "modules/atlas/api/serve:law:MemorySurfacesAndHttpMcpWork"
+      ]
+    },
+    {
+      "name": "atlas-api-outside-audience-thread-tool-allowed",
+      "origin": "ATLAS-API",
+      "file": "modules/atlas/api/mcp_auth.ergo",
+      "from": "\tcase AudienceOutside as out:\n\t\tif IsThreadOnlyTool(toolName) {\n\t\t\treturn option.Some[string]{Value: \"thread-only tool '\\(toolName)' refused for outside caller '\\(out.ClientID)'\"}\n\t\t}\n",
+      "to": "\tcase AudienceOutside as out:\n\t\tif false && IsThreadOnlyTool(toolName) {\n\t\t\treturn option.Some[string]{Value: \"thread-only tool '\\(toolName)' refused for outside caller '\\(out.ClientID)'\"}\n\t\t}\n",
+      "rule": "D13: thread-only tools called by an outside-agent audience must be explicitly refused in the MCP tool handler.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/api:law:McpHttpEndpointEnforcesBearerAndAudiences",
+          "modules/atlas/api/serve:law:MemorySurfacesAndHttpMcpWork"
+        ]
+      },
+      "killers": [
+        "modules/atlas/api:law:McpHttpEndpointEnforcesBearerAndAudiences",
+        "modules/atlas/api/serve:law:MemorySurfacesAndHttpMcpWork"
+      ]
+    },
+    {
+      "name": "atlas-api-cross-thread-tool-arg-bypass",
+      "origin": "ATLAS-API",
+      "file": "modules/atlas/api/mcp_auth.ergo",
+      "from": "\t\tif !isWithinCallerScope(dataStore, caller.ThreadID, target) {\n\t\t\treturn option.Some[string]{Value: \"wrong thread scope: caller '\\(string(caller.ThreadID))' cannot address '\\(string(target))'\"}\n\t\t}\n",
+      "to": "\t\tif false && !isWithinCallerScope(dataStore, caller.ThreadID, target) {\n\t\t\treturn option.Some[string]{Value: \"wrong thread scope: caller '\\(string(caller.ThreadID))' cannot address '\\(string(target))'\"}\n\t\t}\n",
+      "rule": "Scoped thread /mcp callers must be refused when targeting unrelated threadIDs inside MCP tool arguments.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/api:law:McpHttpEndpointEnforcesBearerAndAudiences",
+          "modules/atlas/api/serve:law:MemorySurfacesAndHttpMcpWork"
+        ]
+      },
+      "killers": [
+        "modules/atlas/api:law:McpHttpEndpointEnforcesBearerAndAudiences",
+        "modules/atlas/api/serve:law:MemorySurfacesAndHttpMcpWork"
+      ]
+    },
+    {
+      "name": "atlas-api-archive-skips-token-revoke",
+      "origin": "ATLAS-API",
+      "file": "modules/atlas/api/backend.ergo",
+      "from": "\tlet _ = try execStore(s, meta, memory.CmdArchiveThread{ID: tid})\n\tlet _ = RevokeThreadTokens(s.auth, tid)\n",
+      "to": "\tlet _ = try execStore(s, meta, memory.CmdArchiveThread{ID: tid})\n",
+      "rule": "Archiving/closing a thread must revoke active per-thread /mcp bearer credentials.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/api:law:Api.ApiThreadTurnQueueAndTokenLifecycle",
+          "modules/atlas/api/serve:law:MemorySurfacesAndHttpMcpWork"
+        ]
+      },
+      "killers": [
+        "modules/atlas/api:law:Api.ApiThreadTurnQueueAndTokenLifecycle",
+        "modules/atlas/api/serve:law:MemorySurfacesAndHttpMcpWork"
+      ]
+    },
+    {
+      "name": "atlas-api-wellness-skips-dead-owner-calls",
+      "origin": "ATLAS-API",
+      "file": "modules/atlas/api/wellness.ergo",
+      "from": "\t\t\t\tif policy.LiveOwnersConfigured && !containsString(policy.LiveOwners, handle.OwnerText(hv.Owner)) {\n\t\t\t\t\tdeadCalls = deadCalls + 1\n\t\t\t\t}\n",
+      "to": "\t\t\t\tif false && policy.LiveOwnersConfigured && !containsString(policy.LiveOwners, handle.OwnerText(hv.Owner)) {\n\t\t\t\t\tdeadCalls = deadCalls + 1\n\t\t\t\t}\n",
+      "rule": "WellnessReport must flag open volatile KindCall handles belonging to non-live owners.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/api:law:WellnessDetectsHealthyDegradedAndFailures"
+        ]
+      },
+      "killers": [
+        "modules/atlas/api:law:WellnessDetectsHealthyDegradedAndFailures"
+      ]
+    },
+    {
+      "name": "atlas-api-wellness-skips-host-load-check",
+      "origin": "ATLAS-API",
+      "file": "modules/atlas/api/wellness.ergo",
+      "from": "\tlet lpc = LoadPerCore(rep)\n\tlet loadOK = lpc <= policy.MaxLoadPerCore\n",
+      "to": "\tlet lpc = LoadPerCore(rep)\n\tlet loadOK = true || lpc <= policy.MaxLoadPerCore\n",
+      "rule": "WellnessReport and WellnessMonitor must detect excessive host 1m load-per-core headroom.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/api:law:WellnessDetectsHealthyDegradedAndFailures",
+          "modules/atlas/api:law:WellnessMonitorHysteresisAndPeriodicSchedule"
+        ]
+      },
+      "killers": [
+        "modules/atlas/api:law:WellnessDetectsHealthyDegradedAndFailures",
+        "modules/atlas/api:law:WellnessMonitorHysteresisAndPeriodicSchedule"
+      ]
+    },
+    {
+      "name": "atlas-api-host-capacity-allows-invalid-bounds",
+      "origin": "ATLAS-API",
+      "file": "modules/atlas/api/host_capacity.ergo",
+      "from": "\tif r.MemTotalBytes < int64(0) || r.MemAvailableBytes < int64(0) || r.MemAvailableBytes > r.MemTotalBytes || r.MemAvailGiB < 0.0 {\n\t\treturn false\n\t}\n",
+      "to": "\tif r.MemTotalBytes < int64(0) || r.MemAvailableBytes < int64(0) || r.MemAvailGiB < 0.0 {\n\t\treturn false\n\t}\n",
+      "rule": "HostCapacity must validate that available memory does not exceed total host memory.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/api:law:HostCapacityRejectsInvalidStaticStatus"
+        ]
+      },
+      "killers": [
+        "modules/atlas/api:law:HostCapacityRejectsInvalidStaticStatus"
+      ]
+    },
+    {
+      "name": "atlas-api-bind-allows-wildcard",
+      "origin": "ATLAS-API",
+      "file": "modules/atlas/api/serve/server.ergo",
+      "from": "\tif strings.EqualFold(host, \"localhost\") || host == \"::1\" || strings.HasPrefix(host, \"127.\") {\n\t\treturn true\n\t}\n",
+      "to": "\tif strings.EqualFold(host, \"localhost\") || host == \"::1\" || host == \"0.0.0.0\" || strings.HasPrefix(host, \"127.\") {\n\t\treturn true\n\t}\n",
+      "rule": "HTTP server bind policy must refuse wildcard 0.0.0.0 addresses and permit only loopback or Tailscale CGNAT.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/api/serve:law:BindPolicyEnforcesLoopbackAndTailnet"
+        ]
+      },
+      "killers": [
+        "modules/atlas/api/serve:law:BindPolicyEnforcesLoopbackAndTailnet"
+      ]
+    },
+    {
+      "name": "atlas-pool-weekly-target-over-99",
+      "origin": "ATLAS-POOL",
+      "file": "modules/atlas/pool/pace_line.ergo",
+      "decl": "WeeklyTargetPpm",
+      "from": "func WeeklyTargetPpm() int64 { int64(990000) }",
+      "to": "func WeeklyTargetPpm() int64 { int64(1000000) }",
+      "rule": "Shared fleet weekly pace line targets 99% of capacity, never 100%.",
+      "killers": [
+        "modules/atlas/pool:law:PaceLineUsesTarget99AndLeeway5"
+      ]
+    },
+    {
+      "name": "atlas-pool-weekly-leeway-not-5",
+      "origin": "ATLAS-POOL",
+      "file": "modules/atlas/pool/pace_line.ergo",
+      "decl": "WeeklyLeewayPpm",
+      "from": "func WeeklyLeewayPpm() int64 { int64(50000) }",
+      "to": "func WeeklyLeewayPpm() int64 { int64(0) }",
+      "rule": "Shared weekly pace model grants 5% (50,000 ppm) shared fleet leeway.",
+      "killers": [
+        "modules/atlas/pool:law:PaceLineUsesTarget99AndLeeway5"
+      ]
+    },
+    {
+      "name": "atlas-pool-claim-lowers-pace-line",
+      "origin": "ATLAS-POOL",
+      "file": "modules/atlas/pool/pace_line.ergo",
+      "decl": "LineOf",
+      "from": "\t\tcmp.Max(nat, rebased)",
+      "to": "\t\trebased",
+      "rule": "Rebasing or claiming on an account must never lower its natural pace line.",
+      "killers": [
+        "modules/atlas/pool:law:ClaimNeverLowersPaceLine"
+      ]
+    },
+    {
+      "name": "atlas-pool-soonest-reset-reversed",
+      "origin": "ATLAS-POOL",
+      "file": "modules/atlas/pool/pace_line.ergo",
+      "decl": "compareRankedAccounts",
+      "from": "\tif a.WeeklyResetAtMs != b.WeeklyResetAtMs {\n\t\treturn cmp.Compare(a.WeeklyResetAtMs, b.WeeklyResetAtMs)\n\t}",
+      "to": "\tif a.WeeklyResetAtMs != b.WeeklyResetAtMs {\n\t\treturn cmp.Compare(b.WeeklyResetAtMs, a.WeeklyResetAtMs)\n\t}",
+      "rule": "Eligible under-line accounts must be preferred in soonest-resetting ascending order.",
+      "killers": [
+        "modules/atlas/pool:law:SoonestResettingUnderLineChosenFirst",
+        "modules/atlas/pool:PaceLinePlacementAndInflightIntegration"
+      ]
+    },
+    {
+      "name": "atlas-pool-inflight-spend-ignored",
+      "origin": "ATLAS-POOL",
+      "file": "modules/atlas/pool/pace_line.ergo",
+      "decl": "FleetInflightSpend",
+      "from": "\t\t\tif s.StartedAtMs <= nowMs && nowMs < EffectiveSettlesAtMs(s, skewMs) && s.EstimatedCostPpm > int64(0) {\n\t\t\t\ttotal = total + s.EstimatedCostPpm\n\t\t\t}",
+      "to": "\t\t\tif s.StartedAtMs <= nowMs && nowMs < EffectiveSettlesAtMs(s, skewMs) && s.EstimatedCostPpm > int64(0) {\n\t\t\t\ttotal = total + int64(0)\n\t\t\t}",
+      "rule": "Fleet pace admission must count unsettled starts (inflightSpend) to prevent concurrent double-spend.",
+      "killers": [
+        "modules/atlas/pool:law:FleetInflightSpendBlocksConcurrentDoubleSpend",
+        "modules/atlas/pool:law:PoolHoldAndPaceLifecycle.FleetSpendCountsInflight"
+      ]
+    },
+    {
+      "name": "atlas-pool-refusal-returns-now-as-retry-at",
+      "origin": "ATLAS-POOL",
+      "file": "modules/atlas/pool/pace_line.ergo",
+      "decl": "Admit",
+      "from": "\t\treturn AdmitHeld{RetryAtMs: earliestCatchUpOrHardRetry(ranked, ledger, req), Reason: reason}",
+      "to": "\t\treturn AdmitHeld{RetryAtMs: req.NowMs, Reason: reason}",
+      "rule": "Door refusal must name a concrete retryAt strictly in the future (RetryAtMs > nowMs).",
+      "killers": [
+        "modules/atlas/pool:law:DoorRefusalAlwaysNamesFutureRetryAt",
+        "modules/atlas/pool:PaceLinePlacementAndInflightIntegration"
+      ]
+    },
+    {
+      "name": "atlas-pool-early-wake-before-opening",
+      "origin": "ATLAS-POOL",
+      "file": "modules/atlas/pool/hold_wake.ergo",
+      "decl": "EvaluateHoldWake",
+      "from": "\t\tif nowMs < hold.RetryAtMs {\n\t\t\treturn (hold, ledger, WakeEffectNone)\n\t\t}",
+      "to": "\t\tif nowMs < int64(0) {\n\t\t\treturn (hold, ledger, WakeEffectNone)\n\t\t}",
+      "rule": "Held turns must never wake before RetryAtMs opens.",
+      "killers": [
+        "modules/atlas/pool:HoldWakeDeduplicatesAtOpeningBlocksEarlyAndStopsGoneChild",
+        "modules/atlas/pool:law:PoolHoldAndPaceLifecycle.NeverWakeBeforeOpening"
+      ]
+    },
+    {
+      "name": "atlas-pool-double-wake-lost-reply",
+      "origin": "ATLAS-POOL",
+      "file": "modules/atlas/pool/hold_wake.ergo",
+      "decl": "RecordDelivery",
+      "from": "\tif HasDelivery(ledger, deliveryID) {\n\t\treturn (ledger, false)\n\t}",
+      "to": "\tif !HasDelivery(ledger, deliveryID) && atMs < int64(0) {\n\t\treturn (ledger, false)\n\t}",
+      "rule": "Atomic wakeDeliveryId ledger must block double-wake at now == retryAt even after lost reply.",
+      "killers": [
+        "modules/atlas/pool:HoldWakeDeduplicatesAtOpeningBlocksEarlyAndStopsGoneChild",
+        "modules/atlas/pool:law:PoolHoldAndPaceLifecycle.OneWakeAtExactOpening"
+      ]
+    },
+    {
+      "name": "atlas-pool-gone-child-duplicate-parent-notice",
+      "origin": "ATLAS-POOL",
+      "file": "modules/atlas/pool/hold_wake.ergo",
+      "decl": "ProbeChildGoneHold",
+      "from": "\t\tif marked.ParentNotified || HasDelivery(ledger, marked.GoneDeliveryID) {\n\t\t\tlet synced = TurnHold{..marked, ParentNotified: true, UpdatedAtMs: nowMs}\n\t\t\treturn (synced, ledger, WakeEffectNone)\n\t\t}",
+      "to": "\t\tif nowMs < int64(0) {\n\t\t\tlet synced = TurnHold{..marked, ParentNotified: true, UpdatedAtMs: nowMs}\n\t\t\treturn (synced, ledger, WakeEffectNone)\n\t\t}",
+      "rule": "Gone held child must notify its parent at most once without duplicate notices.",
+      "killers": [
+        "modules/atlas/pool:HoldWakeDeduplicatesAtOpeningBlocksEarlyAndStopsGoneChild",
+        "modules/atlas/pool:law:PoolHoldAndPaceLifecycle.GoneChildNotWoken"
+      ]
+    },
+    {
+      "name": "atlas-pool-gone-child-phantom-wake",
+      "origin": "ATLAS-POOL",
+      "file": "modules/atlas/pool/rotation_bridge.ergo",
+      "decl": "EvaluateGoneChildHoldWake",
+      "from": "\tlet nh, nl, eff = ProbeChildGoneHold(hold, ledger, nowMs)",
+      "to": "\tlet nh, nl, eff = EvaluateHoldWake(hold, ledger, nowMs)",
+      "rule": "Gone held child must never receive a phantom wake.",
+      "killers": [
+        "modules/atlas/pool:RotationAndLimitBridgeIntegration"
+      ]
+    },
+    {
+      "name": "atlas-pool-gone-archived-child-woken-in-store",
+      "origin": "ATLAS-POOL",
+      "file": "modules/atlas/pool/store_bridge.ergo",
+      "decl": "ClassifyDueHold",
+      "from": "\tcase option.Some as vw:\n\t\tvw.Value.Thread.Archived",
+      "to": "\tcase option.Some as vw:\n\t\tfalse && vw.Value.Thread.Archived",
+      "rule": "Durable store reconciliation must cancel archived/gone children and emit one parent notice instead of waking them.",
+      "killers": [
+        "modules/atlas/pool:StoreBridgeMemoryPersistenceAndSingleWake",
+        "modules/atlas/pool:law:PoolSqliteChecks.SqlitePoolPersistsAndDedups"
+      ]
+    },
+    {
+      "name": "atlas-pool-pending-question-wakes-hold",
+      "origin": "ATLAS-POOL",
+      "file": "modules/atlas/pool/store_bridge.ergo",
+      "decl": "ClassifyDueHold",
+      "from": "\tif hasOpenQuestionForThread(openQuestions, h.ThreadID) {\n\t\treturn DueActionWaitPendingQuestion\n\t}",
+      "to": "\tif !hasOpenQuestionForThread(openQuestions, h.ThreadID) && openQuestions.Len() < 0 {\n\t\treturn DueActionWaitPendingQuestion\n\t}",
+      "rule": "Open async questions on a held child must block waking until answered.",
+      "killers": [
+        "modules/atlas/pool:StoreBridgeMemoryPersistenceAndSingleWake"
+      ]
+    },
+    {
+      "name": "atlas-pool-duplicate-reset-claim-per-period",
+      "origin": "ATLAS-POOL",
+      "file": "modules/atlas/pool/resets_push.ergo",
+      "decl": "ClaimReset",
+      "from": "\tlet claimKey = ClaimKeyForReset(cand.AccountID, cand.Kind, cand.ResetAtMs)",
+      "to": "\tlet claimKey = \"\\(string(cand.AccountID)):\\(nowMs):\\(ledger.Order.Len())\"",
+      "rule": "Exhaustion reset dispatch allows at most one claim per account, window, and period.",
+      "killers": [
+        "modules/atlas/pool:law:ResetClaimAllowsAtMostOneWinnerPerPeriod",
+        "modules/atlas/pool:ExhaustionResetAndTimeBoxedPushLifecycle"
+      ]
+    },
+    {
+      "name": "atlas-pool-period-jitter-not-absorbed",
+      "origin": "ATLAS-POOL",
+      "file": "modules/atlas/pool/resets_push.ergo",
+      "decl": "PeriodKey",
+      "from": "\t\"\\(PeriodBucketMs(resetAtMs))\"",
+      "to": "\t\"\\(resetAtMs)\"",
+      "rule": "PeriodKey must absorb sub-half-hour provider reset timestamp jitter.",
+      "killers": [
+        "modules/atlas/pool:law:PeriodKeyAbsorbsSubHalfHourJitter"
+      ]
+    },
+    {
+      "name": "atlas-pool-push-active-past-end",
+      "origin": "ATLAS-POOL",
+      "file": "modules/atlas/pool/resets_push.ergo",
+      "decl": "IsPushActiveAt",
+      "from": "\t!push.Cancelled && push.EndsAtMs > push.StartsAtMs && nowMs >= push.StartsAtMs && nowMs < push.EndsAtMs",
+      "to": "\t!push.Cancelled && push.EndsAtMs > push.StartsAtMs && nowMs >= push.StartsAtMs && nowMs <= push.EndsAtMs",
+      "rule": "Time-boxed owner push uses half-open [StartsAtMs, EndsAtMs) and expires strictly at EndsAtMs.",
+      "killers": [
+        "modules/atlas/pool:law:OwnerPushExpiresStrictlyAtEnd",
+        "modules/atlas/pool:ExhaustionResetAndTimeBoxedPushLifecycle"
+      ]
+    },
+    {
+      "name": "atlas-pool-carryover-revives-expired-window",
+      "origin": "ATLAS-POOL",
+      "file": "modules/atlas/pool/windows.ergo",
+      "decl": "carryWindowStatus",
+      "from": "\t\t\tif r.ResetAtMs > nowMs {\n\t\t\t\treturn prev\n\t\t\t}",
+      "to": "\t\t\tif r.ResetAtMs >= int64(0) {\n\t\t\t\treturn prev\n\t\t\t}",
+      "rule": "Carry-over across partial limit updates must never revive expired pre-reset windows.",
+      "killers": [
+        "modules/atlas/pool:law:CarryOverNeverRevivesExpiredWindow"
+      ]
+    },
+    {
+      "name": "atlas-pool-fixed-account-escapes-pin",
+      "origin": "ATLAS-POOL",
+      "file": "modules/atlas/pool/rotation_bridge.ergo",
+      "decl": "selectFixedRotation",
+      "from": "\tlet pinnedReg = UpsertAccount(NewRegistry(), entry)",
+      "to": "\tlet pinnedReg = UpsertAccount(reg, entry)",
+      "rule": "RotationFixed policy must keep placement restricted to FixedAccount without moving to another account.",
+      "killers": [
+        "modules/atlas/pool:law:FixedRotationNeverMovesAndBlocksMidTurn"
+      ]
+    },
+    {
+      "name": "atlas-pool-rotation-allows-mid-turn-switch",
+      "origin": "ATLAS-POOL",
+      "file": "modules/atlas/pool/rotation_bridge.ergo",
+      "decl": "SelectAccountWithRotation",
+      "from": "\tif rot.InTurn {\n\t\treturn session.RotationBlockedMidTurn\n\t}",
+      "to": "\tif rot.InTurn && rot.Switches < 0 {\n\t\treturn session.RotationBlockedMidTurn\n\t}",
+      "rule": "Account rotation must be blocked while a thread turn is active.",
+      "killers": [
+        "modules/atlas/pool:RotationAndLimitBridgeIntegration"
+      ]
     }
   ]
 }

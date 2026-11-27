@@ -1,0 +1,811 @@
+import base64
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/memory
+import github.com/cevr/ergo/modules/atlas/session
+import github.com/cevr/ergo/modules/atlas/subagent
+import github.com/cevr/ergo/modules/atlas/thread
+import hmac
+import http
+import json
+import mcp
+import mcp/httpmcp
+import option
+import rand
+import sha256
+import strings
+import sync
+
+// AudienceThread identifies a token issued for a thread or subagent runtime connecting over /mcp.
+type AudienceThread {}
+
+// AudienceOutside identifies an external caller token bounded below thread-only mutations per D13.
+type AudienceOutside {
+	ClientID string,
+}
+
+// TokenAudience classifies the D13 audience bound to an /mcp bearer credential.
+type TokenAudience = AudienceThread | AudienceOutside
+
+// AudienceLabel returns the canonical external audience tag for JSON outputs.
+func AudienceLabel(a TokenAudience) string {
+	match a {
+	case AudienceThread:
+		"thread"
+	case AudienceOutside:
+		"outside"
+	}
+}
+
+// MintTokenSpec configures minting or rotating a SHA-256-hashed per-thread /mcp bearer token.
+type MintTokenSpec {
+	TokenID        string,
+	ThreadID       handle.ThreadID,
+	SessionID      handle.SessionID,
+	Gen            int,
+	Audience       TokenAudience,
+	Scopes         []string,
+	RevokePrevious bool,
+}
+
+// TokenRecord stores hashed credential metadata without ever persisting the plaintext bearer secret.
+type TokenRecord {
+	TokenID       string,
+	ThreadID      handle.ThreadID,
+	SessionID     handle.SessionID,
+	Gen           int,
+	Digest        string,
+	Audience      TokenAudience,
+	Scopes        []string,
+	IssuedAtMs    int64,
+	LastTouchedMs int64,
+	Revoked       bool,
+}
+
+// MintedToken returns the one-time bearer credential together with its redacted registry summary.
+type MintedToken {
+	TokenID     string,
+	ThreadID    handle.ThreadID,
+	SessionID   handle.SessionID,
+	Gen         int,
+	Audience    string,
+	BearerToken string,
+	IssuedAtMs  int64,
+}
+
+// McpTokenInfo summarizes a persisted hashed /mcp credential without exposing its digest or secret.
+type McpTokenInfo {
+	TokenID       string,
+	ThreadID      string,
+	SessionID     string,
+	Gen           int,
+	Audience      string,
+	Scopes        []string,
+	IssuedAtMs    int64,
+	LastTouchedMs int64,
+	Revoked       bool,
+}
+
+// AuthenticatedCaller represents the verified caller principal resolved for one HTTP /mcp request.
+type AuthenticatedCaller {
+	TokenID   string,
+	ThreadID  handle.ThreadID,
+	SessionID handle.SessionID,
+	Gen       int,
+	Audience  TokenAudience,
+	Scopes    []string,
+}
+
+// McpAuthDenied refuses invalid bearer token minting or rotation parameters.
+type McpAuthDenied {
+	Reason string,
+}
+
+// McpHttpRejection describes an HTTP 401 or 403 refusal during /mcp request authentication or scoping.
+type McpHttpRejection {
+	Status int,
+	Code   string,
+	Reason string,
+}
+
+// TokenRegistryState holds immutable per-thread /mcp SHA-256 token digests indexed in insertion order.
+type TokenRegistryState {
+	Order   []string,
+	Records Map[string, TokenRecord],
+}
+
+// EmptyTokenRegistry constructs an empty TokenRegistryState.
+func EmptyTokenRegistry() TokenRegistryState {
+	TokenRegistryState{
+		Order:   []string{},
+		Records: Map[string, TokenRecord]{},
+	}
+}
+
+// McpAuthStore synchronizes TokenRegistryState with cryptographic bearer token minting.
+type McpAuthStore {
+	state sync.Ref[TokenRegistryState],
+	rng   rand.Secure,
+}
+
+// NewMcpAuthStore constructs a concurrent-safe McpAuthStore using rng for 256-bit bearer tokens.
+func NewMcpAuthStore(rng rand.Secure) McpAuthStore {
+	McpAuthStore{
+		state: sync.NewRef[TokenRegistryState](EmptyTokenRegistry()),
+		rng:   rng,
+	}
+}
+
+// SnapshotTokens returns an immutable snapshot of hashed /mcp credentials in auth.
+func SnapshotTokens(auth McpAuthStore) TokenRegistryState {
+	auth.state.Get()
+}
+
+// VerifyTokenDigest compares presented secret against stored 32-byte SHA-256 digest in constant time.
+func VerifyTokenDigest(storedDigest string, presentedSecret string) bool {
+	if storedDigest.Len() != 32 || presentedSecret == "" {
+		return false
+	}
+	let candidate = sha256.Sum(presentedSecret)
+	hmac.Equal(candidate, storedDigest)
+}
+
+func validateMintSpec(spec MintTokenSpec) fails McpAuthDenied {
+	if strings.TrimSpace(spec.TokenID) == "" {
+		return McpAuthDenied{Reason: "token_id must not be empty"}
+	}
+	if strings.TrimSpace(string(spec.ThreadID)) == "" {
+		return McpAuthDenied{Reason: "thread_id must not be empty"}
+	}
+	if spec.Gen < 0 {
+		return McpAuthDenied{Reason: "session generation must be non-negative"}
+	}
+	match spec.Audience {
+	case AudienceThread:
+	case AudienceOutside as out:
+		if strings.TrimSpace(out.ClientID) == "" {
+			return McpAuthDenied{Reason: "outside audience client_id must not be empty"}
+		}
+	}
+}
+
+func revokeThreadInState(reg TokenRegistryState, threadID handle.ThreadID) (TokenRegistryState, int) {
+	let mut nextRecords = reg.Records
+	let mut count = 0
+	for _, tid in reg.Order {
+		match nextRecords.Get(tid) {
+		case option.Some[TokenRecord] as rec:
+			if rec.Value.ThreadID == threadID && !rec.Value.Revoked {
+				nextRecords = nextRecords.Put(tid, TokenRecord{..rec.Value, Revoked: true})
+				count = count + 1
+			}
+		case option.None:
+		}
+	}
+	(TokenRegistryState{Order: reg.Order, Records: nextRecords}, count)
+}
+
+func revokeSessionInState(reg TokenRegistryState, sessionID handle.SessionID) (TokenRegistryState, int) {
+	let mut nextRecords = reg.Records
+	let mut count = 0
+	for _, tid in reg.Order {
+		match nextRecords.Get(tid) {
+		case option.Some[TokenRecord] as rec:
+			if rec.Value.SessionID == sessionID && !rec.Value.Revoked {
+				nextRecords = nextRecords.Put(tid, TokenRecord{..rec.Value, Revoked: true})
+				count = count + 1
+			}
+		case option.None:
+		}
+	}
+	(TokenRegistryState{Order: reg.Order, Records: nextRecords}, count)
+}
+
+func touchForTurnInState(reg TokenRegistryState, threadID handle.ThreadID, sessionID handle.SessionID, gen int, nowMs int64) (TokenRegistryState, int) {
+	let mut nextRecords = reg.Records
+	let mut count = 0
+	for _, tid in reg.Order {
+		match nextRecords.Get(tid) {
+		case option.Some[TokenRecord] as rec:
+			let r = rec.Value
+			let matchSess = string(sessionID) == "" || r.SessionID == sessionID
+			if !r.Revoked && r.ThreadID == threadID && matchSess && r.Gen == gen {
+				nextRecords = nextRecords.Put(tid, TokenRecord{..r, LastTouchedMs: nowMs})
+				count = count + 1
+			}
+		case option.None:
+		}
+	}
+	(TokenRegistryState{Order: reg.Order, Records: nextRecords}, count)
+}
+
+func addRecordToState(reg TokenRegistryState, rec TokenRecord, revokePrev bool) TokenRegistryState fails McpAuthDenied {
+	if reg.Records.Get(rec.TokenID) != option.None {
+		return McpAuthDenied{Reason: "duplicate token_id '\(rec.TokenID)'"}
+	}
+	let base = if revokePrev {
+		let (revoked, _) = revokeThreadInState(reg, rec.ThreadID)
+		revoked
+	} else {
+		reg
+	}
+	TokenRegistryState{
+		Order:   base.Order.Append(rec.TokenID),
+		Records: base.Records.Put(rec.TokenID, rec),
+	}
+}
+
+// MintThreadToken mints a 32-byte random base64url token and records only its SHA-256 digest.
+func MintThreadToken(auth McpAuthStore, spec MintTokenSpec, nowMs int64) MintedToken fails McpAuthDenied {
+	try validateMintSpec(spec)
+	let raw = auth.rng.Bytes(32)
+	let secret = base64.Encode(base64.URLEncoding, raw)
+	let digest = sha256.Sum(secret)
+	let rec = TokenRecord{
+		TokenID:       spec.TokenID,
+		ThreadID:      spec.ThreadID,
+		SessionID:     spec.SessionID,
+		Gen:           spec.Gen,
+		Digest:        digest,
+		Audience:      spec.Audience,
+		Scopes:        spec.Scopes,
+		IssuedAtMs:    nowMs,
+		LastTouchedMs: nowMs,
+		Revoked:       false,
+	}
+	let mut inserted = false
+	auth.state.Update(func(cur TokenRegistryState) TokenRegistryState {
+		let next = addRecordToState(cur, rec, spec.RevokePrevious) catch {
+		case McpAuthDenied:
+			return cur
+		}
+		inserted = true
+		next
+	})
+	if !inserted {
+		return McpAuthDenied{Reason: "token_id '\(spec.TokenID)' already exists"}
+	}
+	MintedToken{
+		TokenID:     rec.TokenID,
+		ThreadID:    rec.ThreadID,
+		SessionID:   rec.SessionID,
+		Gen:         rec.Gen,
+		Audience:    AudienceLabel(rec.Audience),
+		BearerToken: secret,
+		IssuedAtMs:  nowMs,
+	}
+}
+
+// RotateThreadToken revokes active tokens on spec.ThreadID and mints a fresh SHA-256-hashed bearer token.
+func RotateThreadToken(auth McpAuthStore, spec MintTokenSpec, nowMs int64) MintedToken fails McpAuthDenied {
+	MintThreadToken(auth, MintTokenSpec{..spec, RevokePrevious: true}, nowMs)
+}
+
+// RevokeThreadTokens revokes every unrevoked /mcp bearer token bound to threadID.
+func RevokeThreadTokens(auth McpAuthStore, threadID handle.ThreadID) int {
+	let mut revokedCount = 0
+	auth.state.Update(func(cur TokenRegistryState) TokenRegistryState {
+		let (next, count) = revokeThreadInState(cur, threadID)
+		revokedCount = count
+		next
+	})
+	revokedCount
+}
+
+// RevokeSessionTokens revokes every unrevoked /mcp bearer token bound to sessionID.
+func RevokeSessionTokens(auth McpAuthStore, sessionID handle.SessionID) int {
+	let mut revokedCount = 0
+	auth.state.Update(func(cur TokenRegistryState) TokenRegistryState {
+		let (next, count) = revokeSessionInState(cur, sessionID)
+		revokedCount = count
+		next
+	})
+	revokedCount
+}
+
+// TouchTokensForTurn extends the 24h idle timer solely on turn execution for matching generation.
+func TouchTokensForTurn(auth McpAuthStore, threadID handle.ThreadID, sessionID handle.SessionID, gen int, nowMs int64) int {
+	let mut touched = 0
+	auth.state.Update(func(cur TokenRegistryState) TokenRegistryState {
+		let (next, count) = touchForTurnInState(cur, threadID, sessionID, gen, nowMs)
+		touched = count
+		next
+	})
+	touched
+}
+
+// ListThreadTokenViews returns redacted token metadata for threadID without digests or secrets.
+func ListThreadTokenViews(auth McpAuthStore, threadID handle.ThreadID) []McpTokenInfo {
+	let reg = auth.state.Get()
+	let mut out = []McpTokenInfo{}
+	for _, tid in reg.Order {
+		match reg.Records.Get(tid) {
+		case option.Some[TokenRecord] as rec:
+			let r = rec.Value
+			if string(threadID) == "" || r.ThreadID == threadID {
+				out = out.Append(McpTokenInfo{
+					TokenID:       r.TokenID,
+					ThreadID:      string(r.ThreadID),
+					SessionID:     string(r.SessionID),
+					Gen:           r.Gen,
+					Audience:      AudienceLabel(r.Audience),
+					Scopes:        r.Scopes,
+					IssuedAtMs:    r.IssuedAtMs,
+					LastTouchedMs: r.LastTouchedMs,
+					Revoked:       r.Revoked,
+				})
+			}
+		case option.None:
+		}
+	}
+	out
+}
+
+// ParseBearerHeader extracts the raw bearer secret from an HTTP Authorization header.
+func ParseBearerHeader(headers []http.Field) option.Option[string] {
+	let raw = match http.Header(headers, "Authorization") {
+	case option.Some[string] as h:
+		strings.TrimSpace(h.Value)
+	case option.None:
+		return option.None
+	}
+	let lower = strings.ToLower(raw)
+	if !strings.HasPrefix(lower, "bearer ") {
+		return option.None
+	}
+	let tok = strings.TrimSpace(strings.Slice(raw, 7, raw.Len()))
+	if tok == "" {
+		return option.None
+	}
+	option.Some[string]{Value: tok}
+}
+
+// ParseMcpThreadRoute extracts the bound ThreadID from /threads/<id>/mcp or ?thread=<id>.
+func ParseMcpThreadRoute(req http.Request) option.Option[handle.ThreadID] {
+	let path = req.RawPath
+	if strings.HasPrefix(path, "/threads/") && strings.HasSuffix(path, "/mcp") {
+		let inner = strings.Slice(path, 9, path.Len()-4)
+		if inner != "" && !strings.Contains(inner, "/") {
+			let decoded = http.DecodePath(inner) catch {
+			case http.BadEscape:
+				return option.None
+			}
+			if decoded != "" {
+				return option.Some[handle.ThreadID]{Value: handle.ThreadID(decoded)}
+			}
+		}
+	}
+	match http.Query(req.Query, "thread") {
+	case option.Some[string] as q:
+		let trimmed = strings.TrimSpace(q.Value)
+		if trimmed != "" {
+			return option.Some[handle.ThreadID]{Value: handle.ThreadID(trimmed)}
+		}
+	case option.None:
+	}
+	option.None
+}
+
+func constantTimeFindRecord(reg TokenRegistryState, presented string) option.Option[TokenRecord] {
+	let candidateDigest = sha256.Sum(presented)
+	let mut matched option.Option[TokenRecord] = option.None
+	for _, tid in reg.Order {
+		match reg.Records.Get(tid) {
+		case option.Some[TokenRecord] as rec:
+			if rec.Value.Digest.Len() == 32 && hmac.Equal(candidateDigest, rec.Value.Digest) {
+				matched = option.Some[TokenRecord]{Value: rec.Value}
+			}
+		case option.None:
+		}
+	}
+	matched
+}
+
+func validateRecordAgainstThread(rec TokenRecord, dataStore memory.Store) fails McpHttpRejection {
+	let viewOpt = dataStore.GetThreadView(rec.ThreadID) catch {
+	case memory.StoreFailed:
+		return McpHttpRejection{Status: 500, Code: "store_unavailable", Reason: "unable to verify thread state"}
+	}
+	let tv = match viewOpt {
+	case option.Some[memory.ThreadView] as found:
+		found.Value
+	case option.None:
+		return
+	}
+	if tv.Thread.Archived {
+		return McpHttpRejection{Status: 403, Code: "thread_archived", Reason: "thread is archived"}
+	}
+	match rec.Audience {
+	case AudienceThread:
+		match tv.Thread.ActiveSession {
+		case option.Some[session.SessionRecord] as sess:
+			if sess.Value.Gen != rec.Gen {
+				return McpHttpRejection{Status: 401, Code: "stale_generation", Reason: "token generation does not match active session"}
+			}
+		case option.None:
+		}
+		if !thread.CanAccessLinkedThread(tv.Thread, thread.CallerMcp{ThreadID: rec.ThreadID}) {
+			return McpHttpRejection{Status: 403, Code: "origin_denied", Reason: "linked thread access denied for MCP caller"}
+		}
+	case AudienceOutside:
+	}
+}
+
+// AuthenticateMcpRequest validates Authorization bearer token, constant-time SHA-256 digest, scoping, and 24h idle without touching LastTouchedMs.
+func AuthenticateMcpRequest(auth McpAuthStore, dataStore memory.Store, req http.Request, nowMs int64) AuthenticatedCaller fails McpHttpRejection {
+	let presented = match ParseBearerHeader(req.Header) {
+	case option.Some[string] as tok:
+		tok.Value
+	case option.None:
+		return McpHttpRejection{Status: 401, Code: "missing_bearer", Reason: "missing or malformed Authorization Bearer token"}
+	}
+	let reg = auth.state.Get()
+	let rec = match constantTimeFindRecord(reg, presented) {
+	case option.Some[TokenRecord] as found:
+		found.Value
+	case option.None:
+		return McpHttpRejection{Status: 401, Code: "invalid_token", Reason: "invalid bearer token"}
+	}
+	if rec.Revoked {
+		return McpHttpRejection{Status: 401, Code: "token_revoked", Reason: "bearer token has been revoked"}
+	}
+	let routeThread = ParseMcpThreadRoute(req)
+	match routeThread {
+	case option.Some[handle.ThreadID] as target:
+		if rec.ThreadID != target.Value {
+			return McpHttpRejection{Status: 403, Code: "wrong_thread", Reason: "bearer token is not scoped to requested thread"}
+		}
+	case option.None:
+	}
+	if nowMs-rec.LastTouchedMs >= session.McpTokenIdleExpiryMs() {
+		return McpHttpRejection{Status: 401, Code: "token_idle_expired", Reason: "bearer token expired after 24h without a turn"}
+	}
+	try validateRecordAgainstThread(rec, dataStore)
+	AuthenticatedCaller{
+		TokenID:   rec.TokenID,
+		ThreadID:  rec.ThreadID,
+		SessionID: rec.SessionID,
+		Gen:       rec.Gen,
+		Audience:  rec.Audience,
+		Scopes:    rec.Scopes,
+	}
+}
+
+// BuildRejectionResponse builds an HTTP 401/403 JSON response with WWW-Authenticate on 401.
+func BuildRejectionResponse(rej McpHttpRejection) http.Response {
+	let mut headers = []http.Field{http.Field{Name: "Content-Type", Value: "application/json"}}
+	if rej.Status == 401 {
+		headers = headers.Append(http.Field{Name: "WWW-Authenticate", Value: "Bearer realm=\"atlas\""})
+	}
+	let codec = json.Codec[McpHttpRejection]{MaxBytes: 0, MaxDepth: 0}
+	http.Response{
+		Status: rej.Status,
+		Header: headers,
+		Body:   json.Encode(codec, rej),
+	}
+}
+
+// IsThreadOnlyTool reports whether toolName modifies or drives thread execution and is forbidden to outside audiences per D13.
+func IsThreadOnlyTool(toolName string) bool {
+	match toolName {
+	case "thread-create", "thread-archive", "driver-switch", "prompt-enqueue", "prompt-dequeue", "turn-start", "turn-step", "subagent-tree-init", "subagent-spawn", "subagent-control-handle", "subagent-settle-handle", "subagent-hand-back", "handle-open", "handle-settle", "owner-calls-retire", "question-ask", "question-answer", "question-withdraw", "pool-account-upsert", "pool-hold-open", "pool-hold-transition", "kernel-snapshot-save", "kernel-cut-record", "lease-acquire", "boot-reconcile", "mcp-token-mint", "mcp-token-revoke":
+		true
+	case _:
+		false
+	}
+}
+
+func scopeAllowsTool(scopes []string, toolName string) bool {
+	if scopes.Len() == 0 {
+		return true
+	}
+	for _, s in scopes {
+		if s == "*" || s == toolName {
+			return true
+		}
+	}
+	false
+}
+
+func jsonStringArg(args json.Value, field string) option.Option[string] {
+	match mcp.Field(args, field) {
+	case option.Some[json.Value] as v:
+		match v.Value {
+		case json.Str as s:
+			let trimmed = strings.TrimSpace(s.Value)
+			if trimmed == "" {
+				return option.None
+			}
+			option.Some[string]{Value: trimmed}
+		case json.Null, json.Boolean, json.Num, json.Array, json.Object:
+			option.None
+		}
+	case option.None:
+		option.None
+	}
+}
+
+func targetThreadIDsFromArgs(toolName string, args json.Value) []handle.ThreadID {
+	let mut ids = []handle.ThreadID{}
+	for _, key in []string{"threadID", "targetThreadID", "rootID", "parentID", "childID", "thread_id", "target_thread_id", "root_id", "parent_id", "child_id"} {
+		match jsonStringArg(args, key) {
+		case option.Some[string] as tid:
+			ids = ids.Append(handle.ThreadID(tid.Value))
+		case option.None:
+		}
+	}
+	if toolName == "subagent-control-handle" || toolName == "subagent-settle-handle" || toolName == "subagent-hand-back" {
+		for _, key in []string{"callerID", "targetID", "nodeID", "caller_id", "target_id", "node_id"} {
+			match jsonStringArg(args, key) {
+			case option.Some[string] as tid:
+				ids = ids.Append(handle.ThreadID(tid.Value))
+			case option.None:
+			}
+		}
+	}
+	ids
+}
+
+func isWithinCallerScope(dataStore memory.Store, callerThread handle.ThreadID, targetThread handle.ThreadID) bool {
+	if targetThread == callerThread {
+		return true
+	}
+	let treeOpt = dataStore.GetSubagentTree(callerThread) catch {
+	case memory.StoreFailed:
+		return false
+	}
+	match treeOpt {
+	case option.Some[subagent.Tree] as tr:
+		tr.Value.Nodes.Get(targetThread) != option.None
+	case option.None:
+		false
+	}
+}
+
+// AuthorizeMcpTool enforces D12 per-thread argument scoping, scope ceilings, and D13 outside-audience handler refusals.
+func AuthorizeMcpTool(caller AuthenticatedCaller, dataStore memory.Store, toolName string, arguments json.Value) option.Option[string] {
+	if !scopeAllowsTool(caller.Scopes, toolName) {
+		return option.Some[string]{Value: "scope denied for tool '\(toolName)'"}
+	}
+	match caller.Audience {
+	case AudienceOutside as out:
+		if IsThreadOnlyTool(toolName) {
+			return option.Some[string]{Value: "thread-only tool '\(toolName)' refused for outside caller '\(out.ClientID)'"}
+		}
+		return option.None
+	case AudienceThread:
+	}
+	let targets = targetThreadIDsFromArgs(toolName, arguments)
+	for _, target in targets {
+		if !isWithinCallerScope(dataStore, caller.ThreadID, target) {
+			return option.Some[string]{Value: "wrong thread scope: caller '\(string(caller.ThreadID))' cannot address '\(string(target))'"}
+		}
+	}
+	option.None
+}
+
+// GuardMcpTools wraps every MCP tool's handler with D12/D13 authentication scope and audience enforcement.
+func GuardMcpTools(base []mcp.Tool, caller AuthenticatedCaller, dataStore memory.Store) []mcp.Tool {
+	let mut guarded = []mcp.Tool{}
+	for _, t in base {
+		let origCall = t.Call
+		let toolName = t.Name
+		guarded = guarded.Append(mcp.Tool{
+			Name:        t.Name,
+			Description: t.Description,
+			Input:       t.Input,
+			Call:        func(arguments json.Value) json.Value fails mcp.ToolError {
+				match AuthorizeMcpTool(caller, dataStore, toolName, arguments) {
+				case option.Some[string] as errMsg:
+					return mcp.ToolError{Message: errMsg.Value}
+				case option.None:
+				}
+				try origCall(arguments)
+			},
+		})
+	}
+	guarded
+}
+
+// NewMcpEndpoint creates a Streamable HTTP /mcp endpoint enforcing per-thread SHA-256 bearer tokens and D11-D13 scoping.
+func NewMcpEndpoint(auth McpAuthStore, dataStore memory.Store, opts httpmcp.Options, nowFn own func() int64, buildServer own func(AuthenticatedCaller) mcp.FullServer) httpmcp.Endpoint {
+	httpmcp.NewDynamic(opts, func(req http.Request) httpmcp.Resolved {
+		let caller = AuthenticateMcpRequest(auth, dataStore, req, nowFn()) catch {
+		case McpHttpRejection as rej:
+			return httpmcp.Reject{Response: BuildRejectionResponse(rej)}
+		}
+		httpmcp.UseFull{Full: buildServer(caller)}
+	})
+}
+
+func demoObjectSchema() json.Value {
+	json.Object{Members: []json.Member{json.Member{Key: "type", Value: json.Str{Value: "object"}}}}
+}
+
+func makeDemoTools() []mcp.Tool {
+	let schema = demoObjectSchema()
+	let threadRead = mcp.Tool{
+		Name:        "thread-get",
+		Description: "read thread state",
+		Input:       schema,
+		Call:        func(arguments json.Value) json.Value fails mcp.ToolError {
+			match jsonStringArg(arguments, "threadID") {
+			case option.Some[string] as tid:
+				json.Str{Value: tid.Value}
+			case option.None:
+				mcp.ToolError{Message: "missing threadID"}
+			}
+		},
+	}
+	let turnStart = mcp.Tool{
+		Name:        "turn-start",
+		Description: "start turn on thread",
+		Input:       schema,
+		Call:        func(arguments json.Value) json.Value fails mcp.ToolError {
+			match jsonStringArg(arguments, "threadID") {
+			case option.Some[string] as tid:
+				json.Str{Value: "started:" + tid.Value}
+			case option.None:
+				mcp.ToolError{Message: "missing threadID"}
+			}
+		},
+	}
+	[]mcp.Tool{threadRead, turnStart}
+}
+
+// McpAuthDigestScopingIdleExpiryRevokeAndRotation verifies SHA-256 constant-time digests, wrong-thread rejection, 24h idle expiry, turn touch, rotation, and session revocation.
+law McpAuthDigestScopingIdleExpiryRevokeAndRotation() {
+	let rng = rand.NewSeededSecure(uint64(42))
+	let auth = NewMcpAuthStore(rng)
+	let store = memory.New()
+	let now0 = int64(1000000)
+
+	let minted = MintThreadToken(auth, MintTokenSpec{
+		TokenID:        "tok-1",
+		ThreadID:       handle.ThreadID("th-a"),
+		SessionID:      handle.SessionID("sess-a"),
+		Gen:            1,
+		Audience:       AudienceThread,
+		Scopes:         []string{"*"},
+		RevokePrevious: false,
+	}, now0) catch {
+	case McpAuthDenied:
+		return false
+	}
+	let views = ListThreadTokenViews(auth, handle.ThreadID("th-a"))
+	if minted.BearerToken == "" || views.Len() != 1 || views[0].Revoked {
+		return false
+	}
+	let digestOK = match SnapshotTokens(auth).Records.Get("tok-1") {
+	case option.Some[TokenRecord] as r:
+		r.Value.Digest.Len() == 32 && r.Value.Digest != minted.BearerToken && VerifyTokenDigest(r.Value.Digest, minted.BearerToken) && !VerifyTokenDigest(r.Value.Digest, minted.BearerToken+"x")
+	case option.None:
+		false
+	}
+	if !digestOK {
+		return false
+	}
+
+	let goodReq = http.Request{
+		Method:  "POST",
+		Path:    "/threads/th-a/mcp",
+		RawPath: "/threads/th-a/mcp",
+		Query:   []http.Field{},
+		Header:  []http.Field{http.Field{Name: "Authorization", Value: "Bearer " + minted.BearerToken}},
+		Body:    http.Buffered{Text: ""},
+	}
+	let at23h = now0 + session.McpTokenIdleExpiryMs() - int64(1000)
+	let caller = AuthenticateMcpRequest(auth, store, goodReq, at23h) catch {
+	case McpHttpRejection:
+		return false
+	}
+	let noHeaderReq = http.Request{..goodReq, Header: []http.Field{}}
+	let wrongTokReq = http.Request{..goodReq, Header: []http.Field{http.Field{Name: "Authorization", Value: "Bearer wrong-secret"}}}
+	let wrongThreadReq = http.Request{..goodReq, Path: "/threads/th-b/mcp", RawPath: "/threads/th-b/mcp"}
+	let at24h = now0 + session.McpTokenIdleExpiryMs()
+	let rejChecks = caller.ThreadID == handle.ThreadID("th-a") &&
+		authRejectCode(auth, store, noHeaderReq, at23h) == "missing_bearer" &&
+		authRejectCode(auth, store, wrongTokReq, at23h) == "invalid_token" &&
+		authRejectCode(auth, store, wrongThreadReq, at23h) == "wrong_thread" &&
+		authRejectCode(auth, store, goodReq, at24h) == "token_idle_expired"
+	if !rejChecks {
+		return false
+	}
+	if TouchTokensForTurn(auth, handle.ThreadID("th-a"), handle.SessionID("sess-a"), 1, at24h) != 1 {
+		return false
+	}
+	let revived = AuthenticateMcpRequest(auth, store, goodReq, at24h+int64(5000)) catch {
+	case McpHttpRejection:
+		return false
+	}
+	let rotated = RotateThreadToken(auth, MintTokenSpec{
+		TokenID:        "tok-2",
+		ThreadID:       handle.ThreadID("th-a"),
+		SessionID:      handle.SessionID("sess-a"),
+		Gen:            2,
+		Audience:       AudienceThread,
+		Scopes:         []string{"*"},
+		RevokePrevious: false,
+	}, at24h+int64(6000)) catch {
+	case McpAuthDenied:
+		return false
+	}
+	let rotReq = http.Request{..goodReq, Header: []http.Field{http.Field{Name: "Authorization", Value: "Bearer " + rotated.BearerToken}}}
+	let rotCaller = AuthenticateMcpRequest(auth, store, rotReq, at24h+int64(7000)) catch {
+	case McpHttpRejection:
+		return false
+	}
+		revived.TokenID == "tok-1" &&
+		authRejectCode(auth, store, goodReq, at24h+int64(7000)) == "token_revoked" &&
+		rotCaller.TokenID == "tok-2" &&
+		RevokeSessionTokens(auth, handle.SessionID("sess-a")) == 1 &&
+		authRejectCode(auth, store, rotReq, at24h+int64(8000)) == "token_revoked"
+}
+
+func authRejectCode(auth McpAuthStore, store memory.Store, req http.Request, nowMs int64) string {
+	let _ = AuthenticateMcpRequest(auth, store, req, nowMs) catch {
+	case McpHttpRejection as rej:
+		return rej.Code
+	}
+	""
+}
+
+// McpHttpEndpointEnforcesBearerAndAudiences verifies HTTP /threads/<id>/mcp bearer checks, thread scoping, and D13 outside-audience handler refusals.
+law McpHttpEndpointEnforcesBearerAndAudiences() {
+	let rng = rand.NewSeededSecure(uint64(99))
+	let auth = NewMcpAuthStore(rng)
+	let store = memory.New()
+	let now = int64(2000000)
+
+	let tokThread = MintThreadToken(auth, MintTokenSpec{
+		TokenID:        "tok-th",
+		ThreadID:       handle.ThreadID("th-1"),
+		SessionID:      handle.SessionID("s-1"),
+		Gen:            1,
+		Audience:       AudienceThread,
+		Scopes:         []string{"*"},
+		RevokePrevious: false,
+	}, now) catch {
+	case McpAuthDenied:
+		return false
+	}
+	let tokOutside = MintThreadToken(auth, MintTokenSpec{
+		TokenID:        "tok-out",
+		ThreadID:       handle.ThreadID("th-1"),
+		SessionID:      handle.SessionID("s-1"),
+		Gen:            1,
+		Audience:       AudienceOutside{ClientID: "dashboard"},
+		Scopes:         []string{"*"},
+		RevokePrevious: false,
+	}, now) catch {
+	case McpAuthDenied:
+		return false
+	}
+
+	let baseTools = makeDemoTools()
+	let ep = NewMcpEndpoint(auth, store, httpmcp.DefaultOptions(), func() int64 { now }, func(c AuthenticatedCaller) mcp.FullServer {
+		mcp.Full(mcp.Server{Name: "atlas-test", Version: "1.0", Tools: GuardMcpTools(baseTools, c, store)})
+	})
+	let postCall = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"turn-start\",\"arguments\":{\"threadID\":\"th-1\"}}}"
+	let postOther = "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"turn-start\",\"arguments\":{\"threadID\":\"th-other\"}}}"
+	let postRead = "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"thread-get\",\"arguments\":{\"threadID\":\"th-1\"}}}"
+
+	let (rUnauth, rWrongThread, rOwnCall, rCrossThread, rOutsideThreadTool, rOutsideRead) = with context { http.Streaming: http.NewRecorder() } {
+		let baseHdrs = []http.Field{
+			http.Field{Name: "Content-Type", Value: "application/json"},
+			http.Field{Name: "Accept", Value: "application/json"},
+		}
+		let r1 = httpmcp.Handle(ep, http.Request{Method: "POST", Path: "/threads/th-1/mcp", RawPath: "/threads/th-1/mcp", Query: []http.Field{}, Header: baseHdrs, Body: http.Buffered{Text: postCall}})
+		let r2 = httpmcp.Handle(ep, http.Request{Method: "POST", Path: "/threads/th-other/mcp", RawPath: "/threads/th-other/mcp", Query: []http.Field{}, Header: baseHdrs.Append(http.Field{Name: "Authorization", Value: "Bearer " + tokThread.BearerToken}), Body: http.Buffered{Text: postCall}})
+		let r3 = httpmcp.Handle(ep, http.Request{Method: "POST", Path: "/threads/th-1/mcp", RawPath: "/threads/th-1/mcp", Query: []http.Field{}, Header: baseHdrs.Append(http.Field{Name: "Authorization", Value: "Bearer " + tokThread.BearerToken}), Body: http.Buffered{Text: postCall}})
+		let r4 = httpmcp.Handle(ep, http.Request{Method: "POST", Path: "/threads/th-1/mcp", RawPath: "/threads/th-1/mcp", Query: []http.Field{}, Header: baseHdrs.Append(http.Field{Name: "Authorization", Value: "Bearer " + tokThread.BearerToken}), Body: http.Buffered{Text: postOther}})
+		let r5 = httpmcp.Handle(ep, http.Request{Method: "POST", Path: "/threads/th-1/mcp", RawPath: "/threads/th-1/mcp", Query: []http.Field{}, Header: baseHdrs.Append(http.Field{Name: "Authorization", Value: "Bearer " + tokOutside.BearerToken}), Body: http.Buffered{Text: postCall}})
+		let r6 = httpmcp.Handle(ep, http.Request{Method: "POST", Path: "/threads/th-1/mcp", RawPath: "/threads/th-1/mcp", Query: []http.Field{}, Header: baseHdrs.Append(http.Field{Name: "Authorization", Value: "Bearer " + tokOutside.BearerToken}), Body: http.Buffered{Text: postRead}})
+		(r1, r2, r3, r4, r5, r6)
+	}
+		rUnauth.Status == 401 &&
+		rWrongThread.Status == 403 &&
+		rOwnCall.Status == 200 && strings.Contains(rOwnCall.Body, "started:th-1") && !strings.Contains(rOwnCall.Body, "\"isError\":true") &&
+		rCrossThread.Status == 200 && strings.Contains(rCrossThread.Body, "\"isError\":true") && strings.Contains(rCrossThread.Body, "wrong thread scope") &&
+		rOutsideThreadTool.Status == 200 && strings.Contains(rOutsideThreadTool.Body, "\"isError\":true") && strings.Contains(rOutsideThreadTool.Body, "thread-only tool") &&
+		rOutsideRead.Status == 200 && strings.Contains(rOutsideRead.Body, "th-1") && !strings.Contains(rOutsideRead.Body, "\"isError\":true")
+}
