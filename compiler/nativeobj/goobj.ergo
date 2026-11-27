@@ -1,13 +1,8 @@
 // The Go object file of the pin (cmd/internal/goobj, magic "\x00go120ld"):
-// a header of block offsets, a string table, then the blocks. The
-// package's own symbols are indexed definitions (PkgIdxSelf), so a stock
-// importer can name them by index through the export data, which is why
-// the object's fingerprint must be the export data's. Every symbol of
-// another package (the runtime, a stock dependency) is a reference by
-// name. A function's metadata (FuncInfo, PC tables, stack maps) is a set
-// of unnamed indexed definitions its text symbol names as aux symbols.
+// a header of block offsets, a string table, then the blocks.
 
 import option
+import slices
 
 // Package index values of a symbol reference.
 let PkgIdxNone = 2147483647
@@ -39,6 +34,13 @@ let AuxPcdata = 11
 
 // Symbol flags.
 let FlagPkgInit = 8
+
+// DWARF constants for subprogram DIEs.
+let AuxDwarfInfo = 3
+let SDwarfFcn = 14
+let AbbrevFunction = 3
+let OpCallFrameCFA = 0x9c
+let RDwTxtAddrU1 = 103
 
 // HeaderSize is the size of the object header: magic, fingerprint,
 // flags and the block offsets.
@@ -79,8 +81,15 @@ type Object {
 	Refs        []Ref,
 }
 
-// objBuilder collects definitions and by-name references.
 type objBuilder { defs []Def, refs []Ref, own Map[string, int] }
+
+type typeDescPlan {
+	Sym       string,
+	TypeIdx   int,
+	IsPtrPair bool,
+	Dupok     bool,
+	Exported  bool,
+}
 
 func refTo(b mut objBuilder, name string, abi int) SymRef {
 	match b.own.Get(name) {
@@ -99,7 +108,11 @@ func refTo(b mut objBuilder, name string, abi int) SymRef {
 
 func addDef(b mut objBuilder, d Def) SymRef {
 	b.defs = b.defs.Append(d)
-	SymRef{Pkg: PkgIdxSelf, Idx: b.defs.Len() - 1}
+	let idx = b.defs.Len() - 1
+	if d.Name != "" {
+		b.own[d.Name] = idx
+	}
+	SymRef{Pkg: PkgIdxSelf, Idx: idx}
 }
 
 func dataDef(kind int, align int, data string) Def {
@@ -107,8 +120,7 @@ func dataDef(kind int, align int, data string) Def {
 }
 
 // FuncInfo is the FuncInfo aux bytes of a function: Args, Locals,
-// FuncID 0, FuncFlag 0, StartLine, the CU files it uses (file 0), no
-// inline tree.
+// FuncID 0, FuncFlag 0, StartLine, the CU file it uses, no inline tree.
 func FuncInfo(lf Lowered) string {
 	let mut w = NewBuf()
 	w.U32(lf.Args)
@@ -119,30 +131,13 @@ func FuncInfo(lf Lowered) string {
 	w.U8(0)
 	w.U32(lf.Line)
 	w.U32(1)
-	w.U32(0)
+	w.U32(lf.File)
 	w.U32(0)
 	w.Bytes()
 }
 
-// DWARF of the pin (cmd/internal/dwarf, DWARF 5 on linux): the aux type
-// of a function's subprogram DIE, its symbol kind, the abbreviation the
-// linker's table gives a plain function, the frame-base operation, and the
-// first of the relocations that turn a function into its .debug_addr
-// index (one to four ULEB bytes, by the package's function count).
-let AuxDwarfInfo = 3
-let SDwarfFcn = 14
-let AbbrevFunction = 3
-let OpCallFrameCFA = 0x9c
-let RDwTxtAddrU1 = 103
-
-// SubprogramDIE is a function's DW_TAG_subprogram DIE as the stock
-// compiler writes one with no variables or inlined calls (PutDefaultFunc):
-// its name, low_pc as a .debug_addr index (a relocation to the function),
-// high_pc as its size, the call-frame CFA as frame base, file 1 and its
-// line, whether it is external, and the end of its children. The stock
-// linker needs one for every function it puts in a compilation unit.
-func SubprogramDIE(name string, size int, line int, external bool, fn SymRef, nfuncs int) (string, []ObjReloc) {
-	// Stock sizes the index for twice its function estimate.
+// SubprogramDIEInFile emits a DWARF DW_TAG_subprogram DIE for file index file.
+func SubprogramDIEInFile(name string, size int, file int, line int, external bool, fn SymRef, nfuncs int) (string, []ObjReloc) {
 	let n = 2 * nfuncs
 	let width = if n <= 127 { 1 } else if n <= 16383 { 2 } else if n <= 2097151 { 3 } else { 4 }
 	let mut w = NewBuf()
@@ -156,15 +151,19 @@ func SubprogramDIE(name string, size int, line int, external bool, fn SymRef, nf
 	w.Uvarint(size)
 	w.U8(1)
 	w.U8(OpCallFrameCFA)
-	w.U32(1)
+	w.U32(file + 1)
 	w.Uvarint(line)
 	w.U8(if external { 1 } else { 0 })
 	w.U8(0)
 	(w.Bytes(), []ObjReloc{ObjReloc{Off: at, Size: width, Type: RDwTxtAddrU1 + width - 1, Add: 0, Sym: fn}})
 }
 
-// InitTask is the bytes of the package's inittask: state 0, the number
-// of init functions, then one pointer each (relocated).
+// SubprogramDIE is a function's DW_TAG_subprogram DIE for file index 0.
+func SubprogramDIE(name string, size int, line int, external bool, fn SymRef, nfuncs int) (string, []ObjReloc) {
+	SubprogramDIEInFile(name, size, 0, line, external, fn, nfuncs)
+}
+
+// InitTask is the bytes of the package's inittask.
 func InitTask(n int) string {
 	let mut w = NewBuf()
 	w.U32(0)
@@ -175,15 +174,419 @@ func InitTask(n int) string {
 	w.Bytes()
 }
 
-// BuildObject lays out the object of package p from its lowered
-// functions (in p.Funcs order) and the export data's fingerprint.
-func BuildObject(p Package, lowered []Lowered, fingerprint string) Object {
+func fnv32(s string) int {
+	let mut h = 2166136261
+	for i in 0..s.Len() {
+		h = ((h ^ int(s[i])) * 16777619) & 0xffffffff
+	}
+	if h == 0 { 1 } else { h }
+}
+
+func abiKindCode(k int) int {
+	if k == KBool {
+		return 1
+	}
+	if k == KInt {
+		return 2
+	}
+	if k >= KInt8 && k <= KInt64 {
+		return 3 + (k - KInt8)
+	}
+	if k >= KUint && k <= KUintptr {
+		return 7 + (k - KUint)
+	}
+	if k == KFunc {
+		return 19
+	}
+	if k == KPtr {
+		return 22
+	}
+	if k == KSlice {
+		return 23
+	}
+	if k == KString {
+		return 24
+	}
+	if k == KStruct {
+		return 25
+	}
+	0
+}
+
+let basicShortNames = []string{
+	"int", "", "", "bool", "int8", "int16", "int32", "int64",
+	"uint", "uint8", "uint16", "uint32", "uint64", "uintptr", "string", "", "",
+}
+
+func pkgShortOf(p Package, pkgPath string) string {
+	if pkgPath == "" || pkgPath == p.Path {
+		return p.Name
+	}
+	for imp in p.Imports {
+		if imp.Path == pkgPath {
+			return imp.Name
+		}
+	}
+	pkgPath
+}
+
+func typeShortStr(p Package, t int) string {
+	let td = p.Types[t]
+	if td.Kind >= 0 && td.Kind < basicShortNames.Len() && basicShortNames[td.Kind] != "" {
+		return basicShortNames[td.Kind]
+	}
+	if td.Kind == KPtr {
+		return "*" + typeShortStr(p, td.Elem)
+	}
+	if td.Kind == KSlice {
+		return "[]" + typeShortStr(p, td.Elem)
+	}
+	if td.Kind == KStruct {
+		if td.Name != "" {
+			return pkgShortOf(p, td.PkgPath) + "." + td.Name
+		}
+		return "struct{}"
+	}
+	let mut s = "func("
+	for i, pt in td.Params {
+		if i > 0 {
+			s = s + ", "
+		}
+		s = s + typeShortStr(p, pt)
+	}
+	s = s + ")"
+	if td.Results.Len() == 1 {
+		s = s + " " + typeShortStr(p, td.Results[0])
+	} else if td.Results.Len() > 1 {
+		s = s + " ("
+		for i, rt in td.Results {
+			if i > 0 {
+				s = s + ", "
+			}
+			s = s + typeShortStr(p, rt)
+		}
+		s = s + ")"
+	}
+	s
+}
+
+func hexNib(v int) byte {
+	if v < 10 { byte(48 + v) } else { byte(87 + v) }
+}
+
+func bytesHex(bs []byte) string {
+	let mut out = slices.WithCapacity[byte](bs.Len() * 2)
+	for b in bs {
+		let v = int(b)
+		out = out.Append(hexNib((v >> 4) & 15))
+		out = out.Append(hexNib(v & 15))
+	}
+	out.Text()
+}
+
+func addNamedata(b mut objBuilder, name string, exported bool) SymRef {
+	let sym = "type:.namedata." + name + (if exported { "." } else { "-" })
+	match b.own.Get(sym) {
+	case option.Some as i:
+		return SymRef{Pkg: PkgIdxSelf, Idx: i.Value}
+	case option.None:
+	}
+	let mut w = NewBuf()
+	w.U8(if exported { 1 } else { 0 })
+	w.Uvarint(name.Len())
+	w.Raw(name)
+	b.addDef(Def{Name: sym, ABI: ABI0, Kind: SRodata, Flag: FlagDupok, Flag2: 0, Size: w.Size(), Align: 1, Data: w.Bytes(), Relocs: []ObjReloc{}, Aux: []ObjAux{}})
+}
+
+func addImportpath(b mut objBuilder, pkgPath string) SymRef {
+	let sym = "type:.importpath." + pkgPath + "."
+	match b.own.Get(sym) {
+	case option.Some as i:
+		return SymRef{Pkg: PkgIdxSelf, Idx: i.Value}
+	case option.None:
+	}
+	let mut w = NewBuf()
+	w.U8(0)
+	w.Uvarint(pkgPath.Len())
+	w.Raw(pkgPath)
+	b.addDef(Def{Name: sym, ABI: ABI0, Kind: SRodata, Flag: FlagDupok, Flag2: 0, Size: w.Size(), Align: 1, Data: w.Bytes(), Relocs: []ObjReloc{}, Aux: []ObjAux{}})
+}
+
+func addGcbits(p Package, b mut objBuilder, layouts LayoutTable, t int) SymRef {
+	let pb = int(layouts.PtrBytes[t])
+	if pb == 0 {
+		let sym = SymName(p, "..gcbits_0")
+		match b.own.Get(sym) {
+		case option.Some as i:
+			return SymRef{Pkg: PkgIdxSelf, Idx: i.Value}
+		case option.None:
+		}
+		return b.addDef(Def{Name: sym, ABI: ABI0, Kind: SRodata, Flag: 0, Flag2: 0, Size: 0, Align: 8, Data: "", Relocs: []ObjReloc{}, Aux: []ObjAux{}})
+	}
+	let nbytes = (pb/8 + 7) / 8
+	let padded = ((nbytes + 7) / 8) * 8
+	let mut mask = slices.Repeat[byte]([]byte{byte(0)}, padded)
+	let wlo = int(layouts.PtrWordLo[t])
+	let whi = int(layouts.PtrWordHi[t])
+	for wi in wlo..whi {
+		let w = int(layouts.PtrWords[wi])
+		let bi = w / 8
+		if bi < padded {
+			mask[bi] = byte(int(mask[bi]) | (1 << (w % 8)))
+		}
+	}
+	let sym = SymName(p, "..gcbits_"+bytesHex(mask))
+	match b.own.Get(sym) {
+	case option.Some as i:
+		return SymRef{Pkg: PkgIdxSelf, Idx: i.Value}
+	case option.None:
+	}
+	b.addDef(Def{Name: sym, ABI: ABI0, Kind: SRodata, Flag: 0, Flag2: 0, Size: padded, Align: 8, Data: mask.Text(), Relocs: []ObjReloc{}, Aux: []ObjAux{}})
+}
+
+func reservePlan(plans mut []typeDescPlan, symToIdx mut Map[string, int], base int, pl typeDescPlan) int {
+	match (*symToIdx).Get(pl.Sym) {
+	case option.Some as i:
+		return i.Value
+	case option.None:
+	}
+	let idx = base + (*plans).Len()
+	(*symToIdx)[pl.Sym] = idx
+	*plans = (*plans).Append(pl)
+	idx
+}
+
+// PlanTypeSyms computes deterministic symbol definitions and object symbol
+// indices for all Go type descriptors emitted for p.
+func PlanTypeSyms(p Package) ([]typeDescPlan, []int, []int) {
+	let nf = p.Funcs.Len()
+	let ng = p.Globals.Len()
+	let hasInit = if p.Inits.Len() > 0 { 1 } else { 0 }
+	let base = nf + ng + hasInit
+	let mut typeSyms = slices.Repeat[int]([]int{-1}, p.Types.Len())
+	let mut ptrTypeSyms = slices.Repeat[int]([]int{-1}, p.Types.Len())
+	let mut plans = []typeDescPlan{}
+	let mut symToIdx = Map[string, int]{}
+	for t, td in p.Types {
+		if KindIsBasic(td.Kind) {
+			continue
+		}
+		if td.Kind == KStruct {
+			if td.PkgPath == "" || td.PkgPath == p.Path {
+				if td.Name != "" {
+					let s1 = "type:" + p.Path + "." + td.Name
+					let s2 = "type:*" + p.Path + "." + td.Name
+					typeSyms[t] = reservePlan(&plans, &symToIdx, base, typeDescPlan{Sym: s1, TypeIdx: t, IsPtrPair: false, Dupok: false, Exported: td.Exported})
+					ptrTypeSyms[t] = reservePlan(&plans, &symToIdx, base, typeDescPlan{Sym: s2, TypeIdx: t, IsPtrPair: true, Dupok: false, Exported: td.Exported})
+				} else {
+					let s1 = TypeDescSym(p, t)
+					typeSyms[t] = reservePlan(&plans, &symToIdx, base, typeDescPlan{Sym: s1, TypeIdx: t, IsPtrPair: false, Dupok: true, Exported: false})
+				}
+			}
+		} else if td.Kind == KPtr {
+			let etd = p.Types[td.Elem]
+			if etd.Kind == KStruct && etd.PkgPath != "" && etd.PkgPath != p.Path {
+				continue
+			}
+			if etd.Kind == KStruct && etd.Name != "" {
+				let s2 = TypeDescSym(p, t)
+				typeSyms[t] = reservePlan(&plans, &symToIdx, base, typeDescPlan{Sym: s2, TypeIdx: td.Elem, IsPtrPair: true, Dupok: false, Exported: etd.Exported})
+			} else {
+				let s = TypeDescSym(p, t)
+				typeSyms[t] = reservePlan(&plans, &symToIdx, base, typeDescPlan{Sym: s, TypeIdx: t, IsPtrPair: false, Dupok: true, Exported: false})
+			}
+		} else {
+			let s = TypeDescSym(p, t)
+			typeSyms[t] = reservePlan(&plans, &symToIdx, base, typeDescPlan{Sym: s, TypeIdx: t, IsPtrPair: false, Dupok: true, Exported: false})
+		}
+	}
+	(plans, typeSyms, ptrTypeSyms)
+}
+
+func emitCommonHeader(w mut Buf, rs mut []ObjReloc, size int, ptrBytes int, hash int, tflag int, align int, kind int, eqRef SymRef, hasEq bool, gcRef SymRef, strRef SymRef, ptrToRef SymRef, hasPtrTo bool) {
+	w.U64(size)
+	w.U64(ptrBytes)
+	w.U32(hash)
+	w.U8(tflag)
+	w.U8(align)
+	w.U8(align)
+	w.U8(kind)
+	w.U64(0)
+	if hasEq {
+		*rs = (*rs).Append(ObjReloc{Off: 24, Size: 8, Type: RAddr, Add: 0, Sym: eqRef})
+	}
+	w.U64(0)
+	*rs = (*rs).Append(ObjReloc{Off: 32, Size: 8, Type: RAddr, Add: 0, Sym: gcRef})
+	w.U32(0)
+	*rs = (*rs).Append(ObjReloc{Off: 40, Size: 4, Type: RAddroff, Add: 0, Sym: strRef})
+	w.U32(0)
+	if hasPtrTo {
+		*rs = (*rs).Append(ObjReloc{Off: 44, Size: 4, Type: RAddroff, Add: 0, Sym: ptrToRef})
+	}
+}
+
+func ptrSymRef(b mut objBuilder, sym string) SymRef {
+	match b.own.Get(sym) {
+	case option.Some as i:
+		return SymRef{Pkg: PkgIdxSelf, Idx: i.Value}
+	case option.None:
+	}
+	b.refTo(sym, ABI0)
+}
+
+func fillTypeDesc(p Package, layouts LayoutTable, b mut objBuilder, selfIdx int, pl typeDescPlan) Def {
+	if pl.IsPtrPair {
+		let elemSym = "type:" + p.Path + "." + p.Types[pl.TypeIdx].Name
+		let shortStr = "*" + p.Name + "." + p.Types[pl.TypeIdx].Name
+		let strRef = b.addNamedata(shortStr, pl.Exported)
+		let mut mask = slices.Repeat[byte]([]byte{byte(0)}, 8)
+		mask[0] = byte(1)
+		let gcSym = SymName(p, "..gcbits_"+bytesHex(mask))
+		let gcRef = match b.own.Get(gcSym) {
+		case option.Some as i:
+			SymRef{Pkg: PkgIdxSelf, Idx: i.Value}
+		case option.None:
+			b.addDef(Def{Name: gcSym, ABI: ABI0, Kind: SRodata, Flag: 0, Flag2: 0, Size: 8, Align: 8, Data: mask.Text(), Relocs: []ObjReloc{}, Aux: []ObjAux{}})
+		}
+		let eqRef = b.refTo(RuntimeMemequal64F, ABI0)
+		let elemRef = b.ptrSymRef(elemSym)
+		let mut w = NewBuf()
+		let mut rs = []ObjReloc{}
+		emitCommonHeader(&w, &rs, 8, 8, fnv32(pl.Sym), 8|32, 8, abiKindCode(KPtr), eqRef, true, gcRef, strRef, SymRef{Pkg: 0, Idx: 0}, false)
+		w.U64(0)
+		rs = rs.Append(ObjReloc{Off: 48, Size: 8, Type: RAddr, Add: 0, Sym: elemRef})
+		let flag = FlagGoType | FlagTypelink | (if pl.Dupok { FlagDupok } else { 0 })
+		return Def{Name: pl.Sym, ABI: ABI0, Kind: SRodata, Flag: flag, Flag2: 0, Size: w.Size(), Align: 8, Data: w.Bytes(), Relocs: rs, Aux: []ObjAux{}}
+	}
+	let t = pl.TypeIdx
+	let td = p.Types[t]
+	let shortStr = typeShortStr(p, t)
+	let mut tflag = 2
+	let strText = if shortStr.Len() > 0 && shortStr[0] == byte('*') {
+		tflag = tflag - 2
+		shortStr
+	} else {
+		"*" + shortStr
+	}
+	if td.Kind == KStruct && td.Name != "" {
+		tflag = tflag | 1 | 4
+	}
+	let isPtrOrFunc = td.Kind == KPtr || td.Kind == KFunc
+	if isPtrOrFunc {
+		tflag = tflag | 32
+	}
+	if td.Kind == KPtr {
+		tflag = tflag | 8
+	}
+	let strExported = if td.Kind == KStruct && td.Name != "" {
+		td.Exported
+	} else if td.Kind == KPtr && p.Types[td.Elem].Kind == KStruct && p.Types[td.Elem].Name != "" {
+		p.Types[td.Elem].Exported
+	} else {
+		false
+	}
+	let strRef = b.addNamedata(strText, strExported)
+	let gcRef = addGcbits(p, b, layouts, t)
+	let (eqRef, hasEq) = if td.Kind == KPtr {
+		(b.refTo(RuntimeMemequal64F, ABI0), true)
+	} else {
+		(SymRef{Pkg: 0, Idx: 0}, false)
+	}
+	let ptrPairSym = if td.Kind == KStruct && td.Name != "" { "type:*" + p.Path + "." + td.Name } else { "" }
+	let (ptrToRef, hasPtrTo) = if ptrPairSym != "" {
+		match b.own.Get(ptrPairSym) {
+		case option.Some as pi:
+			(SymRef{Pkg: PkgIdxSelf, Idx: pi.Value}, true)
+		case option.None:
+			(SymRef{Pkg: 0, Idx: 0}, false)
+		}
+	} else {
+		(SymRef{Pkg: 0, Idx: 0}, false)
+	}
+	let mut w = NewBuf()
+	let mut rs = []ObjReloc{}
+	emitCommonHeader(&w, &rs, int(layouts.Sizes[t]), int(layouts.PtrBytes[t]), fnv32(pl.Sym), tflag, int(layouts.Aligns[t]), abiKindCode(td.Kind), eqRef, hasEq, gcRef, strRef, ptrToRef, hasPtrTo)
+	if td.Kind == KPtr || td.Kind == KSlice {
+		let elemRef = b.ptrSymRef(TypeDescSym(p, td.Elem))
+		w.U64(0)
+		rs = rs.Append(ObjReloc{Off: 48, Size: 8, Type: RAddr, Add: 0, Sym: elemRef})
+		let flag = FlagGoType | FlagTypelink | (if pl.Dupok { FlagDupok } else { 0 })
+		return Def{Name: pl.Sym, ABI: ABI0, Kind: SRodata, Flag: flag, Flag2: 0, Size: w.Size(), Align: 8, Data: w.Bytes(), Relocs: rs, Aux: []ObjAux{}}
+	}
+	if td.Kind == KFunc {
+		w.U16(td.Params.Len())
+		w.U16(td.Results.Len())
+		w.U32(0)
+		for pt in td.Params {
+			let pOff = w.Size()
+			w.U64(0)
+			rs = rs.Append(ObjReloc{Off: pOff, Size: 8, Type: RAddr, Add: 0, Sym: b.ptrSymRef(TypeDescSym(p, pt))})
+		}
+		for rt in td.Results {
+			let rOff = w.Size()
+			w.U64(0)
+			rs = rs.Append(ObjReloc{Off: rOff, Size: 8, Type: RAddr, Add: 0, Sym: b.ptrSymRef(TypeDescSym(p, rt))})
+		}
+		let flag = FlagGoType | FlagTypelink | (if pl.Dupok { FlagDupok } else { 0 })
+		return Def{Name: pl.Sym, ABI: ABI0, Kind: SRodata, Flag: flag, Flag2: 0, Size: w.Size(), Align: 8, Data: w.Bytes(), Relocs: rs, Aux: []ObjAux{}}
+	}
+	let mut hasUnexpField = false
+	for fd in td.Fields {
+		if !fd.Exported {
+			hasUnexpField = true
+		}
+	}
+	let pkgPathSym = if hasUnexpField {
+		if td.PkgPath != "" { td.PkgPath } else { p.Path }
+	} else {
+		""
+	}
+	w.U64(0)
+	if pkgPathSym != "" {
+		let impRef = b.addImportpath(pkgPathSym)
+		rs = rs.Append(ObjReloc{Off: 48, Size: 8, Type: RAddr, Add: 0, Sym: impRef})
+	}
+	let named = td.Name != ""
+	let fieldsOff = if named { 96 } else { 80 }
+	let nfld = td.Fields.Len()
+	w.U64(0)
+	if nfld > 0 {
+		rs = rs.Append(ObjReloc{Off: 56, Size: 8, Type: RAddr, Add: fieldsOff, Sym: SymRef{Pkg: PkgIdxSelf, Idx: selfIdx}})
+	}
+	w.U64(nfld)
+	w.U64(nfld)
+	if named {
+		let uPath = if td.PkgPath != "" { td.PkgPath } else { p.Path }
+		let impRef = b.addImportpath(uPath)
+		w.U32(0)
+		rs = rs.Append(ObjReloc{Off: 80, Size: 4, Type: RAddroff, Add: 0, Sym: impRef})
+		w.U16(0)
+		w.U16(0)
+		w.U32(16 + 24*nfld)
+		w.U32(0)
+	}
+	let flo = int(layouts.FieldOffLo[t])
+	for fi, fd in td.Fields {
+		let fBase = w.Size()
+		let fnRef = b.addNamedata(fd.Name, fd.Exported)
+		let ftRef = b.ptrSymRef(TypeDescSym(p, fd.Type))
+		w.U64(0)
+		rs = rs.Append(ObjReloc{Off: fBase, Size: 8, Type: RAddr, Add: 0, Sym: fnRef})
+		w.U64(0)
+		rs = rs.Append(ObjReloc{Off: fBase + 8, Size: 8, Type: RAddr, Add: 0, Sym: ftRef})
+		w.U64(int(layouts.FieldOffs[flo+fi]))
+	}
+	let flag = FlagGoType | (if pl.Dupok { FlagDupok } else { 0 })
+	Def{Name: pl.Sym, ABI: ABI0, Kind: SRodata, Flag: flag, Flag2: 0, Size: w.Size(), Align: 8, Data: w.Bytes(), Relocs: rs, Aux: []ObjAux{}}
+}
+
+// BuildObjectWithStrs lays out the Go object file of package p from lowered functions and string pool strs.
+func BuildObjectWithStrs(p Package, layouts LayoutTable, lowered []Lowered, strs []string, fingerprint string) Object {
 	let mut b = objBuilder{defs: []Def{}, refs: []Ref{}, own: Map[string, int]{}}
-	// Text symbols first, so a function's SymIdx is its place in p.Funcs.
-	for i in 0..lowered.Len() {
+	let nf = lowered.Len()
+	for i in 0..nf {
 		b.own[FuncSym(p, i)] = i
 	}
-	let nf = lowered.Len()
 	for k, g in p.Globals {
 		b.own[SymName(p, g.Name)] = nf + k
 	}
@@ -192,6 +595,15 @@ func BuildObject(p Package, lowered []Lowered, fingerprint string) Object {
 	let task = SymName(p, ".inittask")
 	if hasInit {
 		b.own[task] = nf + p.Globals.Len()
+	}
+	let (plans, _, _) = PlanTypeSyms(p)
+	let planBase = b.own.Len()
+	for k, pl in plans {
+		b.own[pl.Sym] = planBase + k
+	}
+	let strBase = planBase + plans.Len()
+	for k in 0..strs.Len() {
+		b.own[StrLiteralSym(p, k)] = strBase + k
 	}
 	for i, lf in lowered {
 		let flag2 = if p.Funcs[i].Name == "init" { FlagPkgInit } else { 0 }
@@ -214,6 +626,13 @@ func BuildObject(p Package, lowered []Lowered, fingerprint string) Object {
 		let data = InitTask(inits.Len())
 		b.addDef(Def{Name: task, ABI: ABI0, Kind: SNoptrdata, Flag: 0, Flag2: 0, Size: data.Len(), Align: 8, Data: data, Relocs: rs, Aux: []ObjAux{}})
 	}
+	for pl in plans {
+		b.addDef(Def{Name: pl.Sym, ABI: ABI0, Kind: SRodata, Flag: FlagGoType, Flag2: 0, Size: 0, Align: 8, Data: "", Relocs: []ObjReloc{}, Aux: []ObjAux{}})
+	}
+	for k, s in strs {
+		let sym = StrLiteralSym(p, k)
+		b.addDef(Def{Name: sym, ABI: ABI0, Kind: SRodata, Flag: 0, Flag2: 0, Size: s.Len(), Align: 1, Data: s, Relocs: []ObjReloc{}, Aux: []ObjAux{}})
+	}
 	for i, lf in lowered {
 		let mut rs = []ObjReloc{}
 		for r in lf.Relocs {
@@ -221,14 +640,14 @@ func BuildObject(p Package, lowered []Lowered, fingerprint string) Object {
 			rs = rs.Append(ObjReloc{Off: r.Off, Size: r.Size, Type: r.Type, Add: r.Add, Sym: target})
 		}
 		let info = b.addDef(dataDef(7, 0, FuncInfo(lf)))
-		let args = b.addDef(dataDef(SRodata, 4, StackMap(lf.ArgMaps, p.Funcs[i].Params.Len()+p.Funcs[i].Results.Len())))
+		let args = b.addDef(dataDef(SRodata, 4, StackMap(lf.ArgMaps, lf.ArgBits)))
 		let locals = b.addDef(dataDef(SRodata, 4, StackMap(lf.Locals, lf.Frame.Slots)))
 		let pcsp = b.addDef(dataDef(SRodata, 1, lf.Pcsp))
 		let pcfile = b.addDef(dataDef(SRodata, 1, lf.Pcfile))
 		let pcline = b.addDef(dataDef(SRodata, 1, lf.Pcline))
 		let unsafe = b.addDef(dataDef(SRodata, 1, lf.Unsafe))
 		let smi = b.addDef(dataDef(SRodata, 1, lf.Smi))
-		let (die, dieRelocs) = SubprogramDIE(FuncSym(p, i), lf.Code.Len(), lf.Line, Exported(p.Funcs[i].Name), SymRef{Pkg: PkgIdxSelf, Idx: i}, lowered.Len())
+		let (die, dieRelocs) = SubprogramDIEInFile(FuncSym(p, i), lf.Code.Len(), lf.File, lf.Line, Exported(p.Funcs[i].Name), SymRef{Pkg: PkgIdxSelf, Idx: i}, lowered.Len())
 		let dwarf = b.addDef(Def{Name: "", ABI: 0, Kind: SDwarfFcn, Flag: 0, Flag2: 0, Size: die.Len(), Align: 1, Data: die, Relocs: dieRelocs, Aux: []ObjAux{}})
 		let mut d = b.defs[i]
 		d.Relocs = rs
@@ -245,10 +664,18 @@ func BuildObject(p Package, lowered []Lowered, fingerprint string) Object {
 		}
 		b.defs[i] = d
 	}
-	Object{Fingerprint: fingerprint, Autolib: p.Imports, Files: []string{p.File}, Defs: b.defs, Refs: b.refs}
+	for k, pl in plans {
+		let idx = planBase + k
+		b.defs[idx] = fillTypeDesc(p, layouts, &b, idx, pl)
+	}
+	Object{Fingerprint: fingerprint, Autolib: p.Imports, Files: PkgFiles(p), Defs: b.defs, Refs: b.refs}
 }
 
-// strtab is the object's string table being written.
+// BuildObject lays out the object of package p from its lowered functions and fingerprint.
+func BuildObject(p Package, lowered []Lowered, fingerprint string) Object {
+	BuildObjectWithStrs(p, ComputeLayouts(p), lowered, []string{}, fingerprint)
+}
+
 type strtab { offs Map[string, int] }
 
 func addStr(t mut strtab, w mut Buf, s string) {
@@ -286,8 +713,7 @@ func sym(t strtab, w mut Buf, name string, abi int, kind int, flag int, flag2 in
 	w.U32(align)
 }
 
-// WriteObject is the bytes of o, from the magic on (what follows "\n!\n"
-// in the _go_.o member).
+// WriteObject is the bytes of o, from the magic on.
 func WriteObject(o Object) string {
 	let mut w = NewBuf()
 	let mut t = strtab{offs: Map[string, int]{}}
@@ -329,7 +755,6 @@ func WriteObject(o Object) string {
 	for d in o.Defs {
 		t.sym(&w, d.Name, d.ABI, d.Kind, d.Flag, d.Flag2, d.Size, d.Align)
 	}
-	// No hashed or non-package definitions.
 	offs[4] = w.Size()
 	offs[5] = w.Size()
 	offs[6] = w.Size()
@@ -337,7 +762,6 @@ func WriteObject(o Object) string {
 	for r in o.Refs {
 		t.sym(&w, r.Name, r.ABI, 0, 0, 0, 0, 0)
 	}
-	// No reference flags, hashes.
 	offs[8] = w.Size()
 	offs[9] = w.Size()
 	offs[10] = w.Size()
@@ -391,7 +815,6 @@ func WriteObject(o Object) string {
 	w.Bytes()
 }
 
-// sortedRelocs orders relocations by offset, as the stock writer does.
 func sortedRelocs(rs []ObjReloc) []ObjReloc {
 	let mut out = rs
 	for i in 1..out.Len() {

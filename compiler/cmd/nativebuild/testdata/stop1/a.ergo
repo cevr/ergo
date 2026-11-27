@@ -1,0 +1,37 @@
+import ergo.local/native/stop1dep
+
+// LocalBox is a package-local record with basic fields supporting methods, updates, and borrows.
+type LocalBox { Flag bool, Tag byte, Count uint32, Note string }
+
+// Meter combines an imported Box record, signed int32 fields, and a uint32 slice.
+type Meter { Base stop1dep.Box, Bias int32, Alt int32, Weights []uint32 }
+
+// MakeMeter constructs a Meter with an imported Box literal and non-empty slice literal.
+func MakeMeter(tag byte, count uint32, label string, score uint64, bias int32, alt int32, a uint32, b uint32) Meter {
+	let base = stop1dep.Box{Tag: tag, Count: count + 1, Label: label, Score: score}
+	let ws = []uint32{a, b, a ^ b, count}
+	Meter{Base: base, Bias: bias, Alt: alt, Weights: ws}
+}
+
+// PickMeterWeight returns m.Weights[ix] directly via bounds-checked slice indexing.
+func PickMeterWeight(m Meter, ix int) uint32 {
+	m.Weights[ix]
+}
+
+// UseLocalRecord builds and updates a local record literal and reads its fields.
+func UseLocalRecord(count uint32, tag byte, note string, w uint32, ok bool) uint32 {
+	let lb = LocalBox{Flag: ok, Tag: tag, Count: count, Note: note}
+	let upd = LocalBox{..lb, Count: lb.Count + w}
+	upd.Count + 9
+}
+
+// Analyze mixes imported calls, cross-file calls, nested field reads, and scalar logic.
+func Analyze(m Meter, ix int, ok bool, tag byte) string {
+	let b = m.Base
+	let scaled = stop1dep.ScaleU64(b.Score, m.Base.Score+1, b.Count, tag)
+	let signed = stop1dep.SignedMix(m.Bias, m.Alt)
+	let even = PickEven(b.Count, ix)
+	let isz = UseLocalRecord(m.Base.Count, tag, m.Base.Label, b.Count, ok && even)
+	let cond = (ok && even) || (signed < 0 && scaled > 10 && isz > 5)
+	stop1dep.FormatTag(tag, m.Base.Label, cond)
+}
