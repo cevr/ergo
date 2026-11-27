@@ -223,12 +223,22 @@ math	ToUint16	computation	PRIM range fact (B, BCE1's facts) and ENV-PURE: an Erg
 math	ToUint32	computation	PRIM range fact (B, BCE1's facts) and ENV-PURE: an Ergo body's guarded int32(f) lowers to the saturating ergo.FloatTo… with its own range tests, which the guard already proved, and the failing body takes env; NP4f-3 count 1.05 to 1.23x the body
 math	ToUint8	computation	PRIM range fact (B, BCE1's facts) and ENV-PURE: an Ergo body's guarded int32(f) lowers to the saturating ergo.FloatTo… with its own range tests, which the guard already proved, and the failing body takes env; NP4f-3 count 1.05 to 1.23x the body
 net	Conn	type
+net	Denied	type
 net	DialFailed	type
+net	FD	type
 net	Failed	type
 net	ListenFailed	type
 net	Listener	type
+net	ReceivedFDs	type
+net	UnixConn	type
+net	UnixListener	type
+net	Unsupported	type
+net	confineUnix	host
+net	hostAdoptFD	host
 net	hostDial	host
+net	hostDialUnix	host
 net	hostListen	host
+net	hostListenUnix	host
 nettest	PipeNet	type
 nettest	newPipeNet	provider
 os	Code	type
