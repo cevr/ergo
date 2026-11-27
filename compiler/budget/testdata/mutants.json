@@ -1,0 +1,57 @@
+{
+  "about": "Pure-Ergo budget and opcount admission, reservation, configuration, and perf counter decoding guards.",
+  "mutants": [
+    {
+      "name": "selfhost-toolchain-budget-admit-cores-only",
+      "origin": "selfhost-toolchain-runtime",
+      "file": "compiler/budget/decide.ergo",
+      "decl": "Fits",
+      "from": "Used(s)+e.Width <= r.Cores && (r.Memory == uint64(0) || MemoryUsed(s)+e.Memory <= r.Memory)",
+      "to": "Used(s)+e.Width <= r.Cores",
+      "rule": "Budget admission must check both core width and reserved memory capacity.",
+      "killers": ["compiler/budget:law:AdmitPreservesCapacityInvariant"],
+      "anchor": {
+        "tests": ["compiler/budget:law:AdmitPreservesCapacityInvariant"]
+      }
+    },
+    {
+      "name": "selfhost-toolchain-budget-cap-unknown-at-default",
+      "origin": "selfhost-toolchain-runtime",
+      "file": "compiler/budget/decide.ergo",
+      "decl": "Reservation",
+      "from": "\t} else {\n\t\tres = dflt\n\t}",
+      "to": "\t} else {\n\t\tres = dflt\n\t\tcapAt = dflt\n\t}",
+      "rule": "Unmeasured commands reserve the default charge without setting a hard memory cap.",
+      "killers": ["compiler/budget:TestDecideAdmissionAndJSON"],
+      "anchor": {
+        "tests": ["compiler/budget:TestDecideAdmissionAndJSON"]
+      }
+    },
+    {
+      "name": "selfhost-toolchain-budget-gate-load-admitted",
+      "origin": "selfhost-toolchain-runtime",
+      "file": "compiler/budget/config.ergo",
+      "decl": "ParseConfig",
+      "from": "\t\t} else if key == \"gate-load\" {\n\t\t\tif value != \"0\" {",
+      "to": "\t\t} else if key == \"gate-load\" {\n\t\t\tif false {",
+      "rule": "Budget config parsing must refuse non-zero removed gate-load directives.",
+      "killers": ["compiler/budget:TestConfigParseAndSize"],
+      "anchor": {
+        "tests": ["compiler/budget:TestConfigParseAndSize"]
+      }
+    },
+    {
+      "name": "selfhost-toolchain-budget-opcount-multiplexed",
+      "origin": "selfhost-toolchain-runtime",
+      "file": "compiler/budget/opcount.ergo",
+      "decl": "DecodeCounter",
+      "from": "\tif running < enabled {",
+      "to": "\tif false {",
+      "rule": "Multiplexed hardware counters with running < enabled must be refused rather than returning scaled values.",
+      "killers": ["compiler/budget:TestOpcountClassifyAndReceipt"],
+      "anchor": {
+        "tests": ["compiler/budget:TestOpcountClassifyAndReceipt"]
+      }
+    }
+  ]
+}

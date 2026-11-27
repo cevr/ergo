@@ -1,0 +1,178 @@
+import strconv
+import strings
+
+// Variable names the environment variable that sets the memory limit.
+let Variable = "ERGO_PROGRAM_MEMORY"
+
+// DefaultLimit is the default memory limit (2 GiB in bytes) when Variable is unset.
+let DefaultLimit = uint64(2147483648)
+
+// OOMScore is the Linux oom_score_adj value applied to bounded child programs.
+let OOMScore = 1000
+
+let kib = uint64(1024)
+let mib = uint64(1048576)
+let gib = uint64(1073741824)
+let maxU64 = ^uint64(0)
+
+// SizeError reports a malformed or out-of-range size specification.
+type SizeError {
+	Message string,
+}
+
+// ParseSize reads a memory size in bytes, KiB, MiB, or GiB, or 0 / off for no limit.
+func ParseSize(s string) uint64 fails SizeError {
+	let trimmed = strings.TrimSpace(s)
+	if trimmed == "off" {
+		return uint64(0)
+	}
+	let mut numText = trimmed
+	let mut shift = uint64(0)
+	if strings.HasSuffix(trimmed, "GiB") {
+		numText = strings.TrimSuffix(trimmed, "GiB")
+		shift = uint64(30)
+	} else if strings.HasSuffix(trimmed, "MiB") {
+		numText = strings.TrimSuffix(trimmed, "MiB")
+		shift = uint64(20)
+	} else if strings.HasSuffix(trimmed, "KiB") {
+		numText = strings.TrimSuffix(trimmed, "KiB")
+		shift = uint64(10)
+	}
+	let clean = strings.TrimSpace(numText)
+	if clean.Len() == 0 {
+		return SizeError{Message: "not a size: use bytes, KiB, MiB or GiB, or 0 for no limit"}
+	}
+	for i in 0..clean.Len() {
+		let b = clean[i]
+		if b < byte('0') || b > byte('9') {
+			return SizeError{Message: "not a size: use bytes, KiB, MiB or GiB, or 0 for no limit"}
+		}
+	}
+	let mut acc = uint64(0)
+	let maxDiv = maxU64 / uint64(10)
+	for i in 0..clean.Len() {
+		let digit = uint64(clean[i] - byte('0'))
+		if acc > maxDiv || (acc == maxDiv && digit > maxU64-acc*uint64(10)) {
+			return SizeError{Message: "size out of range"}
+		}
+		acc = acc*uint64(10) + digit
+	}
+	if acc > (maxU64 >> shift) {
+		return SizeError{Message: "size out of range"}
+	}
+	acc << shift
+}
+
+// Format formats n in the largest binary unit (GiB, MiB, KiB) that divides it, or bytes.
+func Format(n uint64) string {
+	if n != uint64(0) {
+		if n%gib == uint64(0) {
+			return formatUint64(n/gib) + " GiB"
+		}
+		if n%mib == uint64(0) {
+			return formatUint64(n/mib) + " MiB"
+		}
+		if n%kib == uint64(0) {
+			return formatUint64(n/kib) + " KiB"
+		}
+	}
+	formatUint64(n) + " bytes"
+}
+
+// Limit reads Variable from env (a slice of KEY=VALUE strings), or returns def if unset.
+func Limit(env []string, def uint64) uint64 fails SizeError {
+	let prefix = Variable + "="
+	let mut val = ""
+	let mut found = false
+	for kv in env {
+		if strings.HasPrefix(kv, prefix) {
+			val = strings.TrimPrefix(kv, prefix)
+			found = true
+		}
+	}
+	if !found {
+		return def
+	}
+	ParseSize(val) catch {
+	case SizeError as e:
+		return SizeError{Message: "\(Variable)=\(strconv.Quote(val)): \(e.Message)"}
+	}
+}
+
+// FormatLimitError formats the user-facing limit exceeded error message matching Go LimitError.Error().
+func FormatLimitError(program string, limit uint64, cause Cause, errText string) string {
+	let mut text = "program \(program) exceeded its memory limit of \(Format(limit)) (set \(Variable) to change it, 0 for none)"
+	match cause {
+	case QueueFault:
+		text = text + "; the Go runtime stopped it with SIGSEGV in its collector's span queue, not with an out-of-memory report (Go runtime bug \(RuntimeIssue), \(RuntimeIssueURL))"
+	case RuntimeReport, NoCause:
+	}
+	"\(text): \(errText)"
+}
+
+// CheckExit formats errText as a LimitError string when exited under a positive limit with refused-memory stderr.
+func CheckExit(program string, limit uint64, exited bool, errText string, stderr string) string {
+	if limit == uint64(0) || !exited {
+		return errText
+	}
+	let cause = CauseOf(stderr)
+	match cause {
+	case NoCause:
+		errText
+	case RuntimeReport, QueueFault:
+		FormatLimitError(program, limit, cause, errText)
+	}
+}
+
+func formatUint64(n uint64) string {
+	strconv.AppendUint([]byte{}, n, 10).Text()
+}
+
+// ParseFormatRoundTrip checks that Format outputs (stripping the trailing bytes unit) re-parse to n.
+law ParseFormatRoundTrip(n uint64) {
+	let text = strings.TrimSuffix(Format(n), " bytes")
+	let parsed = ParseSize(text) catch {
+	case SizeError:
+		return false
+	}
+	parsed == n
+}
+
+test TestParseSizeFormatAndLimit {
+	let g = ParseSize("2 GiB") catch {
+	case SizeError:
+		assert false
+		uint64(0)
+	}
+	assert g == DefaultLimit
+	assert Format(g) == "2 GiB"
+	assert Format(uint64(0)) == "0 bytes"
+	assert Format(uint64(512)*mib) == "512 MiB"
+	assert Format(uint64(3)*kib) == "3 KiB"
+	assert Format(uint64(1500)) == "1500 bytes"
+
+	let z = ParseSize("off") catch {
+	case SizeError:
+		assert false
+		uint64(1)
+	}
+	assert z == uint64(0)
+
+	let mut badErr = ""
+	let _ = ParseSize("17179869184 GiB") catch {
+	case SizeError as e:
+		badErr = e.Message
+		uint64(0)
+	}
+	assert badErr == "size out of range"
+
+	let l = Limit([]string{"ERGO_PROGRAM_MEMORY=512MiB"}, DefaultLimit) catch {
+	case SizeError:
+		assert false
+		uint64(0)
+	}
+	assert l == uint64(512)*mib
+
+	let msg = CheckExit("prog", DefaultLimit, true, "exit status 2", "SIGSEGV: segmentation violation\nPC=0x0 addr=0x0\n\nruntime.(*spanQueue).x\n")
+	assert strings.Contains(msg, RuntimeIssue) && strings.Contains(msg, "2 GiB")
+}

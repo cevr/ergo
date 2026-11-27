@@ -1,0 +1,44 @@
+{
+  "about": "Pure-Ergo gocmd flag merging, vendor pattern matching, and one-language-per-package guards.",
+  "mutants": [
+    {
+      "name": "selfhost-toolchain-gocmd-gcflags-accumulate",
+      "origin": "selfhost-toolchain-runtime",
+      "file": "compiler/gocmd/args.ergo",
+      "decl": "PackageFlags",
+      "from": "\t\tif matches {\n\t\t\tflags = split\n\t\t}",
+      "to": "\t\tif matches {\n\t\t\tfor sp in split {\n\t\t\t\tflags = flags.Append(sp)\n\t\t\t}\n\t\t}",
+      "rule": "Per-package -gcflags must take the last matching flag set whole rather than accumulating earlier matches.",
+      "killers": ["compiler/gocmd:TestGoCmdParseAndMatch"],
+      "anchor": {
+        "tests": ["compiler/gocmd:TestGoCmdParseAndMatch"]
+      }
+    },
+    {
+      "name": "selfhost-toolchain-gocmd-vendor-matched",
+      "origin": "selfhost-toolchain-runtime",
+      "file": "compiler/gocmd/args.ergo",
+      "decl": "matchWildSegs",
+      "from": "\t\tif subj[p] == uint8(0) {\n\t\t\treturn false\n\t\t}",
+      "to": "\t\tif false {\n\t\t\treturn false\n\t\t}",
+      "rule": "Wildcard ... patterns must never cross a vendor path segment boundary.",
+      "killers": ["compiler/gocmd:TestGoCmdParseAndMatch"],
+      "anchor": {
+        "tests": ["compiler/gocmd:TestGoCmdParseAndMatch"]
+      }
+    },
+    {
+      "name": "selfhost-toolchain-gocmd-mixed-allowed",
+      "origin": "selfhost-toolchain-runtime",
+      "file": "compiler/gocmd/assemble.ergo",
+      "decl": "ValidatePackageFiles",
+      "from": "\t\tif strings.HasSuffix(gf.Path, \"_test.go\") && declPkg == pkgName+\"_test\" {\n\t\t\tcontinue\n\t\t}",
+      "to": "\t\tif declPkg == pkgName || declPkg == pkgName+\"_test\" {\n\t\t\tcontinue\n\t\t}",
+      "rule": "An Ergo package directory must refuse same-package Go files while permitting external _test packages.",
+      "killers": ["compiler/gocmd:TestAssemblePlanAndPackageValidation"],
+      "anchor": {
+        "tests": ["compiler/gocmd:TestAssemblePlanAndPackageValidation"]
+      }
+    }
+  ]
+}

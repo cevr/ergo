@@ -1,0 +1,708 @@
+import base64
+import cmp
+import hex
+import option
+import sha256
+import sha512
+import slices
+import strconv
+import strings
+
+// SumDB holds a parsed checksum database name, key hash, Ed25519 key, URL, and tile height.
+type SumDB {
+	Name   string,
+	Hash   uint32,
+	Key    []byte,
+	URL    string,
+	Height int,
+}
+
+// TreeHead holds the parsed go.sum database tree size and 32-byte SHA-256 Merkle root.
+type TreeHead {
+	Size uint64,
+	Root []byte,
+}
+
+// LookupResult holds a parsed sumdb /lookup response's record ID, record body, and signed tree note.
+type LookupResult {
+	ID     uint64,
+	Record string,
+	Signed string,
+}
+
+// ParseSumDB parses GOSUMDB into SumDB, rejecting "off".
+func ParseSumDB(value string) SumDB fails ToolchainError {
+	let mut v = strings.TrimSpace(value)
+	if v == "" || v == "sum.golang.org" {
+		v = GoSumDB
+	} else if v == "off" {
+		return ToolchainError{Message: "GOSUMDB=off: ergo installs a Go toolchain only after the checksum database verifies it"}
+	}
+	let fields = strings.Fields(v)
+	if fields.Len() > 2 || fields.Len() == 0 {
+		return ToolchainError{Message: "GOSUMDB \(strconv.Quote(v)): want KEY or KEY URL"}
+	}
+	let mut db = ParseVerifierKey(fields[0]) catch {
+	case ToolchainError as e:
+		return ToolchainError{Message: "GOSUMDB: \(e.Message)"}
+	}
+	db.URL = "https://" + db.Name
+	if fields.Len() == 2 {
+		db.URL = strings.TrimSuffix(fields[1], "/")
+	}
+	db.Height = 8
+	db
+}
+
+// ParseVerifierKey parses a sumdb/note verifier key NAME+HASH+BASE64KEY.
+func ParseVerifierKey(vkey string) SumDB fails ToolchainError {
+	let plus1 = strings.Index(vkey, "+")
+	if plus1 <= 0 {
+		return ToolchainError{Message: "malformed verifier key \(strconv.Quote(vkey))"}
+	}
+	let name = vkey[0:plus1]
+	let rest = vkey[plus1+1 : vkey.Len()]
+	let plus2 = strings.Index(rest, "+")
+	if plus2 < 0 {
+		return ToolchainError{Message: "malformed verifier key \(strconv.Quote(vkey))"}
+	}
+	let hashHex = rest[0:plus2]
+	let key64 = rest[plus2+1 : rest.Len()]
+	let mut hashOk = true
+	let hashVal = parseHexU32(hashHex) catch {
+	case ToolchainError:
+		hashOk = false
+		uint32(0)
+	}
+	let mut keyOk = true
+	let keyStr = base64.Decode(base64.StdEncoding, key64) catch {
+	case base64.Malformed:
+		keyOk = false
+		""
+	}
+	let keyRaw = keyStr.Bytes()
+	if name == "" || hashHex.Len() != 8 || !hashOk || !keyOk || keyRaw.Len() != 33 || keyRaw[0] != uint8(1) {
+		return ToolchainError{Message: "malformed verifier key \(strconv.Quote(vkey))"}
+	}
+	if computeKeyHash(name, keyRaw) != hashVal {
+		return ToolchainError{Message: "verifier key \(strconv.Quote(vkey)): hash does not match the key"}
+	}
+	SumDB{Name: name, Hash: hashVal, Key: keyRaw[1:33], URL: "", Height: 0}
+}
+
+// VerifyNote verifies an Ed25519-signed sumdb tree head note against db and returns the verified note body.
+func VerifyNote(db SumDB, msg string) string fails ToolchainError {
+	let idx = strings.LastIndex(msg, "\n\n")
+	if idx < 0 {
+		return ToolchainError{Message: "malformed signed tree head"}
+	}
+	let text = msg[0 : idx+1]
+	let sigs = msg[idx+2 : msg.Len()]
+	for raw in strings.Split(sigs, "\n") {
+		let mut line = strings.TrimSuffix(raw, "\r")
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "\xe2\x80\x94 ") {
+			line = strings.TrimPrefix(line, "\xe2\x80\x94 ")
+		}
+		let sp = strings.Index(line, " ")
+		if sp <= 0 {
+			continue
+		}
+		let name = line[0:sp]
+		let sig64 = line[sp+1 : line.Len()]
+		let mut sigOk = true
+		let sigStr = base64.Decode(base64.StdEncoding, sig64) catch {
+		case base64.Malformed:
+			sigOk = false
+			""
+		}
+		let sig = sigStr.Bytes()
+		if !sigOk || name != db.Name || sig.Len() != 68 {
+			continue
+		}
+		let keyTag = (uint32(sig[0]) << uint32(24)) | (uint32(sig[1]) << uint32(16)) | (uint32(sig[2]) << uint32(8)) | uint32(sig[3])
+		if keyTag == db.Hash && ed25519Verify(db.Key, text.Bytes(), sig[4:68]) {
+			return text
+		}
+	}
+	ToolchainError{Message: "the signed tree head carries no valid signature of \(db.Name)"}
+}
+
+// ParseTree parses a go.sum signed tree head body into TreeHead.
+func ParseTree(text string) TreeHead fails ToolchainError {
+	let lines = strings.Split(text, "\n")
+	if lines.Len() < 4 || lines[0] != "go.sum database tree" {
+		return ToolchainError{Message: "malformed tree note"}
+	}
+	let mut nOk = true
+	let n = parseSumDBU64(lines[1]) catch {
+	case ToolchainError:
+		nOk = false
+		uint64(0)
+	}
+	let mut rootOk = true
+	let rootStr = base64.Decode(base64.StdEncoding, lines[2]) catch {
+	case base64.Malformed:
+		rootOk = false
+		""
+	}
+	let root = rootStr.Bytes()
+	if !nOk || n < uint64(1) || !rootOk || root.Len() != 32 {
+		return ToolchainError{Message: "malformed tree note"}
+	}
+	TreeHead{Size: n, Root: root}
+}
+
+// ParseLookup splits a /lookup response into record ID, record text, and signed note.
+func ParseLookup(msg string) LookupResult fails ToolchainError {
+	let nl = strings.IndexByte(msg, byte('\n'))
+	if nl < 0 {
+		return ToolchainError{Message: "malformed lookup response"}
+	}
+	let id = parseSumDBU64(msg[0:nl]) catch {
+	case ToolchainError:
+		return ToolchainError{Message: "malformed lookup response"}
+	}
+	let rest = msg[nl+1 : msg.Len()]
+	let sep = strings.Index(rest, "\n\n")
+	if sep < 0 {
+		return ToolchainError{Message: "malformed lookup response"}
+	}
+	LookupResult{ID: id, Record: rest[0 : sep+1], Signed: rest[sep+2 : rest.Len()]}
+}
+
+// RecordHash computes RFC 6962 leaf hash SHA256(0x00 || data).
+func RecordHash(data string) []byte {
+	sha256.Sum("\x00" + data).Bytes()
+}
+
+// NodeHash computes RFC 6962 interior hash SHA256(0x01 || left || right).
+func NodeHash(left []byte, right []byte) []byte {
+	let mut buf = []byte{uint8(1)}
+	buf = buf.AppendBytes(left)
+	buf = buf.AppendBytes(right)
+	sha256.Sum(buf.Text()).Bytes()
+}
+
+// TilePath formats the Go tlog tile relative path for height, level, tile index n, and width w.
+func TilePath(height int, level int, n uint64, w int) string {
+	let mut cur = n
+	let mut s = pad3(cur % uint64(1000))
+	cur = cur / uint64(1000)
+	for cur > uint64(0) {
+		s = "x\(pad3(cur % uint64(1000)))/\(s)"
+		cur = cur / uint64(1000)
+	}
+	if w != (1 << height) {
+		s = "\(s).p/\(w)"
+	}
+	"tile/\(height)/\(level)/\(s)"
+}
+
+// ProveRecord checks RFC 6962 Merkle inclusion proof for record at index id in TreeHead using tiles.
+func ProveRecord(height int, t TreeHead, id uint64, record string, tiles Map[string, []byte]) fails ToolchainError {
+	if id >= t.Size {
+		return ToolchainError{Message: "record \(id) is outside the signed tree of size \(t.Size)"}
+	}
+	let root = try subtreeHash(height, t.Size, uint64(0), t.Size, id, RecordHash(record), tiles)
+	if !bytesEq(root, t.Root) {
+		return ToolchainError{Message: "record \(id) is not in the signed tree of size \(t.Size): the tiles prove another root"}
+	}
+}
+
+func subtreeHash(height int, treeSize uint64, lo uint64, hi uint64, id uint64, leaf []byte, tiles Map[string, []byte]) []byte fails ToolchainError {
+	let size = hi - lo
+	if id < lo || id >= hi {
+		if (size&(size-uint64(1))) == uint64(0) && (lo%size) == uint64(0) {
+			let mut level = 0
+			for (uint64(1) << uint64(level)) < size {
+				level = level + 1
+			}
+			return storedHash(height, treeSize, level, lo>>uint64(level), tiles)
+		}
+	} else if size == uint64(1) {
+		return leaf
+	}
+	let mut k = uint64(1)
+	for (k << uint64(1)) < size {
+		k = k << uint64(1)
+	}
+	let left = try subtreeHash(height, treeSize, lo, lo+k, id, leaf, tiles)
+	let right = try subtreeHash(height, treeSize, lo+k, hi, id, leaf, tiles)
+	NodeHash(left, right)
+}
+
+func storedHash(height int, treeSize uint64, level int, index uint64, tiles Map[string, []byte]) []byte fails ToolchainError {
+	let tileLevel = level / height
+	let within = level % height
+	let base = index << uint64(within)
+	let n = base >> uint64(height)
+	let count = treeSize >> uint64(tileLevel*height)
+	let maxW = uint64(1) << uint64(height)
+	let rem = count - (n << uint64(height))
+	let width = int(cmp.Min(maxW, rem))
+	let path = TilePath(height, tileLevel, n, width)
+	let data = match tiles.Get(path) {
+	case option.Some{Value: b}:
+		b
+	case option.None:
+		return ToolchainError{Message: "missing tile \(path)"}
+	}
+	if data.Len() != width*32 {
+		return ToolchainError{Message: "tile \(path): \(data.Len()) bytes, want \(width * 32)"}
+	}
+	let offset = int(base - (n << uint64(height)))
+	let countH = 1 << within
+	let mut hashes = slices.WithCapacity[[]byte](countH)
+	for i in 0..countH {
+		let start = (offset + i) * 32
+		hashes = hashes.Append(data[start : start+32])
+	}
+	for hashes.Len() > 1 {
+		let half = hashes.Len() / 2
+		let mut next = slices.WithCapacity[[]byte](half)
+		for i in 0..half {
+			next = next.Append(NodeHash(hashes[2*i], hashes[2*i+1]))
+		}
+		hashes = next
+	}
+	hashes[0]
+}
+
+func computeKeyHash(name string, key []byte) uint32 {
+	let h = sha256.Sum("\(name)\n" + key.Text()).Bytes()
+	(uint32(h[0]) << uint32(24)) | (uint32(h[1]) << uint32(16)) | (uint32(h[2]) << uint32(8)) | uint32(h[3])
+}
+
+func parseHexU32(s string) uint32 fails ToolchainError {
+	if s.Len() == 0 {
+		return ToolchainError{Message: "empty hex"}
+	}
+	let mut acc = uint32(0)
+	for i in 0..s.Len() {
+		let b = s[i]
+		let d = if b >= byte('0') && b <= byte('9') {
+			uint32(b - byte('0'))
+		} else if b >= byte('a') && b <= byte('f') {
+			uint32(b - byte('a') + uint8(10))
+		} else if b >= byte('A') && b <= byte('F') {
+			uint32(b - byte('A') + uint8(10))
+		} else {
+			return ToolchainError{Message: "bad hex"}
+		}
+		acc = (acc << uint32(4)) | d
+	}
+	acc
+}
+
+func parseSumDBU64(s string) uint64 fails ToolchainError {
+	let clean = strings.TrimSpace(s)
+	if clean.Len() == 0 {
+		return ToolchainError{Message: "empty int"}
+	}
+	let mut acc = uint64(0)
+	let maxS = uint64(9223372036854775807)
+	let maxDiv = maxS / uint64(10)
+	for i in 0..clean.Len() {
+		let b = clean[i]
+		if b < byte('0') || b > byte('9') {
+			return ToolchainError{Message: "bad digit"}
+		}
+		let d = uint64(b - byte('0'))
+		if acc > maxDiv || (acc == maxDiv && d > maxS-acc*uint64(10)) {
+			return ToolchainError{Message: "overflow"}
+		}
+		acc = acc*uint64(10) + d
+	}
+	acc
+}
+
+func pad3(n uint64) string {
+	let s = strconv.AppendUint([]byte{}, n, 10).Text()
+	if s.Len() >= 3 { s } else { strings.Repeat("0", 3-s.Len()) + s }
+}
+
+func bytesEq(a []byte, b []byte) bool {
+	if a.Len() != b.Len() {
+		return false
+	}
+	for i in 0..a.Len() {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	true
+}
+
+type edPoint {
+	x []int,
+	y []int,
+	z []int,
+	t []int,
+}
+
+func ed25519Verify(pub []byte, msg []byte, sig []byte) bool {
+	if pub.Len() != 32 || sig.Len() != 64 {
+		return false
+	}
+	if !scalarLessThanL(sig[32:64]) {
+		return false
+	}
+	let (negA, okA) = unpackNeg(pub)
+	if !okA {
+		return false
+	}
+	let mut hInput = slices.WithCapacity[byte](64 + msg.Len())
+	hInput = hInput.AppendBytes(sig[0:32])
+	hInput = hInput.AppendBytes(pub)
+	hInput = hInput.AppendBytes(msg)
+	let hFull = sha512.Sum(hInput.Text()).Bytes()
+	let h = reduceModL(hFull)
+	let baseB = edBasePoint()
+	let sb = scalarMult(baseB, sig[32:64])
+	let ha = scalarMult(negA, h)
+	let checkR = packPoint(edAdd(sb, ha))
+	bytesEq(checkR, sig[0:32])
+}
+
+func scalarLessThanL(s []byte) bool {
+	let lBytes = []int{0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58, 0xd6, 0x9c, 0xf7, 0xa2, 0xde, 0xf9, 0xde, 0x14, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x10}
+	let mut i = 31
+	for i >= 0 {
+		let sb = int(s[i])
+		let lb = lBytes[i]
+		if sb < lb {
+			return true
+		}
+		if sb > lb {
+			return false
+		}
+		i = i - 1
+	}
+	false
+}
+
+func gfZero() []int {
+	let mut r = slices.WithCapacity[int](16)
+	for _ in 0..16 {
+		r = r.Append(0)
+	}
+	r
+}
+
+func gfOne() []int {
+	let mut r = gfZero()
+	r[0] = 1
+	r
+}
+
+func gfAdd(a []int, b []int) []int {
+	let mut o = slices.WithCapacity[int](16)
+	for i in 0..16 {
+		o = o.Append(a[i] + b[i])
+	}
+	o
+}
+
+func gfSub(a []int, b []int) []int {
+	let mut o = slices.WithCapacity[int](16)
+	for i in 0..16 {
+		o = o.Append(a[i] - b[i])
+	}
+	o
+}
+
+func gfCarry(o []int) []int {
+	let mut r = slices.Clone(o)
+	for i in 0..16 {
+		r[i] = r[i] + 65536
+		let c = r[i] >> 16
+		r[i] = r[i] - (c << 16)
+		if i < 15 {
+			r[i+1] = r[i+1] + c - 1
+		} else {
+			r[0] = r[0] + 38*(c-1)
+		}
+	}
+	r
+}
+
+func gfMul(a []int, b []int) []int {
+	let mut t = slices.WithCapacity[int](31)
+	for _ in 0..31 {
+		t = t.Append(0)
+	}
+	for i in 0..16 {
+		for j in 0..16 {
+			t[i+j] = t[i+j] + a[i]*b[j]
+		}
+	}
+	for i in 0..15 {
+		t[i] = t[i] + 38*t[i+16]
+	}
+	gfCarry(gfCarry(t[0:16]))
+}
+
+func gfSq(a []int) []int { gfMul(a, a) }
+
+func gfInv(i []int) []int {
+	let mut c = slices.Clone(i)
+	let mut a = 253
+	for a >= 0 {
+		c = gfSq(c)
+		if a != 2 && a != 4 {
+			c = gfMul(c, i)
+		}
+		a = a - 1
+	}
+	c
+}
+
+func gfPow2523(i []int) []int {
+	let mut c = slices.Clone(i)
+	let mut a = 250
+	for a >= 0 {
+		c = gfSq(c)
+		if a != 1 {
+			c = gfMul(c, i)
+		}
+		a = a - 1
+	}
+	c
+}
+
+func gfPack(n []int) []byte {
+	let mut t = gfCarry(gfCarry(gfCarry(n)))
+	let mut m = gfZero()
+	for _ in 0..2 {
+		m[0] = t[0] - 0xffed
+		for i in 1..15 {
+			m[i] = t[i] - 0xffff - ((m[i-1] >> 16) & 1)
+			m[i-1] = m[i-1] & 0xffff
+		}
+		m[15] = t[15] - 0x7fff - ((m[14] >> 16) & 1)
+		let b = (m[15] >> 16) & 1
+		m[14] = m[14] & 0xffff
+		let mut nextT = slices.WithCapacity[int](16)
+		for i in 0..16 {
+			let sel = if b == 1 { t[i] } else { m[i] }
+			nextT = nextT.Append(sel)
+		}
+		t = nextT
+	}
+	let mut r = slices.WithCapacity[byte](32)
+	for i in 0..16 {
+		r = r.Append(uint8(t[i] & 0xff))
+		r = r.Append(uint8(t[i] >> 8))
+	}
+	r
+}
+
+func gfUnpack(n []byte) []int {
+	let mut o = slices.WithCapacity[int](16)
+	for i in 0..16 {
+		o = o.Append(int(n[2*i]) + (int(n[2*i+1]) << 8))
+	}
+	o[15] = o[15] & 0x7fff
+	o
+}
+
+func gfNeq(a []int, b []int) bool {
+	!bytesEq(gfPack(a), gfPack(b))
+}
+
+func edConstD() []int {
+	[]int{0x78a3, 0x1359, 0x4dca, 0x75eb, 0xd8ab, 0x4141, 0x0a4d, 0x0070, 0xe898, 0x7779, 0x4079, 0x8cc7, 0xfe73, 0x2b6f, 0x6cee, 0x5203}
+}
+
+func edConstD2() []int {
+	[]int{0xf159, 0x26b2, 0x9b94, 0xebd6, 0xb156, 0x8283, 0x149a, 0x00e0, 0xd130, 0xeef3, 0x80f2, 0x198e, 0xfce7, 0x56df, 0xd9dc, 0x2406}
+}
+
+func edConstI() []int {
+	[]int{0xa0b0, 0x4a0e, 0x1b27, 0xc4ee, 0xe478, 0xad2f, 0x1806, 0x2f43, 0xd7a7, 0x3dfb, 0x0099, 0x2b4d, 0xdf0b, 0x4fc1, 0x2480, 0x2b83}
+}
+
+func edBasePoint() edPoint {
+	let bx = []int{0xd51a, 0x8f25, 0x2d60, 0xc956, 0xa7b2, 0x9525, 0xc760, 0x692c, 0xdc5c, 0xfdd6, 0xe231, 0xc0a4, 0x53fe, 0xcd6e, 0x36d3, 0x2169}
+	let by = []int{0x6658, 0x6666, 0x6666, 0x6666, 0x6666, 0x6666, 0x6666, 0x6666, 0x6666, 0x6666, 0x6666, 0x6666, 0x6666, 0x6666, 0x6666, 0x6666}
+	edPoint{x: bx, y: by, z: gfOne(), t: gfMul(bx, by)}
+}
+
+func edIdentity() edPoint {
+	edPoint{x: gfZero(), y: gfOne(), z: gfOne(), t: gfZero()}
+}
+
+func edAdd(p edPoint, q edPoint) edPoint {
+	let a = gfMul(gfSub(p.y, p.x), gfSub(q.y, q.x))
+	let b = gfMul(gfAdd(p.y, p.x), gfAdd(q.y, q.x))
+	let c = gfMul(gfMul(p.t, q.t), edConstD2())
+	let d = gfMul(gfAdd(p.z, p.z), q.z)
+	let e = gfSub(b, a)
+	let f = gfSub(d, c)
+	let g = gfAdd(d, c)
+	let h = gfAdd(b, a)
+	edPoint{
+		x: gfMul(e, f),
+		y: gfMul(g, h),
+		z: gfMul(f, g),
+		t: gfMul(e, h),
+	}
+}
+
+func edCSwap(p edPoint, q edPoint, b int) (edPoint, edPoint) {
+	if b == 1 { (q, p) } else { (p, q) }
+}
+
+func scalarMult(qBase edPoint, s []byte) edPoint {
+	let mut p = edIdentity()
+	let mut q = qBase
+	let mut i = 255
+	for i >= 0 {
+		let b = int((s[i/8] >> uint8(i&7)) & uint8(1))
+		let (p1, q1) = edCSwap(p, q, b)
+		q = edAdd(q1, p1)
+		p = edAdd(p1, p1)
+		let (p2, q2) = edCSwap(p, q, b)
+		p = p2
+		q = q2
+		i = i - 1
+	}
+	p
+}
+
+func packPoint(q edPoint) []byte {
+	let zi = gfInv(q.z)
+	let tx = gfMul(q.x, zi)
+	let ty = gfMul(q.y, zi)
+	let mut r = gfPack(ty)
+	let px = gfPack(tx)
+	r[31] = r[31] ^ ((px[0] & uint8(1)) << uint8(7))
+	r
+}
+
+func unpackNeg(p []byte) (edPoint, bool) {
+	let d = edConstD()
+	let y = gfUnpack(p)
+	let mut num = gfSub(gfSq(y), gfOne())
+	let den = gfAdd(gfMul(gfSq(y), d), gfOne())
+	let den2 = gfSq(den)
+	let den4 = gfSq(den2)
+	let mut t = gfMul(num, gfMul(den4, gfMul(den2, den)))
+	t = gfMul(num, gfMul(gfMul(den2, den), gfPow2523(t)))
+	let mut chk = gfMul(den, gfSq(t))
+	if gfNeq(chk, num) {
+		t = gfMul(t, edConstI())
+	}
+	chk = gfMul(den, gfSq(t))
+	if gfNeq(chk, num) {
+		return (edIdentity(), false)
+	}
+	let packedT = gfPack(t)
+	let parity = int(packedT[0] & uint8(1))
+	let sign = int(p[31] >> uint8(7))
+	if parity == sign {
+		t = gfSub(gfZero(), t)
+	}
+	let _ = &num
+	(edPoint{x: t, y: y, z: gfOne(), t: gfMul(t, y)}, true)
+}
+
+func reduceModL(r []byte) []byte {
+	let l = []int{0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58, 0xd6, 0x9c, 0xf7, 0xa2, 0xde, 0xf9, 0xde, 0x14, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x10}
+	let mut x = slices.WithCapacity[int](64)
+	for b in r {
+		x = x.Append(int(b))
+	}
+	let mut i = 63
+	for i >= 32 {
+		let mut carry = 0
+		let mut j = i - 32
+		let k = i - 12
+		for j < k {
+			x[j] = x[j] + carry - 16*x[i]*l[j-(i-32)]
+			carry = (x[j] + 128) >> 8
+			x[j] = x[j] - carry*256
+			j = j + 1
+		}
+		x[j] = x[j] + carry
+		x[i] = 0
+		i = i - 1
+	}
+	let mut carry = 0
+	for j in 0..32 {
+		x[j] = x[j] + carry - (x[31]>>4)*l[j]
+		carry = x[j] >> 8
+		x[j] = x[j] & 255
+	}
+	for j in 0..32 {
+		x[j] = x[j] - carry*l[j]
+	}
+	let mut out = slices.WithCapacity[byte](32)
+	for j in 0..32 {
+		if j < 31 {
+			x[j+1] = x[j+1] + (x[j] >> 8)
+		}
+		out = out.Append(uint8(x[j] & 255))
+	}
+	out
+}
+
+// TilePathContainsWidthSuffix verifies TilePath appends partial suffix iff w < 2^height.
+law TilePathContainsWidthSuffix(n uint32, wRaw uint8) {
+	let w = (int(wRaw) % 256) + 1
+	let p = TilePath(8, 0, uint64(n), w)
+	let partial = strings.Contains(p, ".p/")
+	strings.HasPrefix(p, "tile/8/0/") && (if w == 256 { !partial } else { partial })
+}
+
+test TestSumDBVerifyNoteAndProveRecord {
+	let db = ParseSumDB("") catch {
+	case ToolchainError:
+		assert false
+		SumDB{Name: "", Hash: uint32(0), Key: []byte{}, URL: "", Height: 0}
+	}
+	assert db.Name == "sum.golang.org" && db.URL == "https://sum.golang.org"
+
+	let rfcPub = hex.Decode("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a") catch {
+	case hex.Malformed:
+		assert false
+		""
+	}
+	let rfcSig = hex.Decode("e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b") catch {
+	case hex.Malformed:
+		assert false
+		""
+	}
+	assert ed25519Verify(rfcPub.Bytes(), []byte{}, rfcSig.Bytes())
+	let mut badSig = rfcSig.Bytes()
+	badSig[0] = badSig[0] ^ uint8(1)
+	assert !ed25519Verify(rfcPub.Bytes(), []byte{}, badSig)
+
+	assert TilePath(8, 0, uint64(1234567), 256) == "tile/8/0/x001/x234/567"
+	assert TilePath(8, 0, uint64(5), 7) == "tile/8/0/005.p/7"
+
+	let rec0 = "mod v1 h1:a\n"
+	let rec1 = "mod v2 h1:b\n"
+	let h0 = RecordHash(rec0)
+	let h1 = RecordHash(rec1)
+	let root = NodeHash(h0, h1)
+	let mut tileData = slices.Clone(h0)
+	tileData = tileData.AppendBytes(h1)
+	let tiles = Map[string, []byte]{"tile/8/0/000.p/2": tileData}
+	let tree = TreeHead{Size: uint64(2), Root: root}
+	ProveRecord(8, tree, uint64(0), rec0, tiles) catch {
+	case ToolchainError:
+		assert false
+	}
+	let mut badRoot = slices.Clone(root)
+	badRoot[0] = badRoot[0] ^ uint8(1)
+	let mut badTreeRejected = false
+	ProveRecord(8, TreeHead{Size: uint64(2), Root: badRoot}, uint64(0), rec0, tiles) catch {
+	case ToolchainError:
+		badTreeRejected = true
+	}
+	assert badTreeRejected
+}

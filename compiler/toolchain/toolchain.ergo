@@ -1,0 +1,295 @@
+import archive
+import base64
+import filepath
+import hex
+import option
+import sha256
+import slices
+import strings
+
+// Version is the Go toolchain release pinned by this Ergo compiler.
+let Version = "go1.27.4"
+
+// MaxZip bounds a toolchain zip archive size in bytes.
+let MaxZip = 500 * 1024 * 1024
+
+// BuildNote is the log prefix written when building a patched IR compiler.
+let BuildNote = "ergo: building the IR compiler for "
+
+// PatchedSchema versions the shared IR compiler cache key schema.
+let PatchedSchema = "ergo-ir-patched-1"
+
+// IRCVariable names the environment override for the shared IR compiler cache root.
+let IRCVariable = "ERGO_IRC"
+
+// IRCKeep caps the number of retained patched compiler entries per release and host.
+let IRCKeep = 8
+
+// ManifestName is the metadata filename stored in each patched compiler entry.
+let ManifestName = "manifest.json"
+
+// GoFilesPatch names the Go compiler hook patch file in the patch source tree.
+let GoFilesPatch = "gofiles.patch"
+
+// GoSumDB is Go's default checksum database verifier key.
+let GoSumDB = "sum.golang.org+033de0ae+Ac4zctda0e5eza+HJyk9SxEdh+s3Ux18htTTAD8OuAn8"
+
+// ToolchainError reports toolchain selection, patch, zip, or sumdb failures.
+type ToolchainError {
+	Message string,
+}
+
+// Toolchain describes a resolved Go command and optional managed GOROOT.
+type Toolchain {
+	Mode string,
+	Go   string,
+	Root string,
+}
+
+// InstallConfig specifies cache root, platform, proxy, and sumdb settings for managed toolchains.
+type InstallConfig {
+	Cache   string,
+	Version string,
+	GOOS    string,
+	GOARCH  string,
+	Proxy   string,
+	SumDB   string,
+}
+
+// ZipEntryPlan records a validated file extraction target and Unix file mode.
+type ZipEntryPlan {
+	Rel  string,
+	Mode uint32,
+}
+
+// ExeSuffix returns ".exe" on Windows and "" elsewhere.
+func ExeSuffix(goos string) string {
+	if goos == "windows" { ".exe" } else { "" }
+}
+
+// ResolvePlatform fills empty Version, GOOS, and GOARCH defaults.
+func ResolvePlatform(c InstallConfig, hostOS string, hostArch string) (string, string, string) {
+	let v = if c.Version == "" { Version } else { c.Version }
+	let osName = if c.GOOS == "" { hostOS } else { c.GOOS }
+	let archName = if c.GOARCH == "" { hostArch } else { c.GOARCH }
+	(v, osName, archName)
+}
+
+// InstallDir returns the cache subdirectory storing the release and patched compilers for c.
+func InstallDir(c InstallConfig, hostOS string, hostArch string) string {
+	let (v, osName, archName) = ResolvePlatform(c, hostOS, hostArch)
+	filepath.Join([]string{c.Cache, "toolchain", "\(v).\(osName)-\(archName)"})
+}
+
+// InstallModule returns the golang.org/toolchain module path and version string for c.
+func InstallModule(c InstallConfig, hostOS string, hostArch string) (string, string) {
+	let (v, osName, archName) = ResolvePlatform(c, hostOS, hostArch)
+	("golang.org/toolchain", "v0.0.1-\(v).\(osName)-\(archName)")
+}
+
+// Status selects the active Go toolchain from ERGO_GO without installing it.
+func Status(ergoGo string, cache string, hostOS string, hostArch string, goExeExists bool) (Toolchain, bool) {
+	if ergoGo == "" || ergoGo == "managed" {
+		let dir = InstallDir(InstallConfig{Cache: cache, Version: "", GOOS: "", GOARCH: "", Proxy: "", SumDB: ""}, hostOS, hostArch)
+		let root = filepath.Join([]string{dir, "release"})
+		let goBin = filepath.Join([]string{root, "bin", "go" + ExeSuffix(hostOS)})
+		return (Toolchain{Mode: "managed", Go: goBin, Root: root}, goExeExists)
+	}
+	if ergoGo == "system" {
+		return (Toolchain{Mode: "system", Go: "go", Root: ""}, false)
+	}
+	(Toolchain{Mode: "path", Go: ergoGo, Root: ""}, false)
+}
+
+// ProxyStep records one parsed GOPROXY list element and its fallback separator behavior.
+type ProxyStep {
+	Entry       string,
+	FallThrough bool,
+}
+
+// ParseProxyList splits a GOPROXY comma/pipe list into trimmed sequential steps.
+func ParseProxyList(proxies string) []ProxyStep {
+	let mut rest = if proxies == "" { "https://proxy.golang.org,direct" } else { proxies }
+	let mut steps = []ProxyStep{}
+	for rest != "" {
+		let i = strings.IndexAny(rest, ",|")
+		let mut raw = rest
+		let mut fall = false
+		if i >= 0 {
+			raw = rest[0:i]
+			fall = rest[i] == byte('|')
+			rest = rest[i+1 : rest.Len()]
+		} else {
+			rest = ""
+		}
+		steps = steps.Append(ProxyStep{Entry: strings.TrimSpace(raw), FallThrough: fall})
+	}
+	steps
+}
+
+// SelectProxyURL resolves which proxy URL serves path@version given per-proxy status ("ok", "not-found", "error"), or fails.
+func SelectProxyURL(proxies string, path string, version string, status Map[string, string]) string fails ToolchainError {
+	let steps = ParseProxyList(proxies)
+	let mut lastErr = ""
+	for st in steps {
+		if st.Entry == "off" {
+			return ToolchainError{Message: "GOPROXY=off: the toolchain is not in the cache and downloads are off"}
+		}
+		if st.Entry == "direct" || st.Entry == "" {
+			lastErr = "GOPROXY: \(path)@\(version) comes only from a module proxy"
+			continue
+		}
+		let url = "\(strings.TrimSuffix(st.Entry, "/"))/\(path)/@v/\(version).zip"
+		let outcome = match status.Get(st.Entry) {
+		case option.Some{Value: v}:
+			v
+		case option.None:
+			"error"
+		}
+		if outcome == "ok" {
+			return url
+		}
+		lastErr = "\(url): \(outcome)"
+		let isNotFound = outcome == "not-found"
+		if !st.FallThrough && !isNotFound {
+			return ToolchainError{Message: lastErr}
+		}
+	}
+	if lastErr == "" {
+		return ToolchainError{Message: "GOPROXY lists no proxy"}
+	}
+	ToolchainError{Message: lastErr}
+}
+
+type hashedLine {
+	name string,
+	line string,
+}
+
+// HashZipBytes computes the Go dirhash h1 digest of zipBytes matching golang.org/x/mod/sumdb/dirhash.
+func HashZipBytes(zipBytes []byte) string fails ToolchainError {
+	let arc = archive.Read(zipBytes, MaxZip) catch {
+	case _:
+		return ToolchainError{Message: "not a valid module zip"}
+	}
+	let entries = archive.Entries(arc)
+	let mut lines = slices.WithCapacity[hashedLine](entries.Len())
+	for i in 0..entries.Len() {
+		let ent = entries[i]
+		let name = ent.Path
+		if strings.Contains(name, "\n") {
+			return ToolchainError{Message: "zip entry name contains newline"}
+		}
+		let raw = archive.Content(arc, i)
+		let digest = hex.Encode(sha256.Sum(raw.Text()))
+		lines = lines.Append(hashedLine{name: name, line: "\(digest)  \(name)\n"})
+	}
+	lines = slices.SortFunc(lines, func(a hashedLine, b hashedLine) int {
+		if a.name < b.name {
+			return -1
+		}
+		if a.name > b.name {
+			return 1
+		}
+		0
+	})
+	let mut summary = strings.NewBuilder()
+	for l in lines {
+		strings.WriteString(&summary, l.line)
+	}
+	let sum = sha256.Sum(strings.String(summary))
+	"h1:" + base64.Encode(base64.StdEncoding, sum)
+}
+
+// ValidateZipExtract inspects zipBytes entries against prefix and returns file extract plans and permissions.
+func ValidateZipExtract(zipBytes []byte, prefix string) []ZipEntryPlan fails ToolchainError {
+	let arc = archive.Read(zipBytes, MaxZip) catch {
+	case _:
+		return ToolchainError{Message: "zip entry escape or malformed zip"}
+	}
+	let entries = archive.Entries(arc)
+	let mut seen = Map[string, bool]{}
+	let mut out = []ZipEntryPlan{}
+	for ent in entries {
+		let name = ent.Path
+		if !strings.HasPrefix(name, prefix) {
+			return ToolchainError{Message: "zip entry \(name): not a file of \(strings.TrimSuffix(prefix, "/"))"}
+		}
+		let rel = strings.TrimPrefix(name, prefix)
+		if !isSafeLocalRel(rel) || strings.IndexAny(rel, "\\:") >= 0 || seen.Get(rel) != option.None {
+			return ToolchainError{Message: "zip entry \(name): not a file of \(strings.TrimSuffix(prefix, "/"))"}
+		}
+		seen = seen.Put(rel, true)
+		if strings.HasSuffix(rel, "/") {
+			continue
+		}
+		let mode = if strings.HasPrefix(rel, "bin/") || strings.HasPrefix(rel, "pkg/tool/") {
+			uint32(0x1ed)
+		} else {
+			uint32(0x1a4)
+		}
+		out = out.Append(ZipEntryPlan{Rel: rel, Mode: mode})
+	}
+	out
+}
+
+func isSafeLocalRel(rel string) bool {
+	if rel == "" || strings.HasPrefix(rel, "/") {
+		return false
+	}
+	let clean = filepath.Clean(rel)
+	clean != ".." && !strings.HasPrefix(clean, "../")
+}
+
+// InstallModuleNamesVersion verifies that InstallModule always encodes Version, GOOS, and GOARCH.
+law InstallModuleNamesVersion(goos string, goarch string) {
+	let osName = if goos == "" { "linux" } else { goos }
+	let archName = if goarch == "" { "amd64" } else { goarch }
+	let cfg = InstallConfig{Cache: "/cache", Version: "", GOOS: osName, GOARCH: archName, Proxy: "", SumDB: ""}
+	let (mod, ver) = InstallModule(cfg, "linux", "amd64")
+	let dir = InstallDir(cfg, "linux", "amd64")
+	mod == "golang.org/toolchain" && ver == "v0.0.1-\(Version).\(osName)-\(archName)" && strings.Contains(dir, "\(Version).\(osName)-\(archName)")
+}
+
+test TestToolchainStatusProxiesAndZip {
+	let (tm, exists) = Status("", "/cache", "linux", "amd64", true)
+	assert exists && tm.Mode == "managed" && tm.Go == "/cache/toolchain/\(Version).linux-amd64/release/bin/go"
+	let (ts, _) = Status("system", "/cache", "linux", "amd64", false)
+	assert ts.Mode == "system" && ts.Go == "go" && ts.Root == ""
+	let (tp, _) = Status("/custom/go", "/cache", "linux", "amd64", false)
+	assert tp.Mode == "path" && tp.Go == "/custom/go"
+
+	let picked = SelectProxyURL("https://p1,https://p2|https://p3", "golang.org/toolchain", "v0.0.1", Map[string, string]{"https://p1": "not-found", "https://p2": "error", "https://p3": "ok"}) catch {
+	case ToolchainError:
+		assert false
+		""
+	}
+	assert picked == "https://p3/golang.org/toolchain/@v/v0.0.1.zip"
+
+	let mut arc = archive.New()
+	archive.AddFile(&arc, "p@v/bin/go", "ELF".Bytes()) catch {
+	case _:
+		assert false
+	}
+	archive.AddFile(&arc, "p@v/VERSION", Version.Bytes()) catch {
+	case _:
+		assert false
+	}
+	let zbytes = archive.Write(arc, archive.Zip{Level: 0}) catch {
+	case _:
+		assert false
+		[]byte{}
+	}
+	let h = HashZipBytes(zbytes) catch {
+	case ToolchainError:
+		assert false
+		""
+	}
+	assert strings.HasPrefix(h, "h1:")
+	let plans = ValidateZipExtract(zbytes, "p@v/") catch {
+	case ToolchainError:
+		assert false
+		[]ZipEntryPlan{}
+	}
+	assert plans.Len() == 2 && plans[0].Rel == "bin/go" && plans[0].Mode == uint32(0x1ed) && plans[1].Mode == uint32(0x1a4)
+}

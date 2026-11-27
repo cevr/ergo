@@ -1,0 +1,881 @@
+import cmp
+import dense
+import json
+import math
+import slices
+import strconv
+import strings
+
+// Schema names the benchmark receipt wire format.
+let Schema = "bench.v1"
+
+// PeriodVariable names the environment override for perf sampling period.
+let PeriodVariable = "OPCOUNT_SAMPLE_PERIOD"
+
+// PartsTolerance bounds allowed divergence between sampling event total and counting event total.
+let PartsTolerance = 0.0001
+
+// NoCounter marks hardware counter unavailability.
+let NoCounter = "NoCounter"
+
+// Multiplexed marks counters shared across multiple kernel events.
+let Multiplexed = "Multiplexed"
+
+// RunIncomplete marks runs that exited non-zero or left active child processes.
+let RunIncomplete = "RunIncomplete"
+
+// NotEquivalent marks mismatched program outputs between comparison sides.
+let NotEquivalent = "NotEquivalent"
+
+// NoMetric marks missing optional runtime or OS metrics.
+let NoMetric = "NoMetric"
+
+// NoSampler marks unavailable hardware sampling ring buffers.
+let NoSampler = "NoSampler"
+
+// PartsShort marks sampling events whose instruction sum diverged from Counted.
+let PartsShort = "PartsShort"
+
+// KindExact identifies deterministic exact counters.
+let KindExact = "exact"
+
+// KindCounted identifies hardware retired-instruction counters.
+let KindCounted = "counted"
+
+// KindSampled identifies instruction-sampled profile shares.
+let KindSampled = "sampled"
+
+// KindTimed identifies wall-time or memory metrics.
+let KindTimed = "timed"
+
+// PartProgram classifies user program, stdlib, and Go stdlib functions.
+let PartProgram = uint8(0)
+
+// PartErgo classifies Ergo runtime functions under ergo.local/prototype/runtime/.
+let PartErgo = uint8(1)
+
+// PartGC classifies Go garbage collector functions.
+let PartGC = uint8(2)
+
+// PartAlloc classifies Go memory allocator functions.
+let PartAlloc = uint8(3)
+
+// PartBarrier classifies Go write-barrier functions.
+let PartBarrier = uint8(4)
+
+// PartSched classifies Go scheduler and synchronization functions.
+let PartSched = uint8(5)
+
+// PartStack classifies Go stack management functions.
+let PartStack = uint8(6)
+
+// PartRuntimeOther classifies remaining Go runtime helpers.
+let PartRuntimeOther = uint8(7)
+
+// PartOutside classifies instructions outside Go ELF symbols.
+let PartOutside = uint8(8)
+
+// NumParts is the total number of instruction classification buckets.
+let NumParts = 9
+
+let ergoRuntimePrefix = "ergo.local/prototype/runtime/"
+let partNames = []string{"InstrProgram", "InstrErgo", "InstrGC", "InstrAlloc", "InstrBarrier", "InstrSched", "InstrStack", "InstrRuntimeOther", "InstrOutside"}
+
+// OpcountError reports malformed opcount CPU lists, periods, or receipt JSON.
+type OpcountError {
+	Message string,
+}
+
+// RunRecord captures measured instruction counters and rusage metrics of one run.
+type RunRecord {
+	Instructions uint64,
+	Uncounted    string,
+	Why          string,
+	Incomplete   string,
+	UserNS       uint64,
+	SysNS        uint64,
+	MaxRSSKiB    uint64,
+}
+
+// HostInfo records machine details inside a bench.v1 receipt.
+type HostInfo {
+	OS           string,
+	Arch         string,
+	CPUs         uint32,
+	GoVersion    string,
+	Level        string,
+	Counter      string,
+	SamplePeriod uint64,
+}
+
+// RefusedReason explains why a counter series or comparison has no valid measurement.
+type RefusedReason {
+	ID     string,
+	Reason string,
+}
+
+// BodiesRecord counts IR-compiled functions in an emitted Go package.
+type BodiesRecord {
+	Package string,
+	IR      uint32,
+	Funcs   uint32,
+}
+
+// Series captures one counter across rounds for one side, with either summary stats or refusal.
+type Series {
+	Side        string,
+	Counter     string,
+	Kind        string,
+	PerUnit     bool,
+	Values      []float64,
+	HasEstimate bool,
+	Estimate    float64,
+	HasSpread   bool,
+	Spread      float64,
+	HasRefusal  bool,
+	Refusal     RefusedReason,
+}
+
+// Verdict records comparison refusal reasons in a bench.v1 receipt.
+type Verdict {
+	Kind       string,
+	HasRefusal bool,
+	Refusal    RefusedReason,
+}
+
+// Comparison captures paired ratio metrics between base and head series.
+type Comparison {
+	Counter    string,
+	Base       string,
+	Head       string,
+	Pairs      uint32,
+	HasRatio   bool,
+	Ratio      float64,
+	HasVerdict bool,
+	Verdict    Verdict,
+}
+
+// CaseRecord captures one benchmark target's series and paired comparisons.
+type CaseRecord {
+	Case        string,
+	Unit        string,
+	Sizes       []uint32,
+	Rounds      uint32,
+	HasWorkload bool,
+	Workload    Workload,
+	Path        string,
+	Bodies      []BodiesRecord,
+	Series      []Series,
+	Comparisons []Comparison,
+}
+
+// Receipt is a complete bench.v1 measurement document.
+type Receipt {
+	Schema   string,
+	Tool     string,
+	Commit   string,
+	Host     HostInfo,
+	Load     []string,
+	Priority int,
+	Cases    []CaseRecord,
+}
+
+// SymTag identifies a function address range in SymbolTable.
+type SymTag {}
+
+// SymbolTable stores ELF instruction address ranges sorted by Start in SoA columns.
+type SymbolTable {
+	Count dense.Count[SymTag],
+	Start dense.Col[SymTag, uint64],
+	End   dense.Col[SymTag, uint64],
+	Part  dense.Col[SymTag, uint8],
+}
+
+// Shares stores sampled instruction counts across the 9 runtime parts.
+type Shares {
+	Samples []uint64,
+	Counted uint64,
+	Refused string,
+	Why     string,
+}
+
+// NewSymbolTable creates an empty SoA SymbolTable.
+func NewSymbolTable() SymbolTable {
+	SymbolTable{
+		Count: dense.NewCount[SymTag](),
+		Start: dense.NewCol[SymTag, uint64](),
+		End:   dense.NewCol[SymTag, uint64](),
+		Part:  dense.NewCol[SymTag, uint8](),
+	}
+}
+
+// AddSymbol appends an already-ordered ELF symbol range into t.
+func AddSymbol(t mut SymbolTable, start uint64, end uint64, name string) {
+	let _ = dense.Next(&t.Count)
+	dense.Push(&t.Start, start)
+	dense.Push(&t.End, end)
+	dense.Push(&t.Part, Classify(name))
+}
+
+// SymbolPart binary-searches t for the instruction pointer ip and returns its Part code.
+func SymbolPart(t SymbolTable, ip uint64) uint8 {
+	let n = dense.Total(t.Count)
+	if n == 0 {
+		return PartOutside
+	}
+	let mut lo = 0
+	let mut hi = n
+	for lo < hi {
+		let mid = lo + (hi-lo)/2
+		let st = dense.Of(t.Start, dense.IDAt(t.Count, mid))
+		if st <= ip {
+			lo = mid + 1
+		} else {
+			hi = mid
+		}
+	}
+	let idx = lo - 1
+	if idx < 0 {
+		return PartOutside
+	}
+	let id = dense.IDAt(t.Count, idx)
+	if ip >= dense.Of(t.End, id) {
+		return PartOutside
+	}
+	dense.Of(t.Part, id)
+}
+
+// DecodeCounter validates raw perf_event_open (value, enabled, running) triplets.
+func DecodeCounter(value uint64, enabled uint64, running uint64) (uint64, string, string) {
+	if enabled == uint64(0) {
+		return (uint64(0), NoCounter, "the counter was never enabled: the program was not exec'd under it")
+	}
+	if running < enabled {
+		return (uint64(0), Multiplexed, "the counter ran \(running) of \(enabled) ns enabled: the kernel multiplexed it, so the count is short")
+	}
+	(value, "", "")
+}
+
+// RunRefusal returns RunIncomplete if the run failed, otherwise Uncounted/Why.
+func RunRefusal(r RunRecord) (string, string) {
+	if r.Incomplete != "" {
+		return (RunIncomplete, r.Incomplete)
+	}
+	(r.Uncounted, r.Why)
+}
+
+// PartCounter returns the receipt counter column name for part code p.
+func PartCounter(p uint8) string {
+	let idx = int(p)
+	if idx < 0 || idx >= partNames.Len() {
+		return "InstrOutside"
+	}
+	partNames[idx]
+}
+
+// Classify maps a Go symbol name to its runtime/program/Ergo part code.
+func Classify(name string) uint8 {
+	if strings.HasPrefix(name, ergoRuntimePrefix) {
+		return PartErgo
+	}
+	let (fn, ok) = runtimeFuncName(name)
+	if !ok {
+		return PartProgram
+	}
+	if containsAny(fn, []string{"WriteBarrier", "wbBuf", "wbMove", "bulkBarrier", "wbZero"}) {
+		return PartBarrier
+	}
+	if containsAny(fn, []string{"morestack", "newstack", "copystack", "shrinkstack", "stackalloc", "stackfree", "stackcache", "adjustpointer", "adjustframe", "adjustctxt", "adjustdefers", "adjustsudogs", "syncadjustsudogs", "lessstack"}) {
+		return PartStack
+	}
+	if containsAny(fn, []string{"malloc", "nextFreeFast", "mcache", "mcentral", "mheap", "newobject", "newarray", "makeslice", "growslice", "makemap", "rawstring", "rawbyteslice", "rawruneslice", "heapSetType", "nextFreeIndex", "refill", "allocSpan", "profilealloc", "publicationBarrier", "(*mspan).init", "fixalloc", "persistentalloc", "deductAssistCredit"}) {
+		return PartAlloc
+	}
+	if containsAny(fn, []string{"gc", "GC", "mark", "Mark", "sweep", "Sweep", "scan", "Scan", "grey", "scaveng", "Scaveng", "findObject", "spanOf", "markBits", "typePointers", "heapBits", "finalizer", "Finalizer", "wbuf", "spanSet", "Cleanup", "(*gcWork)"}) {
+		return PartGC
+	}
+	if containsAny(fn, []string{"schedule", "findRunnable", "findrunnable", "execute", "gopark", "park_m", "goready", "ready", "runq", "wakep", "startm", "stopm", "mput", "mget", "pidle", "notesleep", "notewakeup", "notetsleep", "futex", "mcall", "gogo", "gosched", "Gosched", "goexit", "newproc", "gfget", "gfput", "casgstatus", "sysmon", "retake", "preempt", "netpoll", "checkTimers", "timers", "(*timer)", "lock2", "unlock2", "lockWithRank", "unlockWithRank", "entersyscall", "exitsyscall", "usleep", "osyield", "procyield", "handoffp", "injectglist", "resetspinning", "spinning", "acquirep", "releasep", "mstart", "minit", "semacquire", "semrelease", "(*p).", "(*m).", "Semacquire", "Semrelease", "asyncPreempt", "doSigPreempt", "sighandler", "sigtramp", "badsignal"}) {
+		return PartSched
+	}
+	PartRuntimeOther
+}
+
+// NewShares returns an initialized zero Shares record with 9 sample buckets.
+func NewShares() Shares {
+	Shares{
+		Samples: []uint64{uint64(0), uint64(0), uint64(0), uint64(0), uint64(0), uint64(0), uint64(0), uint64(0), uint64(0)},
+		Counted: uint64(0),
+		Refused: "",
+		Why:     "",
+	}
+}
+
+// SharesTotal sums sample hits across all parts.
+func SharesTotal(s Shares) uint64 {
+	let mut n = uint64(0)
+	for v in s.Samples {
+		n = n + v
+	}
+	n
+}
+
+// SharesInstructions computes scaled instruction count attributed to part p.
+func SharesInstructions(s Shares, p uint8) float64 {
+	let n = SharesTotal(s)
+	if n == uint64(0) {
+		return 0.0
+	}
+	let idx = int(p)
+	if idx < 0 || idx >= s.Samples.Len() {
+		return 0.0
+	}
+	(float64(s.Samples[idx]) / float64(n)) * float64(s.Counted)
+}
+
+// CheckShares validates sampled shares against run instructions within PartsTolerance.
+func CheckShares(s mut Shares, r RunRecord) {
+	if s.Refused != "" {
+		return
+	}
+	let (id, why) = RunRefusal(r)
+	if id != "" {
+		s.Refused = id
+		s.Why = why
+		return
+	}
+	let i = float64(r.Instructions)
+	let c = float64(s.Counted)
+	let d = c - i
+	if d > PartsTolerance*i || -d > PartsTolerance*i {
+		s.Refused = PartsShort
+		s.Why = "the sampling events counted \(s.Counted) of the run's \(r.Instructions) instructions: the parts are not of the whole run"
+		return
+	}
+	if SharesTotal(*s) == uint64(0) {
+		s.Refused = PartsShort
+		s.Why = "no sample: the run is shorter than one sampling period"
+	}
+}
+
+// PeriodFromRate computes odd sampling period in user instructions from env override and kernel rate.
+func PeriodFromRate(envVal string, rateText string) uint64 {
+	let p = parseBudgetU64(envVal) catch {
+	case BudgetError:
+		uint64(0)
+	}
+	if p > uint64(0) {
+		return p
+	}
+	let mut rate = 100000.0
+	let parsed = strconv.ParseFloat(strings.TrimSpace(rateText)) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		0.0
+	}
+	if parsed > 0.0 {
+		rate = parsed
+	}
+	uint64(20000000000.0/rate) | uint64(1)
+}
+
+// ParseOnlineCPUs parses Linux online CPU list format (e.g. "0-15" or "0,2-5").
+func ParseOnlineCPUs(text string) []uint32 fails OpcountError {
+	let trimmed = strings.TrimSpace(text)
+	if trimmed == "" {
+		return OpcountError{Message: "cpu list \"\""}
+	}
+	let mut cpus = []uint32{}
+	for r in strings.Split(trimmed, ",") {
+		let idx = strings.Index(r, "-")
+		let lo = if idx < 0 { r } else { r[0:idx] }
+		let a = strconv.Atoi(lo) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return OpcountError{Message: "cpu list \(strconv.Quote(text))"}
+		}
+		let mut b = a
+		if idx >= 0 {
+			let hi = r[idx+1 : r.Len()]
+			b = strconv.Atoi(hi) catch {
+			case strconv.Malformed, strconv.OutOfRange:
+				return OpcountError{Message: "cpu list \(strconv.Quote(text))"}
+			}
+		}
+		for c in a..(b + 1) {
+			cpus = cpus.Append(uint32(c))
+		}
+	}
+	cpus
+}
+
+// NewSeries creates a Series from round values or a typed refusal.
+func NewSeries(side string, counter string, kind string, perUnit bool, values []float64, hasRefused bool, refused RefusedReason) Series {
+	if hasRefused || values.Len() == 0 {
+		let ref = if hasRefused { refused } else { RefusedReason{ID: NoMetric, Reason: "no run reported it"} }
+		return Series{
+			Side:        side,
+			Counter:     counter,
+			Kind:        kind,
+			PerUnit:     perUnit,
+			Values:      []float64{},
+			HasEstimate: false,
+			Estimate:    0.0,
+			HasSpread:   false,
+			Spread:      0.0,
+			HasRefusal:  true,
+			Refusal:     ref,
+		}
+	}
+	let cloned = slices.Clone(values)
+	let m = Median(cloned)
+	let (minV, maxV) = minMaxFloat(cloned)
+	let mut spread = if m == 0.0 {
+		if maxV != minV { math.Inf(1) } else { 0.0 }
+	} else {
+		(maxV - minV) / math.Abs(m)
+	}
+	if math.IsInf(spread, 0) {
+		spread = -1.0
+	}
+	Series{
+		Side:        side,
+		Counter:     counter,
+		Kind:        kind,
+		PerUnit:     perUnit,
+		Values:      cloned,
+		HasEstimate: true,
+		Estimate:    m,
+		HasSpread:   true,
+		Spread:      spread,
+		HasRefusal:  false,
+		Refusal:     RefusedReason{ID: "", Reason: ""},
+	}
+}
+
+// Compare computes paired median ratio comparison between base and head Series.
+func Compare(base Series, head Series) Comparison {
+	if base.HasRefusal {
+		return Comparison{
+			Counter:    head.Counter,
+			Base:       base.Side,
+			Head:       head.Side,
+			Pairs:      uint32(0),
+			HasRatio:   false,
+			Ratio:      0.0,
+			HasVerdict: true,
+			Verdict:    Verdict{Kind: "Refused", HasRefusal: true, Refusal: base.Refusal},
+		}
+	}
+	if head.HasRefusal {
+		return Comparison{
+			Counter:    head.Counter,
+			Base:       base.Side,
+			Head:       head.Side,
+			Pairs:      uint32(0),
+			HasRatio:   false,
+			Ratio:      0.0,
+			HasVerdict: true,
+			Verdict:    Verdict{Kind: "Refused", HasRefusal: true, Refusal: head.Refusal},
+		}
+	}
+	let n = cmp.Min(base.Values.Len(), head.Values.Len())
+	let mut ratios = []float64{}
+	for i in 0..n {
+		if base.Values[i] != 0.0 {
+			ratios = ratios.Append(head.Values[i] / base.Values[i])
+		}
+	}
+	if ratios.Len() == 0 {
+		return Comparison{
+			Counter:    head.Counter,
+			Base:       base.Side,
+			Head:       head.Side,
+			Pairs:      uint32(0),
+			HasRatio:   false,
+			Ratio:      0.0,
+			HasVerdict: false,
+			Verdict:    Verdict{Kind: "", HasRefusal: false, Refusal: RefusedReason{ID: "", Reason: ""}},
+		}
+	}
+	Comparison{
+		Counter:    head.Counter,
+		Base:       base.Side,
+		Head:       head.Side,
+		Pairs:      uint32(ratios.Len()),
+		HasRatio:   true,
+		Ratio:      Median(ratios),
+		HasVerdict: false,
+		Verdict:    Verdict{Kind: "", HasRefusal: false, Refusal: RefusedReason{ID: "", Reason: ""}},
+	}
+}
+
+// RefuseCase marks all comparisons in c as Refused with reason r.
+func RefuseCase(c mut CaseRecord, r RefusedReason) {
+	for i in 0..c.Comparisons.Len() {
+		let cur = c.Comparisons[i]
+		c.Comparisons[i] = Comparison{
+			Counter:    cur.Counter,
+			Base:       cur.Base,
+			Head:       cur.Head,
+			Pairs:      cur.Pairs,
+			HasRatio:   false,
+			Ratio:      0.0,
+			HasVerdict: true,
+			Verdict:    Verdict{Kind: "Refused", HasRefusal: true, Refusal: r},
+		}
+	}
+}
+
+// Slope returns per-unit slope (large - small) / float64(largeN - smallN).
+func Slope(small float64, large float64, smallN int, largeN int) float64 {
+	(large - small) / float64(largeN-smallN)
+}
+
+// Median returns the median of xs without mutating xs.
+func Median(xs []float64) float64 {
+	let s = slices.Sort(slices.Clone(xs))
+	let n = s.Len()
+	if n%2 == 1 {
+		return s[n/2]
+	}
+	(s[n/2-1] + s[n/2]) / 2.0
+}
+
+// EncodeReceiptJSON serializes Receipt in canonical bench.v1 JSON format.
+func EncodeReceiptJSON(rec Receipt) string {
+	let t = json.NewText()
+	t.BeginObject(7)
+	t.Key("schema")
+	t.String(rec.Schema)
+	t.Key("tool")
+	t.String(rec.Tool)
+	t.Key("commit")
+	t.String(rec.Commit)
+	t.Key("host")
+	encodeHostJSON(t, rec.Host)
+	t.Key("load")
+	t.BeginList(2)
+	let l0 = if rec.Load.Len() > 0 { rec.Load[0] } else { "" }
+	let l1 = if rec.Load.Len() > 1 { rec.Load[1] } else { "" }
+	t.String(l0)
+	t.String(l1)
+	t.EndList()
+	t.Key("priority")
+	t.Int(int64(rec.Priority))
+	t.Key("cases")
+	t.BeginList(rec.Cases.Len())
+	for c in rec.Cases {
+		encodeCaseJSON(t, c)
+	}
+	t.EndList()
+	t.EndObject()
+	t.Written()
+}
+
+func encodeHostJSON(t json.Text, h HostInfo) {
+	let mut n = 5
+	if h.Level != "" {
+		n = n + 1
+	}
+	if h.SamplePeriod > uint64(0) {
+		n = n + 1
+	}
+	t.BeginObject(n)
+	t.Key("os")
+	t.String(h.OS)
+	t.Key("arch")
+	t.String(h.Arch)
+	t.Key("cpus")
+	t.Uint(uint64(h.CPUs))
+	t.Key("go_version")
+	t.String(h.GoVersion)
+	if h.Level != "" {
+		t.Key("level")
+		t.String(h.Level)
+	}
+	t.Key("counter")
+	t.String(h.Counter)
+	if h.SamplePeriod > uint64(0) {
+		t.Key("sample_period")
+		t.Uint(h.SamplePeriod)
+	}
+	t.EndObject()
+}
+
+func encodeCaseJSON(t json.Text, c CaseRecord) {
+	let mut n = 3
+	if c.Unit != "" {
+		n = n + 1
+	}
+	if c.Sizes.Len() > 0 {
+		n = n + 1
+	}
+	if c.HasWorkload {
+		n = n + 1
+	}
+	if c.Path != "" {
+		n = n + 1
+	}
+	if c.Bodies.Len() > 0 {
+		n = n + 1
+	}
+	if c.Comparisons.Len() > 0 {
+		n = n + 1
+	}
+	t.BeginObject(n)
+	t.Key("case")
+	t.String(c.Case)
+	if c.Unit != "" {
+		t.Key("unit")
+		t.String(c.Unit)
+	}
+	if c.Sizes.Len() > 0 {
+		t.Key("sizes")
+		t.BeginList(c.Sizes.Len())
+		for sz in c.Sizes {
+			t.Uint(uint64(sz))
+		}
+		t.EndList()
+	}
+	t.Key("rounds")
+	t.Uint(uint64(c.Rounds))
+	if c.HasWorkload {
+		t.Key("workload")
+		encodeWorkloadJSON(t, c.Workload)
+	}
+	if c.Path != "" {
+		t.Key("path")
+		t.String(c.Path)
+	}
+	if c.Bodies.Len() > 0 {
+		t.Key("bodies")
+		t.BeginList(c.Bodies.Len())
+		for b in c.Bodies {
+			t.BeginObject(3)
+			t.Key("package")
+			t.String(b.Package)
+			t.Key("ir")
+			t.Uint(uint64(b.IR))
+			t.Key("funcs")
+			t.Uint(uint64(b.Funcs))
+			t.EndObject()
+		}
+		t.EndList()
+	}
+	t.Key("series")
+	t.BeginList(c.Series.Len())
+	for s in c.Series {
+		encodeSeriesJSON(t, s)
+	}
+	t.EndList()
+	if c.Comparisons.Len() > 0 {
+		t.Key("comparisons")
+		t.BeginList(c.Comparisons.Len())
+		for cm in c.Comparisons {
+			encodeComparisonJSON(t, cm)
+		}
+		t.EndList()
+	}
+	t.EndObject()
+}
+
+func encodeSeriesJSON(t json.Text, s Series) {
+	let mut n = 4
+	if s.Values.Len() > 0 {
+		n = n + 1
+	}
+	if s.HasEstimate {
+		n = n + 1
+	}
+	if s.HasSpread {
+		n = n + 1
+	}
+	if s.HasRefusal {
+		n = n + 1
+	}
+	t.BeginObject(n)
+	t.Key("side")
+	t.String(s.Side)
+	t.Key("counter")
+	t.String(s.Counter)
+	t.Key("kind")
+	t.String(s.Kind)
+	t.Key("per_unit")
+	t.Bool(s.PerUnit)
+	if s.Values.Len() > 0 {
+		t.Key("values")
+		t.BeginList(s.Values.Len())
+		for v in s.Values {
+			t.Float(v)
+		}
+		t.EndList()
+	}
+	if s.HasEstimate {
+		t.Key("estimate")
+		t.Float(s.Estimate)
+	}
+	if s.HasSpread {
+		t.Key("spread")
+		t.Float(s.Spread)
+	}
+	if s.HasRefusal {
+		t.Key("refusal")
+		t.BeginObject(2)
+		t.Key("id")
+		t.String(s.Refusal.ID)
+		t.Key("reason")
+		t.String(s.Refusal.Reason)
+		t.EndObject()
+	}
+	t.EndObject()
+}
+
+func encodeComparisonJSON(t json.Text, cm Comparison) {
+	let mut n = 4
+	if cm.HasRatio {
+		n = n + 1
+	}
+	if cm.HasVerdict {
+		n = n + 1
+	}
+	t.BeginObject(n)
+	t.Key("counter")
+	t.String(cm.Counter)
+	t.Key("base")
+	t.String(cm.Base)
+	t.Key("head")
+	t.String(cm.Head)
+	t.Key("pairs")
+	t.Uint(uint64(cm.Pairs))
+	if cm.HasRatio {
+		t.Key("ratio")
+		t.Float(cm.Ratio)
+	}
+	if cm.HasVerdict {
+		t.Key("verdict")
+		let vn = if cm.Verdict.HasRefusal { 2 } else { 1 }
+		t.BeginObject(vn)
+		t.Key("verdict_kind")
+		t.String(cm.Verdict.Kind)
+		if cm.Verdict.HasRefusal {
+			t.Key("refusal")
+			t.BeginObject(2)
+			t.Key("id")
+			t.String(cm.Verdict.Refusal.ID)
+			t.Key("reason")
+			t.String(cm.Verdict.Refusal.Reason)
+			t.EndObject()
+		}
+		t.EndObject()
+	}
+	t.EndObject()
+}
+
+func runtimeFuncName(name string) (string, bool) {
+	for p in []string{"runtime.", "internal/runtime/", "runtime/internal/"} {
+		if strings.HasPrefix(name, p) {
+			return (strings.TrimPrefix(name, p), true)
+		}
+	}
+	("", false)
+}
+
+func containsAny(hay string, subs []string) bool {
+	for s in subs {
+		if strings.Contains(hay, s) {
+			return true
+		}
+	}
+	false
+}
+
+func minMaxFloat(xs []float64) (float64, float64) {
+	let mut lo = xs[0]
+	let mut hi = xs[0]
+	for x in xs[1:xs.Len()] {
+		if x < lo {
+			lo = x
+		}
+		if x > hi {
+			hi = x
+		}
+	}
+	(lo, hi)
+}
+
+// PartsSumToCounted verifies that part instruction shares always sum to Counted.
+law PartsSumToCounted(s0 uint32, s1 uint32, s2 uint32, counted uint64) {
+	let mut sh = NewShares()
+	sh.Samples[0] = uint64(s0) + uint64(1)
+	sh.Samples[1] = uint64(s1)
+	sh.Samples[2] = uint64(s2)
+	sh.Counted = counted % uint64(1000000000)
+	let mut sum = 0.0
+	for p in 0..NumParts {
+		sum = sum + SharesInstructions(sh, uint8(p))
+	}
+	math.Abs(sum-float64(sh.Counted)) <= 1.0
+}
+
+// SlopeCancelsFixedCost verifies that Slope yields exact linear unit cost regardless of fixed startup overhead.
+law SlopeCancelsFixedCost(fixed int, perUnit int) {
+	let fx = float64(fixed % 10000)
+	let unit = float64((perUnit % 1000) + 1)
+	let s = Slope(fx+unit*100.0, fx+unit*1000.0, 100, 1000)
+	math.Abs(s-unit) < 0.0001
+}
+
+test TestOpcountClassifyAndReceipt {
+	assert Classify("ergo.local/prototype/runtime/v1.Foo") == PartErgo
+	assert Classify("runtime.mallocgc") == PartAlloc
+	assert Classify("runtime.gcWriteBarrier") == PartBarrier
+	assert Classify("runtime.morestack") == PartStack
+	assert Classify("runtime.gcBgMarkWorker") == PartGC
+	assert Classify("runtime.schedule") == PartSched
+	assert Classify("runtime.memmove") == PartRuntimeOther
+	assert Classify("main.work") == PartProgram
+
+	let mut syms = NewSymbolTable()
+	AddSymbol(&syms, uint64(0x1000), uint64(0x1100), "main.work")
+	AddSymbol(&syms, uint64(0x1100), uint64(0x1200), "runtime.mallocgc")
+	assert SymbolPart(syms, uint64(0x1050)) == PartProgram
+	assert SymbolPart(syms, uint64(0x1150)) == PartAlloc
+	assert SymbolPart(syms, uint64(0x1200)) == PartOutside
+
+	let (v, ref, _) = DecodeCounter(uint64(42), uint64(10), uint64(10))
+	assert v == uint64(42) && ref == ""
+	let (_, mref, _) = DecodeCounter(uint64(42), uint64(10), uint64(5))
+	assert mref == Multiplexed
+
+	let cpus = ParseOnlineCPUs("0,2-4") catch {
+	case OpcountError:
+		assert false
+		[]uint32{}
+	}
+	assert cpus.Len() == 4 && cpus[0] == uint32(0) && cpus[3] == uint32(4)
+
+	let sBase = NewSeries("base", "UserInstructions", KindCounted, true, []float64{10.0, 20.0, 30.0}, false, RefusedReason{ID: "", Reason: ""})
+	let sHead = NewSeries("head", "UserInstructions", KindCounted, true, []float64{5.0, 10.0, 15.0}, false, RefusedReason{ID: "", Reason: ""})
+	let cmpRes = Compare(sBase, sHead)
+	assert cmpRes.Pairs == uint32(3) && cmpRes.HasRatio && math.Abs(cmpRes.Ratio-0.5) < 0.001
+
+	let r = Receipt{
+		Schema:   Schema,
+		Tool:     "opcount",
+		Commit:   "abc123",
+		Host:     HostInfo{OS: "linux", Arch: "amd64", CPUs: uint32(16), GoVersion: "go1.27.4", Level: "v1", Counter: "user instructions", SamplePeriod: uint64(200001)},
+		Load:     []string{"1.0", "1.0"},
+		Priority: 0,
+		Cases:    []CaseRecord{CaseRecord{Case: "ex", Unit: "op", Sizes: []uint32{uint32(100), uint32(1000)}, Rounds: uint32(3), HasWorkload: false, Workload: Workload{Unit: "", Small: uint32(0), Large: uint32(0), Args: []string{}, Binary: "", Procs: uint32(1), InputKind: "", InputDir: "", InputArgs: []string{}, Control: "", Floor: ""}, Path: "ir", Bodies: []BodiesRecord{}, Series: []Series{sBase, sHead}, Comparisons: []Comparison{cmpRes}}},
+	}
+	let raw = EncodeReceiptJSON(r)
+	let codec = json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}
+	let okJSON = json.Decode(codec, raw) catch {
+	case json.Malformed:
+		assert false
+		json.Null
+	case _:
+		assert false
+		json.Null
+	}
+	assert raw != "" && strings.Contains(raw, "\"schema\":\"bench.v1\"")
+	let _ = okJSON
+}

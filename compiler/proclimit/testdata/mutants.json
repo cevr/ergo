@@ -1,0 +1,57 @@
+{
+  "about": "Pure-Ergo proclimit DoD guards: span-queue fault identification, limit reporting, and host/cgroup quota derivation.",
+  "mutants": [
+    {
+      "name": "selfhost-toolchain-proclimit-any-frame",
+      "origin": "selfhost-toolchain-runtime",
+      "file": "compiler/proclimit/report.ergo",
+      "decl": "advanceLine",
+      "from": "\t\tif strings.HasPrefix(line, faultFrame) {",
+      "to": "\t\tif true {",
+      "rule": "A fatal SIGSEGV in a non-span-queue frame stays an unexplained crash rather than QueueFault.",
+      "killers": ["compiler/proclimit:TestCauseOfAndSplitScanner"],
+      "anchor": {
+        "tests": ["compiler/proclimit:TestCauseOfAndSplitScanner"]
+      }
+    },
+    {
+      "name": "selfhost-toolchain-proclimit-addr-nonzero",
+      "origin": "selfhost-toolchain-runtime",
+      "file": "compiler/proclimit/report.ergo",
+      "decl": "advanceLine",
+      "from": "\t\tif strings.HasPrefix(line, \"PC=\") && slices.Contains(strings.Fields(line), \"addr=0x0\") {",
+      "to": "\t\tif strings.HasPrefix(line, \"PC=\") && (slices.Contains(strings.Fields(line), \"addr=0x0\") || slices.Contains([]string{line}, line)) {",
+      "rule": "Only a SIGSEGV at address zero qualifies as a collector span-queue nil-ring fault.",
+      "killers": ["compiler/proclimit:TestCauseOfAndSplitScanner"],
+      "anchor": {
+        "tests": ["compiler/proclimit:TestCauseOfAndSplitScanner"]
+      }
+    },
+    {
+      "name": "selfhost-toolchain-proclimit-issue-unnamed",
+      "origin": "selfhost-toolchain-runtime",
+      "file": "compiler/proclimit/proclimit.ergo",
+      "decl": "FormatLimitError",
+      "from": "\tcase QueueFault:\n\t\ttext = text + \"; the Go runtime stopped it with SIGSEGV in its collector's span queue, not with an out-of-memory report (Go runtime bug \\(RuntimeIssue), \\(RuntimeIssueURL))\"\n",
+      "to": "\tcase QueueFault:\n\t\ttext = text + RuntimeIssue[0:0] + RuntimeIssueURL[0:0]\n",
+      "rule": "A span-queue LimitError must include the Go runtime issue identifier.",
+      "killers": ["compiler/proclimit:TestParseSizeFormatAndLimit"],
+      "anchor": {
+        "tests": ["compiler/proclimit:TestParseSizeFormatAndLimit"]
+      }
+    },
+    {
+      "name": "selfhost-toolchain-proclimit-workers-cap",
+      "origin": "selfhost-toolchain-runtime",
+      "file": "compiler/proclimit/host_quota.ergo",
+      "decl": "DeriveQuota",
+      "from": "\tif capWorkers > uint32(0) && workers > capWorkers {\n",
+      "to": "\tif false {\n",
+      "rule": "DeriveQuota must honor a positive capWorkers ceiling.",
+      "killers": ["compiler/proclimit:law:DeriveQuotaBounds"],
+      "anchor": {
+        "tests": ["compiler/proclimit:law:DeriveQuotaBounds"]
+      }
+    }
+  ]
+}
