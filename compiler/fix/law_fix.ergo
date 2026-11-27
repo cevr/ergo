@@ -1,0 +1,1086 @@
+import cmp
+import compiler/check/bind
+import compiler/syntax
+import dense
+import filepath
+import option
+import slices
+import strings
+import utf8
+
+// LawMove describes one relocated law or test and its bundled exclusive helpers.
+type LawMove {
+	Kind    string,
+	Name    string,
+	From    string,
+	To      string,
+	Helpers []string,
+}
+
+// LawFixReport summarizes file updates, deletions, moves, renames, unexports, and guards.
+type LawFixReport {
+	Updated    []LawFile,
+	Applied    []LawFile,
+	Deleted    []string,
+	Moves      []LawMove,
+	Renamed    []string,
+	Unplaced   []string,
+	Ambiguous  []string,
+	Unexported []string,
+}
+
+func isLawsFileName(name string) bool {
+	strings.Contains(strings.ToLower(filepath.Base(name)), "law")
+}
+
+func isLawOrTestFileName(name string) bool {
+	let lower = strings.ToLower(filepath.Base(name))
+	strings.Contains(lower, "law") || strings.Contains(lower, "test")
+}
+
+func lowerFirstIdent(name string) string {
+	if name == "" {
+		return ""
+	}
+	let d = utf8.DecodeRuneInString(name)
+	strings.ToLower(utf8.RuneText(d.Rune)) + name[d.Size:]
+}
+
+func isHelperDeclKind(g LawGraph, d uint32, allowExported bool) bool {
+	let idx = int(d)
+	if g.DeclIsMember[idx] || g.DeclExtern[idx] || g.DeclDerived[idx] {
+		return false
+	}
+	let k = g.DeclKind[idx]
+	let exp = g.DeclExported[idx]
+	let nm = DeclNameText(g, d)
+	if k == dkFunc {
+		return !g.DeclHasRecv[idx] && nm != "main" && (allowExported || !exp)
+	}
+	if k == dkType || k == dkContext || k == dkVar {
+		return allowExported || !exp
+	}
+	false
+}
+
+func computeHelperMask(g LawGraph, allowExported bool) []bool {
+	let n = int(g.DeclCount)
+	let mut h = slices.Repeat([]bool{false}, n)
+	let mut byOwner = slices.Repeat([]bool{false}, n)
+	for d in 0..n {
+		if g.DeclIsMember[d] {
+			continue
+		}
+		let hasOwner = g.DeclOwner[d] != NoDecl()
+		let own = hasOwner && !g.DeclDerived[d] && !g.DeclExtern[d]
+		let hasUsers = g.UserCount[d] > uint32(0)
+		let expOk = allowExported || !(g.DeclHasRecv[d] && g.DeclExported[d])
+		if hasUsers && isHelperDeclKind(g, uint32(d), allowExported) && expOk {
+			h[d] = true
+		} else if own {
+			h[d] = true
+			byOwner[d] = true
+		}
+	}
+	let mut changed = true
+	for changed {
+		changed = false
+		for d in 0..n {
+			if !h[d] {
+				continue
+			}
+			let mut keep = true
+			if byOwner[d] && !h[int(g.DeclOwner[d])] {
+				keep = false
+			}
+			let mStart = int(g.MethodStart[d])
+			let mEnd = mStart + int(g.MethodCount[d])
+			for mi in mStart..mEnd {
+				if !h[int(g.MethodDecls[mi])] {
+					keep = false
+				}
+			}
+			let uStart = int(g.UserStart[d])
+			let uEnd = uStart + int(g.UserCount[d])
+			for ui in uStart..uEnd {
+				let u = int(g.UserBy[ui])
+				let uk = g.DeclKind[u]
+				if uk == dkLaw || uk == dkTest {
+					continue
+				}
+				if !h[u] {
+					keep = false
+				}
+			}
+			if !keep {
+				h[d] = false
+				changed = true
+			}
+		}
+	}
+	h
+}
+
+func tryUnexportHelpers(pkgPath string, inputFiles []LawFile) ([]LawFile, []string, []string) fails OverlapError | OutOfBoundsError {
+	let g = BuildLawGraph(pkgPath, inputFiles)
+	let baseHelpers = computeHelperMask(g, false)
+	let allHelpers = computeHelperMask(g, true)
+	let n = int(g.DeclCount)
+	let mut candDecls = []uint32{}
+	for d in 0..n {
+		if g.DeclIsMember[d] || g.DeclKind[d] != dkFunc || g.DeclHasRecv[d] || !g.DeclExported[d] {
+			continue
+		}
+		if allHelpers[d] && !baseHelpers[d] && isLawOrTestFileName(g.FileNames[int(g.DeclFile[d])]) {
+			candDecls = candDecls.Append(uint32(d))
+		}
+	}
+	if candDecls.Len() == 0 {
+		return (inputFiles, []string{}, []string{})
+	}
+	let beforeDiags = countCheckDiags(g.BindFiles, g.Store, g.Uses, g.Parents)
+	let mut curFiles = slices.Clone(inputFiles)
+	let mut unexportedNames = []string{}
+	let mut ambiguous = []string{}
+
+	for d in candDecls {
+		let oldName = DeclNameText(g, d)
+		let newName = lowerFirstIdent(oldName)
+		if newName == "" || newName == oldName || slices.Contains(g.PkgNames, newName) {
+			ambiguous = ambiguous.Append("unexport collision for " + oldName)
+			continue
+		}
+		let cg = BuildLawGraph(pkgPath, curFiles)
+		let mut targetDecl = NoDecl()
+		for i in 0..int(cg.DeclCount) {
+			if !cg.DeclIsMember[i] && cg.DeclKind[i] == dkFunc && DeclNameText(cg, uint32(i)) == oldName {
+				targetDecl = uint32(i)
+				break
+			}
+		}
+		if targetDecl == NoDecl() {
+			continue
+		}
+		if hasLocalOrImportShadow(cg, targetDecl, newName) {
+			ambiguous = ambiguous.Append("unexport shadow for " + oldName)
+			continue
+		}
+		let nextFiles = try applySingleUnexport(cg, curFiles, targetDecl, oldName, newName)
+		if nextFiles.Len() == 0 {
+			ambiguous = ambiguous.Append("unexport edit conflict for " + oldName)
+			continue
+		}
+		let ng = BuildLawGraph(pkgPath, nextFiles)
+		let afterDiags = countCheckDiags(ng.BindFiles, ng.Store, ng.Uses, ng.Parents)
+		if afterDiags > beforeDiags {
+			ambiguous = ambiguous.Append("unexport diagnostic guard for " + oldName)
+			continue
+		}
+		curFiles = nextFiles
+		unexportedNames = unexportedNames.Append(oldName)
+	}
+	(curFiles, unexportedNames, ambiguous)
+}
+
+func hasLocalOrImportShadow(g LawGraph, targetDecl uint32, newName string) bool {
+	for fi, lf in g.FileNames {
+		let _ = lf
+		let p = g.FileParsed[fi]
+		if p.Failed {
+			continue
+		}
+		for sp in ParseFileImports(g.FileSrcs[fi], p) {
+			if ImportQualifier(sp.Entry) == newName {
+				return true
+			}
+		}
+	}
+	for fi in 0..g.FileParsed.Len() {
+		let p = g.FileParsed[fi]
+		if p.Failed {
+			continue
+		}
+		let tr = p.Tree
+		for i in 0..syntax.NumNodes(tr) {
+			let id = syntax.NodeAt(tr, i)
+			if syntax.KindOf(tr, id) != syntax.KIdent {
+				continue
+			}
+			let pn = bind.PNodeOf(g.Parents, fi, id)
+			match bind.ResolutionOf(g.Uses, g.Parents, pn) {
+			case bind.Declared as dec:
+				if g.PNodeOwner[dense.Index(dec.At)] == targetDecl {
+					let ownerDecl = g.PNodeOwner[dense.Index(pn)]
+					if ownerDecl != NoDecl() {
+						let locals = collectLocalNamesInRange(p, g.Uses, g.Parents, fi, int(g.DeclSpanFrom[int(ownerDecl)]), int(g.DeclSpanTo[int(ownerDecl)]))
+						if slices.Contains(locals, newName) {
+							return true
+						}
+					}
+				}
+			case _:
+			}
+		}
+	}
+	false
+}
+
+func applySingleUnexport(g LawGraph, curFiles []LawFile, targetDecl uint32, oldName string, newName string) []LawFile fails OverlapError | OutOfBoundsError {
+	let nFiles = g.FileParsed.Len()
+	let mut editsByFile = slices.WithCapacity[[]Edit](nFiles)
+	for _ in 0..nFiles {
+		editsByFile = editsByFile.Append([]Edit{})
+	}
+	let defFi = int(g.DeclFile[int(targetDecl)])
+	let defP = g.FileParsed[defFi]
+	let fd = syntax.FuncDeclOf(defP.Tree, syntax.NodeAt(defP.Tree, int(g.DeclNode[int(targetDecl)])))
+	let defPos = syntax.NodePos(defP, fd.Name)
+	let defEnd = syntax.NodeEnd(defP, fd.Name)
+	editsByFile[defFi] = editsByFile[defFi].Append(Edit{From: defPos, To: defEnd, Replace: newName})
+	if fd.Doc >= 0 && fd.Doc < syntax.NumGroups(defP) {
+		let gPos = syntax.GroupPos(defP, fd.Doc)
+		let gEnd = syntax.GroupEnd(defP, fd.Doc)
+		let src = g.FileSrcs[defFi]
+		let prefix = "// " + oldName + " "
+		if gPos+prefix.Len() <= gEnd && src[gPos:gPos+prefix.Len()] == prefix {
+			editsByFile[defFi] = editsByFile[defFi].Append(Edit{From: gPos + 3, To: gPos + 3 + oldName.Len(), Replace: newName})
+		}
+	}
+	for fi in 0..nFiles {
+		let p = g.FileParsed[fi]
+		if p.Failed {
+			continue
+		}
+		let tr = p.Tree
+		for i in 0..syntax.NumNodes(tr) {
+			let id = syntax.NodeAt(tr, i)
+			if syntax.KindOf(tr, id) != syntax.KIdent {
+				continue
+			}
+			let pn = bind.PNodeOf(g.Parents, fi, id)
+			match bind.ResolutionOf(g.Uses, g.Parents, pn) {
+			case bind.Declared as dec:
+				if g.PNodeOwner[dense.Index(dec.At)] == targetDecl {
+					let s = syntax.NodePos(p, id)
+					let e = syntax.NodeEnd(p, id)
+					if s != defPos || fi != defFi {
+						editsByFile[fi] = editsByFile[fi].Append(Edit{From: s, To: e, Replace: newName})
+					}
+				}
+			case _:
+			}
+		}
+	}
+	let mut out = slices.WithCapacity[LawFile](nFiles)
+	for fi, lf in curFiles {
+		if editsByFile[fi].Len() == 0 {
+			out = out.Append(lf)
+			continue
+		}
+		let nextSrc = try ApplyEdits(lf.Path, lf.Src, editsByFile[fi])
+		let formatted = FormatIfOrigValid(lf.Path, lf.Src, nextSrc)
+		if syntax.Parse(formatted).Failed {
+			return []LawFile{}
+		}
+		out = out.Append(LawFile{Path: lf.Path, Src: formatted})
+	}
+	out
+}
+
+func collectSubjectsBFS(g LawGraph, rootDecl uint32, fixHelper []bool) []uint32 {
+	let n = int(g.DeclCount)
+	let mut seen = slices.Repeat([]bool{false}, n)
+	seen[int(rootDecl)] = true
+	let mut queue = []uint32{rootDecl}
+	let mut qHead = 0
+	let mut subjects = []uint32{}
+	for qHead < queue.Len() {
+		let cur = int(queue[qHead])
+		qHead = qHead + 1
+		let rStart = int(g.RefStart[cur])
+		let rEnd = rStart + int(g.RefCount[cur])
+		for ri in rStart..rEnd {
+			let dep = g.RefTo[ri]
+			let di = int(dep)
+			if seen[di] || g.DeclIsMember[di] {
+				continue
+			}
+			seen[di] = true
+			if fixHelper[di] {
+				queue = queue.Append(dep)
+				continue
+			}
+			let dk = g.DeclKind[di]
+			if dk == dkLaw || dk == dkTest {
+				continue
+			}
+			subjects = subjects.Append(dep)
+		}
+	}
+	subjects
+}
+
+// WordAt returns the first whole camelCase word match offset of word in name, or -1.
+func WordAt(name string, word string) int {
+	if word == "" || !isUpperName(word) {
+		return -1
+	}
+	let mut from = 0
+	for from <= name.Len() {
+		let k = strings.Index(name[from:name.Len()], word)
+		if k < 0 {
+			return -1
+		}
+		let at = from + k
+		let end = at + word.Len()
+		if end == name.Len() {
+			return at
+		}
+		let r = name[end]
+		if r >= 'A' && r <= 'Z' {
+			return at
+		}
+		from = at + 1
+	}
+	-1
+}
+
+type subjectChoice {
+	decl      uint32,
+	ambiguous bool,
+}
+
+func pickMainSubject(g LawGraph, declName string, subjects []uint32) subjectChoice {
+	let mut bestIdx = 0
+	let mut bestAt = -1
+	let mut bestLen = 0
+	let mut tieOtherFile = false
+	for i, s in subjects {
+		let sName = DeclNameText(g, s)
+		let at = WordAt(declName, sName)
+		if at < 0 {
+			continue
+		}
+		if bestAt < 0 || at < bestAt || (at == bestAt && sName.Len() > bestLen) {
+			bestIdx = i
+			bestAt = at
+			bestLen = sName.Len()
+			tieOtherFile = false
+		} else if at == bestAt && sName.Len() == bestLen && g.DeclFile[int(s)] != g.DeclFile[int(subjects[bestIdx])] {
+			tieOtherFile = true
+		}
+	}
+	if tieOtherFile {
+		return subjectChoice{decl: subjects[bestIdx], ambiguous: true}
+	}
+	subjectChoice{decl: subjects[bestIdx], ambiguous: false}
+}
+
+func helperUsersAndAnchor(g LawGraph, fixHelper []bool) ([]uint32, [][]uint32) {
+	let n = int(g.DeclCount)
+	let mut firstUser = slices.Repeat([]uint32{NoDecl()}, n)
+	let mut allUsers = slices.WithCapacity[[]uint32](n)
+	for _ in 0..n {
+		allUsers = allUsers.Append([]uint32{})
+	}
+	let mut roots = []uint32{}
+	for d in 0..n {
+		let k = g.DeclKind[d]
+		if k == dkLaw || k == dkTest {
+			roots = roots.Append(uint32(d))
+		}
+	}
+	for u in roots {
+		let uAnchor = g.DeclAnchor[int(u)]
+		let mut seen = slices.Repeat([]bool{false}, n)
+		let mut queue = []uint32{u}
+		let mut qHead = 0
+		for qHead < queue.Len() {
+			let x = int(queue[qHead])
+			qHead = qHead + 1
+			let rStart = int(g.RefStart[x])
+			let rEnd = rStart + int(g.RefCount[x])
+			for ri in rStart..rEnd {
+				let dep = g.RefTo[ri]
+				let di = int(dep)
+				if !fixHelper[di] || seen[di] {
+					continue
+				}
+				seen[di] = true
+				if firstUser[di] == NoDecl() {
+					firstUser[di] = uAnchor
+				}
+				if !slices.Contains(allUsers[di], uAnchor) {
+					allUsers[di] = allUsers[di].Append(uAnchor)
+				}
+				queue = queue.Append(dep)
+			}
+		}
+	}
+	for d in 0..n {
+		if g.DeclIsMember[d] || !fixHelper[d] || g.DeclKind[d] != dkType {
+			continue
+		}
+		if g.DeclImplTarget[d] == NoDecl() || !isLawOrTestFileName(g.FileNames[int(g.DeclFile[d])]) {
+			continue
+		}
+		let ifaceDecl = g.DeclImplTarget[d]
+		if firstUser[d] == NoDecl() {
+			firstUser[d] = ifaceDecl
+			allUsers[d] = []uint32{ifaceDecl}
+		}
+		let mStart = int(g.MethodStart[d])
+		let mEnd = mStart + int(g.MethodCount[d])
+		for mi in mStart..mEnd {
+			let md = int(g.MethodDecls[mi])
+			if fixHelper[md] && firstUser[md] == NoDecl() {
+				firstUser[md] = ifaceDecl
+				allUsers[md] = []uint32{ifaceDecl}
+			}
+		}
+	}
+	(firstUser, allUsers)
+}
+
+func appendChildPaste(order mut []uint32, after mut [][]uint32, moving mut []bool, anchor uint32, child uint32) {
+	if (*after)[int(anchor)].Len() == 0 {
+		*order = (*order).Append(anchor)
+	}
+	(*after)[int(anchor)] = (*after)[int(anchor)].Append(child)
+	(*moving)[int(child)] = true
+}
+
+func collectPastedSequence(g LawGraph, anchor uint32, after [][]uint32) []uint32 {
+	let mut out = []uint32{}
+	for c in after[int(anchor)] {
+		out = out.Append(c)
+		let nested = collectPastedSequence(g, c, after)
+		for nc in nested {
+			out = out.Append(nc)
+		}
+	}
+	out
+}
+
+// PlanLawFix plans and applies S115 law and test co-location, helper relocation, import merge/sort/de-alias/prune, and empty file deletion.
+func PlanLawFix(pkgPath string, inputFiles []LawFile) LawFixReport fails OverlapError | OutOfBoundsError {
+	if inputFiles.Len() == 0 {
+		return emptyLawReport()
+	}
+	let (curFiles, unexportedNames, unexpAmbig) = try tryUnexportHelpers(pkgPath, inputFiles)
+	let g = BuildLawGraph(pkgPath, curFiles)
+	let n = int(g.DeclCount)
+	let nFiles = g.FileParsed.Len()
+	let baseH = computeHelperMask(g, false)
+	let allH = computeHelperMask(g, true)
+	let mut fixHelper = slices.Repeat([]bool{false}, n)
+	for d in 0..n {
+		if baseH[d] || (allH[d] && isLawOrTestFileName(g.FileNames[int(g.DeclFile[d])])) {
+			fixHelper[d] = true
+		}
+	}
+
+	let mut homeFile = slices.Repeat([]uint32{NoDecl()}, n)
+	let mut moving = slices.Repeat([]bool{false}, n)
+	let mut after = slices.WithCapacity[[]uint32](n)
+	for _ in 0..n {
+		after = after.Append([]uint32{})
+	}
+	let mut pasteOrder = []uint32{}
+	let mut moveIdxByDecl = slices.Repeat([]int{-1}, n)
+	let mut moves = []LawMove{}
+	let mut unplaced = []string{}
+	let mut ambiguous = slices.Clone(unexpAmbig)
+
+	for d in 0..n {
+		if g.DeclIsMember[d] {
+			continue
+		}
+		let dk = g.DeclKind[d]
+		if dk != dkLaw && dk != dkTest {
+			continue
+		}
+		let nm = DeclNameText(g, uint32(d))
+		let fromFile = g.DeclFile[d]
+		let kindLabel = if dk == dkLaw { "law" } else { "test" }
+		let subjects = collectSubjectsBFS(g, uint32(d), fixHelper)
+		if subjects.Len() == 0 {
+			unplaced = unplaced.Append(nm)
+			homeFile[d] = fromFile
+			continue
+		}
+		let mut stays = false
+		for s in subjects {
+			if g.DeclFile[int(s)] == fromFile {
+				stays = true
+				break
+			}
+		}
+		if stays {
+			homeFile[d] = fromFile
+			continue
+		}
+		let chosen = pickMainSubject(g, nm, subjects)
+		if chosen.ambiguous {
+			ambiguous = ambiguous.Append("ambiguous subject for " + nm)
+			homeFile[d] = fromFile
+			continue
+		}
+		let destFile = g.DeclFile[int(chosen.decl)]
+		appendChildPaste(&pasteOrder, &after, &moving, chosen.decl, uint32(d))
+		homeFile[d] = destFile
+		moveIdxByDecl[d] = moves.Len()
+		moves = moves.Append(LawMove{
+			Kind:    kindLabel,
+			Name:    nm,
+			From:    g.FileNames[int(fromFile)],
+			To:      g.FileNames[int(destFile)],
+			Helpers: []string{},
+		})
+	}
+
+	let (firstUser, allUsers) = helperUsersAndAnchor(g, fixHelper)
+	for d in 0..n {
+		if g.DeclIsMember[d] || !fixHelper[d] || moving[d] {
+			continue
+		}
+		let user = firstUser[d]
+		if user == NoDecl() {
+			continue
+		}
+		let mut stays = false
+		for u in allUsers[d] {
+			let dest = if homeFile[int(u)] != NoDecl() { homeFile[int(u)] } else { g.DeclFile[int(u)] }
+			if dest == g.DeclFile[d] {
+				stays = true
+				break
+			}
+		}
+		if stays {
+			continue
+		}
+		let destFile = if homeFile[int(user)] != NoDecl() { homeFile[int(user)] } else { g.DeclFile[int(user)] }
+		appendChildPaste(&pasteOrder, &after, &moving, user, uint32(d))
+		homeFile[d] = destFile
+		let mi = moveIdxByDecl[int(user)]
+		if mi >= 0 {
+			moves[mi].Helpers = moves[mi].Helpers.Append(DeclNameText(g, uint32(d)))
+		}
+	}
+
+	planLeftoverTestJoins(g, &moving, &pasteOrder, &after, &moves)
+
+	let mut touched = slices.Repeat([]bool{false}, nFiles)
+	let mut arrivedByFile = slices.WithCapacity[[]uint32](nFiles)
+	let mut movedByFile = slices.WithCapacity[[]uint32](nFiles)
+	for _ in 0..nFiles {
+		arrivedByFile = arrivedByFile.Append([]uint32{})
+		movedByFile = movedByFile.Append([]uint32{})
+	}
+	for d in 0..n {
+		if moving[d] {
+			let fi = int(g.DeclFile[d])
+			touched[fi] = true
+			movedByFile[fi] = movedByFile[fi].Append(uint32(d))
+		}
+	}
+	for anchor in pasteOrder {
+		if moving[int(anchor)] {
+			continue
+		}
+		let destFi = int(g.DeclFile[int(anchor)])
+		touched[destFi] = true
+		let seq = collectPastedSequence(g, anchor, after)
+		for p in seq {
+			arrivedByFile[destFi] = arrivedByFile[destFi].Append(p)
+		}
+	}
+
+	let unexpChanged = unexportedNames.Len() > 0
+	let mut updated = []LawFile{}
+	let mut deleted = []string{}
+	let mut keptByFile = slices.WithCapacity[LawFile](nFiles)
+	let mut keptAlive = slices.Repeat([]bool{true}, nFiles)
+
+	for fi in 0..nFiles {
+		let lf = curFiles[fi]
+		if !touched[fi] {
+			if unexpChanged && lf.Src != inputFiles[fi].Src {
+				updated = updated.Append(lf)
+			}
+			keptByFile = keptByFile.Append(lf)
+			continue
+		}
+		let mut leftNonImport = 0
+		for d in 0..n {
+			if !g.DeclIsMember[d] && int(g.DeclFile[d]) == fi && !moving[d] {
+				leftNonImport = leftNonImport + 1
+			}
+		}
+		if leftNonImport == 0 && arrivedByFile[fi].Len() == 0 && movedByFile[fi].Len() > 0 {
+			deleted = deleted.Append(lf.Path)
+			keptAlive[fi] = false
+			keptByFile = keptByFile.Append(lf)
+			continue
+		}
+		let nextSrc = try rewriteLawFixFile(g, fi, &moving, pasteOrder, after, arrivedByFile[fi])
+		let newFile = LawFile{Path: lf.Path, Src: nextSrc}
+		updated = updated.Append(newFile)
+		keptByFile = keptByFile.Append(newFile)
+	}
+
+	let (renamedPairs, renameUpdated, renameDeleted, renameApplied, renameAmbig) = planLawFileRenames(g, curFiles, keptByFile, keptAlive, moving)
+	for r in renameAmbig {
+		ambiguous = ambiguous.Append(r)
+	}
+	for d in renameDeleted {
+		if !slices.Contains(deleted, d) {
+			deleted = deleted.Append(d)
+		}
+	}
+	for rf in renameUpdated {
+		let mut found = false
+		for i, uf in updated {
+			if uf.Path == rf.Path {
+				updated[i] = rf
+				found = true
+				break
+			}
+		}
+		if !found {
+			updated = updated.Append(rf)
+		}
+	}
+	let sortedDeleted = slices.Sort(deleted)
+	LawFixReport{
+		Updated:    updated,
+		Applied:    renameApplied,
+		Deleted:    sortedDeleted,
+		Moves:      moves,
+		Renamed:    renamedPairs,
+		Unplaced:   unplaced,
+		Ambiguous:  ambiguous,
+		Unexported: unexportedNames,
+	}
+}
+
+func emptyLawReport() LawFixReport {
+	LawFixReport{
+		Updated:    []LawFile{},
+		Applied:    []LawFile{},
+		Deleted:    []string{},
+		Moves:      []LawMove{},
+		Renamed:    []string{},
+		Unplaced:   []string{},
+		Ambiguous:  []string{},
+		Unexported: []string{},
+	}
+}
+
+func planLeftoverTestJoins(g LawGraph, moving mut []bool, pasteOrder mut []uint32, after mut [][]uint32, moves mut []LawMove) {
+	let n = int(g.DeclCount)
+	let nFiles = g.FileParsed.Len()
+	for fi in 0..nFiles {
+		let path = g.FileNames[fi]
+		if !isLawsFileName(path) {
+			continue
+		}
+		let mut tests = []uint32{}
+		let mut onlyTests = true
+		for d in 0..n {
+			if g.DeclIsMember[d] || int(g.DeclFile[d]) != fi || (*moving)[d] {
+				continue
+			}
+			if g.DeclKind[d] != dkTest {
+				onlyTests = false
+				break
+			}
+			tests = tests.Append(uint32(d))
+		}
+		if !onlyTests || tests.Len() == 0 {
+			continue
+		}
+		let targetPath = filepath.Join([]string{filepath.Dir(path), "tests.ergo"})
+		let mut anchor = NoDecl()
+		let mut targetIdx = -1
+		for gi in 0..nFiles {
+			if gi != fi && g.FileNames[gi] == targetPath {
+				for d in 0..n {
+					if !g.DeclIsMember[d] && int(g.DeclFile[d]) == gi && !(*moving)[d] {
+						anchor = uint32(d)
+						targetIdx = gi
+					}
+				}
+			}
+		}
+		if anchor == NoDecl() {
+			continue
+		}
+		for t in tests {
+			appendChildPaste(pasteOrder, after, moving, anchor, t)
+			*moves = (*moves).Append(LawMove{
+				Kind:    "test",
+				Name:    DeclNameText(g, t),
+				From:    path,
+				To:      g.FileNames[targetIdx],
+				Helpers: []string{},
+			})
+			anchor = t
+		}
+	}
+}
+
+func planLawFileRenames(g LawGraph, origFiles []LawFile, keptFiles []LawFile, keptAlive []bool, moving []bool) ([]string, []LawFile, []string, []LawFile, []string) {
+	let nFiles = origFiles.Len()
+	let mut taken = []string{}
+	for fi in 0..nFiles {
+		if keptAlive[fi] {
+			taken = taken.Append(origFiles[fi].Path)
+		}
+	}
+	let mut renamed = []string{}
+	let mut renameUpdated = []LawFile{}
+	let mut renameDeleted = []string{}
+	let mut ambig = []string{}
+	let mut finalPaths = slices.WithCapacity[string](nFiles)
+	for fi in 0..nFiles {
+		finalPaths = finalPaths.Append(origFiles[fi].Path)
+	}
+	let n = int(g.DeclCount)
+	for fi in 0..nFiles {
+		if !keptAlive[fi] || !isLawsFileName(origFiles[fi].Path) {
+			continue
+		}
+		let mut leftDecls = []uint32{}
+		for d in 0..n {
+			if !g.DeclIsMember[d] && int(g.DeclFile[d]) == fi && !moving[d] {
+				leftDecls = leftDecls.Append(uint32(d))
+			}
+		}
+		if leftDecls.Len() == 0 {
+			continue
+		}
+		let concept = pickConceptFileName(g, leftDecls)
+		if concept == "" {
+			continue
+		}
+		let base = concept + ".ergo"
+		let dir = filepath.Dir(origFiles[fi].Path)
+		let wantPath = if dir == "." { base } else { dir + "/" + base }
+		if wantPath == origFiles[fi].Path {
+			continue
+		}
+		if slices.Contains(taken, wantPath) {
+			ambig = ambig.Append("rename target exists: " + origFiles[fi].Path + " -> " + wantPath)
+			continue
+		}
+		taken = taken.Append(wantPath)
+		finalPaths[fi] = wantPath
+		renamed = renamed.Append(origFiles[fi].Path + " -> " + wantPath)
+		renameDeleted = renameDeleted.Append(origFiles[fi].Path)
+		renameUpdated = renameUpdated.Append(LawFile{Path: wantPath, Src: keptFiles[fi].Src})
+	}
+	let mut applied = []LawFile{}
+	for fi in 0..nFiles {
+		if keptAlive[fi] {
+			applied = applied.Append(LawFile{Path: finalPaths[fi], Src: keptFiles[fi].Src})
+		}
+	}
+	(renamed, renameUpdated, renameDeleted, applied, ambig)
+}
+
+func pickConceptFileName(g LawGraph, decls []uint32) string {
+	for rank in 0..6 {
+		for d in decls {
+			let di = int(d)
+			let k = g.DeclKind[di]
+			let nm = DeclNameText(g, d)
+			let exp = g.DeclExported[di]
+			if k == dkType {
+				if (rank == 0 && g.DeclIsMachine[di]) || (rank == 1 && exp) || rank == 2 {
+					if nm != "" {
+						return strings.ToLower(nm)
+					}
+				}
+			} else if k == dkFunc {
+				if (rank == 3 && exp) || rank == 4 {
+					if nm != "" {
+						return strings.ToLower(nm)
+					}
+				}
+			} else if k == dkTest {
+				if rank == 5 {
+					return "tests"
+				}
+			} else if k != dkLaw && rank == 4 && nm != "" {
+				return strings.ToLower(nm)
+			}
+		}
+	}
+	""
+}
+
+func usedImportsInRange(g LawGraph, fi int, spanStart int, spanEnd int) []ImportEntry {
+	let src = g.FileSrcs[fi]
+	let p = g.FileParsed[fi]
+	let spans = ParseFileImports(src, p)
+	if spans.Len() == 0 {
+		return []ImportEntry{}
+	}
+	let mut entries = slices.WithCapacity[ImportEntry](spans.Len())
+	for sp in spans {
+		entries = entries.Append(sp.Entry)
+	}
+	let mask = UsedImportMask(g.BindFiles, g.Store, g.Uses, g.Parents, fi, entries, spanStart, spanEnd)
+	let mut out = []ImportEntry{}
+	for i, sp in spans {
+		if mask[i] {
+			out = out.Append(sp.Entry)
+		}
+	}
+	out
+}
+
+func extractMovedDeclText(g LawGraph, srcDecl uint32, rewrites []QualRewrite) string fails OverlapError | OutOfBoundsError {
+	let fi = int(g.DeclFile[int(srcDecl)])
+	let src = g.FileSrcs[fi]
+	let from = int(g.DeclSpanFrom[int(srcDecl)])
+	let to = int(g.DeclSpanTo[int(srcDecl)])
+	let snippet = src[from:to]
+	if rewrites.Len() == 0 {
+		return snippet
+	}
+	let rawEdits = QualifierEdits(g.BindFiles, g.Uses, g.Parents, fi, from, to, rewrites)
+	if rawEdits.Len() == 0 {
+		return snippet
+	}
+	let mut shifted = slices.WithCapacity[Edit](rawEdits.Len())
+	for ed in rawEdits {
+		shifted = shifted.Append(Edit{From: ed.From - from, To: ed.To - from, Replace: ed.Replace})
+	}
+	try ApplyEdits(g.FileNames[fi], snippet, shifted)
+}
+
+func collectKeptImportEntries(g LawGraph, fi int, moving []bool) []ImportEntry {
+	let src = g.FileSrcs[fi]
+	let p = g.FileParsed[fi]
+	let spans = ParseFileImports(src, p)
+	if spans.Len() == 0 {
+		return []ImportEntry{}
+	}
+	let mut entries = slices.WithCapacity[ImportEntry](spans.Len())
+	for sp in spans {
+		entries = entries.Append(sp.Entry)
+	}
+	let mut kept = slices.Repeat([]bool{false}, spans.Len())
+	let n = int(g.DeclCount)
+	for d in 0..n {
+		if g.DeclIsMember[d] || int(g.DeclFile[d]) != fi || moving[d] {
+			continue
+		}
+		let mask = UsedImportMask(g.BindFiles, g.Store, g.Uses, g.Parents, fi, entries, int(g.DeclSpanFrom[d]), int(g.DeclSpanTo[d]))
+		for i in 0..spans.Len() {
+			if mask[i] {
+				kept[i] = true
+			}
+		}
+	}
+	let mut out = []ImportEntry{}
+	for i, sp in spans {
+		if kept[i] || sp.Entry.IsGo {
+			out = out.Append(sp.Entry)
+		}
+	}
+	out
+}
+
+func rewriteLawFixFile(g LawGraph, fi int, moving mut []bool, pasteOrder []uint32, after [][]uint32, arrived []uint32) string fails OverlapError | OutOfBoundsError {
+	let src = g.FileSrcs[fi]
+	let p = g.FileParsed[fi]
+	let keptImports = collectKeptImportEntries(g, fi, *moving)
+	let mut incomingImports = []ImportEntry{}
+	for d in arrived {
+		let srcFi = int(g.DeclFile[int(d)])
+		let used = usedImportsInRange(g, srcFi, int(g.DeclSpanFrom[int(d)]), int(g.DeclSpanTo[int(d)]))
+		for im in used {
+			incomingImports = incomingImports.Append(im)
+		}
+	}
+	let (mergedImports, qualRewrites) = MergeImportSets(keptImports, incomingImports, g.PkgNames)
+
+	let mut edits = []Edit{}
+	match PlanImportBlockEdit(src, p, mergedImports) {
+	case option.Some{Value: impEd}:
+		edits = edits.Append(impEd)
+	case option.None:
+	}
+
+	let n = int(g.DeclCount)
+	let mut fileDecls = []uint32{}
+	for d in 0..n {
+		if !g.DeclIsMember[d] && int(g.DeclFile[d]) == fi {
+			fileDecls = fileDecls.Append(uint32(d))
+		}
+	}
+	fileDecls = slices.SortFunc(fileDecls, func(a uint32, b uint32) int {
+		cmp.Compare(g.DeclSpanFrom[int(a)], g.DeclSpanFrom[int(b)])
+	})
+
+	let mut minCutBound = 0
+	for im in ParseFileImports(src, p) {
+		if im.LineEnd > minCutBound {
+			minCutBound = im.LineEnd
+		}
+	}
+	for d in fileDecls {
+		let di = int(d)
+		if !(*moving)[di] {
+			continue
+		}
+		let mut from = int(g.DeclSpanFrom[di])
+		let mut to = int(g.DeclSpanTo[di])
+		if from-1 >= minCutBound && from >= 2 && src[from-1] == '\n' && src[from-2] == '\n' {
+			from = from - 1
+		} else if to < src.Len() && src[to] == '\n' {
+			to = to + 1
+		}
+		edits = edits.Append(Edit{From: from, To: to, Replace: ""})
+		minCutBound = to
+	}
+
+	for anchor in pasteOrder {
+		if (*moving)[int(anchor)] || int(g.DeclFile[int(anchor)]) != fi {
+			continue
+		}
+		let seq = collectPastedSequence(g, anchor, after)
+		if seq.Len() == 0 {
+			continue
+		}
+		let mut pasteBuf = strings.NewBuilder()
+		for ch in seq {
+			let txt = try extractMovedDeclText(g, ch, qualRewrites)
+			pasteBuf.WriteString("\n")
+			pasteBuf.WriteString(txt)
+		}
+		let pasteAt = int(g.DeclSpanTo[int(anchor)])
+		edits = edits.Append(Edit{From: pasteAt, To: pasteAt, Replace: pasteBuf.String()})
+	}
+
+	let applied = try ApplyEdits(g.FileNames[fi], src, edits)
+	FormatIfOrigValid(g.FileNames[fi], src, applied)
+}
+
+// LawFixCoLocatesLawsAndTestsAndIsIdempotent: S115 relocation places tests and laws beside subjects, moves exclusive helpers, deletes empty test/law files, and hits a fixpoint on the second pass.
+law LawFixCoLocatesLawsAndTestsAndIsIdempotent(seed int) {
+	let subName = if seed%2 == 0 { "Double" } else { "Triple" }
+	let helperName = if seed%2 == 0 { "Twice" } else { "Thrice" }
+	let files = []LawFile{
+		LawFile{Path: "subject.ergo", Src: "func " + subName + "(x int) int { x + 1 }\n"},
+		LawFile{Path: "subject_laws.ergo", Src: "import strings\n\nfunc " + helperName + "(x int) string {\n\tstrings.ToUpper(\"ok\")\n}\n\nlaw " + subName + "Prop(x int) {\n\tlet _ = " + helperName + "(x)\n\t" + subName + "(x) == x + 1\n}\n"},
+		LawFile{Path: "tests.ergo", Src: "test " + subName + "Works {\n\tassert " + subName + "(2) == 3\n}\n"},
+	}
+	let rep1 = PlanLawFix("test/p", files) catch {
+	case OverlapError, OutOfBoundsError:
+		return false
+	}
+	if rep1.Deleted.Len() != 2 || rep1.Moves.Len() != 2 {
+		return false
+	}
+	let rep2 = PlanLawFix("test/p", rep1.Applied) catch {
+	case OverlapError, OutOfBoundsError:
+		return false
+	}
+	rep2.Deleted.Len() == 0 && rep2.Moves.Len() == 0 && rep2.Updated.Len() == 0
+}
+
+test LawFixRelocatesImportsDealiasesAndEnforcesAmbiguityGuard {
+	let files = []LawFile{
+		LawFile{Path: "double.ergo", Src: "import str strings\n\nfunc Double(s string) string {\n\tstr.ToLower(s)\n}\n"},
+		LawFile{Path: "double_test.ergo", Src: "import strings\nimport option\n\ntest DoubleWorks {\n\tassert Double(strings.TrimSpace(\" X \")) == \"x\"\n}\n"},
+	}
+	let rep = PlanLawFix("test/p", files) catch {
+	case OverlapError, OutOfBoundsError:
+		assert false
+		return
+	}
+	assert rep.Deleted.Len() == 1
+	assert rep.Deleted[0] == "double_test.ergo"
+	assert rep.Applied.Len() == 1
+	assert strings.Contains(rep.Applied[0].Src, "str.TrimSpace")
+	assert !strings.Contains(rep.Applied[0].Src, "option")
+
+	let ambigFiles = []LawFile{
+		LawFile{Path: "a.ergo", Src: "type Alpha { v int }\n\nfunc Parse(x Alpha) int { x.v }\n"},
+		LawFile{Path: "b.ergo", Src: "type Beta { w int }\n\nfunc Parse(y Beta) int { y.w }\n"},
+		LawFile{Path: "laws.ergo", Src: "func helper() int { 1 }\n\nfunc Helper() int { 2 }\n\nlaw ParseWorks(x Alpha, y Beta) {\n\tx.Parse() + y.Parse() == Helper()\n}\n"},
+	}
+	let ambigRep = PlanLawFix("test/ambig", ambigFiles) catch {
+	case OverlapError, OutOfBoundsError:
+		assert false
+		return
+	}
+	assert slices.Contains(ambigRep.Ambiguous, "unexport collision for Helper")
+	assert slices.Contains(ambigRep.Ambiguous, "ambiguous subject for ParseWorks")
+	assert ambigRep.Moves.Len() == 0
+}
+
+test LawFixUnexportsHelpersJoinsLeftoversMovesProvidersAndRenamesConcept {
+	let files = []LawFile{
+		LawFile{Path: "double.ergo", Src: "func Double(x int) int { x * 2 }\n"},
+		LawFile{Path: "double_laws.ergo", Src: "import strings\n\n// MakeZero produces zero.\nfunc MakeZero() int { 0 }\n\nlaw DoubleMain(x int) {\n\tDouble(x) == Double(x+MakeZero())\n}\n\ntest UnplacedExtra {\n\tassert strings.Count(\"aa\", \"a\") == 2\n}\n"},
+		LawFile{Path: "tests.ergo", Src: "test Base {\n\tassert 1 == 1\n}\n"},
+	}
+	let rep = PlanLawFix("test/unexp", files) catch {
+	case OverlapError, OutOfBoundsError:
+		assert false
+		return
+	}
+	assert rep.Unexported.Len() == 1
+	assert rep.Unexported[0] == "MakeZero"
+	assert rep.Deleted.Len() == 1
+	assert rep.Deleted[0] == "double_laws.ergo"
+	let mut testsSrc = ""
+	let mut doubleSrc = ""
+	for af in rep.Applied {
+		if af.Path == "tests.ergo" {
+			testsSrc = af.Src
+		} else if af.Path == "double.ergo" {
+			doubleSrc = af.Src
+		}
+	}
+	assert strings.Contains(testsSrc, "UnplacedExtra")
+	assert strings.Contains(testsSrc, "import strings")
+	assert strings.Contains(doubleSrc, "func makeZero() int")
+	assert !strings.Contains(doubleSrc, "func MakeZero() int")
+
+	let renFiles = []LawFile{
+		LawFile{Path: "a.ergo", Src: "func Inc(x int) int { x + 1 }\n"},
+		LawFile{Path: "a_laws.ergo", Src: "type Keeper { v int }\n\nlaw IncProp(x int) {\n\tInc(x) == x + 1\n}\n"},
+	}
+	let renRep = PlanLawFix("test/ren", renFiles) catch {
+	case OverlapError, OutOfBoundsError:
+		assert false
+		return
+	}
+	assert renRep.Renamed.Len() == 1
+	assert renRep.Renamed[0] == "a_laws.ergo -> keeper.ergo"
+
+	let helperChurnFiles = []LawFile{
+		LawFile{Path: "core.ergo", Src: "func F(x int) int { x }\n"},
+		LawFile{Path: "laws.ergo", Src: "law FirstProp(x int) {\n\tF(x) == x && mk() == 1\n}\n"},
+		LawFile{Path: "other.ergo", Src: "func G(x int) int { x + 1 }\n\nfunc mk() int { 1 }\n\nlaw SecondProp(x int) {\n\tG(x) == x + 1 && mk() == 1\n}\n"},
+	}
+	let churnRep = PlanLawFix("test/churn", helperChurnFiles) catch {
+	case OverlapError, OutOfBoundsError:
+		assert false
+		return
+	}
+	assert churnRep.Moves.Len() == 1
+	assert churnRep.Moves[0].Name == "FirstProp"
+	assert churnRep.Moves[0].Helpers.Len() == 0
+	for af in churnRep.Applied {
+		if af.Path == "other.ergo" {
+			assert strings.Contains(af.Src, "func mk() int")
+		}
+	}
+}

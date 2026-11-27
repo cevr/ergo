@@ -1,0 +1,343 @@
+import compiler/syntax
+import dense
+import option
+import slices
+import strings
+
+// MutResult holds rewritten source, edit count, and lines where *T stayed in type arguments.
+type MutResult {
+	Out       string,
+	Count     int,
+	KeptLines []int,
+}
+
+type typedStarEntry {
+	offset int,
+	inArg  bool,
+	elem   dense.ID[syntax.Node],
+}
+
+// MutSource rewrites borrow pointers *T to mut T and [T lent C] constraints to mut parameters.
+func MutSource(src string) MutResult fails OverlapError | OutOfBoundsError {
+	let p = syntax.Parse(src)
+	if p.Failed {
+		return MutResult{Out: src, Count: 0, KeptLines: []int{}}
+	}
+	let stars = collectTypedStars(p)
+	let mut edits = []Edit{}
+	let mut kept = []int{}
+	let lines = syntax.LinesOf(src)
+	for st in stars {
+		if st.inArg {
+			let pos = syntax.PositionOf(lines, st.offset)
+			kept = kept.Append(pos.Line)
+			continue
+		}
+		edits = edits.Append(Edit{From: st.offset, To: st.offset + 1, Replace: "mut "})
+	}
+	let lent = collectLentEdits(p)
+	for e in lent {
+		edits = edits.Append(e)
+	}
+	if edits.Len() == 0 {
+		return MutResult{Out: src, Count: 0, KeptLines: kept}
+	}
+	let applied = try ApplyEdits("mut.ergo", src, edits)
+	let reparsed = syntax.Parse(applied)
+	if reparsed.Failed {
+		return MutResult{Out: src, Count: 0, KeptLines: kept}
+	}
+	let formatted = FormatIfOrigValid("mut.ergo", src, applied)
+	MutResult{Out: formatted, Count: edits.Len(), KeptLines: kept}
+}
+
+// KeptBorrowLines returns 1-based line numbers of *T occurrences left inside type arguments.
+func KeptBorrowLines(src string) []int {
+	let p = syntax.Parse(src)
+	if p.Failed {
+		return []int{}
+	}
+	let lines = syntax.LinesOf(src)
+	let mut out = []int{}
+	for st in collectTypedStars(p) {
+		if st.inArg {
+			out = out.Append(syntax.PositionOf(lines, st.offset).Line)
+		}
+	}
+	out
+}
+
+// IsGoSource reports whether src looks like Go source (pointer result or unimported selector *pkg.T).
+func IsGoSource(src string, fileImports []string) bool {
+	let p = syntax.Parse(src)
+	if p.Failed {
+		return false
+	}
+	let tr = p.Tree
+	let mut imported = fileImports
+	for sp in ParseFileImports(src, p) {
+		imported = imported.Append(ImportQualifier(sp.Entry))
+	}
+	for i in 0..syntax.NumNodes(tr) {
+		let id = syntax.NodeAt(tr, i)
+		if syntax.KindOf(tr, id) != syntax.KFuncType {
+			continue
+		}
+		let ft = syntax.FuncTypeOf(tr, id)
+		match dense.Unpack(ft.Results) {
+		case option.Some{Value: fl}:
+			if syntax.KindOf(tr, fl) == syntax.KFieldList {
+				let list = syntax.FieldListOf(tr, fl).List
+				for j in 0..syntax.Len(list) {
+					let f = syntax.FieldOf(tr, syntax.Item(tr, list, j))
+					match dense.Unpack(f.Type) {
+					case option.Some{Value: ty}:
+						if syntax.KindOf(tr, ty) == syntax.KStarExpr {
+							let se = syntax.StarExprOf(tr, ty)
+							if syntax.TokKind(p, se.Star) == syntax.Mul {
+								return true
+							}
+						}
+					case option.None:
+					}
+				}
+			}
+		case option.None:
+		}
+	}
+	for st in collectTypedStars(p) {
+		if st.inArg {
+			continue
+		}
+		let mut x = st.elem
+		for syntax.KindOf(tr, x) == syntax.KIndexExpr {
+			x = syntax.IndexExprOf(tr, x).X
+		}
+		if syntax.KindOf(tr, x) == syntax.KSelectorExpr {
+			let se = syntax.SelectorExprOf(tr, x)
+			if syntax.KindOf(tr, se.X) == syntax.KIdent {
+				let tok = syntax.NameOf(tr, se.X).Tok
+				if tok >= 0 {
+					let q = syntax.TokText(p, tok)
+					if q != "go" && !slices.Contains(imported, q) {
+						return true
+					}
+				}
+			}
+		}
+	}
+	false
+}
+
+func collectTypedStars(p syntax.Parsed) []typedStarEntry {
+	let tr = p.Tree
+	let root = syntax.Root(tr)
+	if syntax.KindOf(tr, root) != syntax.KFile {
+		return []typedStarEntry{}
+	}
+	let mut out = []typedStarEntry{}
+	let mut scratch = []uint32{}
+	let decls = syntax.FileOf(tr, root).Decls
+	for i in 0..syntax.Len(decls) {
+		let d = syntax.Item(tr, decls, i)
+		if isExternDecl(tr, d) {
+			continue
+		}
+		walkFieldsForStars(p, d, &out, &scratch)
+	}
+	out
+}
+
+func isExternDecl(tr syntax.Tree, d dense.ID[syntax.Node]) bool {
+	let k = syntax.KindOf(tr, d)
+	if k == syntax.KFuncDecl {
+		return syntax.FuncDeclOf(tr, d).Extern != dense.NoID[syntax.Node]()
+	}
+	if k == syntax.KTypeDecl {
+		return syntax.TypeDeclOf(tr, d).Extern != dense.NoID[syntax.Node]()
+	}
+	if k == syntax.KVarDecl {
+		return syntax.VarDeclOf(tr, d).Extern != dense.NoID[syntax.Node]()
+	}
+	false
+}
+
+func walkFieldsForStars(p syntax.Parsed, n dense.ID[syntax.Node], out mut []typedStarEntry, scratch mut []uint32) {
+	let tr = p.Tree
+	let k = syntax.KindOf(tr, n)
+	if k == syntax.KField {
+		let f = syntax.FieldOf(tr, n)
+		match dense.Unpack(f.Type) {
+		case option.Some{Value: ty}:
+			walkTypeStars(p, ty, false, out, scratch)
+		case option.None:
+		}
+		return
+	}
+	*scratch = syntax.Children(tr, n, (*scratch)[:0])
+	let kids = slices.Clone(*scratch)
+	for c in kids {
+		walkFieldsForStars(p, syntax.NodeAt(tr, int(c)), out, scratch)
+	}
+}
+
+func walkTypeStars(p syntax.Parsed, n dense.ID[syntax.Node], inArg bool, out mut []typedStarEntry, scratch mut []uint32) {
+	let tr = p.Tree
+	let k = syntax.KindOf(tr, n)
+	if k == syntax.KFuncType {
+		*scratch = syntax.Children(tr, n, (*scratch)[:0])
+		let kids = slices.Clone(*scratch)
+		for c in kids {
+			walkTypeStars(p, syntax.NodeAt(tr, int(c)), false, out, scratch)
+		}
+		return
+	}
+	if k == syntax.KIndexExpr {
+		let ix = syntax.IndexExprOf(tr, n)
+		walkTypeStars(p, ix.X, inArg, out, scratch)
+		for j in 0..syntax.Len(ix.Indices) {
+			walkTypeStars(p, syntax.Item(tr, ix.Indices, j), true, out, scratch)
+		}
+		return
+	}
+	if k == syntax.KStarExpr {
+		let se = syntax.StarExprOf(tr, n)
+		if se.Star >= 0 && syntax.TokKind(p, se.Star) == syntax.Mul {
+			*out = (*out).Append(typedStarEntry{offset: syntax.TokPos(p, se.Star), inArg: inArg, elem: se.X})
+		}
+		walkTypeStars(p, se.X, inArg, out, scratch)
+		return
+	}
+	*scratch = syntax.Children(tr, n, (*scratch)[:0])
+	let kids = slices.Clone(*scratch)
+	for c in kids {
+		walkTypeStars(p, syntax.NodeAt(tr, int(c)), inArg, out, scratch)
+	}
+}
+
+func collectLentEdits(p syntax.Parsed) []Edit {
+	let tr = p.Tree
+	let root = syntax.Root(tr)
+	if syntax.KindOf(tr, root) != syntax.KFile {
+		return []Edit{}
+	}
+	let mut edits = []Edit{}
+	let mut scratch = []uint32{}
+	let decls = syntax.FileOf(tr, root).Decls
+	for i in 0..syntax.Len(decls) {
+		let d = syntax.Item(tr, decls, i)
+		if syntax.KindOf(tr, d) != syntax.KFuncDecl {
+			continue
+		}
+		let fd = syntax.FuncDeclOf(tr, d)
+		if fd.Extern != dense.NoID[syntax.Node]() {
+			continue
+		}
+		match dense.Unpack(fd.TypeParams) {
+		case option.Some{Value: tp}:
+			if syntax.KindOf(tr, tp) != syntax.KFieldList {
+				continue
+			}
+			let mut lentNames = []string{}
+			let list = syntax.FieldListOf(tr, tp).List
+			for j in 0..syntax.Len(list) {
+				let fldNode = syntax.Item(tr, list, j)
+				let fld = syntax.FieldOf(tr, fldNode)
+				let hasConstraintLent = match dense.Unpack(fld.Lent) {
+				case option.Some{Value: ln}:
+					match dense.Unpack(fld.Type) {
+					case option.Some{Value: ty}:
+						edits = edits.Append(Edit{From: syntax.NodePos(p, ln), To: syntax.NodePos(p, ty), Replace: ""})
+					case option.None:
+					}
+					true
+				case option.None:
+					false
+				}
+				if hasConstraintLent {
+					for ni in 0..syntax.Len(fld.Names) {
+						let nm = syntax.Item(tr, fld.Names, ni)
+						let tok = syntax.NameOf(tr, nm).Tok
+						if tok >= 0 {
+							lentNames = lentNames.Append(syntax.TokText(p, tok))
+						}
+					}
+					continue
+				}
+				match dense.Unpack(fld.Type) {
+				case option.Some{Value: ty}:
+					if syntax.KindOf(tr, ty) == syntax.KIdent {
+						let tok = syntax.NameOf(tr, ty).Tok
+						if tok >= 0 && syntax.TokText(p, tok) == "lent" && syntax.Len(fld.Names) > 0 {
+							let lastName = syntax.Item(tr, fld.Names, syntax.Len(fld.Names)-1)
+							edits = edits.Append(Edit{From: syntax.NodeEnd(p, lastName), To: syntax.NodeEnd(p, ty), Replace: ""})
+						}
+					}
+				case option.None:
+				}
+			}
+			if lentNames.Len() > 0 {
+				collectLentParamEdits(p, d, lentNames, &edits, &scratch)
+			}
+		case option.None:
+		}
+	}
+	edits
+}
+
+func collectLentParamEdits(p syntax.Parsed, n dense.ID[syntax.Node], lentNames []string, edits mut []Edit, scratch mut []uint32) {
+	let tr = p.Tree
+	if syntax.KindOf(tr, n) == syntax.KFuncType {
+		let ft = syntax.FuncTypeOf(tr, n)
+		if syntax.KindOf(tr, ft.Params) == syntax.KFieldList {
+			let list = syntax.FieldListOf(tr, ft.Params).List
+			for j in 0..syntax.Len(list) {
+				let fld = syntax.FieldOf(tr, syntax.Item(tr, list, j))
+				match dense.Unpack(fld.Type) {
+				case option.Some{Value: ty}:
+					if syntax.KindOf(tr, ty) == syntax.KIdent {
+						let tok = syntax.NameOf(tr, ty).Tok
+						if tok >= 0 && slices.Contains(lentNames, syntax.TokText(p, tok)) {
+							*edits = (*edits).Append(Edit{From: syntax.NodePos(p, ty), To: syntax.NodePos(p, ty), Replace: "mut "})
+						}
+					}
+				case option.None:
+				}
+			}
+		}
+	}
+	*scratch = syntax.Children(tr, n, (*scratch)[:0])
+	let kids = slices.Clone(*scratch)
+	for c in kids {
+		collectLentParamEdits(p, syntax.NodeAt(tr, int(c)), lentNames, edits, scratch)
+	}
+}
+
+// MutRewritesBorrowsIdempotently: *T borrows rewrite to mut T and reach fixpoint in one pass while keeping type-argument *T intact.
+law MutRewritesBorrowsIdempotently(n int) {
+	let extra = if n%2 == 0 { ", zs []Box[*int]" } else { "" }
+	let src = "type Box[T] { v T }\n\nfunc F[T lent Ord](x *int, y T" + extra + ") {\n\tlet _ = x\n\tlet _ = y\n}\n"
+	let r1 = MutSource(src) catch {
+	case OverlapError, OutOfBoundsError:
+		return false
+	}
+	let r2 = MutSource(r1.Out) catch {
+	case OverlapError, OutOfBoundsError:
+		return false
+	}
+	let keptOk = if n%2 == 0 { r1.KeptLines.Len() == 1 && strings.Contains(r1.Out, "Box[*int]") } else { r1.KeptLines.Len() == 0 }
+	r1.Count >= 3 && r2.Count == 0 && r1.Out == r2.Out && strings.Contains(r1.Out, "x mut int") && strings.Contains(r1.Out, "y mut T") && strings.Contains(r1.Out, "[T Ord]") && keptOk
+}
+
+test MutSkipsExternAndBodyDerefsAndDetectsGoSource {
+	let src = "extern go pkg.Fn func External(p *int)\n\nfunc Deref(p mut int) int {\n\tlet k = 1\n\tk\n}\n"
+	let r = MutSource(src) catch {
+	case OverlapError, OutOfBoundsError:
+		assert false
+		return
+	}
+	assert r.Count == 0
+	assert r.Out == src
+	assert IsGoSource("func Host() *AlarmClock {\n\treturn nil\n}\n", []string{})
+	assert !IsGoSource("func Ok(x *int) {\n\tlet _ = x\n}\n", []string{})
+}

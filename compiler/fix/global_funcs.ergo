@@ -1,0 +1,308 @@
+import compiler/check/bind
+import compiler/check/store
+import compiler/syntax
+import dense
+import option
+import slices
+import strings
+
+// GlobalFuncsCatalog returns the 11 unqualified builtin/prelude calls migrated to std functions.
+func GlobalFuncsCatalog() []StdMapping {
+	[]StdMapping{
+		StdMapping{Name: "hash", Pkg: "maps", Target: "Hash"},
+		StdMapping{Name: "encode", Pkg: "codec", Target: "Encode"},
+		StdMapping{Name: "decode", Pkg: "codec", Target: "Decode"},
+		StdMapping{Name: "embedded", Pkg: "embed", Target: "File"},
+		StdMapping{Name: "MakeSlice", Pkg: "slices", Target: "WithCapacity"},
+		StdMapping{Name: "MakeMap", Pkg: "maps", Target: "Using"},
+		StdMapping{Name: "InForce", Pkg: "scope", Target: "InForce"},
+		StdMapping{Name: "AsWritten", Pkg: "proof", Target: "AsWritten"},
+		StdMapping{Name: "TestFolder", Pkg: "fstest", Target: "TestFolder"},
+		StdMapping{Name: "TestFolderHandle", Pkg: "fstest", Target: "TestFolderHandle"},
+		StdMapping{Name: "NewLiveScheduler", Pkg: "time", Target: "NewLiveScheduler"},
+	}
+}
+
+// GlobalFuncFor resolves unqualified callable name against GlobalFuncsCatalog.
+func GlobalFuncFor(name string) option.Option[StdMapping] { lookupCatalog(GlobalFuncsCatalog(), name) }
+
+// GlobalFuncsSource rewrites migrated prelude/universe function calls in standalone source src.
+func GlobalFuncsSource(src string, name string) (string, []QualifiedRewrite) fails OverlapError | OutOfBoundsError {
+	let res = try GlobalFuncsPackage("main", []PackageSource{PackageSource{Path: name, Src: src}}, "")
+	if res.Files.Len() == 0 {
+		return (src, []QualifiedRewrite{})
+	}
+	(res.Files[0].Src, res.Rewrites)
+}
+
+// GlobalFuncsPackage rewrites migrated prelude/universe function calls across a package's files.
+func GlobalFuncsPackage(pkgPath string, inputFiles []PackageSource, currentStdPkg string) QualifiedPackageResult fails OverlapError | OutOfBoundsError {
+	if inputFiles.Len() == 0 {
+		return QualifiedPackageResult{Files: []PackageSource{}, Rewrites: []QualifiedRewrite{}}
+	}
+	let mut parsed = slices.WithCapacity[bind.File](inputFiles.Len())
+	for f in inputFiles {
+		parsed = parsed.Append(bind.File{Name: f.Path, Parsed: syntax.Parse(f.Src)})
+	}
+	let s0 = bind.Collect(pkgPath, parsed)
+	let ps = bind.BuildParents(parsed)
+	let (s, u) = bind.Bind(s0, []store.Frozen{}, ps, parsed, 1)
+	let pkgNames = packageNonImportNames(s)
+	let beforeDiags = countCheckDiags(parsed, s, u, ps)
+
+	let mut updated = slices.WithCapacity[PackageSource](inputFiles.Len())
+	let mut allRewrites = []QualifiedRewrite{}
+	let mut anyChanged = false
+	for i, f in inputFiles {
+		let (edits, needed, rws) = collectGlobalFuncEdits(f.Src, f.Path, parsed, i, s, u, ps, pkgNames, currentStdPkg)
+		if edits.Len() == 0 {
+			updated = updated.Append(f)
+			continue
+		}
+		let impSpans = ParseFileImports(f.Src, parsed[i].Parsed)
+		let mut merged = slices.WithCapacity[ImportEntry](impSpans.Len() + needed.Len())
+		for sp in impSpans {
+			merged = merged.Append(sp.Entry)
+		}
+		for ni in needed {
+			merged = merged.Append(ni)
+		}
+		let mut allEdits = edits
+		match PlanImportBlockEdit(f.Src, parsed[i].Parsed, merged) {
+		case option.Some{Value: impEd}:
+			allEdits = allEdits.Append(impEd)
+		case option.None:
+		}
+		let applied = try ApplyEdits(f.Path, f.Src, allEdits)
+		let formatted = FormatIfOrigValid(f.Path, f.Src, applied)
+		updated = updated.Append(PackageSource{Path: f.Path, Src: formatted})
+		for r in rws {
+			allRewrites = allRewrites.Append(r)
+		}
+		if formatted != f.Src {
+			anyChanged = true
+		}
+	}
+	if !anyChanged {
+		return QualifiedPackageResult{Files: inputFiles, Rewrites: []QualifiedRewrite{}}
+	}
+	let mut nextParsed = slices.WithCapacity[bind.File](updated.Len())
+	for f in updated {
+		let p = syntax.Parse(f.Src)
+		if p.Failed {
+			return QualifiedPackageResult{Files: inputFiles, Rewrites: []QualifiedRewrite{}}
+		}
+		nextParsed = nextParsed.Append(bind.File{Name: f.Path, Parsed: p})
+	}
+	let ns0 = bind.Collect(pkgPath, nextParsed)
+	let nps = bind.BuildParents(nextParsed)
+	let (ns, nu) = bind.Bind(ns0, []store.Frozen{}, nps, nextParsed, 1)
+	if countCheckDiags(nextParsed, ns, nu, nps) > beforeDiags {
+		return QualifiedPackageResult{Files: inputFiles, Rewrites: []QualifiedRewrite{}}
+	}
+	QualifiedPackageResult{Files: updated, Rewrites: allRewrites}
+}
+
+func collectGlobalFuncEdits(src string, path string, files []bind.File, fileIdx int, s store.Store, u bind.Uses, ps bind.Parents, pkgNames []string, currentStdPkg string) ([]Edit, []ImportEntry, []QualifiedRewrite) {
+	let p = files[fileIdx].Parsed
+	if p.Failed {
+		return ([]Edit{}, []ImportEntry{}, []QualifiedRewrite{})
+	}
+	let tr = p.Tree
+	let root = syntax.Root(tr)
+	if syntax.KindOf(tr, root) != syntax.KFile {
+		return ([]Edit{}, []ImportEntry{}, []QualifiedRewrite{})
+	}
+	let nNodes = syntax.NumNodes(tr)
+	let mut isSel = slices.Repeat([]bool{false}, nNodes)
+	let mut isKey = slices.Repeat([]bool{false}, nNodes)
+	for i in 0..nNodes {
+		let id = syntax.NodeAt(tr, i)
+		let k = syntax.KindOf(tr, id)
+		if k == syntax.KSelectorExpr {
+			isSel[dense.Index(syntax.SelectorExprOf(tr, id).Sel)] = true
+		} else if k == syntax.KKeyValueExpr {
+			let kv = syntax.KeyValueExprOf(tr, id)
+			if syntax.KindOf(tr, kv.Key) == syntax.KIdent {
+				isKey[dense.Index(kv.Key)] = true
+			}
+		}
+	}
+
+	let existingImps = ParseFileImports(src, p)
+	let mut usedQuals = slices.Clone(pkgNames)
+	for sp in existingImps {
+		let q = ImportQualifier(sp.Entry)
+		if !slices.Contains(usedQuals, q) {
+			usedQuals = usedQuals.Append(q)
+		}
+	}
+	let lines = syntax.LinesOf(src)
+	let mut chosenImports = []ImportEntry{}
+	let mut edits = []Edit{}
+	let mut rewrites = []QualifiedRewrite{}
+	let mut seenStart = []int{}
+
+	let topDecls = syntax.FileOf(tr, root).Decls
+	for di in 0..syntax.Len(topDecls) {
+		let decl = syntax.Item(tr, topDecls, di)
+		if syntax.KindOf(tr, decl) == syntax.KImportDecl {
+			continue
+		}
+		let mut enclosingFn = ""
+		if syntax.KindOf(tr, decl) == syntax.KFuncDecl {
+			let nmNode = syntax.FuncDeclOf(tr, decl).Name
+			let nmTok = syntax.NameOf(tr, nmNode).Tok
+			if nmTok >= 0 {
+				enclosingFn = syntax.TokText(p, nmTok)
+			}
+		}
+		let declFrom = syntax.NodePos(p, decl)
+		let declTo = syntax.NodeEnd(p, decl)
+		let localShadow = collectLocalNamesInRange(p, u, ps, fileIdx, declFrom, declTo)
+
+		for i in 0..nNodes {
+			let callNode = syntax.NodeAt(tr, i)
+			if syntax.KindOf(tr, callNode) != syntax.KCallExpr {
+				continue
+			}
+			let callPos = syntax.NodePos(p, callNode)
+			let callEnd = syntax.NodeEnd(p, callNode)
+			if callPos < declFrom || callEnd > declTo {
+				continue
+			}
+			let call = syntax.CallExprOf(tr, callNode)
+			if call.Trailing != dense.NoID[syntax.Node]() || call.TrailingFunc {
+				continue
+			}
+			let mut fun = call.Fun
+			if syntax.KindOf(tr, fun) == syntax.KIndexExpr {
+				fun = syntax.IndexExprOf(tr, fun).X
+			}
+			if syntax.KindOf(tr, fun) != syntax.KIdent {
+				continue
+			}
+			let funIdx = dense.Index(fun)
+			if isSel[funIdx] || isKey[funIdx] {
+				continue
+			}
+			let tok = syntax.NameOf(tr, fun).Tok
+			if tok < 0 {
+				continue
+			}
+			let nm = syntax.TokText(p, tok)
+			let start = syntax.NodePos(p, fun)
+			let end = syntax.NodeEnd(p, fun)
+			if start < 0 || end > src.Len() || start >= end || src[start:end] != nm || slices.Contains(seenStart, start) || slices.Contains(pkgNames, nm) {
+				continue
+			}
+			match bind.ResolutionOf(u, ps, bind.PNodeOf(ps, fileIdx, fun)) {
+			case bind.Outside:
+			case _:
+				continue
+			}
+			let spec = match GlobalFuncFor(nm) {
+			case option.Some{Value: sp}:
+				sp
+			case option.None:
+				continue
+			}
+			if currentStdPkg == spec.Pkg && enclosingFn == spec.Target {
+				continue
+			}
+			if wouldCycleStd(currentStdPkg, spec.Pkg) {
+				continue
+			}
+			let mut replacement = ""
+			if currentStdPkg == spec.Pkg {
+				replacement = spec.Target
+			} else {
+				let mut existingQual = ""
+				for sp in existingImps {
+					if !sp.Entry.IsGo && sp.Entry.Path == spec.Pkg {
+						existingQual = ImportQualifier(sp.Entry)
+						break
+					}
+				}
+				if existingQual != "" {
+					if slices.Contains(localShadow, existingQual) {
+						continue
+					}
+					replacement = existingQual + "." + spec.Target
+				} else {
+					let mut chosenQual = ""
+					for ch in chosenImports {
+						if ch.Path == spec.Pkg {
+							chosenQual = ImportQualifier(ch)
+							break
+						}
+					}
+					if chosenQual == "" {
+						let alias = PickImportAlias(spec.Pkg, "", usedQuals)
+						let candQual = if alias != "" { alias } else { ImportBase(spec.Pkg) }
+						if slices.Contains(localShadow, candQual) {
+							continue
+						}
+						usedQuals = usedQuals.Append(candQual)
+						chosenImports = chosenImports.Append(ImportEntry{Alias: alias, Path: spec.Pkg, IsGo: false})
+						chosenQual = candQual
+					} else if slices.Contains(localShadow, chosenQual) {
+						continue
+					}
+					replacement = chosenQual + "." + spec.Target
+				}
+			}
+			seenStart = seenStart.Append(start)
+			edits = edits.Append(Edit{From: start, To: end, Replace: replacement})
+			let pos = syntax.PositionOf(lines, start)
+			rewrites = rewrites.Append(QualifiedRewrite{
+				File:   path,
+				Line:   pos.Line,
+				Column: pos.Column,
+				Before: nm,
+				After:  replacement,
+			})
+		}
+	}
+	(edits, chosenImports, rewrites)
+}
+
+// GlobalFuncsRewritesAreIdempotent: rewriting migrated global functions picks collision-safe aliases and reaches fixpoint cleanly.
+law GlobalFuncsRewritesAreIdempotent(n int) {
+	let arg = if n%2 == 0 { "4" } else { "8" }
+	let src = "func F(k int) []int {\n\tlet _ = hash(k)\n\tMakeSlice[int](" + arg + ")\n}\n"
+	let (once, rws1) = GlobalFuncsSource(src, "g.ergo") catch {
+	case OverlapError, OutOfBoundsError:
+		return false
+	}
+	let (twice, rws2) = GlobalFuncsSource(once, "g.ergo") catch {
+	case OverlapError, OutOfBoundsError:
+		return false
+	}
+	rws1.Len() == 2 && rws2.Len() == 0 && once == twice && strings.Contains(once, "import maps") && strings.Contains(once, "import slices") && strings.Contains(once, "maps.Hash(k)") && strings.Contains(once, "slices.WithCapacity[int]")
+}
+
+test GlobalFuncsRewritesAllTargetsAndRespectsAliasClashAndSelfWrapper {
+	let src = "func maps() int { 1 }\n\nfunc decode(x string) string { x }\n\nfunc F(k int, c codec.Codec[int]) int {\n\tlet _ = hash(k)\n\tlet _ = decode(\"x\")\n\tlet _ = encode(c, k)\n\tMakeMap[string, int](k)\n}\n"
+	let (out, rws) = GlobalFuncsSource(src, "g.ergo") catch {
+	case OverlapError, OutOfBoundsError:
+		assert false
+		return
+	}
+	assert rws.Len() == 3
+	assert strings.Contains(out, "import stdmaps maps")
+	assert strings.Contains(out, "import codec")
+	assert strings.Contains(out, "stdmaps.Hash(k)")
+	assert strings.Contains(out, "stdmaps.Using[string, int](k)")
+	assert strings.Contains(out, "codec.Encode(c, k)")
+	assert strings.Contains(out, "decode(\"x\")")
+
+	let wrap = GlobalFuncsPackage("slices", []PackageSource{
+		PackageSource{Path: "slices.ergo", Src: "func WithCapacity[T own](n int) []T { MakeSlice[T](n) }\n"},
+	}, "slices") catch {
+	case OverlapError, OutOfBoundsError:
+		assert false
+		return
+	}
+	assert wrap.Rewrites.Len() == 0
+}

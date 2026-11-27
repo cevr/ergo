@@ -1,0 +1,423 @@
+import cmp
+import compiler/format
+import dense
+import option
+import slices
+import strings
+
+// Edit replaces byte span [From, To) of a source file with Replace.
+type Edit {
+	From    int,
+	To      int,
+	Replace string,
+}
+
+// OverlapError reports two edits whose byte spans intersect.
+type OverlapError {
+	File       string,
+	FirstFrom  int,
+	FirstTo    int,
+	SecondFrom int,
+	SecondTo   int,
+}
+
+// OutOfBoundsError reports an edit outside [0, Length].
+type OutOfBoundsError {
+	File   string,
+	From   int,
+	To     int,
+	Length int,
+}
+
+// FormatError reports a syntax or size limit failure while formatting source.
+type FormatError {
+	File    string,
+	Code    string,
+	Message string,
+	Line    int,
+	Column  int,
+}
+
+// FormatResult is the outcome of formatting a source string.
+type FormatResult = FormatOk{Text string} | FormatFailed{Err FormatError}
+
+// EditTable stores sources and queued edits in dense uint32-indexed arrays.
+type EditTable {
+	Files    dense.Strings,
+	FileIDs  []dense.ID[dense.Str],
+	Srcs     []string,
+	EditFile []uint32,
+	EditFrom []uint32,
+	EditTo   []uint32,
+	EditRep  []string,
+	EditSeq  []uint32,
+	scratch  []int,
+}
+
+// NewEditTable constructs an empty EditTable with reusable scratch storage.
+func NewEditTable() EditTable {
+	EditTable{
+		Files:    dense.NewStrings(),
+		FileIDs:  []dense.ID[dense.Str]{},
+		Srcs:     []string{},
+		EditFile: []uint32{},
+		EditFrom: []uint32{},
+		EditTo:   []uint32{},
+		EditRep:  []string{},
+		EditSeq:  []uint32{},
+		scratch:  []int{},
+	}
+}
+
+// RegisterFile adds path with source src to t and returns its dense file ID.
+func RegisterFile(t mut EditTable, path string, src string) uint32 {
+	let id = dense.InternText(&t.Files, path)
+	let idx = dense.Index(id)
+	for t.Srcs.Len() <= idx {
+		t.Srcs = t.Srcs.Append("")
+		t.FileIDs = t.FileIDs.Append(id)
+	}
+	t.FileIDs[idx] = id
+	t.Srcs[idx] = src
+	uint32(idx)
+}
+
+// FileIndex returns the dense file ID of path when registered in t.
+func FileIndex(t EditTable, path string) option.Option[uint32] {
+	match dense.FindText(t.Files, path) {
+	case option.Some{Value: id}:
+		option.Some[uint32]{Value: uint32(dense.Index(id))}
+	case option.None:
+		option.None
+	}
+}
+
+// FileCount returns the number of registered files in t.
+func FileCount(t EditTable) int { t.Srcs.Len() }
+
+// FilePath returns the path recorded for fileID in t.
+func FilePath(t EditTable, fileID uint32) string {
+	dense.Text(t.Files, t.FileIDs[int(fileID)])
+}
+
+// FileSource returns the initial source text recorded for fileID in t.
+func FileSource(t EditTable, fileID uint32) string { t.Srcs[int(fileID)] }
+
+// QueueEdit appends an edit for fileID after validating its byte bounds.
+func QueueEdit(t mut EditTable, fileID uint32, from int, to int, replace string) fails OutOfBoundsError {
+	let srcLen = t.Srcs[int(fileID)].Len()
+	if from < 0 || to < from || to > srcLen {
+		return OutOfBoundsError{
+			File:   FilePath(*t, fileID),
+			From:   from,
+			To:     to,
+			Length: srcLen,
+		}
+	}
+	let seq = uint32(t.EditFile.Len())
+	t.EditFile = t.EditFile.Append(fileID)
+	t.EditFrom = t.EditFrom.Append(uint32(from))
+	t.EditTo = t.EditTo.Append(uint32(to))
+	t.EditRep = t.EditRep.Append(replace)
+	t.EditSeq = t.EditSeq.Append(seq)
+}
+
+func validateOrder(file string, srcLen int, edits []Edit, order []int) fails OverlapError | OutOfBoundsError {
+	for i in 0..order.Len() {
+		let cur = edits[order[i]]
+		if cur.From < 0 || cur.To < cur.From || cur.To > srcLen {
+			return OutOfBoundsError{File: file, From: cur.From, To: cur.To, Length: srcLen}
+		}
+		if i > 0 {
+			let prev = edits[order[i-1]]
+			if prev.To > cur.From {
+				return OverlapError{
+					File:       file,
+					FirstFrom:  prev.From,
+					FirstTo:    prev.To,
+					SecondFrom: cur.From,
+					SecondTo:   cur.To,
+				}
+			}
+		}
+	}
+}
+
+func sortedEditOrder(edits []Edit) []int {
+	let mut order = slices.WithCapacity[int](edits.Len())
+	for i in 0..edits.Len() {
+		order = order.Append(i)
+	}
+	slices.SortFunc(order, func(a int, b int) int {
+		let ea = edits[a]
+		let eb = edits[b]
+		if ea.From != eb.From {
+			return cmp.Compare(ea.From, eb.From)
+		}
+		if ea.To != eb.To {
+			return cmp.Compare(ea.To, eb.To)
+		}
+		cmp.Compare(a, b)
+	})
+}
+
+// ApplyEdits checks bounds and non-overlap, then applies edits in one linear pass.
+func ApplyEdits(file string, src string, edits []Edit) string fails OverlapError | OutOfBoundsError {
+	if edits.Len() == 0 {
+		return src
+	}
+	let order = sortedEditOrder(edits)
+	try validateOrder(file, src.Len(), edits, order)
+	let mut b = strings.NewBuilder()
+	let mut cursor = 0
+	for idx in order {
+		let e = edits[idx]
+		if e.From > cursor {
+			b.WriteString(src[cursor:e.From])
+		}
+		b.WriteString(e.Replace)
+		cursor = e.To
+	}
+	if cursor < src.Len() {
+		b.WriteString(src[cursor:src.Len()])
+	}
+	b.String()
+}
+
+// ApplyFileEdits sorts, validates, and applies all queued edits for fileID in t.
+func ApplyFileEdits(t mut EditTable, fileID uint32) string fails OverlapError | OutOfBoundsError {
+	let src = t.Srcs[int(fileID)]
+	let file = FilePath(*t, fileID)
+	t.scratch = t.scratch[:0]
+	for i in 0..t.EditFile.Len() {
+		if t.EditFile[i] == fileID {
+			t.scratch = t.scratch.Append(i)
+		}
+	}
+	if t.scratch.Len() == 0 {
+		return src
+	}
+	let froms = t.EditFrom
+	let tos = t.EditTo
+	let seqs = t.EditSeq
+	t.scratch = slices.SortFunc(t.scratch, func(a int, b int) int {
+		if froms[a] != froms[b] {
+			return cmp.Compare(froms[a], froms[b])
+		}
+		if tos[a] != tos[b] {
+			return cmp.Compare(tos[a], tos[b])
+		}
+		cmp.Compare(seqs[a], seqs[b])
+	})
+	let n = t.scratch.Len()
+	for i in 1..n {
+		let pa = t.scratch[i-1]
+		let pb = t.scratch[i]
+		if t.EditTo[pa] > t.EditFrom[pb] {
+			return OverlapError{
+				File:       file,
+				FirstFrom:  int(t.EditFrom[pa]),
+				FirstTo:    int(t.EditTo[pa]),
+				SecondFrom: int(t.EditFrom[pb]),
+				SecondTo:   int(t.EditTo[pb]),
+			}
+		}
+	}
+	let mut b = strings.NewBuilder()
+	let mut cursor = 0
+	for idx in t.scratch {
+		let f = int(t.EditFrom[idx])
+		let to = int(t.EditTo[idx])
+		if f > cursor {
+			b.WriteString(src[cursor:f])
+		}
+		b.WriteString(t.EditRep[idx])
+		cursor = to
+	}
+	if cursor < src.Len() {
+		b.WriteString(src[cursor:src.Len()])
+	}
+	b.String()
+}
+
+// FormatSourceChecked formats src using compiler/format or returns FormatError.
+func FormatSourceChecked(file string, src string) string fails FormatError {
+	let formatted = format.Source(src, 0) catch {
+	case format.SyntaxFailure as sf:
+		return FormatError{
+			File:    file,
+			Code:    sf.Code,
+			Message: sf.Message,
+			Line:    sf.Line,
+			Column:  sf.Column,
+		}
+	case format.OutputLimit as ol:
+		return FormatError{
+			File:    file,
+			Code:    "E_FORMAT_LIMIT",
+			Message: "formatted source exceeded limit",
+			Line:    ol.Limit,
+			Column:  0,
+		}
+	}
+	formatted
+}
+
+// TryFormat returns FormatOk when src formats cleanly, else FormatFailed.
+func TryFormat(file string, src string) FormatResult {
+	let formatted = FormatSourceChecked(file, src) catch {
+	case FormatError as fe:
+		return FormatFailed{Err: fe}
+	}
+	FormatOk{Text: formatted}
+}
+
+// FormatIfOrigValid formats updated when both orig and updated parse and format cleanly.
+func FormatIfOrigValid(file string, orig string, updated string) string {
+	match TryFormat(file, orig) {
+	case FormatOk:
+		match TryFormat(file, updated) {
+		case FormatOk as ok:
+			ok.Text
+		case FormatFailed:
+			updated
+		}
+	case FormatFailed:
+		updated
+	}
+}
+
+// ApplyAndFormat applies non-overlapping edits and formats the resulting source.
+func ApplyAndFormat(file string, src string, edits []Edit) string fails OverlapError | OutOfBoundsError | FormatError {
+	let applied = try ApplyEdits(file, src, edits)
+	try FormatSourceChecked(file, applied)
+}
+
+func clampSpan(n int, a int, b int) (int, int) {
+	let f = int(uint64(a) % uint64(n+1))
+	let t = f + int(uint64(b)%uint64(n-f+1))
+	(f, t)
+}
+
+func sequentialSpline(src string, edits []Edit) string {
+	let order = sortedEditOrder(edits)
+	let mut out = src
+	let mut i = order.Len() - 1
+	for i >= 0 {
+		let e = edits[order[i]]
+		out = out[0:e.From] + e.Replace + out[e.To:out.Len()]
+		i = i - 1
+	}
+	out
+}
+
+// EditsApplyDisjoint: non-overlapping edits produce the same result as reverse-ordered splicing and preserve EditTable parity.
+law EditsApplyDisjoint(src string, a int, b int, rep1 string, rep2 string) {
+	let n = src.Len()
+	if n < 2 {
+		return true
+	}
+	let half = n / 2
+	let (f1, t1) = clampSpan(half, a, b)
+	let right = src[half:n]
+	let (rf2, rt2) = clampSpan(right.Len(), a+1, b+3)
+	let f2 = half + rf2
+	let t2 = half + rt2
+	let e1 = Edit{From: f1, To: t1, Replace: rep1}
+	let e2 = Edit{From: f2, To: t2, Replace: rep2}
+	let direct = ApplyEdits("x.ergo", src, []Edit{e2, e1}) catch {
+	case OverlapError, OutOfBoundsError:
+		return false
+	}
+	let mut tbl = NewEditTable()
+	let fid = RegisterFile(&tbl, "x.ergo", src)
+	QueueEdit(&tbl, fid, f2, t2, rep2) catch {
+	case OutOfBoundsError:
+		return false
+	}
+	QueueEdit(&tbl, fid, f1, t1, rep1) catch {
+	case OutOfBoundsError:
+		return false
+	}
+	let fromTbl = ApplyFileEdits(&tbl, fid) catch {
+	case OverlapError, OutOfBoundsError:
+		return false
+	}
+	let expected = sequentialSpline(src, []Edit{e2, e1})
+	direct == expected && fromTbl == expected
+}
+
+// OverlappingEditsRefused: intersecting spans fail with OverlapError in both ApplyEdits and ApplyFileEdits.
+law OverlappingEditsRefused(src string, seed int) {
+	let n = src.Len()
+	if n < 3 {
+		return true
+	}
+	let f1 = int(uint64(seed) % uint64(n-2))
+	let t1 = f1 + 2
+	let f2 = f1 + 1
+	let t2 = f2 + 1
+	let e1 = Edit{From: f1, To: t1, Replace: "x"}
+	let e2 = Edit{From: f2, To: t2, Replace: "y"}
+	let directRefused = ApplyEdits("x.ergo", src, []Edit{e1, e2}) catch {
+	case OverlapError as oe:
+		let _ = oe.FirstFrom
+		return checkTableOverlap(src, f1, t1, f2, t2)
+	case OutOfBoundsError:
+		return false
+	}
+	let _ = directRefused
+	false
+}
+
+func checkTableOverlap(src string, f1 int, t1 int, f2 int, t2 int) bool {
+	let mut tbl = NewEditTable()
+	let fid = RegisterFile(&tbl, "x.ergo", src)
+	QueueEdit(&tbl, fid, f1, t1, "x") catch {
+	case OutOfBoundsError:
+		return false
+	}
+	QueueEdit(&tbl, fid, f2, t2, "y") catch {
+	case OutOfBoundsError:
+		return false
+	}
+	let _ = ApplyFileEdits(&tbl, fid) catch {
+	case OverlapError as oe:
+		return oe.File == "x.ergo"
+	case OutOfBoundsError:
+		return false
+	}
+	false
+}
+
+// AppliedEditsFormatIdempotently: applying valid edits and formatting yields canonical idempotent output.
+law AppliedEditsFormatIdempotently(rep string) {
+	if strings.Contains(rep, "\r") || strings.Contains(rep, "\"") || strings.Contains(rep, "\\") || strings.Contains(rep, "\n") {
+		return true
+	}
+	let src = "func F() string {\n\t\"hello\"\n}\n"
+	let pos = strings.Index(src, "\"hello\"")
+	let out = ApplyAndFormat("f.ergo", src, []Edit{Edit{From: pos, To: pos + 7, Replace: "\"" + rep + "\""}}) catch {
+	case OverlapError, OutOfBoundsError, FormatError:
+		return true
+	}
+	let again = FormatSourceChecked("f.ergo", out) catch {
+	case FormatError:
+		return false
+	}
+	out == again
+}
+
+test OutOfBoundsEditRejected {
+	let res = ApplyEdits("bad.ergo", "abc", []Edit{Edit{From: 1, To: 4, Replace: "x"}}) catch {
+	case OutOfBoundsError as e:
+		assert e.Length == 3
+		assert e.To == 4
+		return
+	case OverlapError:
+		assert false
+		return
+	}
+	let _ = res
+	assert false
+}

@@ -1,0 +1,478 @@
+import compiler/check/bind
+import compiler/check/store
+import compiler/syntax
+import dense
+import option
+import slices
+import strings
+
+// StdMapping maps an unqualified prelude identifier to its std package and exported symbol.
+type StdMapping {
+	Name   string,
+	Pkg    string,
+	Target string,
+}
+
+// QualifiedRewrite records one unqualified symbol rewrite to a std-qualified target.
+type QualifiedRewrite {
+	File   string,
+	Line   int,
+	Column int,
+	Before string,
+	After  string,
+}
+
+// PackageSource represents a file path and source text within a package fix run.
+type PackageSource {
+	Path string,
+	Src  string,
+}
+
+// QualifiedPackageResult holds updated sources and rewrite records from a package pass.
+type QualifiedPackageResult {
+	Files    []PackageSource,
+	Rewrites []QualifiedRewrite,
+}
+
+// StdTypesCatalog returns the Unit-8 prelude type mappings across core, codec, fstest, io, maps, os, rand, task, time, and cmp.
+func StdTypesCatalog() []StdMapping {
+	[]StdMapping{
+		StdMapping{Name: "Hashing", Pkg: "maps", Target: "Hashing"},
+		StdMapping{Name: "Structural", Pkg: "maps", Target: "Structural"},
+		StdMapping{Name: "Task", Pkg: "task", Target: "Task"},
+		StdMapping{Name: "ordered", Pkg: "cmp", Target: "Ordered"},
+		StdMapping{Name: "number", Pkg: "cmp", Target: "Number"},
+		StdMapping{Name: "Ambient", Pkg: "os", Target: "Ambient"},
+		StdMapping{Name: "TestAmbient", Pkg: "fstest", Target: "TestAmbient"},
+		StdMapping{Name: "TestDirectory", Pkg: "fstest", Target: "TestDirectory"},
+		StdMapping{Name: "TestLoopback", Pkg: "fstest", Target: "TestLoopback"},
+		StdMapping{Name: "Random", Pkg: "rand", Target: "Random"},
+		StdMapping{Name: "Scheduler", Pkg: "time", Target: "Scheduler"},
+		StdMapping{Name: "AlarmClock", Pkg: "time", Target: "AlarmClock"},
+		StdMapping{Name: "LiveScheduler", Pkg: "time", Target: "LiveScheduler"},
+		StdMapping{Name: "Writer", Pkg: "codec", Target: "Writer"},
+		StdMapping{Name: "Reader", Pkg: "codec", Target: "Reader"},
+		StdMapping{Name: "WireWrongKind", Pkg: "codec", Target: "WireWrongKind"},
+		StdMapping{Name: "WireNull", Pkg: "codec", Target: "WireNull"},
+		StdMapping{Name: "WireBool", Pkg: "codec", Target: "WireBool"},
+		StdMapping{Name: "WireNumber", Pkg: "codec", Target: "WireNumber"},
+		StdMapping{Name: "WireString", Pkg: "codec", Target: "WireString"},
+		StdMapping{Name: "WireList", Pkg: "codec", Target: "WireList"},
+		StdMapping{Name: "WireObject", Pkg: "codec", Target: "WireObject"},
+		StdMapping{Name: "WireEnd", Pkg: "codec", Target: "WireEnd"},
+		StdMapping{Name: "WireKind", Pkg: "codec", Target: "WireKind"},
+		StdMapping{Name: "WireMissingField", Pkg: "codec", Target: "WireMissingField"},
+		StdMapping{Name: "WireUnknownTag", Pkg: "codec", Target: "WireUnknownTag"},
+		StdMapping{Name: "WireOmittable", Pkg: "codec", Target: "WireOmittable"},
+		StdMapping{Name: "WireNullable", Pkg: "codec", Target: "WireNullable"},
+		StdMapping{Name: "WireBare", Pkg: "codec", Target: "WireBare"},
+		StdMapping{Name: "WireNumberText", Pkg: "codec", Target: "WireNumberText"},
+		StdMapping{Name: "WireMembers", Pkg: "codec", Target: "WireMembers"},
+		StdMapping{Name: "Console", Pkg: "io", Target: "Console"},
+		StdMapping{Name: "Range", Pkg: "core", Target: "Range"},
+		StdMapping{Name: "Seq", Pkg: "core", Target: "Seq"},
+		StdMapping{Name: "Never", Pkg: "core", Target: "Never"},
+		StdMapping{Name: "Context", Pkg: "core", Target: "Context"},
+		StdMapping{Name: "CallSite", Pkg: "core", Target: "CallSite"},
+		StdMapping{Name: "Closer", Pkg: "core", Target: "Closer"},
+		StdMapping{Name: "Keeping", Pkg: "core", Target: "Keeping"},
+		StdMapping{Name: "Unsatisfied", Pkg: "core", Target: "Unsatisfied"},
+		StdMapping{Name: "NoMatch", Pkg: "core", Target: "NoMatch"},
+	}
+}
+
+// MachineTypesCatalog returns the Unit-9 machines capability/type mappings.
+func MachineTypesCatalog() []StdMapping {
+	[]StdMapping{
+		StdMapping{Name: "Enter", Pkg: "machines", Target: "Enter"},
+		StdMapping{Name: "Stay", Pkg: "machines", Target: "Stay"},
+		StdMapping{Name: "Emit", Pkg: "machines", Target: "Emit"},
+		StdMapping{Name: "Ignore", Pkg: "machines", Target: "Ignore"},
+		StdMapping{Name: "Reject", Pkg: "machines", Target: "Reject"},
+		StdMapping{Name: "Done", Pkg: "machines", Target: "Done"},
+		StdMapping{Name: "Tell", Pkg: "machines", Target: "Tell"},
+		StdMapping{Name: "Decision", Pkg: "machines", Target: "Decision"},
+		StdMapping{Name: "Timeout", Pkg: "machines", Target: "Timeout"},
+		StdMapping{Name: "Machine", Pkg: "machines", Target: "Machine"},
+		StdMapping{Name: "InputMachine", Pkg: "machines", Target: "InputMachine"},
+	}
+}
+
+// OptionTypesCatalog returns the Unit-10 option type and variant mappings.
+func OptionTypesCatalog() []StdMapping {
+	[]StdMapping{
+		StdMapping{Name: "Option", Pkg: "option", Target: "Option"},
+		StdMapping{Name: "Some", Pkg: "option", Target: "Some"},
+		StdMapping{Name: "None", Pkg: "option", Target: "None"},
+	}
+}
+
+// StdTypeFor resolves name against the Unit-8 stdtypes catalog.
+func StdTypeFor(name string) option.Option[StdMapping] { lookupCatalog(StdTypesCatalog(), name) }
+
+// MachineTypeFor resolves name against the Unit-9 machines catalog.
+func MachineTypeFor(name string) option.Option[StdMapping] { lookupCatalog(MachineTypesCatalog(), name) }
+
+// OptionTypeFor resolves name against the Unit-10 option catalog.
+func OptionTypeFor(name string) option.Option[StdMapping] { lookupCatalog(OptionTypesCatalog(), name) }
+
+func lookupCatalog(catalog []StdMapping, name string) option.Option[StdMapping] {
+	for m in catalog {
+		if m.Name == name {
+			return option.Some[StdMapping]{Value: m}
+		}
+	}
+	option.None
+}
+
+func isBootstrapStdPath(pkgPath string) bool {
+	pkgPath == "core" || pkgPath == "option" || pkgPath == "collections"
+}
+
+func wouldCycleStd(currentStdPkg string, targetPkg string) bool {
+	if currentStdPkg == "" || currentStdPkg == targetPkg {
+		return false
+	}
+	if isBootstrapStdPath(currentStdPkg) {
+		return !(currentStdPkg == "core" && targetPkg == "option")
+	}
+	false
+}
+
+func packageNonImportNames(s store.Store) []string {
+	let mut out = []string{}
+	for d in store.Decls(s) {
+		if int(d.Kind) != store.KindPkgName {
+			let txt = store.Text(s, d.Name)
+			if !slices.Contains(out, txt) {
+				out = out.Append(txt)
+			}
+		}
+	}
+	out
+}
+
+func collectLocalNamesInRange(p syntax.Parsed, u bind.Uses, ps bind.Parents, fileIdx int, fromOff int, toOff int) []string {
+	let tr = p.Tree
+	let mut names = []string{}
+	for i in 0..syntax.NumNodes(tr) {
+		let id = syntax.NodeAt(tr, i)
+		let pos = syntax.NodePos(p, id)
+		if pos < fromOff || pos >= toOff {
+			continue
+		}
+		if syntax.KindOf(tr, id) != syntax.KIdent {
+			continue
+		}
+		let pn = bind.PNodeOf(ps, fileIdx, id)
+		match bind.DefOf(u, pn) {
+		case bind.Local:
+			let tok = syntax.NameOf(tr, id).Tok
+			if tok >= 0 {
+				let nm = syntax.TokText(p, tok)
+				if !slices.Contains(names, nm) {
+					names = names.Append(nm)
+				}
+			}
+		case _:
+		}
+	}
+	names
+}
+
+// StdTypesSource rewrites Unit-8 prelude type references in standalone source src.
+func StdTypesSource(src string, name string) (string, []QualifiedRewrite) fails OverlapError | OutOfBoundsError {
+	rewriteCatalogSource(src, name, "", StdTypesCatalog())
+}
+
+// MachineTypesSource rewrites Unit-9 machine type references in standalone source src.
+func MachineTypesSource(src string, name string) (string, []QualifiedRewrite) fails OverlapError | OutOfBoundsError {
+	rewriteCatalogSource(src, name, "", MachineTypesCatalog())
+}
+
+// OptionTypesSource rewrites Unit-10 Option/Some/None references in standalone source src.
+func OptionTypesSource(src string, name string) (string, []QualifiedRewrite) fails OverlapError | OutOfBoundsError {
+	rewriteCatalogSource(src, name, "", OptionTypesCatalog())
+}
+
+// StdTypesPackage rewrites Unit-8 prelude type references across a package's files.
+func StdTypesPackage(pkgPath string, inputFiles []PackageSource, currentStdPkg string) QualifiedPackageResult fails OverlapError | OutOfBoundsError {
+	rewriteCatalogPackage(pkgPath, inputFiles, currentStdPkg, StdTypesCatalog())
+}
+
+// MachineTypesPackage rewrites Unit-9 machine type references across a package's files.
+func MachineTypesPackage(pkgPath string, inputFiles []PackageSource, currentStdPkg string) QualifiedPackageResult fails OverlapError | OutOfBoundsError {
+	rewriteCatalogPackage(pkgPath, inputFiles, currentStdPkg, MachineTypesCatalog())
+}
+
+// OptionTypesPackage rewrites Unit-10 Option/Some/None references across a package's files.
+func OptionTypesPackage(pkgPath string, inputFiles []PackageSource, currentStdPkg string) QualifiedPackageResult fails OverlapError | OutOfBoundsError {
+	rewriteCatalogPackage(pkgPath, inputFiles, currentStdPkg, OptionTypesCatalog())
+}
+
+func rewriteCatalogSource(src string, name string, currentStdPkg string, catalog []StdMapping) (string, []QualifiedRewrite) fails OverlapError | OutOfBoundsError {
+	let res = try rewriteCatalogPackage("main", []PackageSource{PackageSource{Path: name, Src: src}}, currentStdPkg, catalog)
+	if res.Files.Len() == 0 {
+		return (src, []QualifiedRewrite{})
+	}
+	(res.Files[0].Src, res.Rewrites)
+}
+
+func rewriteCatalogPackage(pkgPath string, inputFiles []PackageSource, currentStdPkg string, catalog []StdMapping) QualifiedPackageResult fails OverlapError | OutOfBoundsError {
+	if inputFiles.Len() == 0 {
+		return QualifiedPackageResult{Files: []PackageSource{}, Rewrites: []QualifiedRewrite{}}
+	}
+	let mut parsed = slices.WithCapacity[bind.File](inputFiles.Len())
+	for f in inputFiles {
+		parsed = parsed.Append(bind.File{Name: f.Path, Parsed: syntax.Parse(f.Src)})
+	}
+	let s0 = bind.Collect(pkgPath, parsed)
+	let ps = bind.BuildParents(parsed)
+	let (s, u) = bind.Bind(s0, []store.Frozen{}, ps, parsed, 1)
+	let pkgNames = packageNonImportNames(s)
+	let beforeDiags = countCheckDiags(parsed, s, u, ps)
+
+	let mut updated = slices.WithCapacity[PackageSource](inputFiles.Len())
+	let mut allRewrites = []QualifiedRewrite{}
+	let mut anyChanged = false
+	for i, f in inputFiles {
+		let (edits, needed, rws) = collectCatalogEdits(f.Src, f.Path, parsed, i, s, u, ps, pkgNames, currentStdPkg, catalog)
+		if edits.Len() == 0 {
+			updated = updated.Append(f)
+			continue
+		}
+		let impSpans = ParseFileImports(f.Src, parsed[i].Parsed)
+		let mut merged = slices.WithCapacity[ImportEntry](impSpans.Len() + needed.Len())
+		for sp in impSpans {
+			merged = merged.Append(sp.Entry)
+		}
+		for ni in needed {
+			merged = merged.Append(ni)
+		}
+		let mut allEdits = edits
+		match PlanImportBlockEdit(f.Src, parsed[i].Parsed, merged) {
+		case option.Some{Value: impEd}:
+			allEdits = allEdits.Append(impEd)
+		case option.None:
+		}
+		let applied = try ApplyEdits(f.Path, f.Src, allEdits)
+		let formatted = FormatIfOrigValid(f.Path, f.Src, applied)
+		updated = updated.Append(PackageSource{Path: f.Path, Src: formatted})
+		for r in rws {
+			allRewrites = allRewrites.Append(r)
+		}
+		if formatted != f.Src {
+			anyChanged = true
+		}
+	}
+	if !anyChanged {
+		return QualifiedPackageResult{Files: inputFiles, Rewrites: []QualifiedRewrite{}}
+	}
+	let mut nextParsed = slices.WithCapacity[bind.File](updated.Len())
+	for f in updated {
+		let p = syntax.Parse(f.Src)
+		if p.Failed {
+			return QualifiedPackageResult{Files: inputFiles, Rewrites: []QualifiedRewrite{}}
+		}
+		nextParsed = nextParsed.Append(bind.File{Name: f.Path, Parsed: p})
+	}
+	let ns0 = bind.Collect(pkgPath, nextParsed)
+	let nps = bind.BuildParents(nextParsed)
+	let (ns, nu) = bind.Bind(ns0, []store.Frozen{}, nps, nextParsed, 1)
+	if countCheckDiags(nextParsed, ns, nu, nps) > beforeDiags {
+		return QualifiedPackageResult{Files: inputFiles, Rewrites: []QualifiedRewrite{}}
+	}
+	QualifiedPackageResult{Files: updated, Rewrites: allRewrites}
+}
+
+func collectCatalogEdits(src string, path string, files []bind.File, fileIdx int, s store.Store, u bind.Uses, ps bind.Parents, pkgNames []string, currentStdPkg string, catalog []StdMapping) ([]Edit, []ImportEntry, []QualifiedRewrite) {
+	let p = files[fileIdx].Parsed
+	if p.Failed {
+		return ([]Edit{}, []ImportEntry{}, []QualifiedRewrite{})
+	}
+	let tr = p.Tree
+	let root = syntax.Root(tr)
+	if syntax.KindOf(tr, root) != syntax.KFile {
+		return ([]Edit{}, []ImportEntry{}, []QualifiedRewrite{})
+	}
+	let nNodes = syntax.NumNodes(tr)
+	let mut isSel = slices.Repeat([]bool{false}, nNodes)
+	let mut isKey = slices.Repeat([]bool{false}, nNodes)
+	for i in 0..nNodes {
+		let id = syntax.NodeAt(tr, i)
+		let k = syntax.KindOf(tr, id)
+		if k == syntax.KSelectorExpr {
+			isSel[dense.Index(syntax.SelectorExprOf(tr, id).Sel)] = true
+		} else if k == syntax.KKeyValueExpr {
+			let kv = syntax.KeyValueExprOf(tr, id)
+			if syntax.KindOf(tr, kv.Key) == syntax.KIdent {
+				isKey[dense.Index(kv.Key)] = true
+			}
+		}
+	}
+
+	let existingImps = ParseFileImports(src, p)
+	let mut usedQuals = slices.Clone(pkgNames)
+	for sp in existingImps {
+		let q = ImportQualifier(sp.Entry)
+		if !slices.Contains(usedQuals, q) {
+			usedQuals = usedQuals.Append(q)
+		}
+	}
+	let lines = syntax.LinesOf(src)
+	let mut chosenImports = []ImportEntry{}
+	let mut edits = []Edit{}
+	let mut rewrites = []QualifiedRewrite{}
+	let mut seenStart = []int{}
+
+	let topDecls = syntax.FileOf(tr, root).Decls
+	for di in 0..syntax.Len(topDecls) {
+		let decl = syntax.Item(tr, topDecls, di)
+		if syntax.KindOf(tr, decl) == syntax.KImportDecl {
+			continue
+		}
+		let declFrom = syntax.NodePos(p, decl)
+		let declTo = syntax.NodeEnd(p, decl)
+		let localShadow = collectLocalNamesInRange(p, u, ps, fileIdx, declFrom, declTo)
+
+		for i in 0..nNodes {
+			let id = syntax.NodeAt(tr, i)
+			if syntax.KindOf(tr, id) != syntax.KIdent {
+				continue
+			}
+			let start = syntax.NodePos(p, id)
+			let end = syntax.NodeEnd(p, id)
+			if start < declFrom || end > declTo || start >= end || end > src.Len() {
+				continue
+			}
+			let idx = dense.Index(id)
+			if isSel[idx] || isKey[idx] || slices.Contains(seenStart, start) {
+				continue
+			}
+			let tok = syntax.NameOf(tr, id).Tok
+			if tok < 0 {
+				continue
+			}
+			let nm = syntax.TokText(p, tok)
+			if src[start:end] != nm || slices.Contains(pkgNames, nm) {
+				continue
+			}
+			match bind.ResolutionOf(u, ps, bind.PNodeOf(ps, fileIdx, id)) {
+			case bind.Outside:
+			case _:
+				continue
+			}
+			let spec = match lookupCatalog(catalog, nm) {
+			case option.Some{Value: sp}:
+				sp
+			case option.None:
+				continue
+			}
+			if wouldCycleStd(currentStdPkg, spec.Pkg) {
+				continue
+			}
+			let mut replacement = ""
+			if currentStdPkg == spec.Pkg {
+				if spec.Target == nm {
+					continue
+				}
+				replacement = spec.Target
+			} else {
+				let mut existingQual = ""
+				for sp in existingImps {
+					if !sp.Entry.IsGo && sp.Entry.Path == spec.Pkg {
+						existingQual = ImportQualifier(sp.Entry)
+						break
+					}
+				}
+				if existingQual != "" {
+					if slices.Contains(localShadow, existingQual) {
+						continue
+					}
+					replacement = existingQual + "." + spec.Target
+				} else {
+					let mut chosenQual = ""
+					for ch in chosenImports {
+						if ch.Path == spec.Pkg {
+							chosenQual = ImportQualifier(ch)
+							break
+						}
+					}
+					if chosenQual == "" {
+						let alias = PickImportAlias(spec.Pkg, "", usedQuals)
+						let candQual = if alias != "" { alias } else { ImportBase(spec.Pkg) }
+						if slices.Contains(localShadow, candQual) {
+							continue
+						}
+						usedQuals = usedQuals.Append(candQual)
+						chosenImports = chosenImports.Append(ImportEntry{Alias: alias, Path: spec.Pkg, IsGo: false})
+						chosenQual = candQual
+					} else if slices.Contains(localShadow, chosenQual) {
+						continue
+					}
+					replacement = chosenQual + "." + spec.Target
+				}
+			}
+			seenStart = seenStart.Append(start)
+			edits = edits.Append(Edit{From: start, To: end, Replace: replacement})
+			let pos = syntax.PositionOf(lines, start)
+			rewrites = rewrites.Append(QualifiedRewrite{
+				File:   path,
+				Line:   pos.Line,
+				Column: pos.Column,
+				Before: nm,
+				After:  replacement,
+			})
+		}
+	}
+	(edits, chosenImports, rewrites)
+}
+
+// StdTypesRewritesIdempotently: Unit-8 stdtypes rewrite adds sorted imports, respects shadows/selectors, and is idempotent.
+law StdTypesRewritesReachesFixpoint(n int) {
+	let fieldUse = if n%2 == 0 { "let w = io.Console\n\tw" } else { "Console" }
+	let src = "func F(c Console) " + (if n%2 == 0 { "io.Console" } else { "Console" }) + " {\n\t" + fieldUse + "\n}\n"
+	let (once, rws1) = StdTypesSource(src, "s.ergo") catch {
+	case OverlapError, OutOfBoundsError:
+		return false
+	}
+	let (twice, rws2) = StdTypesSource(once, "s.ergo") catch {
+	case OverlapError, OutOfBoundsError:
+		return false
+	}
+	rws1.Len() >= 1 && rws2.Len() == 0 && once == twice && strings.Contains(once, "import io") && strings.Contains(once, "io.Console")
+}
+
+test StdTypesRespectsLocalShadowAndSelector {
+	let src = "type Reader {}\n\nfunc G(time int, d Scheduler, r Reader) {\n\tlet _ = d\n\tlet _ = r\n\tlet _ = time\n}\n\nfunc H(c Console) {\n\tlet _ = c\n}\n"
+	let (out, rws) = StdTypesSource(src, "s.ergo") catch {
+	case OverlapError, OutOfBoundsError:
+		assert false
+		return
+	}
+	assert rws.Len() == 1
+	assert strings.Contains(out, "io.Console")
+	assert !strings.Contains(out, "time.Scheduler")
+	assert !strings.Contains(out, "codec.Reader")
+
+	let mSrc = "func M(e Enter) Decision {\n\tlet _ = e\n\tDone\n}\n"
+	let (mOut, mRws) = MachineTypesSource(mSrc, "m.ergo") catch {
+	case OverlapError, OutOfBoundsError:
+		assert false
+		return
+	}
+	assert mRws.Len() == 3
+	assert strings.Contains(mOut, "machines.Enter")
+	assert strings.Contains(mOut, "machines.Decision")
+	assert strings.Contains(mOut, "machines.Done")
+
+	let oSrc = "func O(x Option[int]) Option[int] {\n\tNone\n}\n"
+	let (oOut, oRws) = OptionTypesSource(oSrc, "o.ergo") catch {
+	case OverlapError, OutOfBoundsError:
+		assert false
+		return
+	}
+	assert oRws.Len() == 3
+	assert strings.Contains(oOut, "option.Option[int]")
+	assert strings.Contains(oOut, "option.None")
+}

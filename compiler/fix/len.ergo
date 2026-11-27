@@ -1,0 +1,354 @@
+import compiler/check/bind
+import compiler/check/expr
+import compiler/check/store
+import compiler/check/types
+import compiler/syntax
+import dense
+import option
+import slices
+import strings
+
+// LenRewrite records one universe len call rewritten to postfix .Len().
+type LenRewrite {
+	File   string,
+	Line   int,
+	Column int,
+	Before string,
+	After  string,
+}
+
+// LenPackageFile holds one package file path and source text for multi-file rewrites.
+type LenPackageFile {
+	Path string,
+	Src  string,
+}
+
+// LenPackageResult holds updated file texts and recorded len rewrites.
+type LenPackageResult {
+	Files    []LenPackageFile,
+	Rewrites []LenRewrite,
+}
+
+// LenSource rewrites every universe len(e) call in standalone source src to e.Len().
+func LenSource(src string, name string) (string, []LenRewrite) fails OverlapError | OutOfBoundsError {
+	let p = syntax.Parse(src)
+	if p.Failed {
+		return (src, []LenRewrite{})
+	}
+	let files = []bind.File{bind.File{Name: name, Parsed: p}}
+	let s0 = bind.Collect("main", files)
+	let ps = bind.BuildParents(files)
+	let (s, u) = bind.Bind(s0, []store.Frozen{}, ps, files, 1)
+	let (edits, rewrites) = collectLenEdits(src, name, files, 0, s, u, ps, []types.Iface{})
+	if edits.Len() == 0 {
+		return (src, []LenRewrite{})
+	}
+	let applied = try ApplyEdits(name, src, edits)
+	let formatted = FormatIfOrigValid(name, src, applied)
+	let reparsed = syntax.Parse(formatted)
+	if reparsed.Failed {
+		return (src, []LenRewrite{})
+	}
+	(formatted, rewrites)
+}
+
+// LenPackage rewrites universe len(e) calls across a package while preserving check diagnostics.
+func LenPackage(pkgPath string, inputFiles []LenPackageFile) LenPackageResult fails OverlapError | OutOfBoundsError {
+	if inputFiles.Len() == 0 {
+		return LenPackageResult{Files: []LenPackageFile{}, Rewrites: []LenRewrite{}}
+	}
+	let mut parsed = slices.WithCapacity[bind.File](inputFiles.Len())
+	for f in inputFiles {
+		parsed = parsed.Append(bind.File{Name: f.Path, Parsed: syntax.Parse(f.Src)})
+	}
+	let s0 = bind.Collect(pkgPath, parsed)
+	let ps = bind.BuildParents(parsed)
+	let (s, u) = bind.Bind(s0, []store.Frozen{}, ps, parsed, 1)
+	let beforeDiags = countCheckDiags(parsed, s, u, ps)
+
+	let mut updatedFiles = slices.WithCapacity[LenPackageFile](inputFiles.Len())
+	let mut allRewrites = []LenRewrite{}
+	let mut anyChanged = false
+	for i, f in inputFiles {
+		let (edits, rws) = collectLenEdits(f.Src, f.Path, parsed, i, s, u, ps, []types.Iface{})
+		if edits.Len() == 0 {
+			updatedFiles = updatedFiles.Append(f)
+			continue
+		}
+		let applied = try ApplyEdits(f.Path, f.Src, edits)
+		let formatted = FormatIfOrigValid(f.Path, f.Src, applied)
+		updatedFiles = updatedFiles.Append(LenPackageFile{Path: f.Path, Src: formatted})
+		for r in rws {
+			allRewrites = allRewrites.Append(r)
+		}
+		if formatted != f.Src {
+			anyChanged = true
+		}
+	}
+	if !anyChanged {
+		return LenPackageResult{Files: inputFiles, Rewrites: []LenRewrite{}}
+	}
+
+	let mut nextParsed = slices.WithCapacity[bind.File](updatedFiles.Len())
+	for f in updatedFiles {
+		let p = syntax.Parse(f.Src)
+		if p.Failed {
+			return LenPackageResult{Files: inputFiles, Rewrites: []LenRewrite{}}
+		}
+		nextParsed = nextParsed.Append(bind.File{Name: f.Path, Parsed: p})
+	}
+	let ns0 = bind.Collect(pkgPath, nextParsed)
+	let nps = bind.BuildParents(nextParsed)
+	let (ns, nu) = bind.Bind(ns0, []store.Frozen{}, nps, nextParsed, 1)
+	let afterDiags = countCheckDiags(nextParsed, ns, nu, nps)
+	if afterDiags > beforeDiags {
+		return LenPackageResult{Files: inputFiles, Rewrites: []LenRewrite{}}
+	}
+	LenPackageResult{Files: updatedFiles, Rewrites: allRewrites}
+}
+
+func countCheckDiags(files []bind.File, s store.Store, u bind.Uses, ps bind.Parents) int {
+	let mut st = s
+	let deps = []types.Iface{}
+	let k = expr.Load(&st, files, u, ps, []types.Ext{}, []types.Foreign{}, deps, false)
+	let t = expr.Check(&st, k)
+	t.Diags.Len()
+}
+
+func collectLenEdits(src string, path string, files []bind.File, fileIdx int, s store.Store, u bind.Uses, ps bind.Parents, ifaces []types.Iface) ([]Edit, []LenRewrite) {
+	let p = files[fileIdx].Parsed
+	if p.Failed {
+		return ([]Edit{}, []LenRewrite{})
+	}
+	let tr = p.Tree
+	let nNodes = syntax.NumNodes(tr)
+	let mut isSel = slices.Repeat([]bool{false}, nNodes)
+	let mut isKey = slices.Repeat([]bool{false}, nNodes)
+	for i in 0..nNodes {
+		let id = syntax.NodeAt(tr, i)
+		let k = syntax.KindOf(tr, id)
+		if k == syntax.KSelectorExpr {
+			isSel[dense.Index(syntax.SelectorExprOf(tr, id).Sel)] = true
+		} else if k == syntax.KKeyValueExpr {
+			let kv = syntax.KeyValueExprOf(tr, id)
+			if syntax.KindOf(tr, kv.Key) == syntax.KIdent {
+				isKey[dense.Index(kv.Key)] = true
+			}
+		}
+	}
+	let lines = syntax.LinesOf(src)
+	let mut edits = []Edit{}
+	let mut rewrites = []LenRewrite{}
+	for i in 0..nNodes {
+		let callNode = syntax.NodeAt(tr, i)
+		if syntax.KindOf(tr, callNode) != syntax.KCallExpr {
+			continue
+		}
+		if !isUniverseLenCall(p, s, u, ps, fileIdx, callNode, isSel, isKey) {
+			continue
+		}
+		let call = syntax.CallExprOf(tr, callNode)
+		let arg = syntax.Item(tr, call.Args, 0)
+		let start = syntax.NodePos(p, callNode)
+		let end = syntax.NodeEnd(p, callNode)
+		let argStart = syntax.NodePos(p, arg)
+		let argEnd = syntax.NodeEnd(p, arg)
+		let lparen = if call.Lparen >= 0 { syntax.TokPos(p, call.Lparen) } else { -1 }
+		let rparen = if call.Rparen >= 0 { syntax.TokPos(p, call.Rparen) } else { -1 }
+		if start < 0 || end > src.Len() || start >= end || lparen < start || rparen >= end || argStart <= lparen || argEnd > rparen {
+			continue
+		}
+		if !strings.HasPrefix(strings.TrimLeft(src[start:lparen], "("), "len") {
+			continue
+		}
+		let parens = needsLenParens(p, arg, s, u, ps, fileIdx, ifaces)
+		let lead = src[lparen+1 : argStart]
+		let trail = src[argEnd:rparen]
+		let leadComment = hasLenComment(lead)
+		let trailComment = hasLenComment(trail)
+		let mut openText = ""
+		let mut closeText = ".Len()"
+		let mut openTo = argStart
+		if leadComment {
+			openText = "("
+			openTo = lparen + 1
+			closeText = if trailComment { ").Len()" + stripLeadingComma(trail) } else { ").Len()" }
+		} else if trailComment {
+			if parens {
+				openText = "("
+				closeText = ").Len()"
+			}
+			closeText = closeText + stripLeadingComma(trail)
+		} else if parens {
+			openText = "("
+			closeText = ").Len()"
+		}
+		edits = edits.Append(Edit{From: start, To: openTo, Replace: openText})
+		edits = edits.Append(Edit{From: argEnd, To: end, Replace: closeText})
+		let pos = syntax.PositionOf(lines, start)
+		let afterText = if parens { "(" + src[argStart:argEnd] + ").Len()" } else { src[argStart:argEnd] + ".Len()" }
+		rewrites = rewrites.Append(LenRewrite{
+			File:   path,
+			Line:   pos.Line,
+			Column: pos.Column,
+			Before: src[start:end],
+			After:  afterText,
+		})
+	}
+	(edits, rewrites)
+}
+
+func isUniverseLenCall(p syntax.Parsed, s store.Store, u bind.Uses, ps bind.Parents, fileIdx int, callNode dense.ID[syntax.Node], isSel []bool, isKey []bool) bool {
+	let call = syntax.CallExprOf(p.Tree, callNode)
+	if call.Trailing != dense.NoID[syntax.Node]() || call.TrailingFunc || syntax.Len(call.Args) != 1 {
+		return false
+	}
+	let fun = call.Fun
+	if syntax.KindOf(p.Tree, fun) != syntax.KIdent {
+		return false
+	}
+	let funIdx = dense.Index(fun)
+	if isSel[funIdx] || isKey[funIdx] {
+		return false
+	}
+	let tok = syntax.NameOf(p.Tree, fun).Tok
+	if tok < 0 || syntax.TokText(p, tok) != "len" {
+		return false
+	}
+	match bind.ResolutionOf(u, ps, bind.PNodeOf(ps, fileIdx, fun)) {
+	case bind.Outside:
+		!hasNonImportPkgDecl(s, "len")
+	case _:
+		false
+	}
+}
+
+func isBasicTypeName(name string) bool {
+	name == "bool" || name == "string" || name == "int" || name == "int8" || name == "int16" || name == "int32" || name == "int64" || name == "uint" || name == "uint8" || name == "uint16" || name == "uint32" || name == "uint64" || name == "uintptr" || name == "byte" || name == "rune" || name == "float32" || name == "float64" || name == "duration"
+}
+
+func isConversionFun(p syntax.Parsed, fun dense.ID[syntax.Node], s store.Store, u bind.Uses, ps bind.Parents, fileIdx int, ifaces []types.Iface) bool {
+	let mut cur = fun
+	for syntax.KindOf(p.Tree, cur) == syntax.KParenExpr {
+		cur = syntax.ParenExprOf(p.Tree, cur).X
+	}
+	let k = syntax.KindOf(p.Tree, cur)
+	if k == syntax.KArrayType || k == syntax.KMapType || k == syntax.KFuncType {
+		return true
+	}
+	if k == syntax.KIndexExpr {
+		return isConversionFun(p, syntax.IndexExprOf(p.Tree, cur).X, s, u, ps, fileIdx, ifaces)
+	}
+	if k == syntax.KIdent {
+		let tok = syntax.NameOf(p.Tree, cur).Tok
+		if tok < 0 {
+			return false
+		}
+		let nm = syntax.TokText(p, tok)
+		if isBasicTypeName(nm) {
+			return true
+		}
+		match bind.ResolutionOf(u, ps, bind.PNodeOf(ps, fileIdx, cur)) {
+		case bind.Declared:
+			match store.Lookup(s, nm) {
+			case option.Some{Value: dec}:
+				return store.KindName(int(store.DeclOf(s, dec).Kind)) == "type"
+			case option.None:
+				return false
+			}
+		case _:
+			return false
+		}
+	}
+	if k == syntax.KSelectorExpr {
+		let se = syntax.SelectorExprOf(p.Tree, cur)
+		match bind.ResolutionOf(u, ps, bind.PNodeOf(ps, fileIdx, se.Sel)) {
+		case bind.Imported as im:
+			let imp = int(im.Ref.Import) - 1
+			return imp >= 0 && imp < ifaces.Len() && int(im.Ref.Decl) < ifaces[imp].Decls.Len() && ifaces[imp].Decls[int(im.Ref.Decl)].Type
+		case _:
+			return false
+		}
+	}
+	false
+}
+
+func needsLenParens(p syntax.Parsed, arg dense.ID[syntax.Node], s store.Store, u bind.Uses, ps bind.Parents, fileIdx int, ifaces []types.Iface) bool {
+	let k = syntax.KindOf(p.Tree, arg)
+	if k == syntax.KIdent || k == syntax.KBasicLit || k == syntax.KInterpolatedString || k == syntax.KParenExpr || k == syntax.KSelectorExpr || k == syntax.KIndexExpr || k == syntax.KSliceExpr {
+		return false
+	}
+	if k == syntax.KCallExpr {
+		let call = syntax.CallExprOf(p.Tree, arg)
+		if call.Trailing != dense.NoID[syntax.Node]() || call.TrailingFunc {
+			return true
+		}
+		return isConversionFun(p, call.Fun, s, u, ps, fileIdx, ifaces)
+	}
+	true
+}
+
+func hasLenComment(s string) bool {
+	strings.Contains(s, "//") || strings.Contains(s, "/*")
+}
+
+func stripLeadingComma(trail string) string {
+	for i in 0..trail.Len() {
+		let b = trail[i]
+		if b == ' ' || b == '\t' || b == '\r' || b == '\n' {
+			continue
+		}
+		if b == ',' {
+			return trail[0:i] + trail[i+1:trail.Len()]
+		}
+		return trail
+	}
+	trail
+}
+
+// LenRewritesAreIdempotent: rewriting universe len calls respects shadows, handles parens/nesting, and reaches a fixpoint on one pass.
+law LenRewritesAreIdempotent(n int) {
+	let tail = if n%2 == 0 { "xs" } else { "xs + ys" }
+	let src = "func F(xs []int, ys []int) int {\n\tlen(len(" + tail + "))\n}\n"
+	let (once, rws1) = LenSource(src, "a.ergo") catch {
+	case OverlapError, OutOfBoundsError:
+		return false
+	}
+	let (twice, rws2) = LenSource(once, "a.ergo") catch {
+	case OverlapError, OutOfBoundsError:
+		return false
+	}
+	rws1.Len() == 2 && rws2.Len() == 0 && once == twice && !strings.Contains(once, "len(")
+}
+
+test LenRewritesNestedConversionCommentsAndShadows {
+	let src = "func ShadowParam(len int) int {\n\tlen\n}\n\nfunc F(xs []int, bs []byte) int {\n\tlet _ = len(string(bs))\n\tlet _ = len(/* keep */ xs,)\n\tlet _ = \"\\(len(xs))\"\n\tlen(xs) + len(xs[1:])\n}\n"
+	let (out, rws) = LenSource(src, "f.ergo") catch {
+	case OverlapError, OutOfBoundsError:
+		assert false
+		return
+	}
+	assert rws.Len() == 5
+	assert strings.Contains(out, "(string(bs)).Len()")
+	assert strings.Contains(out, "/* keep */ xs).Len()")
+	assert strings.Contains(out, "\"\\(xs.Len())\"")
+	assert strings.Contains(out, "xs.Len() + xs[1:].Len()")
+	let (again, rws2) = LenSource(out, "f.ergo") catch {
+	case OverlapError, OutOfBoundsError:
+		assert false
+		return
+	}
+	assert rws2.Len() == 0
+	assert again == out
+}
+
+test LenSkipsPackageShadowedFunc {
+	let src = "func len(xs []int) int { 42 }\n\nfunc G(xs []int) int {\n\tlen(xs)\n}\n"
+	let (out, rws) = LenSource(src, "s.ergo") catch {
+	case OverlapError, OutOfBoundsError:
+		assert false
+		return
+	}
+	assert rws.Len() == 0
+	assert out == src
+}

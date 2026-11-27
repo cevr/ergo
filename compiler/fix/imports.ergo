@@ -1,0 +1,559 @@
+import cmp
+import compiler/check/bind
+import compiler/check/store
+import compiler/syntax
+import dense
+import option
+import slices
+import strconv
+import strings
+
+// ImportEntry describes one parsed or planned Ergo or Go import declaration.
+type ImportEntry {
+	Alias string,
+	Path  string,
+	IsGo  bool,
+}
+
+// FileImportSpan locates an existing ImportDecl in source text.
+type FileImportSpan {
+	Entry   ImportEntry,
+	From    int,
+	To      int,
+	LineEnd int,
+}
+
+// QualRewrite records a qualifier rename from From to To inside moved code.
+type QualRewrite {
+	From string,
+	To   string,
+}
+
+// ImportBase returns the default qualifier name for import path.
+func ImportBase(path string) string {
+	let cleaned = strings.TrimSuffix(path, "/")
+	let idx = strings.LastIndex(cleaned, "/")
+	let raw = if idx >= 0 { cleaned[idx+1 : cleaned.Len()] } else { cleaned }
+	let dot = strings.IndexByte(raw, '.')
+	if dot > 0 { raw[0:dot] } else { raw }
+}
+
+// ImportQualifier returns the local qualifier identifier bound by entry.
+func ImportQualifier(entry ImportEntry) string {
+	if entry.Alias != "" {
+		return entry.Alias
+	}
+	ImportBase(entry.Path)
+}
+
+// NormalizeImport drops redundant aliases equal to the import base name.
+func NormalizeImport(entry ImportEntry) ImportEntry {
+	let mut out = entry
+	if out.Alias != "" && out.Alias == ImportBase(out.Path) {
+		out.Alias = ""
+	}
+	out
+}
+
+// FormatImportDecl formats an ImportEntry as a single Ergo import line.
+func FormatImportDecl(entry ImportEntry) string {
+	let e = NormalizeImport(entry)
+	if e.IsGo {
+		if e.Alias != "" {
+			return "import go " + e.Alias + " " + e.Path
+		}
+		return "import go " + e.Path
+	}
+	if e.Alias != "" {
+		return "import " + e.Alias + " " + e.Path
+	}
+	"import " + e.Path
+}
+
+// CompareImports defines canonical ordering: Ergo imports before Go imports, then Path, then Alias.
+func CompareImports(a ImportEntry, b ImportEntry) int {
+	if a.IsGo != b.IsGo {
+		return if a.IsGo { 1 } else { -1 }
+	}
+	if a.Path != b.Path {
+		return cmp.Compare(a.Path, b.Path)
+	}
+	cmp.Compare(a.Alias, b.Alias)
+}
+
+// FormatImportBlock formats sorted, deduplicated imports as canonical source text.
+func FormatImportBlock(entries []ImportEntry) string {
+	if entries.Len() == 0 {
+		return ""
+	}
+	let mut normalized = slices.WithCapacity[ImportEntry](entries.Len())
+	for e in entries {
+		normalized = normalized.Append(NormalizeImport(e))
+	}
+	normalized = slices.SortFunc(normalized, CompareImports)
+	let mut unique = slices.WithCapacity[ImportEntry](normalized.Len())
+	for e in normalized {
+		if unique.Len() == 0 || unique[unique.Len()-1].Path != e.Path || unique[unique.Len()-1].IsGo != e.IsGo || unique[unique.Len()-1].Alias != e.Alias {
+			unique = unique.Append(e)
+		}
+	}
+	let mut b = strings.NewBuilder()
+	for i, e in unique {
+		if i > 0 && unique[i-1].IsGo != e.IsGo {
+			b.WriteString("\n")
+		}
+		b.WriteString(FormatImportDecl(e))
+		b.WriteString("\n")
+	}
+	b.String()
+}
+
+func unquoteImportPath(raw string) string {
+	if raw.Len() >= 2 {
+		let first = raw[0]
+		let last = raw[raw.Len()-1]
+		if (first == '"' && last == '"') || (first == '`' && last == '`') {
+			return raw[1 : raw.Len()-1]
+		}
+	}
+	raw
+}
+
+// ParseFileImports extracts all top-level ImportDecls with byte spans from parsed file p.
+func ParseFileImports(src string, p syntax.Parsed) []FileImportSpan {
+	if p.Failed {
+		return []FileImportSpan{}
+	}
+	let root = syntax.Root(p.Tree)
+	if syntax.KindOf(p.Tree, root) != syntax.KFile {
+		return []FileImportSpan{}
+	}
+	let decls = syntax.FileOf(p.Tree, root).Decls
+	let mut out = []FileImportSpan{}
+	for i in 0..syntax.Len(decls) {
+		let d = syntax.Item(p.Tree, decls, i)
+		if syntax.KindOf(p.Tree, d) != syntax.KImportDecl {
+			continue
+		}
+		let im = syntax.ImportDeclOf(p.Tree, d)
+		let spec = syntax.ImportSpecOf(p.Tree, im.Spec)
+		let isGo = spec.NamePos >= 0 && syntax.TokKind(p, spec.NamePos) == syntax.Go
+		let alias = match dense.Unpack(spec.Name) {
+		case option.Some{Value: nm}:
+			let tok = syntax.NameOf(p.Tree, nm).Tok
+			if tok >= 0 { syntax.TokText(p, tok) } else { "" }
+		case option.None:
+			""
+		}
+		let pathTok = syntax.TokStartingAt(p, syntax.NodePos(p, spec.Path))
+		let path = if pathTok >= 0 { unquoteImportPath(syntax.TokText(p, pathTok)) } else { "" }
+		let from = lineStartAt(src, syntax.NodePos(p, d))
+		let to = syntax.NodeEnd(p, d)
+		let endLine = lineEndAfter(src, to)
+		out = out.Append(FileImportSpan{
+			Entry:   NormalizeImport(ImportEntry{Alias: alias, Path: path, IsGo: isGo}),
+			From:    from,
+			To:      to,
+			LineEnd: endLine,
+		})
+	}
+	out
+}
+
+func lineStartAt(src string, off int) int {
+	let mut i = off
+	if i > src.Len() {
+		i = src.Len()
+	}
+	for i > 0 && src[i-1] != '\n' {
+		i = i - 1
+	}
+	i
+}
+
+func lineEndAfter(src string, off int) int {
+	let mut i = off
+	for i < src.Len() && src[i] != '\n' {
+		i = i + 1
+	}
+	if i < src.Len() && src[i] == '\n' {
+		i = i + 1
+	}
+	i
+}
+
+func skipBlankLinesForward(src string, off int) int {
+	let mut i = off
+	for i < src.Len() {
+		if src[i] == '\n' {
+			i = i + 1
+			continue
+		}
+		if src[i] == '\r' && i+1 < src.Len() && src[i+1] == '\n' {
+			i = i + 2
+			continue
+		}
+		break
+	}
+	i
+}
+
+// DeclStartWithDoc returns the earliest byte offset of decl including any attached doc group.
+func DeclStartWithDoc(p syntax.Parsed, decl dense.ID[syntax.Node]) int {
+	let mut start = syntax.NodePos(p, decl)
+	let doc = declDocGroup(p.Tree, decl)
+	if doc >= 0 && doc < syntax.NumGroups(p) {
+		let gs = syntax.GroupPos(p, doc)
+		if gs < start {
+			start = gs
+		}
+	}
+	start
+}
+
+func declDocGroup(t syntax.Tree, decl dense.ID[syntax.Node]) int {
+	let k = syntax.KindOf(t, decl)
+	if k == syntax.KImportDecl {
+		return syntax.ImportDeclOf(t, decl).Doc
+	}
+	if k == syntax.KVarDecl {
+		return syntax.VarDeclOf(t, decl).Doc
+	}
+	if k == syntax.KTypeDecl {
+		return syntax.TypeDeclOf(t, decl).Doc
+	}
+	if k == syntax.KFuncDecl {
+		return syntax.FuncDeclOf(t, decl).Doc
+	}
+	if k == syntax.KContextDecl {
+		return syntax.ContextDeclOf(t, decl).Doc
+	}
+	if k == syntax.KTestDecl {
+		return syntax.TestDeclOf(t, decl).Doc
+	}
+	if k == syntax.KLawDecl {
+		return syntax.LawDeclOf(t, decl).Doc
+	}
+	-1
+}
+
+// HasNonImportDecls reports whether p has any top-level declaration other than ImportDecl.
+func HasNonImportDecls(p syntax.Parsed) bool {
+	if p.Failed {
+		return false
+	}
+	let root = syntax.Root(p.Tree)
+	if syntax.KindOf(p.Tree, root) != syntax.KFile {
+		return false
+	}
+	let decls = syntax.FileOf(p.Tree, root).Decls
+	for i in 0..syntax.Len(decls) {
+		if syntax.KindOf(p.Tree, syntax.Item(p.Tree, decls, i)) != syntax.KImportDecl {
+			return true
+		}
+	}
+	false
+}
+
+func firstNonImportStart(src string, p syntax.Parsed) int {
+	let root = syntax.Root(p.Tree)
+	if syntax.KindOf(p.Tree, root) != syntax.KFile {
+		return src.Len()
+	}
+	let decls = syntax.FileOf(p.Tree, root).Decls
+	for i in 0..syntax.Len(decls) {
+		let d = syntax.Item(p.Tree, decls, i)
+		if syntax.KindOf(p.Tree, d) != syntax.KImportDecl {
+			return lineStartAt(src, DeclStartWithDoc(p, d))
+		}
+	}
+	src.Len()
+}
+
+// PlanImportBlockEdit builds a single Edit rewriting or inserting canonical sorted imports in src.
+func PlanImportBlockEdit(src string, p syntax.Parsed, desired []ImportEntry) option.Option[Edit] {
+	let existing = ParseFileImports(src, p)
+	let hasCode = HasNonImportDecls(p)
+	let mut block = FormatImportBlock(desired)
+	if existing.Len() == 0 {
+		if block == "" {
+			return option.None
+		}
+		let at = firstNonImportStart(src, p)
+		let mut ins = block
+		if hasCode {
+			ins = ins + "\n"
+		}
+		if at > 0 && src[at-1] != '\n' {
+			ins = "\n" + ins
+		}
+		return option.Some[Edit]{Value: Edit{From: at, To: at, Replace: ins}}
+	}
+	let from = existing[0].From
+	let lastEnd = existing[existing.Len()-1].LineEnd
+	let to = skipBlankLinesForward(src, lastEnd)
+	if block != "" && hasCode {
+		block = block + "\n"
+	}
+	if src[from:to] == block {
+		return option.None
+	}
+	option.Some[Edit]{Value: Edit{From: from, To: to, Replace: block}}
+}
+
+// PickImportAlias selects a collision-free qualifier for path against usedNames, preferring preferred or ImportBase(path).
+func PickImportAlias(path string, preferred string, usedNames []string) string {
+	let base = ImportBase(path)
+	if preferred != "" && preferred != base && !slices.Contains(usedNames, preferred) {
+		return preferred
+	}
+	if !slices.Contains(usedNames, base) {
+		return ""
+	}
+	let stdName = "std" + base
+	if !slices.Contains(usedNames, stdName) {
+		return stdName
+	}
+	let mut n = 2
+	for {
+		let cand = base + strconv.Itoa(n)
+		if !slices.Contains(usedNames, cand) {
+			return cand
+		}
+		n = n + 1
+	}
+}
+
+// MergeImportSets merges incoming entries into existing entries, resolving qualifier conflicts cleanly.
+func MergeImportSets(existing []ImportEntry, incoming []ImportEntry, reserved []string) ([]ImportEntry, []QualRewrite) {
+	let mut out = slices.WithCapacity[ImportEntry](existing.Len() + incoming.Len())
+	let mut taken = slices.WithCapacity[string](existing.Len() + incoming.Len() + reserved.Len())
+	for r in reserved {
+		taken = taken.Append(r)
+	}
+	for e in existing {
+		let norm = NormalizeImport(e)
+		let q = ImportQualifier(norm)
+		out = out.Append(norm)
+		if !slices.Contains(taken, q) {
+			taken = taken.Append(q)
+		}
+	}
+	let mut rewrites = []QualRewrite{}
+	for raw in incoming {
+		let inc = NormalizeImport(raw)
+		let incQual = ImportQualifier(inc)
+		let mut matchedIdx = -1
+		for i, cur in out {
+			if cur.Path == inc.Path && cur.IsGo == inc.IsGo {
+				matchedIdx = i
+				break
+			}
+		}
+		if matchedIdx >= 0 {
+			let targetQual = ImportQualifier(out[matchedIdx])
+			if incQual != targetQual {
+				rewrites = rewrites.Append(QualRewrite{From: incQual, To: targetQual})
+			}
+			continue
+		}
+		let preferred = if !slices.Contains(taken, ImportBase(inc.Path)) { "" } else { inc.Alias }
+		let chosenAlias = PickImportAlias(inc.Path, preferred, taken)
+		let placed = NormalizeImport(ImportEntry{Alias: chosenAlias, Path: inc.Path, IsGo: inc.IsGo})
+		let newQual = ImportQualifier(placed)
+		out = out.Append(placed)
+		taken = taken.Append(newQual)
+		if incQual != newQual {
+			rewrites = rewrites.Append(QualRewrite{From: incQual, To: newQual})
+		}
+	}
+	(out, rewrites)
+}
+
+func hasNonImportPkgDecl(s store.Store, name string) bool {
+	match store.FindName(s, name) {
+	case option.Some[dense.ID[dense.Str]] as n:
+		for d in store.Decls(s) {
+			if d.Name == n.Value && int(d.Kind) != store.KindPkgName {
+				return true
+			}
+		}
+		false
+	case option.None:
+		false
+	}
+}
+
+// UsedImportMask marks which parsed imports in file idx remain referenced inside [spanStart, spanEnd).
+func UsedImportMask(files []bind.File, s store.Store, u bind.Uses, ps bind.Parents, fileIdx int, imports []ImportEntry, spanStart int, spanEnd int) []bool {
+	let mut used = slices.Repeat([]bool{false}, imports.Len())
+	let p = files[fileIdx].Parsed
+	if p.Failed {
+		return used
+	}
+	let tr = p.Tree
+	let nNodes = syntax.NumNodes(tr)
+	let mut isSel = slices.Repeat([]bool{false}, nNodes)
+	let mut isKey = slices.Repeat([]bool{false}, nNodes)
+	for i in 0..nNodes {
+		let id = syntax.NodeAt(tr, i)
+		let k = syntax.KindOf(tr, id)
+		if k == syntax.KSelectorExpr {
+			let se = syntax.SelectorExprOf(tr, id)
+			isSel[dense.Index(se.Sel)] = true
+		} else if k == syntax.KKeyValueExpr {
+			let kv = syntax.KeyValueExprOf(tr, id)
+			if syntax.KindOf(tr, kv.Key) == syntax.KIdent {
+				isKey[dense.Index(kv.Key)] = true
+			}
+		}
+	}
+	for i in 0..nNodes {
+		let id = syntax.NodeAt(tr, i)
+		if syntax.KindOf(tr, id) != syntax.KSelectorExpr {
+			continue
+		}
+		let pos = syntax.NodePos(p, id)
+		if pos < spanStart || pos >= spanEnd {
+			continue
+		}
+		let se = syntax.SelectorExprOf(tr, id)
+		if syntax.KindOf(tr, se.X) != syntax.KIdent {
+			continue
+		}
+		let xIdx = dense.Index(se.X)
+		if isSel[xIdx] || isKey[xIdx] {
+			continue
+		}
+		let pn = bind.PNodeOf(ps, fileIdx, se.X)
+		match bind.ResolutionOf(u, ps, pn) {
+		case bind.Outside:
+			let tok = syntax.NameOf(tr, se.X).Tok
+			if tok < 0 {
+				continue
+			}
+			let qName = syntax.TokText(p, tok)
+			if hasNonImportPkgDecl(s, qName) {
+				continue
+			}
+			for j, imp in imports {
+				if ImportQualifier(imp) == qName {
+					used[j] = true
+				}
+			}
+		case _:
+		}
+	}
+	used
+}
+
+// QualifierEdits collects edits rewriting package qualifiers per rewrites within [spanStart, spanEnd).
+func QualifierEdits(files []bind.File, u bind.Uses, ps bind.Parents, fileIdx int, spanStart int, spanEnd int, rewrites []QualRewrite) []Edit {
+	if rewrites.Len() == 0 {
+		return []Edit{}
+	}
+	let p = files[fileIdx].Parsed
+	if p.Failed {
+		return []Edit{}
+	}
+	let tr = p.Tree
+	let nNodes = syntax.NumNodes(tr)
+	let mut isSel = slices.Repeat([]bool{false}, nNodes)
+	for i in 0..nNodes {
+		let id = syntax.NodeAt(tr, i)
+		if syntax.KindOf(tr, id) == syntax.KSelectorExpr {
+			isSel[dense.Index(syntax.SelectorExprOf(tr, id).Sel)] = true
+		}
+	}
+	let mut edits = []Edit{}
+	for i in 0..nNodes {
+		let id = syntax.NodeAt(tr, i)
+		if syntax.KindOf(tr, id) != syntax.KSelectorExpr {
+			continue
+		}
+		let se = syntax.SelectorExprOf(tr, id)
+		if syntax.KindOf(tr, se.X) != syntax.KIdent || isSel[dense.Index(se.X)] {
+			continue
+		}
+		let xPos = syntax.NodePos(p, se.X)
+		let xEnd = syntax.NodeEnd(p, se.X)
+		if xPos < spanStart || xEnd > spanEnd {
+			continue
+		}
+		match bind.ResolutionOf(u, ps, bind.PNodeOf(ps, fileIdx, se.X)) {
+		case bind.Outside:
+			let tok = syntax.NameOf(tr, se.X).Tok
+			if tok < 0 {
+				continue
+			}
+			let qName = syntax.TokText(p, tok)
+			for rw in rewrites {
+				if rw.From == qName && rw.To != qName {
+					edits = edits.Append(Edit{From: xPos, To: xEnd, Replace: rw.To})
+					break
+				}
+			}
+		case _:
+		}
+	}
+	edits
+}
+
+func makeAlphaIdent(seed int) string {
+	let letters = "abcdefghijklmnopqrstuvwxyz"
+	let k = int(uint64(seed) % uint64(letters.Len()))
+	letters[k : k+1]
+}
+
+// MergeSortsAndDealiases: merging redundant aliases drops matching alias and sorts Ergo imports before Go imports.
+law MergeSortsAndDealiases(a int, b int) {
+	let s1 = makeAlphaIdent(a)
+	let s2 = makeAlphaIdent(b)
+	let p1 = "pkg/" + s1
+	let p2 = "gopkg/" + s2
+	let e1 = ImportEntry{Alias: ImportBase(p1), Path: p1, IsGo: false}
+	let e2 = ImportEntry{Alias: "", Path: p2, IsGo: true}
+	let (merged, _) = MergeImportSets([]ImportEntry{e2}, []ImportEntry{e1}, []string{})
+	let block = FormatImportBlock(merged)
+	let idxErgo = strings.Index(block, "import ")
+	let idxGo = strings.Index(block, "import go "+p2)
+	let dealiased = NormalizeImport(e1).Alias == ""
+	let expectedLine = if s1 == s2 { "import std" + s1 + " " + p1 } else { "import " + p1 }
+	dealiased && idxErgo >= 0 && idxGo > idxErgo && strings.Contains(block, expectedLine) && !strings.Contains(block, "import "+s1+" "+p1)
+}
+
+test PruneDropsUnusedImportAndPreservesUsed {
+	let src = "import strings\nimport option\n\nfunc Greet(s string) string {\n\tstrings.ToUpper(s)\n}\n"
+	let p = syntax.Parse(src)
+	let f = []bind.File{bind.File{Name: "a.ergo", Parsed: p}}
+	let s0 = bind.Collect("test/p", f)
+	let ps = bind.BuildParents(f)
+	let (s, u) = bind.Bind(s0, []store.Frozen{}, ps, f, 1)
+	let spans = ParseFileImports(src, p)
+	assert spans.Len() == 2
+	let mut entries = []ImportEntry{}
+	for sp in spans {
+		entries = entries.Append(sp.Entry)
+	}
+	let mask = UsedImportMask(f, s, u, ps, 0, entries, 0, src.Len())
+	assert mask.Len() == 2
+	assert mask[0]
+	assert !mask[1]
+	let mut kept = []ImportEntry{}
+	for i, sp in spans {
+		if mask[i] {
+			kept = kept.Append(sp.Entry)
+		}
+	}
+	match PlanImportBlockEdit(src, p, kept) {
+	case option.Some{Value: ed}:
+		let updated = ApplyEdits("a.ergo", src, []Edit{ed}) catch {
+		case OverlapError, OutOfBoundsError:
+			assert false
+			return
+		}
+		assert updated == "import strings\n\nfunc Greet(s string) string {\n\tstrings.ToUpper(s)\n}\n"
+	case option.None:
+		assert false
+	}
+}
