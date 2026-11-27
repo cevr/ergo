@@ -28,6 +28,7 @@ type controlOp =
 	| CMatch{kind int, tagType dense.Opt[store.TKey]}
 	| CWhile{}
 	| CRange{}
+	| CCount{temp int}
 	| CCollectionRange{keySlot int, valSlot int}
 	| CBreak{}
 	| CContinue{}
@@ -372,7 +373,7 @@ func controlPrecededByLoop(p controlPlan, curAt int) bool {
 	}
 	let prev = p.stmts[curAt-1]
 	match prev.op {
-	case CRange, CCollectionRange:
+	case CRange, CCount, CCollectionRange:
 		true
 	case _:
 		false
@@ -580,16 +581,32 @@ func controlStatementYield(st fnb, binds mut localBinds, p mut controlPlan, node
 		if isDotDotRange(st, r) {
 			p.counted = true
 			p.nested = p.nested || loops > 0
-			let bound = try compactBound(st, r)
-			try controlOperand(st, *binds, p, bound)
-			row.readHi = p.reads.Len()
-			row.op = CRange
-			row.x = dense.OptOf(bound)
+			match try countedRange(st, r) {
+			case option.Some{Value: bx}:
+				try controlOperand(st, *binds, p, bx.X)
+				try controlOperand(st, *binds, p, bx.Y)
+				row.readHi = p.reads.Len()
+				row.op = CCount{temp: try controlTemp(st, p, "r", "Range[int]", row.offset)}
+				row.x = dense.OptOf(r.X)
+			case option.None:
+				let bound = try compactBound(st, r)
+				try controlOperand(st, *binds, p, bound)
+				row.readHi = p.reads.Len()
+				row.op = CRange
+				row.x = dense.OptOf(bound)
+			}
 			row.slot = try controlBind(st, binds, p, r.Value, nameText(parsed, r.Value), "int", false)
 			row.end = try controlBlockEnd(parsed, r.Body)
 			p.loops = loops + 1
 			row.first = try controlBlock(st, binds, p, r.Body, false, loops+1)
 			p.loops = loops
+			match row.op {
+			case CCount:
+				if controlSpanWrites(*p, row.first) {
+					return stop("range: counted loop idiom")
+				}
+			case _:
+			}
 		} else {
 			if controlPrecededByLoop(*p, curAt) {
 				return stop("range: loop after loop (collect fold)")
@@ -659,6 +676,7 @@ func controlStatementYield(st fnb, binds mut localBinds, p mut controlPlan, node
 	case CMatch:
 	case CWhile:
 	case CRange:
+	case CCount:
 	case CCollectionRange:
 	case CSpan:
 	case _:
@@ -1162,6 +1180,35 @@ func controlEmitSpan(st fnb, binds localBinds, b mut ir.Builder, p controlPlan, 
 			}
 			i = s.next
 			continue
+		case CCount as c:
+			let at = pos(st, s.offset)
+			let (lo, hi) = match dense.Unpack(s.x) {
+			case option.Some{Value: rx}:
+				match syntax.ViewOf(st.p.Tree, unparen(st, rx)) {
+				case syntax.BinaryExpr as bx:
+					(bx.X, bx.Y)
+				case _:
+					return ir.Malformed{At: i, Why: "counted range without bounds"}
+				}
+			case option.None:
+				return ir.Malformed{At: i, Why: "counted range without operand"}
+			}
+			let start = try value(st, binds, b, lo)
+			let finish = try value(st, binds, b, hi)
+			let lit = try ir.Row(b, ir.KindCode(ir.TExpr, "lit"), at, []uint32{ir.Text(b, p.locals[c.temp-p.formals].typ), ir.List(b, []uint32{start, finish}), ir.List(b, []uint32{ir.Text(b, "Start"), ir.Text(b, "End")})})
+			rows = rows.Append(try ir.Row(b, ir.KindCode(ir.TStmt, "def"), at, []uint32{uint32(c.temp), lit}))
+			let mut loop = []uint32{}
+			if !read[s.slot] {
+				loop = loop.Append(try controlDiscard(b, at, uint32(s.slot)))
+			}
+			for child in try controlEmitSpan(st, binds, b, p, s.first, read) {
+				loop = loop.Append(child)
+			}
+			let from = try ir.Row(b, ir.KindCode(ir.TExpr, "field"), at, []uint32{try ir.Row(b, ir.KindCode(ir.TExpr, "local"), at, []uint32{uint32(c.temp)}), ir.Text(b, "Start")})
+			let to = try ir.Row(b, ir.KindCode(ir.TExpr, "field"), at, []uint32{try ir.Row(b, ir.KindCode(ir.TExpr, "local"), at, []uint32{uint32(c.temp)}), ir.Text(b, "End")})
+			rows = rows.Append(try ir.Row(b, ir.KindCode(ir.TStmt, "count"), at, []uint32{uint32(s.slot), from, ir.List(b, loop), ir.PosAt(b, pos(st, s.end)), to}))
+			i = s.next
+			continue
 		case CCollectionRange as cr:
 			let at = pos(st, s.offset)
 			let x = match dense.Unpack(s.x) {
@@ -1310,6 +1357,8 @@ func controlEmitSpan(st fnb, binds localBinds, b mut ir.Builder, p controlPlan, 
 		case CWhile:
 			let loop = try controlEmitSpan(st, binds, b, p, s.first, read)
 			try ir.Row(b, ir.KindCode(ir.TStmt, "while"), at, []uint32{x, ir.List(b, loop), ir.PosAt(b, pos(st, s.end)), 0})
+		case CCount:
+			return ir.Malformed{At: i, Why: "counted range outside multirow"}
 		case CRange:
 			let mut loop = []uint32{}
 			if !read[s.slot] {

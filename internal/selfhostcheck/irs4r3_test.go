@@ -20,7 +20,10 @@ import (
 // program's flat form (a match and an injection in the fixture's
 // producer, a match in std's semver and decimal under std's own program)
 // and its calls the program's rewrite scope (producer.Scale), where they
-// stopped before at "unproved union layout" and "rewrite scope not known".
+// stopped before at "unproved union layout" and "rewrite scope not known";
+// and a 0..end range of int with a computed end takes Go's counted form,
+// a Range temp and a count loop (PortS4r3Tri, PortS4r3Steps), where it
+// stopped at "computed end takes counted form".
 //
 // It builds compiler/cmd/irdump and runs it because the Ergo side is a
 // whole compiled program, as TestCompilerIRAgreesWithBuilder's is.
@@ -147,6 +150,8 @@ func TestIRS4R3Cutover(t *testing.T) {
 	}
 	for _, want := range []string{
 		"PortS4r3Area",
+		"PortS4r3Tri",
+		"PortS4r3Steps",
 		"ports4r3demo_sproducer__Area",
 		"ports4r3demo_sproducer__MakeSquare",
 		"ports4r3demo_sproducer__Scale",

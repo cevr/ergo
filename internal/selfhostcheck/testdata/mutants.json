@@ -2784,6 +2784,28 @@
       "killers": ["internal/selfhostcheck:TestIRS4R3Cutover"]
     },
     {
+      "name": "lower-s4r3-counted-range",
+      "origin": "wf10/selfhost/S4-LOWER-CUTOVER-R3",
+      "file": "compiler/lower/loops.ergo",
+      "decl": "countedRange",
+      "from": "\toption.Some[syntax.BinaryExpr]{Value: b}\n}",
+      "to": "\toption.None\n}",
+      "rule": "A 0..end range of int with a computed end lowers to Go's counted form: a Range temp and a count loop (PortS4r3Tri, PortS4r3Steps).",
+      "regenerate": {"dir": ".", "argv": ["go", "run", "./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestIRS4R3Cutover"]
+    },
+    {
+      "name": "lower-s4r3-counted-range-fields",
+      "origin": "wf10/selfhost/S4-LOWER-CUTOVER-R3",
+      "file": "compiler/lower/control.ergo",
+      "decl": "controlEmitSpan",
+      "from": "ir.List(b, []uint32{ir.Text(b, \"Start\"), ir.Text(b, \"End\")})",
+      "to": "uint32(0)",
+      "rule": "The counted form's Range literal is keyed Start and End, as Go's countLoop writes it (PortS4r3Tri).",
+      "regenerate": {"dir": ".", "argv": ["go", "run", "./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestIRS4R3Cutover"]
+    },
+    {
       "name": "lower-s4r2-generic-unit-result",
       "origin": "wf10/selfhost/S4-LOWER-CUTOVER-R2",
       "file": "compiler/lower/lower.ergo",

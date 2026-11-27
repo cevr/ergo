@@ -6,3 +6,19 @@ func PortS4r3Area(n int) int {
 }
 
 func PortS4r3Scale(x int) int { producer.Scale(x, 3) }
+
+func PortS4r3Tri(n int) int {
+	let mut acc = 0
+	for i in 0..n+1 {
+		acc = acc + i
+	}
+	acc
+}
+
+func PortS4r3Steps(s string) int {
+	let mut acc = 0
+	for i in 0..s.Len() {
+		acc = acc + i
+	}
+	acc
+}
