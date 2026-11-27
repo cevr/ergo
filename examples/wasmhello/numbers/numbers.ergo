@@ -1,0 +1,70 @@
+// Package numbers holds the integer functions the WASM lowering's first
+// round runs: each one is a count or while loop over integers, the subset
+// compiler/wasmlower lowers.
+
+// Fib is the n-th Fibonacci number.
+func Fib(n int) int {
+	let mut a = 0
+	let mut b = 1
+	for _ in 0..n {
+		let t = a + b
+		a = b
+		b = t
+	}
+	a
+}
+
+// FibAddsTheTwoBefore: each Fibonacci number past the first two is the
+// sum of the two before it.
+law FibAddsTheTwoBefore(k uint8) {
+	let n = 2 + int(k)%60
+	Fib(n) == Fib(n-1)+Fib(n-2)
+}
+
+// Gcd is the greatest common divisor of a and b by Euclid's remainders.
+func Gcd(a int32, b int32) int32 {
+	let mut x = a
+	let mut y = b
+	for y != 0 {
+		let t = x % y
+		x = y
+		y = t
+	}
+	x
+}
+
+// GcdDividesBoth: the divisor divides both numbers.
+law GcdDividesBoth(a uint16, b uint16) {
+	let g = Gcd(int32(a)+1, int32(b)+1)
+	g > 0 && (int32(a)+1)%g == 0 && (int32(b)+1)%g == 0
+}
+
+// Collatz is the number of Collatz steps from n down to 1; n is at least 1.
+func Collatz(n uint64) int32 {
+	let mut x = n
+	let mut steps = int32(0)
+	for x != 1 {
+		if x%2 == 0 {
+			x = x / 2
+		} else {
+			x = 3*x + 1
+		}
+		steps = steps + 1
+	}
+	steps
+}
+
+// Sum35 is the sum of the multiples of 3 or 5 below n, up to 100.
+func Sum35(n int) int {
+	let mut s = 0
+	for i in 0..n {
+		if i > 100 {
+			break
+		}
+		if !(i%3 == 0 || i%5 == 0) {
+			continue
+		}
+		s = s + i
+	}
+	s
+}
