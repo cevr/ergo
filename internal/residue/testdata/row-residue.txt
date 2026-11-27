@@ -34,7 +34,6 @@ docs/spec/README.md	a written needs row, charged at each with
 docs/spec/status.json	a written needs row, charged at each with
 # contextneeds.go (CTX-ROWS-2): "no with site provides it, so it is not charged there": prose
 internal/sketch/check/contextneeds.go	no with site provides it, so it is not charged there
-NORTH_STAR.md	A build needs Node, Effect
 README.md	error and needs rows, contexts
 docs/spec/rows.md	the entry that provides it, and
 internal/sketch/check/context.go	written needs row, the
