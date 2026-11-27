@@ -1,0 +1,910 @@
+import slices
+
+// SectionSpan records one decoded section header and its payload slice bounds.
+type SectionSpan {
+	ID         uint8,
+	CustomName string,
+	PayloadOff uint32,
+	PayloadLen uint32,
+}
+
+// DecodedBody records one decoded Code section body's locals and instruction spans.
+type DecodedBody {
+	LocalOff uint32,
+	LocalLen uint32,
+	CodeOff  uint32,
+	CodeLen  uint32,
+	BodyOff  uint32,
+	BodyLen  uint32,
+}
+
+// DecodedModule holds the validated structural contents parsed from a .wasm binary.
+type DecodedModule {
+	Version      uint32,
+	Sections     []SectionSpan,
+	ParamTypes   []byte,
+	ResultTypes  []byte,
+	Sigs         []FuncSig,
+	Imports      []ImportDef,
+	FuncTypeIdxs []uint32,
+	Mems         []MemDef,
+	Globals      []GlobalDef,
+	Exports      []ExportDef,
+	HasStart     bool,
+	StartIdx     uint32,
+	HasDataCount bool,
+	DataCount    uint32,
+	LocalRuns    []LocalRun,
+	BodyBytes    []byte,
+	Bodies       []DecodedBody,
+	DataPool     []byte,
+	DataSegs     []DataSeg,
+}
+
+func emptyDecodedModule(ver uint32) DecodedModule {
+	DecodedModule{
+		Version:      ver,
+		Sections:     []SectionSpan{},
+		ParamTypes:   []byte{},
+		ResultTypes:  []byte{},
+		Sigs:         []FuncSig{},
+		Imports:      []ImportDef{},
+		FuncTypeIdxs: []uint32{},
+		Mems:         []MemDef{},
+		Globals:      []GlobalDef{},
+		Exports:      []ExportDef{},
+		HasStart:     false,
+		StartIdx:     uint32(0),
+		HasDataCount: false,
+		DataCount:    uint32(0),
+		LocalRuns:    []LocalRun{},
+		BodyBytes:    []byte{},
+		Bodies:       []DecodedBody{},
+		DataPool:     []byte{},
+		DataSegs:     []DataSeg{},
+	}
+}
+
+func sectionRank(id uint8) int {
+	if id >= SecType && id <= SecElement {
+		return int(id)
+	}
+	if id == SecDataCount {
+		return 10
+	}
+	if id == SecCode {
+		return 11
+	}
+	if id == SecData {
+		return 12
+	}
+	-1
+}
+
+func readValType(r mut Reader) byte fails WasmError {
+	let off = r.At
+	let b = try r.ReadByte()
+	if !IsValidValType(b) {
+		return errAt("invalid-valtype", off, "invalid value type \(b)")
+	}
+	b
+}
+
+func readLimits(r mut Reader) (uint32, uint32, bool) fails WasmError {
+	let off = r.At
+	let flag = try r.ReadByte()
+	if flag != LimitMin && flag != LimitMinMax {
+		return errAt("invalid-limit", off, "invalid limits flag \(flag)")
+	}
+	let minPages = try r.ReadULEB32()
+	if flag == LimitMin {
+		try validateLimits(minPages, uint32(0), false, "limits")
+		return (minPages, uint32(0), false)
+	}
+	let maxPages = try r.ReadULEB32()
+	try validateLimits(minPages, maxPages, true, "limits")
+	(minPages, maxPages, true)
+}
+
+func readInitExpr(r mut Reader) InitExpr fails WasmError {
+	let off = r.At
+	let op = try r.ReadByte()
+	let expr = if op == OpI32Const {
+		let bits = try r.ReadSLEB32Bits()
+		InitExpr{Kind: InitI32, Bits: uint64(bits), GlobalIdx: uint32(0)}
+	} else if op == OpI64Const {
+		let bits = try r.ReadSLEB64Bits()
+		InitExpr{Kind: InitI64, Bits: bits, GlobalIdx: uint32(0)}
+	} else if op == OpF32Const {
+		let bits = try r.ReadU32LE()
+		InitExpr{Kind: InitF32, Bits: uint64(bits), GlobalIdx: uint32(0)}
+	} else if op == OpF64Const {
+		let bits = try r.ReadU64LE()
+		InitExpr{Kind: InitF64, Bits: bits, GlobalIdx: uint32(0)}
+	} else if op == OpGlobalGet {
+		let gIdx = try r.ReadULEB32()
+		InitExpr{Kind: InitGlobalGet, Bits: uint64(0), GlobalIdx: gIdx}
+	} else {
+		return errAt("invalid-init", off, "unexpected init opcode \(op)")
+	}
+	let endOff = r.At
+	let endOp = try r.ReadByte()
+	if endOp != OpEnd {
+		return errAt("invalid-init", endOff, "init expr must end with 0x0b")
+	}
+	expr
+}
+
+func decodeTypeSection(d mut DecodedModule, r mut Reader) fails WasmError {
+	let count = try r.ReadULEB32()
+	for _ in 0..int(count) {
+		let tagOff = r.At
+		let tag = try r.ReadByte()
+		if tag != FuncTypeTag {
+			return errAt("invalid-valtype", tagOff, "expected function type tag 0x60")
+		}
+		let nParams = try r.ReadULEB32()
+		let pOff = uint32(d.ParamTypes.Len())
+		for _ in 0..int(nParams) {
+			d.ParamTypes = d.ParamTypes.Append(try r.readValType())
+		}
+		let nResults = try r.ReadULEB32()
+		let rOff = uint32(d.ResultTypes.Len())
+		for _ in 0..int(nResults) {
+			d.ResultTypes = d.ResultTypes.Append(try r.readValType())
+		}
+		d.Sigs = d.Sigs.Append(FuncSig{
+			ParamOff:  pOff,
+			ParamLen:  nParams,
+			ResultOff: rOff,
+			ResultLen: nResults,
+		})
+	}
+}
+
+func decodeImportEntry(r mut Reader) ImportDef fails WasmError {
+	let mod = try r.ReadName()
+	let name = try r.ReadName()
+	let kindOff = r.At
+	let kind = try r.ReadByte()
+	if kind == KindFunc {
+		let tIdx = try r.ReadULEB32()
+		return ImportDef{Module: mod, Name: name, Kind: kind, TypeIdx: tIdx, MemMin: uint32(0), MemMax: uint32(0), MemHasMax: false, GlobalType: byte(0), GlobalMut: false}
+	}
+	if kind == KindMem {
+		let (minP, maxP, hasM) = try r.readLimits()
+		return ImportDef{Module: mod, Name: name, Kind: kind, TypeIdx: uint32(0), MemMin: minP, MemMax: maxP, MemHasMax: hasM, GlobalType: byte(0), GlobalMut: false}
+	}
+	if kind == KindGlobal {
+		let vt = try r.readValType()
+		let mOff = r.At
+		let mutByte = try r.ReadByte()
+		if mutByte != MutConst && mutByte != MutVar {
+			return errAt("invalid-valtype", mOff, "invalid global mutability byte \(mutByte)")
+		}
+		return ImportDef{Module: mod, Name: name, Kind: kind, TypeIdx: uint32(0), MemMin: uint32(0), MemMax: uint32(0), MemHasMax: false, GlobalType: vt, GlobalMut: mutByte == MutVar}
+	}
+	errAt("invalid-index", kindOff, "unsupported import kind \(kind)")
+}
+
+func decodeImportSection(d mut DecodedModule, r mut Reader) fails WasmError {
+	let count = try r.ReadULEB32()
+	for _ in 0..int(count) {
+		d.Imports = d.Imports.Append(try r.decodeImportEntry())
+	}
+}
+
+func decodeFunctionSection(d mut DecodedModule, r mut Reader) fails WasmError {
+	let count = try r.ReadULEB32()
+	for _ in 0..int(count) {
+		d.FuncTypeIdxs = d.FuncTypeIdxs.Append(try r.ReadULEB32())
+	}
+}
+
+func decodeMemorySection(d mut DecodedModule, r mut Reader) fails WasmError {
+	let count = try r.ReadULEB32()
+	for _ in 0..int(count) {
+		let (minP, maxP, hasM) = try r.readLimits()
+		d.Mems = d.Mems.Append(MemDef{Min: minP, Max: maxP, HasMax: hasM})
+	}
+}
+
+func decodeGlobalSection(d mut DecodedModule, r mut Reader) fails WasmError {
+	let count = try r.ReadULEB32()
+	for _ in 0..int(count) {
+		let vt = try r.readValType()
+		let mOff = r.At
+		let mutByte = try r.ReadByte()
+		if mutByte != MutConst && mutByte != MutVar {
+			return errAt("invalid-valtype", mOff, "invalid global mutability byte \(mutByte)")
+		}
+		let init = try r.readInitExpr()
+		d.Globals = d.Globals.Append(GlobalDef{ValType: vt, Mutable: mutByte == MutVar, Init: init})
+	}
+}
+
+func decodeExportSection(d mut DecodedModule, r mut Reader) fails WasmError {
+	let count = try r.ReadULEB32()
+	for _ in 0..int(count) {
+		let name = try r.ReadName()
+		let kindOff = r.At
+		let kind = try r.ReadByte()
+		if kind != KindFunc && kind != KindTable && kind != KindMem && kind != KindGlobal {
+			return errAt("invalid-export", kindOff, "invalid export kind \(kind)")
+		}
+		let idx = try r.ReadULEB32()
+		d.Exports = d.Exports.Append(ExportDef{Name: name, Kind: kind, Index: idx})
+	}
+}
+
+func decodeCodeSection(d mut DecodedModule, r mut Reader) fails WasmError {
+	let count = try r.ReadULEB32()
+	for _ in 0..int(count) {
+		let bodyLen = try r.ReadULEB32()
+		let bodyStart = r.At
+		let rawBody = try r.ReadBytes(bodyLen)
+		let mut br = NewReader(rawBody)
+		let nRuns = try br.ReadULEB32()
+		let localOff = uint32(d.LocalRuns.Len())
+		let mut totalLocals = uint64(0)
+		for _ in 0..int(nRuns) {
+			let cnt = try br.ReadULEB32()
+			let vt = try br.readValType()
+			totalLocals = totalLocals + uint64(cnt)
+			if totalLocals > uint64(0xffffffff) {
+				return errAt("invalid-code", bodyStart, "locals exceed uint32 limit")
+			}
+			d.LocalRuns = d.LocalRuns.Append(LocalRun{Count: cnt, ValType: vt})
+		}
+		let exprBytes = try br.ReadBytes(br.Remaining())
+		if exprBytes.Len() == 0 || exprBytes[exprBytes.Len()-1] != OpEnd {
+			return errAt("invalid-code", bodyStart, "code body must end with 0x0b")
+		}
+		let codeOff = uint32(d.BodyBytes.Len())
+		d.BodyBytes = d.BodyBytes.AppendBytes(exprBytes)
+		d.Bodies = d.Bodies.Append(DecodedBody{
+			LocalOff: localOff,
+			LocalLen: nRuns,
+			CodeOff:  codeOff,
+			CodeLen:  uint32(exprBytes.Len() - 1),
+			BodyOff:  bodyStart,
+			BodyLen:  bodyLen,
+		})
+	}
+}
+
+func decodeDataSection(d mut DecodedModule, r mut Reader) fails WasmError {
+	let count = try r.ReadULEB32()
+	for _ in 0..int(count) {
+		let modeOff = r.At
+		let mode = try r.ReadULEB32()
+		if mode == uint32(0) {
+			let offExpr = try r.readInitExpr()
+			let dataLen = try r.ReadULEB32()
+			let data = try r.ReadBytes(dataLen)
+			let dOff = uint32(d.DataPool.Len())
+			d.DataPool = d.DataPool.AppendBytes(data)
+			d.DataSegs = d.DataSegs.Append(DataSeg{Passive: false, MemIdx: uint32(0), Offset: offExpr, DataOff: dOff, DataLen: dataLen})
+		} else if mode == uint32(1) {
+			let dataLen = try r.ReadULEB32()
+			let data = try r.ReadBytes(dataLen)
+			let dOff = uint32(d.DataPool.Len())
+			d.DataPool = d.DataPool.AppendBytes(data)
+			d.DataSegs = d.DataSegs.Append(DataSeg{Passive: true, MemIdx: uint32(0), Offset: InitConstI32(int32(0)), DataOff: dOff, DataLen: dataLen})
+		} else if mode == uint32(2) {
+			let memIdx = try r.ReadULEB32()
+			let offExpr = try r.readInitExpr()
+			let dataLen = try r.ReadULEB32()
+			let data = try r.ReadBytes(dataLen)
+			let dOff = uint32(d.DataPool.Len())
+			d.DataPool = d.DataPool.AppendBytes(data)
+			d.DataSegs = d.DataSegs.Append(DataSeg{Passive: false, MemIdx: memIdx, Offset: offExpr, DataOff: dOff, DataLen: dataLen})
+		} else {
+			return errAt("invalid-code", modeOff, "invalid data segment mode \(mode)")
+		}
+	}
+}
+
+func decodeKnownSection(d mut DecodedModule, id uint8, sr mut Reader) fails WasmError {
+	if id == SecType {
+		try d.decodeTypeSection(sr)
+	} else if id == SecImport {
+		try d.decodeImportSection(sr)
+	} else if id == SecFunction {
+		try d.decodeFunctionSection(sr)
+	} else if id == SecMemory {
+		try d.decodeMemorySection(sr)
+	} else if id == SecGlobal {
+		try d.decodeGlobalSection(sr)
+	} else if id == SecExport {
+		try d.decodeExportSection(sr)
+	} else if id == SecStart {
+		d.HasStart = true
+		d.StartIdx = try sr.ReadULEB32()
+	} else if id == SecDataCount {
+		d.HasDataCount = true
+		d.DataCount = try sr.ReadULEB32()
+	} else if id == SecCode {
+		try d.decodeCodeSection(sr)
+	} else if id == SecData {
+		try d.decodeDataSection(sr)
+	} else {
+		return errAt("unknown-section", uint32(0), "unsupported section id \(id)")
+	}
+	if sr.Remaining() != uint32(0) {
+		return errAt("trailing-bytes", sr.At, "trailing bytes in section \(id)")
+	}
+}
+
+func decodedImportCount(d DecodedModule, kind uint8) uint32 {
+	let mut n = uint32(0)
+	for imp in d.Imports {
+		if imp.Kind == kind {
+			n = n + uint32(1)
+		}
+	}
+	n
+}
+
+func decodedFuncSigIdx(d DecodedModule, funcIdx uint32) uint32 {
+	let impFuncs = decodedImportCount(d, KindFunc)
+	if funcIdx < impFuncs {
+		let mut seen = uint32(0)
+		for imp in d.Imports {
+			if imp.Kind == KindFunc {
+				if seen == funcIdx {
+					return imp.TypeIdx
+				}
+				seen = seen + uint32(1)
+			}
+		}
+		return uint32(0)
+	}
+	d.FuncTypeIdxs[int(funcIdx-impFuncs)]
+}
+
+func decodedGlobalMut(d DecodedModule, gIdx uint32) bool {
+	let impGlobals = decodedImportCount(d, KindGlobal)
+	if gIdx < impGlobals {
+		let mut seen = uint32(0)
+		for imp in d.Imports {
+			if imp.Kind == KindGlobal {
+				if seen == gIdx {
+					return imp.GlobalMut
+				}
+				seen = seen + uint32(1)
+			}
+		}
+		return false
+	}
+	d.Globals[int(gIdx-impGlobals)].Mutable
+}
+
+func maxMemAlignLog2(op byte) uint32 {
+	if op == OpI32Load8S || op == OpI32Load8U || op == OpI64Load8S || op == OpI64Load8U || op == OpI32Store8 || op == OpI64Store8 {
+		return uint32(0)
+	}
+	if op == OpI32Load16S || op == OpI32Load16U || op == OpI64Load16S || op == OpI64Load16U || op == OpI32Store16 || op == OpI64Store16 {
+		return uint32(1)
+	}
+	if op == OpI64Load || op == OpF64Load || op == OpI64Store || op == OpF64Store {
+		return uint32(3)
+	}
+	uint32(2)
+}
+
+func readBlockType(d DecodedModule, r mut Reader) fails WasmError {
+	let off = r.At
+	let b = try r.ReadByte()
+	if b == BlockEmpty || IsValidValType(b) {
+		return
+	}
+	r.At = off
+	let idx = try r.ReadSLEB64()
+	if idx < int64(0) || idx >= int64(d.Sigs.Len()) {
+		return errAt("invalid-index", off, "blocktype sig index out of range")
+	}
+}
+
+func checkCodeBulkOp(d DecodedModule, r mut Reader, totalMems uint32) fails WasmError {
+	let off = r.At
+	let sub = try r.ReadULEB32()
+	if sub == BulkMemoryInit {
+		if !d.HasDataCount {
+			return errAt("bad-datacount", off, "memory.init requires DataCount section")
+		}
+		let segIdx = try r.ReadULEB32()
+		if int(segIdx) >= d.DataSegs.Len() {
+			return errAt("invalid-index", off, "memory.init segment \(segIdx) out of range")
+		}
+		let memIdx = try r.ReadByte()
+		if memIdx != byte(0x00) || totalMems == uint32(0) {
+			return errAt("invalid-index", off, "invalid memory.init mem index")
+		}
+		return
+	}
+	if sub == BulkDataDrop {
+		if !d.HasDataCount {
+			return errAt("bad-datacount", off, "data.drop requires DataCount section")
+		}
+		let segIdx = try r.ReadULEB32()
+		if int(segIdx) >= d.DataSegs.Len() {
+			return errAt("invalid-index", off, "data.drop segment \(segIdx) out of range")
+		}
+		return
+	}
+	if sub == BulkMemoryCopy {
+		let m1 = try r.ReadByte()
+		let m2 = try r.ReadByte()
+		if m1 != byte(0x00) || m2 != byte(0x00) || totalMems == uint32(0) {
+			return errAt("invalid-index", off, "invalid memory.copy mem index")
+		}
+		return
+	}
+	if sub == BulkMemoryFill {
+		let m1 = try r.ReadByte()
+		if m1 != byte(0x00) || totalMems == uint32(0) {
+			return errAt("invalid-index", off, "invalid memory.fill mem index")
+		}
+		return
+	}
+	errAt("invalid-code", off, "unsupported 0xfc sub-opcode \(sub)")
+}
+
+func checkControlInstr(d DecodedModule, r mut Reader, op byte, ifStack mut []uint8, totalFuncs uint32) fails WasmError {
+	let off = r.At
+	if op == OpBlock || op == OpLoop {
+		try d.readBlockType(r)
+		*ifStack = (*ifStack).Append(uint8(0))
+		return
+	}
+	if op == OpIf {
+		try d.readBlockType(r)
+		*ifStack = (*ifStack).Append(uint8(1))
+		return
+	}
+	if op == OpElse {
+		let n = (*ifStack).Len()
+		if n == 0 || (*ifStack)[n-1] != uint8(1) {
+			return errAt("unbalanced-block", off, "unexpected else in code body")
+		}
+		(*ifStack)[n-1] = uint8(2)
+		return
+	}
+	if op == OpBr || op == OpBrIf {
+		let l = try r.ReadULEB32()
+		if int(l) >= (*ifStack).Len() {
+			return errAt("invalid-index", off, "branch depth \(l) exceeds block depth")
+		}
+		return
+	}
+	if op == OpBrTable {
+		let cnt = try r.ReadULEB32()
+		for _ in 0..int(cnt) {
+			let l = try r.ReadULEB32()
+			if int(l) >= (*ifStack).Len() {
+				return errAt("invalid-index", off, "br_table depth \(l) exceeds block depth")
+			}
+		}
+		let def = try r.ReadULEB32()
+		if int(def) >= (*ifStack).Len() {
+			return errAt("invalid-index", off, "br_table default depth \(def) exceeds block depth")
+		}
+		return
+	}
+	if op == OpCall {
+		let fIdx = try r.ReadULEB32()
+		if fIdx >= totalFuncs {
+			return errAt("invalid-index", off, "call target \(fIdx) out of range")
+		}
+		return
+	}
+	if op == OpCallIndirect {
+		let tIdx = try r.ReadULEB32()
+		let tbl = try r.ReadULEB32()
+		if int(tIdx) >= d.Sigs.Len() || tbl != uint32(0) {
+			return errAt("invalid-index", off, "call_indirect target out of range")
+		}
+	}
+}
+
+func checkScalarOrVarInstr(d DecodedModule, r mut Reader, op byte, totalLocals uint32, totalGlobals uint32, totalMems uint32) fails WasmError {
+	let off = r.At
+	if op == OpLocalGet || op == OpLocalSet || op == OpLocalTee {
+		let idx = try r.ReadULEB32()
+		if idx >= totalLocals {
+			return errAt("invalid-index", off, "local index \(idx) out of range")
+		}
+		return
+	}
+	if op == OpGlobalGet || op == OpGlobalSet {
+		let idx = try r.ReadULEB32()
+		if idx >= totalGlobals {
+			return errAt("invalid-index", off, "global index \(idx) out of range")
+		}
+		if op == OpGlobalSet && !decodedGlobalMut(d, idx) {
+			return errAt("invalid-index", off, "global.set targets immutable global \(idx)")
+		}
+		return
+	}
+	if op >= OpI32Load && op <= OpI64Store32 {
+		let align = try r.ReadULEB32()
+		let _ = try r.ReadULEB32()
+		if totalMems == uint32(0) || align > maxMemAlignLog2(op) {
+			return errAt("invalid-code", off, "invalid memory instruction alignment or missing memory")
+		}
+		return
+	}
+	if op == OpMemorySize || op == OpMemoryGrow {
+		let mIdx = try r.ReadByte()
+		if mIdx != byte(0x00) || totalMems == uint32(0) {
+			return errAt("invalid-index", off, "invalid memory.size/grow mem index")
+		}
+		return
+	}
+	if op == OpI32Const {
+		let _ = try r.ReadSLEB32Bits()
+		return
+	}
+	if op == OpI64Const {
+		let _ = try r.ReadSLEB64Bits()
+		return
+	}
+	if op == OpF32Const {
+		let _ = try r.ReadU32LE()
+		return
+	}
+	if op == OpF64Const {
+		let _ = try r.ReadU64LE()
+	}
+}
+
+func isZeroArgInstr(op byte) bool {
+	op == OpUnreachable || op == OpNop || op == OpReturn || op == OpDrop || op == OpSelect || (op >= OpI32Eqz && op <= OpI64Extend32S)
+}
+
+func isControlInstr(op byte) bool {
+	(op >= OpBlock && op <= OpElse) || (op >= OpBr && op <= OpBrIf) || op == OpBrTable || op == OpCall || op == OpCallIndirect
+}
+
+func validateCodeBody(d DecodedModule, bodyIdx int, totalFuncs uint32, totalMems uint32, totalGlobals uint32) fails WasmError {
+	let b = d.Bodies[bodyIdx]
+	let sig = d.Sigs[int(d.FuncTypeIdxs[bodyIdx])]
+	let mut totalLocals = uint64(sig.ParamLen)
+	for k in 0..int(b.LocalLen) {
+		totalLocals = totalLocals + uint64(d.LocalRuns[int(b.LocalOff)+k].Count)
+	}
+	let raw = d.BodyBytes.Slice(int(b.CodeOff), int(b.CodeOff)+int(b.CodeLen)+1)
+	let mut r = NewReader(raw)
+	let mut ifStack = []uint8{uint8(0)}
+	for r.Remaining() > uint32(0) {
+		let op = try r.ReadByte()
+		if op == OpEnd {
+			if ifStack.Len() == 0 {
+				return errAt("unbalanced-block", r.At, "unexpected end opcode")
+			}
+			ifStack = ifStack.Slice(0, ifStack.Len()-1)
+			if ifStack.Len() == 0 && r.Remaining() != uint32(0) {
+				return errAt("trailing-bytes", r.At, "trailing bytes after function end")
+			}
+		} else if isControlInstr(op) {
+			try d.checkControlInstr(&r, op, &ifStack, totalFuncs)
+		} else if op == OpPrefixFC {
+			try d.checkCodeBulkOp(&r, totalMems)
+		} else if !isZeroArgInstr(op) {
+			try d.checkScalarOrVarInstr(&r, op, uint32(totalLocals), totalGlobals, totalMems)
+		}
+	}
+	if ifStack.Len() != 0 {
+		return errAt("unbalanced-block", b.BodyOff, "unclosed control block in function body")
+	}
+}
+
+func validateDecodedImportsAndExports(d DecodedModule, totalFuncs uint32, totalMems uint32, totalGlobals uint32) fails WasmError {
+	for i, imp in d.Imports {
+		if imp.Kind == KindFunc && int(imp.TypeIdx) >= d.Sigs.Len() {
+			return errAt("invalid-index", uint32(i), "import func type out of range")
+		}
+	}
+	for i, ex in d.Exports {
+		for j in 0..i {
+			if d.Exports[j].Name == ex.Name {
+				return errAt("invalid-export", uint32(i), "duplicate export name \(ex.Name)")
+			}
+		}
+		if ex.Kind == KindFunc && ex.Index >= totalFuncs {
+			return errAt("invalid-index", uint32(i), "export func index out of range")
+		}
+		if ex.Kind == KindMem && ex.Index >= totalMems {
+			return errAt("invalid-index", uint32(i), "export mem index out of range")
+		}
+		if ex.Kind == KindGlobal && ex.Index >= totalGlobals {
+			return errAt("invalid-index", uint32(i), "export global index out of range")
+		}
+	}
+}
+
+func validateDecodedModule(d DecodedModule) fails WasmError {
+	if d.FuncTypeIdxs.Len() != d.Bodies.Len() {
+		return errAt("invalid-code", uint32(0), "function section count \(d.FuncTypeIdxs.Len()) != code count \(d.Bodies.Len())")
+	}
+	if d.HasDataCount && d.DataCount != uint32(d.DataSegs.Len()) {
+		return errAt("bad-datacount", uint32(0), "datacount \(d.DataCount) != data segments \(d.DataSegs.Len())")
+	}
+	let totalFuncs = decodedImportCount(d, KindFunc) + uint32(d.FuncTypeIdxs.Len())
+	let totalMems = decodedImportCount(d, KindMem) + uint32(d.Mems.Len())
+	let totalGlobals = decodedImportCount(d, KindGlobal) + uint32(d.Globals.Len())
+	try validateDecodedImportsAndExports(d, totalFuncs, totalMems, totalGlobals)
+	for i, tIdx in d.FuncTypeIdxs {
+		if int(tIdx) >= d.Sigs.Len() {
+			return errAt("invalid-index", uint32(i), "function type \(tIdx) out of range")
+		}
+	}
+	if d.HasStart {
+		if d.StartIdx >= totalFuncs {
+			return errAt("invalid-index", d.StartIdx, "start function index out of range")
+		}
+		let sig = d.Sigs[int(decodedFuncSigIdx(d, d.StartIdx))]
+		if sig.ParamLen != uint32(0) || sig.ResultLen != uint32(0) {
+			return errAt("invalid-index", d.StartIdx, "start function must have () -> () signature")
+		}
+	}
+	for i, ds in d.DataSegs {
+		if !ds.Passive && ds.MemIdx >= totalMems {
+			return errAt("invalid-index", uint32(i), "data segment mem index out of range")
+		}
+	}
+	for i in 0..d.Bodies.Len() {
+		try validateCodeBody(d, i, totalFuncs, totalMems, totalGlobals)
+	}
+}
+
+// Decode parses and validates a WebAssembly 1.0 + bulk-memory binary into a DecodedModule.
+func Decode(bs []byte) DecodedModule fails WasmError {
+	let mut r = NewReader(bs)
+	let ver = try r.ReadHeader()
+	let mut d = emptyDecodedModule(ver)
+	let mut prevRank = 0
+	let mut seenMask = uint32(0)
+	for r.Remaining() > uint32(0) {
+		let idOff = r.At
+		let id = try r.ReadByte()
+		let secLen = try r.ReadULEB32()
+		let payloadOff = r.At
+		let payload = try r.ReadBytes(secLen)
+		let mut sr = NewReader(payload)
+		if id == SecCustom {
+			let cname = try sr.ReadName()
+			d.Sections = d.Sections.Append(SectionSpan{ID: id, CustomName: cname, PayloadOff: payloadOff, PayloadLen: secLen})
+			continue
+		}
+		let rank = sectionRank(id)
+		if rank < 0 {
+			return errAt("unknown-section", idOff, "unknown section id \(id)")
+		}
+		let bit = uint32(1) << uint32(rank)
+		if (seenMask & bit) != uint32(0) {
+			return errAt("duplicate-section", idOff, "duplicate section id \(id)")
+		}
+		if rank < prevRank {
+			return errAt("bad-section-order", idOff, "section id \(id) out of canonical order")
+		}
+		seenMask = seenMask | bit
+		prevRank = rank
+		d.Sections = d.Sections.Append(SectionSpan{ID: id, CustomName: "", PayloadOff: payloadOff, PayloadLen: secLen})
+		try decodeKnownSection(&d, id, &sr)
+	}
+	try validateDecodedModule(d)
+	d
+}
+
+// DecodedSigParams returns the parameter types of decoded signature sigIdx.
+func DecodedSigParams(d DecodedModule, sigIdx uint32) []byte {
+	let s = d.Sigs[int(sigIdx)]
+	d.ParamTypes.Slice(int(s.ParamOff), int(s.ParamOff)+int(s.ParamLen))
+}
+
+// DecodedSigResults returns the result types of decoded signature sigIdx.
+func DecodedSigResults(d DecodedModule, sigIdx uint32) []byte {
+	let s = d.Sigs[int(sigIdx)]
+	d.ResultTypes.Slice(int(s.ResultOff), int(s.ResultOff)+int(s.ResultLen))
+}
+
+// DecodedBodyLocals returns the decoded local runs for defined function defIdx.
+func DecodedBodyLocals(d DecodedModule, defIdx uint32) []LocalRun {
+	let b = d.Bodies[int(defIdx)]
+	d.LocalRuns.Slice(int(b.LocalOff), int(b.LocalOff)+int(b.LocalLen))
+}
+
+// DecodedBodyCode returns the instruction bytes (without trailing 0x0b) of defined function defIdx.
+func DecodedBodyCode(d DecodedModule, defIdx uint32) []byte {
+	let b = d.Bodies[int(defIdx)]
+	d.BodyBytes.Slice(int(b.CodeOff), int(b.CodeOff)+int(b.CodeLen))
+}
+
+// DecodedDataBytes returns the byte payload of decoded data segment segIdx.
+func DecodedDataBytes(d DecodedModule, segIdx uint32) []byte {
+	let ds = d.DataSegs[int(segIdx)]
+	d.DataPool.Slice(int(ds.DataOff), int(ds.DataOff)+int(ds.DataLen))
+}
+
+func buildRoundTripSample(nGlobals int, useBulk bool, includePassive bool) Module fails WasmError {
+	let mut m = NewModule()
+	let tVoid = m.InternType([]byte{}, []byte{})
+	let tAdd = m.InternType([]byte{ValI32, ValI64}, []byte{ValI32, ValF64})
+	let impLog = try m.AddImportFunc("env", "log", tVoid)
+	let _ = m.AddMemoryBounded(uint32(1), uint32(4))
+	let gCount = (nGlobals%3+3)%3 + 1
+	for i in 0..gCount {
+		let _ = m.AddGlobal(ValI32, i%2 == 0, InitConstI32(int32(1024*(i+1))))
+	}
+	let mut cb = NewCodeBuf()
+	cb.Call(impLog)
+	cb.LocalGet(uint32(0))
+	cb.LocalGet(uint32(2))
+	cb.I32Add()
+	cb.LocalGet(uint32(1))
+	cb.F64ConvertI64S()
+	if useBulk {
+		cb.I32Const(int32(0))
+		cb.I32Const(int32(16))
+		cb.I32Const(int32(4))
+		cb.MemoryCopy()
+	}
+	let fIdx = try m.AddFunc(tAdd, []byte{ValI32, ValI32, ValI64}, cb)
+	m.AddExportFunc("entry", fIdx)
+	m.AddExportMem("memory", uint32(0))
+	m.AddExportGlobal("heap", uint32(0))
+	let _ = m.AddActiveData(int32(16), "ergo".Bytes())
+	if includePassive {
+		let _ = m.AddPassiveData("bulk".Bytes())
+	}
+	m
+}
+
+// EmittedModuleRoundTrips proves arbitrary valid modules emit and decode with identical structural invariants.
+law EmittedModuleRoundTrips(nGlobals int, useBulk bool, includePassive bool) {
+	let m = buildRoundTripSample(nGlobals, useBulk, includePassive) catch {
+	case WasmError:
+		return false
+	}
+	let bin = Emit(m) catch {
+	case WasmError:
+		return false
+	}
+	let d = Decode(bin) catch {
+	case WasmError:
+		return false
+	}
+	let wantBulk = useBulk || includePassive
+	let secOk = if wantBulk {
+		d.HasDataCount && d.DataCount == uint32(m.DataSegs.Len())
+	} else {
+		!d.HasDataCount
+	}
+		d.Version == WasmVersion &&
+		d.Sigs.Len() == m.Sigs.Len() &&
+		d.Imports.Len() == m.Imports.Len() &&
+		d.FuncTypeIdxs.Len() == m.Funcs.Len() &&
+		d.Mems.Len() == m.Mems.Len() &&
+		d.Globals.Len() == m.Globals.Len() &&
+		d.Exports.Len() == m.Exports.Len() &&
+		d.Bodies.Len() == m.Funcs.Len() &&
+		d.DataSegs.Len() == m.DataSegs.Len() &&
+		d.DecodedBodyCode(uint32(0)) == m.FuncCode(uint32(0)) &&
+		d.DecodedBodyLocals(uint32(0)) == m.FuncLocals(uint32(0)) &&
+		d.DecodedDataBytes(uint32(0)) == m.DataBytes(uint32(0)) &&
+		secOk
+}
+
+func decodeExpectKind(bs []byte, wantKind string) bool {
+	let _ = Decode(bs) catch {
+	case WasmError as e:
+		return e.Kind == wantKind
+	}
+	false
+}
+
+test DecodeRejectsCorruptedBinaries {
+	let m = buildRoundTripSample(1, true, true) catch {
+	case WasmError:
+		NewModule()
+	}
+	let bin = Emit(m) catch {
+	case WasmError:
+		[]byte{}
+	}
+	assert bin.Len() > 16
+
+	let mut badMagic = slices.Clone(bin)
+	badMagic[1] = byte(0x7a)
+	assert decodeExpectKind(badMagic, "bad-magic")
+
+	let mut badVer = slices.Clone(bin)
+	badVer[4] = byte(2)
+	assert decodeExpectKind(badVer, "bad-version")
+
+	let trunc = bin.Slice(0, bin.Len()-3)
+	assert decodeExpectKind(trunc, "eof")
+
+	let mut outOfOrder = []byte{byte(0x00), byte(0x61), byte(0x73), byte(0x6d), byte(1), byte(0), byte(0), byte(0)}
+	outOfOrder = outOfOrder.AppendBytes([]byte{SecMemory, byte(3), byte(1), byte(0), byte(0)})
+	outOfOrder = outOfOrder.AppendBytes([]byte{SecType, byte(1), byte(0)})
+	assert decodeExpectKind(outOfOrder, "bad-section-order")
+
+	let mut dupSec = []byte{byte(0x00), byte(0x61), byte(0x73), byte(0x6d), byte(1), byte(0), byte(0), byte(0)}
+	dupSec = dupSec.AppendBytes([]byte{SecType, byte(1), byte(0)})
+	dupSec = dupSec.AppendBytes([]byte{SecType, byte(1), byte(0)})
+	assert decodeExpectKind(dupSec, "duplicate-section")
+
+	let mut badDataCount = []byte{byte(0x00), byte(0x61), byte(0x73), byte(0x6d), byte(1), byte(0), byte(0), byte(0)}
+	badDataCount = badDataCount.AppendBytes([]byte{SecDataCount, byte(1), byte(2)})
+	assert decodeExpectKind(badDataCount, "bad-datacount")
+
+	let mut badCodeNoEnd = []byte{byte(0x00), byte(0x61), byte(0x73), byte(0x6d), byte(1), byte(0), byte(0), byte(0)}
+	badCodeNoEnd = badCodeNoEnd.AppendBytes([]byte{SecType, byte(4), byte(1), byte(0x60), byte(0), byte(0)})
+	badCodeNoEnd = badCodeNoEnd.AppendBytes([]byte{SecFunction, byte(2), byte(1), byte(0)})
+	badCodeNoEnd = badCodeNoEnd.AppendBytes([]byte{SecCode, byte(4), byte(1), byte(2), byte(0), OpNop})
+	assert decodeExpectKind(badCodeNoEnd, "invalid-code")
+
+	let mut overlongSecLen = []byte{byte(0x00), byte(0x61), byte(0x73), byte(0x6d), byte(1), byte(0), byte(0), byte(0)}
+	overlongSecLen = overlongSecLen.AppendBytes([]byte{SecType, byte(0x81), byte(0x00), byte(0)})
+	assert decodeExpectKind(overlongSecLen, "overlong-leb")
+
+	let mut customOK = []byte{byte(0x00), byte(0x61), byte(0x73), byte(0x6d), byte(1), byte(0), byte(0), byte(0)}
+	customOK = customOK.AppendBytes([]byte{SecCustom, byte(5), byte(4), byte(110), byte(97), byte(109), byte(101)})
+	let decCustom = Decode(customOK) catch {
+	case WasmError:
+		emptyDecodedModule(uint32(0))
+	}
+	assert decCustom.Version == WasmVersion && decCustom.Sections.Len() == 1 && decCustom.Sections[0].CustomName == "name"
+
+	let mut badCustomUTF8 = []byte{byte(0x00), byte(0x61), byte(0x73), byte(0x6d), byte(1), byte(0), byte(0), byte(0)}
+	badCustomUTF8 = badCustomUTF8.AppendBytes([]byte{SecCustom, byte(2), byte(1), byte(0xff)})
+	assert decodeExpectKind(badCustomUTF8, "bad-utf8")
+
+	let mut fnCodeMismatch = []byte{byte(0x00), byte(0x61), byte(0x73), byte(0x6d), byte(1), byte(0), byte(0), byte(0)}
+	fnCodeMismatch = fnCodeMismatch.AppendBytes([]byte{SecType, byte(4), byte(1), byte(0x60), byte(0), byte(0)})
+	fnCodeMismatch = fnCodeMismatch.AppendBytes([]byte{SecFunction, byte(2), byte(1), byte(0)})
+	assert decodeExpectKind(fnCodeMismatch, "invalid-code")
+
+	let mut badBranch = []byte{byte(0x00), byte(0x61), byte(0x73), byte(0x6d), byte(1), byte(0), byte(0), byte(0)}
+	badBranch = badBranch.AppendBytes([]byte{SecType, byte(4), byte(1), byte(0x60), byte(0), byte(0)})
+	badBranch = badBranch.AppendBytes([]byte{SecFunction, byte(2), byte(1), byte(0)})
+	badBranch = badBranch.AppendBytes([]byte{SecCode, byte(6), byte(1), byte(4), byte(0), OpBr, byte(2), OpEnd})
+	assert decodeExpectKind(badBranch, "invalid-index")
+
+	let mut badLocalGet = []byte{byte(0x00), byte(0x61), byte(0x73), byte(0x6d), byte(1), byte(0), byte(0), byte(0)}
+	badLocalGet = badLocalGet.AppendBytes([]byte{SecType, byte(4), byte(1), byte(0x60), byte(0), byte(0)})
+	badLocalGet = badLocalGet.AppendBytes([]byte{SecFunction, byte(2), byte(1), byte(0)})
+	badLocalGet = badLocalGet.AppendBytes([]byte{SecCode, byte(6), byte(1), byte(4), byte(0), OpLocalGet, byte(0), OpEnd})
+	assert decodeExpectKind(badLocalGet, "invalid-index")
+
+	let mut badGlobalSet = []byte{byte(0x00), byte(0x61), byte(0x73), byte(0x6d), byte(1), byte(0), byte(0), byte(0)}
+	badGlobalSet = badGlobalSet.AppendBytes([]byte{SecType, byte(4), byte(1), byte(0x60), byte(0), byte(0)})
+	badGlobalSet = badGlobalSet.AppendBytes([]byte{SecFunction, byte(2), byte(1), byte(0)})
+	badGlobalSet = badGlobalSet.AppendBytes([]byte{SecGlobal, byte(6), byte(1), ValI32, MutConst, OpI32Const, byte(0), OpEnd})
+	badGlobalSet = badGlobalSet.AppendBytes([]byte{SecCode, byte(6), byte(1), byte(4), byte(0), OpGlobalSet, byte(0), OpEnd})
+	assert decodeExpectKind(badGlobalSet, "invalid-index")
+
+	let mut missingDataCount = []byte{byte(0x00), byte(0x61), byte(0x73), byte(0x6d), byte(1), byte(0), byte(0), byte(0)}
+	missingDataCount = missingDataCount.AppendBytes([]byte{SecType, byte(4), byte(1), byte(0x60), byte(0), byte(0)})
+	missingDataCount = missingDataCount.AppendBytes([]byte{SecFunction, byte(2), byte(1), byte(0)})
+	missingDataCount = missingDataCount.AppendBytes([]byte{SecMemory, byte(3), byte(1), byte(0), byte(1)})
+	missingDataCount = missingDataCount.AppendBytes([]byte{SecCode, byte(8), byte(1), byte(6), byte(0), OpPrefixFC, byte(8), byte(0), byte(0), OpEnd})
+	missingDataCount = missingDataCount.AppendBytes([]byte{SecData, byte(4), byte(1), byte(1), byte(1), byte(65)})
+	assert decodeExpectKind(missingDataCount, "bad-datacount")
+
+	let mut badAlign = []byte{byte(0x00), byte(0x61), byte(0x73), byte(0x6d), byte(1), byte(0), byte(0), byte(0)}
+	badAlign = badAlign.AppendBytes([]byte{SecType, byte(4), byte(1), byte(0x60), byte(0), byte(0)})
+	badAlign = badAlign.AppendBytes([]byte{SecFunction, byte(2), byte(1), byte(0)})
+	badAlign = badAlign.AppendBytes([]byte{SecMemory, byte(3), byte(1), byte(0), byte(1)})
+	badAlign = badAlign.AppendBytes([]byte{SecCode, byte(7), byte(1), byte(5), byte(0), OpI32Load, byte(3), byte(0), OpEnd})
+	assert decodeExpectKind(badAlign, "invalid-code")
+
+	let mut trailingBody = []byte{byte(0x00), byte(0x61), byte(0x73), byte(0x6d), byte(1), byte(0), byte(0), byte(0)}
+	trailingBody = trailingBody.AppendBytes([]byte{SecType, byte(4), byte(1), byte(0x60), byte(0), byte(0)})
+	trailingBody = trailingBody.AppendBytes([]byte{SecFunction, byte(2), byte(1), byte(0)})
+	trailingBody = trailingBody.AppendBytes([]byte{SecCode, byte(6), byte(1), byte(4), byte(0), OpEnd, OpNop, OpEnd})
+	assert decodeExpectKind(trailingBody, "trailing-bytes")
+}
