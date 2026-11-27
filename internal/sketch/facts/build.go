@@ -337,8 +337,6 @@ func (b *builder) visit(n syntax.Node) bool {
 		b.markAll(x.Names, Needs)
 	case *syntax.ErrorRow:
 		b.markAll(x.Types, Fails)
-	case *syntax.ProvidesClause:
-		b.markAll(x.Names, Provides)
 	case *syntax.CatchArm:
 		b.markAll(x.Types, Handles)
 	case *syntax.CatchExpr:

@@ -275,11 +275,10 @@ func (l *lowerer) decl(d syntax.Decl) {
 	case *syntax.VarDecl:
 		l.packageLet(d)
 	case *syntax.ContextDecl:
-		w, ok := l.info.Defs[d.Name].(*check.Context)
-		if !ok {
+		// Its builders are written at the withs that use it.
+		if _, ok := l.info.Defs[d.Name].(*check.Context); !ok {
 			ice(d.Name, "the context %s has no Defs entry", d.Name.Name)
 		}
-		l.context(w, d.Name)
 	case *syntax.TestDecl:
 		l.testDecl(d) // the test build only (tests.go, rule 1)
 	case *syntax.LawDecl:

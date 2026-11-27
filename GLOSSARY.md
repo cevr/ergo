@@ -88,7 +88,7 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Context**: What `with` installs for a block: capability bindings and context values. A `context { Cap: provider, … }` literal, inline or named, binds capabilities to providers or constructors; it is Ergo's form of an Effect layer. The construct was spelled `wire` until 196w ([2026-11-02 preview](docs/previews/2026-11-02-wire-to-context.md)). *Prior art:* Effect's `Context` (the service map a Layer builds), Go's `context.Context`, React Context, Scala 3 and Kotlin context parameters.
 
-**Context exposure**: The `provides A | B` clause of a named context header: the capabilities a `with` of that context discharges. Entries the context builds and does not list stay private to its build. A header may also state the context's requirements, `let App = context provides Account | Invoice needs Config { … }`, which join the `with` site's capability row.
+**Context exposure**: The capabilities a `with` of a context discharges: every entry it binds. The `provides A | B` clause that listed a subset is gone (RSI-SURFACE-DIET, 2026-11-27). A header may state the context's requirements, `let App = context needs Config { … }`, which join the `with` site's capability row.
 
 **Inline context**: A `context { … }` literal given directly to `with`. Its provider expressions are evaluated in, and charged to, the enclosing function.
 

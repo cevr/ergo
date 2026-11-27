@@ -106,9 +106,8 @@ func IsErgoKeyword(n string) bool {
 		return true
 	}
 	match n {
-	case "let", "mut", "in", "match", "try", "catch", "needs", "provides",
-		"context", "machine", "escaping", "fails", "test", "law", "assert",
-		"extern", "with", "takes", "as":
+	case "let", "mut", "in", "match", "try", "catch", "needs", "context",
+		"machine", "fails", "test", "law", "assert", "extern", "with", "as":
 		true
 	case _:
 		false

@@ -44,7 +44,7 @@ func DefaultMapContext(gt GoTypeTable, gd GoDeclTable) MapContext {
 // IsKeyword reports whether name is an Ergo keyword or reserved word.
 func IsKeyword(name string) bool {
 	match name {
-	case "break", "case", "continue", "else", "for", "func", "if", "import", "return", "type", "try", "catch", "needs", "provides", "context", "machine", "let", "mut", "in", "match", "escaping", "fails", "test", "law", "assert", "extern", "with", "takes", "as", "chan", "const", "default", "defer", "fallthrough", "go", "goto", "interface", "map", "package", "range", "select", "struct", "switch", "var":
+	case "break", "case", "continue", "else", "for", "func", "if", "import", "return", "type", "try", "catch", "needs", "context", "machine", "let", "mut", "in", "match", "fails", "test", "law", "assert", "extern", "with", "as", "chan", "const", "default", "defer", "fallthrough", "go", "goto", "interface", "map", "package", "range", "select", "struct", "switch", "var":
 		true
 	case _:
 		false

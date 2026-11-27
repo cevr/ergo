@@ -26,7 +26,7 @@ func posOf(t Tree, k tokens, x uint32) int {
 	let kd = uint8(t.kind[i])
 	let tok = int(t.tok[i])
 	let a = t.a[i]
-	if kd == KIdent || kd == KBasicLit || kd == KParenExpr || kd == KStarExpr || kd == KUnaryExpr || kd == KTryExpr || kd == KReturnStmt || kd == KBranchStmt || kd == KBlockStmt || kd == KIfStmt || kd == KSwitchStmt || kd == KTypeSwitchStmt || kd == KForStmt || kd == KRangeStmt || kd == KAssertStmt || kd == KSkipStmt || kd == KDieStmt || kd == KAlwaysStmt || kd == KSometimesStmt || kd == KArrayType || kd == KContextLit || kd == KErrorRow || kd == KMachineType || kd == KImportDecl || kd == KContextDecl || kd == KTestDecl || kd == KLawDecl || kd == KExternSpec || kd == KContextBody || kd == KNeedsClause || kd == KProvidesClause || kd == KFactClause || kd == KMachineEntry || kd == KCatchArm || kd == KCaseClause {
+	if kd == KIdent || kd == KBasicLit || kd == KParenExpr || kd == KStarExpr || kd == KUnaryExpr || kd == KTryExpr || kd == KReturnStmt || kd == KBranchStmt || kd == KBlockStmt || kd == KIfStmt || kd == KSwitchStmt || kd == KTypeSwitchStmt || kd == KForStmt || kd == KRangeStmt || kd == KAssertStmt || kd == KSkipStmt || kd == KDieStmt || kd == KAlwaysStmt || kd == KSometimesStmt || kd == KArrayType || kd == KContextLit || kd == KErrorRow || kd == KMachineType || kd == KImportDecl || kd == KContextDecl || kd == KTestDecl || kd == KLawDecl || kd == KExternSpec || kd == KContextBody || kd == KNeedsClause || kd == KFactClause || kd == KMachineEntry || kd == KCatchArm || kd == KCaseClause {
 		return tokPos(k, tok)
 	}
 	if kd == KSelectorExpr || kd == KBinaryExpr || kd == KKeyValueExpr || kd == KFuncLit || kd == KAsPattern || kd == KDeclStmt || kd == KExprStmt || kd == KAssignStmt || kd == KStructType {
@@ -185,7 +185,7 @@ func endOf(t Tree, k tokens, x uint32) int {
 		let close = fixed(t, x, 2, 1)
 		return if close != uint32(0) { optPos(k, close) + 1 } else { endOf(t, k, lastItem(t, x, 2)) }
 	}
-	if kd == KOrPattern || kd == KInterpolatedString || kd == KErrorRow || kd == KNeedsClause || kd == KProvidesClause {
+	if kd == KOrPattern || kd == KInterpolatedString || kd == KErrorRow || kd == KNeedsClause {
 		return endOf(t, k, lastItem(t, x, 0))
 	}
 	if kd == KFactClause {

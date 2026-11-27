@@ -110,7 +110,7 @@ const (
 	TRY
 	CATCH
 	NEEDS
-	PROVIDES
+	_ // provides, retired (RSI-SURFACE-DIET)
 	CONTEXT
 	MACHINE
 	LET
@@ -182,7 +182,7 @@ var tokens = [...]string{
 
 	BREAK: "break", CASE: "case", CONTINUE: "continue", ELSE: "else", FOR: "for",
 	FUNC: "func", IF: "if", IMPORT: "import", RETURN: "return", TYPE: "type",
-	TRY: "try", CATCH: "catch", NEEDS: "needs", PROVIDES: "provides", CONTEXT: "context",
+	TRY: "try", CATCH: "catch", NEEDS: "needs", CONTEXT: "context",
 	MACHINE: "machine", LET: "let", MUT: "mut", IN: "in", MATCH: "match",
 	FAILS: "fails", TEST: "test", LAW: "law", ASSERT: "assert",
 	EXTERN: "extern", WITH: "with", AS: "as",
@@ -203,7 +203,7 @@ func (t Token) String() string {
 	return "token(?)"
 }
 
-// IsKeyword reports whether t is one of the language's keywords: the 26 of
+// IsKeyword reports whether t is one of the language's keywords: the 25 of
 // the decided grammar and `as`.
 func (t Token) IsKeyword() bool { return keywordBeg < t && t < keywordEnd }
 
@@ -235,7 +235,7 @@ func IsKeyword(name string) bool {
 	return ok
 }
 
-// Keywords lists the keywords in token order: the 26 of the decided
+// Keywords lists the keywords in token order: the 25 of the decided
 // grammar, then `as`.
 func Keywords() []string {
 	var out []string

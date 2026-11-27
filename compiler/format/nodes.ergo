@@ -104,7 +104,7 @@ func decl(p mut Printer, d dense.ID[syntax.Node]) {
 		p.space()
 		p.synth("=")
 		p.space()
-		p.printContext(p.tp(x.Context), x.Provides, x.Fails, x.Needs, x.Body)
+		p.printContext(p.tp(x.Context), x.Fails, x.Needs, x.Body)
 	} else if k == syntax.KTestDecl {
 		let x = syntax.TestDeclOf(p.P.Tree, d)
 		p.token(p.tp(x.Test), "test")
@@ -862,14 +862,8 @@ func memberLaw(p mut Printer, l dense.ID[syntax.Node]) {
 	p.lawBody(the(x.Body))
 }
 
-func printContext(p mut Printer, contextPos int, prov dense.Opt[syntax.Node], failRow dense.Opt[syntax.Node], need dense.Opt[syntax.Node], body dense.ID[syntax.Node]) {
+func printContext(p mut Printer, contextPos int, failRow dense.Opt[syntax.Node], need dense.Opt[syntax.Node], body dense.ID[syntax.Node]) {
 	p.token(contextPos, "context")
-	if some(prov) {
-		let pr = syntax.ProvidesClauseOf(p.P.Tree, the(prov))
-		p.space()
-		p.token(p.tp(pr.Provides), "provides")
-		p.row(pr.Names)
-	}
 	if some(failRow) {
 		p.space()
 		p.typ(the(failRow))
@@ -1340,7 +1334,7 @@ func expr1(p mut Printer, x dense.ID[syntax.Node], depth int) {
 		p.clauses(p.tp(c.Catch+1), c.Arms, p.tp(c.Rbrace))
 	} else if k == syntax.KContextLit {
 		let c = syntax.ContextLitOf(p.P.Tree, x)
-		p.printContext(p.tp(c.Context), c.Provides, c.Fails, c.Needs, c.Body)
+		p.printContext(p.tp(c.Context), c.Fails, c.Needs, c.Body)
 	} else if k == syntax.KIfStmt {
 		p.ifStmt(x, p.sameLine(x))
 	} else if k == syntax.KSwitchStmt || k == syntax.KTypeSwitchStmt {

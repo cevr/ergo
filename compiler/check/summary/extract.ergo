@@ -1209,36 +1209,10 @@ func appendExportedConst(st mut extractState, it declItem) uint32 {
 	sub
 }
 
-func resolveProvidesClauseType(st mut extractState, fileIdx int, pn dense.ID[syntax.Node]) uint32 {
-	let p = st.unit.Parsed[fileIdx]
-	if syntax.KindOf(p.Tree, pn) == syntax.KProvidesClause {
-		let pc = syntax.ProvidesClauseOf(p.Tree, pn)
-		let nn = syntax.Len(pc.Names)
-		if nn == 0 {
-			return NoIdx
-		}
-		if nn == 1 {
-			return resolveNodeType(st, fileIdx, []string{}, syntax.Item(p.Tree, pc.Names, 0))
-		}
-		let mut ts = slices.WithCapacity[uint32](nn)
-		for i in 0..nn {
-			ts = ts.Append(resolveNodeType(st, fileIdx, []string{}, syntax.Item(p.Tree, pc.Names, i)))
-		}
-		return InternRow(&st.sec.Types, st.sec.Syms, ts)
-	}
-	resolveNodeType(st, fileIdx, []string{}, pn)
-}
-
 func appendExportedContext(st mut extractState, it declItem) uint32 {
 	let sub = uint32(st.sec.CtxNames.Len())
 	let p = st.unit.Parsed[it.FileIdx]
 	let cd = syntax.ContextDeclOf(p.Tree, it.Node)
-	let provT = match dense.Unpack(cd.Provides) {
-	case option.Some{Value: pn}:
-		resolveProvidesClauseType(st, it.FileIdx, pn)
-	case option.None:
-		NoIdx
-	}
 	match dense.Unpack(cd.Fails) {
 	case option.Some{Value: fn}:
 		let ts = resolveRowClauseTypes(st, it.FileIdx, fn)
@@ -1256,7 +1230,6 @@ func appendExportedContext(st mut extractState, it declItem) uint32 {
 	case option.None:
 	}
 	st.sec.CtxNames = st.sec.CtxNames.Append(InternSym(&st.sec.Syms, it.Name))
-	st.sec.CtxProvides = st.sec.CtxProvides.Append(provT)
 	st.sec.CtxFailStarts = st.sec.CtxFailStarts.Append(uint32(st.sec.CtxFailTypes.Len()))
 	st.sec.CtxNeedStarts = st.sec.CtxNeedStarts.Append(uint32(st.sec.CtxNeedTypes.Len()))
 	sub
@@ -1837,7 +1810,7 @@ law ExportedSigEditMovesCheckDigest(seed int) {
 }
 
 test ExtractProgramCoversRichConstructs {
-	let depSrc = "let Limit = 64\nlet mut Counter = 0\ntype Port int where 1 <= it && it <= 65535\ntype Status = Ready{} | Busy{Ms int}\ntype Box[T any] { Val T, }\ntype Record {\n\tID string,\n\tCount int,\n\tTags Map[string, int],\n\tprivateVal int,\n}\ntype Clock {\n\tTick(n int) int,\n}\ntype FixedClock {} implements Clock\nfunc Tick(_ FixedClock, n int) int {\n\tn + 1\n}\nlet Sys = context provides Clock { Clock: FixedClock }\nfunc Emit(r *Record, p Port, b Box[int]) (Status, int) fails Record needs Clock {\n\tlet _ = r\n\tlet _ = p\n\tlet _ = b\n\t(Ready, 1)\n}\nlaw BoundedLimit(x int) {\n\tLimit > 0\n}\nfunc unexportedHelper(n int) int {\n\tn + 1\n}\n"
+	let depSrc = "let Limit = 64\nlet mut Counter = 0\ntype Port int where 1 <= it && it <= 65535\ntype Status = Ready{} | Busy{Ms int}\ntype Box[T any] { Val T, }\ntype Record {\n\tID string,\n\tCount int,\n\tTags Map[string, int],\n\tprivateVal int,\n}\ntype Clock {\n\tTick(n int) int,\n}\ntype FixedClock {} implements Clock\nfunc Tick(_ FixedClock, n int) int {\n\tn + 1\n}\nlet Sys = context { Clock: FixedClock }\nfunc Emit(r *Record, p Port, b Box[int]) (Status, int) fails Record needs Clock {\n\tlet _ = r\n\tlet _ = p\n\tlet _ = b\n\t(Ready, 1)\n}\nlaw BoundedLimit(x int) {\n\tLimit > 0\n}\nfunc unexportedHelper(n int) int {\n\tn + 1\n}\n"
 	let appSrc = "import pkg/dep\nfunc CallDep(r *dep.Record, p dep.Port, b dep.Box[int]) (dep.Status, int) fails dep.Record needs dep.Clock {\n\ttry dep.Emit(r, p, b)\n}\n"
 	let sums = makePairProgram(depSrc, appSrc)
 	let depSum = sums[0]
@@ -1872,7 +1845,7 @@ test ExtractProgramCoversRichConstructs {
 	assert strings.Contains(depTxt, "Clock")
 	assert strings.Contains(depTxt, "is Clock")
 	assert strings.Contains(depTxt, "Emit(r *Record, p Port, b Box[int]) (Status, int) fails Record needs Clock")
-	assert strings.Contains(depTxt, "context Sys provides Clock")
+	assert strings.Contains(depTxt, "context Sys\n")
 	assert strings.Contains(depTxt, "Record {ID string, Count int, Tags Map[string, int], ...} [error]")
 	let appTxt = Render(appSum)
 	assert strings.Contains(appTxt, "pkg/dep.Box[int]")

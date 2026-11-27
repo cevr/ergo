@@ -397,7 +397,7 @@ func (d *rowDecoder) node(r uint32) Node {
 	case kContextDecl:
 		// Layouts 5 and 6 put Fails at word 4 (layout 3, which had no such
 		// word, is no longer read).
-		return &ContextDecl{Doc: d.doc(d.fixed(r, 7, 0)), Let: d.pos(t), Context: d.pos(d.fixed(r, 7, 1)), Name: one[*Ident](d, d.fixed(r, 7, 2)), Provides: opt[*ProvidesClause](d, d.fixed(r, 7, 3)), Fails: opt[*ErrorRow](d, d.fixed(r, 7, 4)), Needs: opt[*NeedsClause](d, d.fixed(r, 7, 5)), Body: one[*ContextBody](d, d.fixed(r, 7, 6))}
+		return &ContextDecl{Doc: d.doc(d.fixed(r, 7, 0)), Let: d.pos(t), Context: d.pos(d.fixed(r, 7, 1)), Name: one[*Ident](d, d.fixed(r, 7, 2)), Fails: opt[*ErrorRow](d, d.fixed(r, 7, 4)), Needs: opt[*NeedsClause](d, d.fixed(r, 7, 5)), Body: one[*ContextBody](d, d.fixed(r, 7, 6))}
 	case kTestDecl:
 		x := &TestDecl{Doc: d.doc(d.fixed(r, 4, 0)), Test: d.pos(t), Name: one[*Ident](d, d.fixed(r, 4, 1)), Params: opt[*FieldList](d, d.fixed(r, 4, 2))}
 		// The harness member `test H` has no body.
@@ -469,8 +469,6 @@ func (d *rowDecoder) node(r uint32) Node {
 		return &FieldList{Opening: d.opos(d.fixed(r, 2, 0)), List: list[*Field](d, r, 0, d.items(r, 2)), Closing: d.opos(d.fixed(r, 2, 1))}
 	case kNeedsClause:
 		return &NeedsClause{Needs: d.pos(t), Names: list[Expr](d, r, 0, d.items(r, 0))}
-	case kProvidesClause:
-		return &ProvidesClause{Provides: d.pos(t), Names: list[Expr](d, r, 0, d.items(r, 0))}
 	case kFactClause:
 		return &FactClause{
 			Kind:    FactKind(d.fixed(r, 4, 0)),
@@ -525,7 +523,7 @@ func (d *rowDecoder) node(r uint32) Node {
 		return &CatchExpr{X: one[Expr](d, d.fixed(r, 2, 0)), Catch: d.pos(t), Lbrace: d.pos(t + 1), Arms: list[*CatchArm](d, r, 0, d.items(r, 2)), Rbrace: d.pos(d.fixed(r, 2, 1))}
 	case kContextLit:
 		// Layouts 5 and 6 put Fails at word 1 (layout 3 is no longer read).
-		return &ContextLit{Context: d.pos(t), Provides: opt[*ProvidesClause](d, d.fixed(r, 4, 0)), Fails: opt[*ErrorRow](d, d.fixed(r, 4, 1)), Needs: opt[*NeedsClause](d, d.fixed(r, 4, 2)), Body: one[*ContextBody](d, d.fixed(r, 4, 3))}
+		return &ContextLit{Context: d.pos(t), Fails: opt[*ErrorRow](d, d.fixed(r, 4, 1)), Needs: opt[*NeedsClause](d, d.fixed(r, 4, 2)), Body: one[*ContextBody](d, d.fixed(r, 4, 3))}
 	case kArrayType:
 		x := &ArrayType{Lbrack: d.pos(t), Elt: one[Expr](d, a)}
 		if b != 0 {
@@ -736,7 +734,6 @@ const (
 	kField              = 15
 	kFieldList          = 16
 	kNeedsClause        = 17
-	kProvidesClause     = 19
 	kMachineEntry       = 20
 	kCatchArm           = 21
 	kCaseClause         = 22

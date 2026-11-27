@@ -99,7 +99,7 @@ func Inspect(n Node, f func(Node) bool) {
 			}
 		}
 	case *ContextDecl:
-		walk(n.Name, n.Provides, n.Fails, n.Needs, n.Body)
+		walk(n.Name, n.Fails, n.Needs, n.Body)
 	case *ContextBody:
 		for _, e := range n.Entries {
 			Inspect(e, f)
@@ -114,8 +114,6 @@ func Inspect(n Node, f func(Node) bool) {
 	case *FieldList:
 		fields(n)
 	case *NeedsClause:
-		exprs(n.Names)
-	case *ProvidesClause:
 		exprs(n.Names)
 	case *FactClause:
 		walk(n.Cond, n.When)
@@ -158,7 +156,7 @@ func Inspect(n Node, f func(Node) bool) {
 		exprs(n.Types)
 		stmts(n.Body)
 	case *ContextLit:
-		walk(n.Provides, n.Fails, n.Needs, n.Body)
+		walk(n.Fails, n.Needs, n.Body)
 	case *ArrayType:
 		walk(n.Elt)
 	case *MapType:
@@ -249,8 +247,6 @@ func isNilNode(n Node) bool {
 	case *FieldList:
 		return n == nil
 	case *NeedsClause:
-		return n == nil
-	case *ProvidesClause:
 		return n == nil
 	case *FactClause:
 		return n == nil

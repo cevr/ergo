@@ -1436,14 +1436,6 @@ func (l *lowerer) contextBuildKey(w *check.With, capture bool) contextSet {
 	return key
 }
 
-// context checks a named context declaration. Its builders are written at the
-// withs that use it.
-func (l *lowerer) context(w *check.Context, site syntax.Node) {
-	if w.Decl.Provides != nil {
-		refuse(w.Decl, "a context header with provides waits for context header checking")
-	}
-}
-
 // fallibleBuild reports a with whose named context's build may fail: its
 // builder returns the failure (emitContext), which the caller propagates
 // (check/contextneeds.go, rule 3). An embedded context's failures are in

@@ -11,7 +11,7 @@ let tokenNames = []string{
 	"&&", "||", "<-", "++", "--", "..", "==", "<", ">", "=", "!", "!=", "<=", ">=", ":=", "...",
 	"(", "[", "{", ",", ".", ")", "]", "}", ";", ":", "token(?)",
 	"break", "case", "continue", "else", "for", "func", "if", "import", "return", "type",
-	"try", "catch", "needs", "provides", "context", "machine", "let", "mut", "in", "match",
+	"try", "catch", "needs", "token(?)", "context", "machine", "let", "mut", "in", "match",
 	"token(?)", "fails", "test", "law", "assert", "extern", "with", "token(?)", "as", "token(?)", "token(?)",
 	"chan", "const", "default", "defer", "fallthrough", "go", "goto", "interface", "map", "package",
 	"range", "select", "struct", "switch", "var", "token(?)",
@@ -184,7 +184,7 @@ func keywordRule(src string, start int, end int) uint8 {
 		if w == "continue" {
 			return Continue
 		}
-		return if w == "provides" { Provides } else { Ident }
+		return Ident
 	}
 	if n == 9 {
 		return if w == "interface" { Interface } else { Ident }
@@ -375,6 +375,8 @@ let notAValue = "a type is not a value; write a literal or a conversion"
 let oldEscapingText = "escaping is gone: write own before a parameter's function type, as in f own func() int; a field's or a result's function type is kept already, so write it bare"
 
 let oldTakesText = "takes is gone: write own before the type of each parameter the callee keeps, as in r own Res, and before an operation that keeps its receiver, as in own Close()"
+
+let oldProvidesText = "provides is gone: a context exposes every entry it binds; delete the provides clause"
 
 // needsKeywordText ends the S001 at a binder spelled needs.
 let needsKeywordText = "needs is a keyword (the capability row) and is not a name; choose another name"

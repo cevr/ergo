@@ -127,14 +127,14 @@ let W = context fails Missing { Ticker: try open() }
 func f() int64 fails Missing { return with try W { Ticker.Now() } }
 func main() {}
 `, nil},
-	{"context header", "a named context's provides and needs", `
+	{"context header", "a named context's needs", `
 type Ticker { Now() int64 }
 type Log { Write(s string) }
 type Fixed { t int64 } implements Ticker
 func Now(f Fixed) int64 { return f.t }
-let W = context provides Ticker needs Log { Ticker: Fixed{t: 1} }
+let W = context needs Log { Ticker: Fixed{t: 1} }
 func main() {}
-`, []string{"S109:6", "S109:6"}},
+`, []string{"S109:6"}},
 	{"context literal", "a local context (E5): checked at its let, built at its with; a literal elsewhere is S108, with no cascade", `
 type Ticker { Now() int64 }
 type Fixed { t int64 } implements Ticker
@@ -147,13 +147,6 @@ func g() int64 { return use(context { Ticker: Fixed{t: 2} }) }
 func use(n int64) int64 { n }
 func main() {}
 `, []string{"S108:9"}},
-	{"inline context header", "an inline context's provides", `
-type Ticker { Now() int64 }
-type Fixed { t int64 } implements Ticker
-func Now(f Fixed) int64 { return f.t }
-func f() int64 { return with context provides Ticker { Ticker: Fixed{t: 1} } { Ticker.Now() } }
-func main() {}
-`, []string{"S109:5"}},
 	{"inline context header", "an inline context's fails clause is refused", `
 type Missing {}
 func f() { with context fails Missing {} {} }
@@ -815,14 +808,14 @@ func main() {}
 type Opt[T] = Has[T]{ V T } | Empty{}
 func main() {}
 `, nil},
-	{"inline context header", "an inline context's provides and needs", `
+	{"inline context header", "an inline context's needs", `
 type Ticker { Now() int64 }
 type Log { Write(s string) }
 type Fixed { t int64 } implements Ticker
 func Now(f Fixed) int64 { return f.t }
-func f() int64 needs Log { return with context provides Ticker needs Log { Ticker: Fixed{t: 1} } { Ticker.Now() } }
+func f() int64 needs Log { return with context needs Log { Ticker: Fixed{t: 1} } { Ticker.Now() } }
 func main() {}
-`, []string{"S109:6", "S109:6"}},
+`, []string{"S109:6"}},
 	{"refinement", "a refined type and a law parameter's where", `
 type Port int where 1 <= it && it <= 65535
 law DivMod(a int, b int where b != 0) { (a / b) * b + a % b == a }

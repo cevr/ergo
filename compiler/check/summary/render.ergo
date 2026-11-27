@@ -103,10 +103,6 @@ func renderTopVar(sb mut strings.Builder, c CheckSection, pkgPath string, i int)
 func renderContextDecl(sb mut strings.Builder, c CheckSection, pkgPath string, i int) {
 	strings.WriteString(sb, "context ")
 	strings.WriteString(sb, SymText(c.Syms, c.CtxNames[i]))
-	if c.CtxProvides[i] != NoIdx {
-		strings.WriteString(sb, " provides ")
-		writeRenderType(sb, c, pkgPath, c.CtxProvides[i])
-	}
 	writeRowClause(sb, c, pkgPath, " fails ", c.CtxFailTypes, c.CtxFailStarts[i], c.CtxFailStarts[i+1])
 	writeRowClause(sb, c, pkgPath, " needs ", c.CtxNeedTypes, c.CtxNeedStarts[i], c.CtxNeedStarts[i+1])
 	strings.WriteByte(sb, '\n')

@@ -631,20 +631,6 @@ func discoverOnePackage(st mut ObligationStore, pkg SourcePackage) fails ParseFa
 				}
 			case syntax.ContextDecl as cd:
 				let hName = nodeTextName(parsed, cd.Name)
-				match dense.Unpack(cd.Provides) {
-				case option.Some[dense.ID[syntax.Node]] as pv:
-					match syntax.ViewOf(parsed.Tree, pv.Value) {
-					case syntax.ProvidesClause as pc:
-						for k in 0..syntax.Len(pc.Names) {
-							let capName = baseIdent(nodeTextName(parsed, syntax.Item(parsed.Tree, pc.Names, k)))
-							if capName != "" {
-								ctxs = ctxs.Append(rawContextClaim{Harness: hName, Iface: capName})
-							}
-						}
-					case _:
-					}
-				case option.None:
-				}
 				match syntax.ViewOf(parsed.Tree, cd.Body) {
 				case syntax.ContextBody as cb:
 					for k in 0..syntax.Len(cb.Entries) {

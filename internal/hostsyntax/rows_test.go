@@ -41,10 +41,7 @@ var rowPositions = []rowPosition{
 	{"result", "FuncType.Needs", "needs", "func F() func() needs ROW {}\n", false},
 	{"unnamed parameter", "FuncType.Needs", "needs", "func F(func() needs ROW) {}\n", true},
 	{"type argument", "FuncType.Needs", "needs", "let b Box[func() needs ROW] = x\n", true},
-	{"context literal provides", "ContextLit.Provides", "provides", "func F() { let w = context provides ROW { A: a } }\n", false},
 	{"context literal needs", "ContextLit.Needs", "needs", "func F() { let w = context needs ROW { A: a } }\n", false},
-	{"named context provides", "ContextDecl.Provides", "provides", "let Live = context provides ROW { A: a }\n", false},
-	{"named context provides before needs", "ContextDecl.Provides", "provides", "let Live = context provides ROW needs D { A: a }\n", false},
 	{"named context needs", "ContextDecl.Needs", "needs", "let Live = context needs ROW { A: a }\n", false},
 }
 
@@ -53,7 +50,7 @@ var rowPositions = []rowPosition{
 var rowNames = []string{"A", "pkg.B", "C"}
 
 // TestCapabilityRowPlacement is the placement property of 196n: cross every
-// position of a row clause (needs or provides) with one, two and three
+// position of a row clause (needs) with one, two and three
 // names. The pipe form parses and is canonical. A comma between the names
 // is S001 at the comma with the fix; inside a list of types the comma ends
 // the element instead, so the clause holds one name (rule 3: parameters and
@@ -111,7 +108,7 @@ func wantSyntax(t *testing.T, name, src string, at int, fix string) {
 	}
 }
 
-// clauseNames returns the number of names in the one needs or provides
+// clauseNames returns the number of names in the one needs
 // clause of src.
 func clauseNames(t *testing.T, src string) int {
 	t.Helper()
@@ -124,10 +121,6 @@ func clauseNames(t *testing.T, src string) int {
 		switch n := n.(type) {
 		case *syntax.NeedsClause:
 			if n != nil && !(len(n.Names) == 1 && isName(n.Names[0], "D")) {
-				got, clauses = len(n.Names), clauses+1
-			}
-		case *syntax.ProvidesClause:
-			if n != nil {
 				got, clauses = len(n.Names), clauses+1
 			}
 		}
@@ -145,7 +138,7 @@ func isName(x syntax.Expr, name string) bool {
 }
 
 // TestCapabilityRowPositionsDerived derives every field of the syntax tree
-// that holds a row clause (needs or provides), and asserts that rowPositions
+// that holds a row clause (needs), and asserts that rowPositions
 // exercises each one and names no other.
 func TestCapabilityRowPositionsDerived(t *testing.T) {
 	files, err := filepath.Glob(filepath.Join("..", "sketch", "syntax", "ast*.go"))
@@ -176,7 +169,7 @@ func TestCapabilityRowPositionsDerived(t *testing.T) {
 				if !ok {
 					continue
 				}
-				if id, ok := star.X.(*ast.Ident); !ok || (id.Name != "NeedsClause" && id.Name != "ProvidesClause") {
+				if id, ok := star.X.(*ast.Ident); !ok || id.Name != "NeedsClause" {
 					continue
 				}
 				for _, name := range fld.Names {

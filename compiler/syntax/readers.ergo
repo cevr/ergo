@@ -271,7 +271,7 @@ func CatchExprOf(t Tree, id dense.ID[Node]) CatchExpr {
 func ContextLitOf(t Tree, id dense.ID[Node]) ContextLit {
 	let i = uint32(dense.Index(id))
 	let tok = t.tok[int(i)]
-	ContextLit{Context: int(tok), Provides: onid(t, fixed(t, i, 4, 0)), Fails: onid(t, fixed(t, i, 4, 1)), Needs: onid(t, fixed(t, i, 4, 2)), Body: nid(t, fixed(t, i, 4, 3))}
+	ContextLit{Context: int(tok), Fails: onid(t, fixed(t, i, 4, 1)), Needs: onid(t, fixed(t, i, 4, 2)), Body: nid(t, fixed(t, i, 4, 3))}
 }
 
 // ArrayTypeOf reads a row of kind KArrayType.
@@ -382,13 +382,6 @@ func NeedsClauseOf(t Tree, id dense.ID[Node]) NeedsClause {
 	let i = uint32(dense.Index(id))
 	let tok = t.tok[int(i)]
 	NeedsClause{Needs: int(tok), Names: listAt(t, i, 0, items(t, i, 0))}
-}
-
-// ProvidesClauseOf reads a row of kind KProvidesClause.
-func ProvidesClauseOf(t Tree, id dense.ID[Node]) ProvidesClause {
-	let i = uint32(dense.Index(id))
-	let tok = t.tok[int(i)]
-	ProvidesClause{Provides: int(tok), Names: listAt(t, i, 0, items(t, i, 0))}
 }
 
 // FactClauseOf reads a row of kind KFactClause.
@@ -514,7 +507,7 @@ func FuncDeclOf(t Tree, id dense.ID[Node]) FuncDecl {
 func ContextDeclOf(t Tree, id dense.ID[Node]) ContextDecl {
 	let i = uint32(dense.Index(id))
 	let tok = t.tok[int(i)]
-	ContextDecl{Doc: otok(fixed(t, i, 7, 0)), Let: int(tok), Context: int(fixed(t, i, 7, 1)), Name: nid(t, fixed(t, i, 7, 2)), Provides: onid(t, fixed(t, i, 7, 3)), Fails: onid(t, fixed(t, i, 7, 4)), Needs: onid(t, fixed(t, i, 7, 5)), Body: nid(t, fixed(t, i, 7, 6))}
+	ContextDecl{Doc: otok(fixed(t, i, 7, 0)), Let: int(tok), Context: int(fixed(t, i, 7, 1)), Name: nid(t, fixed(t, i, 7, 2)), Fails: onid(t, fixed(t, i, 7, 4)), Needs: onid(t, fixed(t, i, 7, 5)), Body: nid(t, fixed(t, i, 7, 6))}
 }
 
 // TestDeclOf reads a row of kind KTestDecl.

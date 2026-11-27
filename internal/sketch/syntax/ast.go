@@ -3,7 +3,7 @@ package syntax
 // The AST follows go/ast: types are expressions, every node has Pos and End,
 // and comments live in File.Comments in source order with a Doc group on the
 // nodes that carry documentation. Ergo's constructs have dedicated nodes
-// (ErrorRow, NeedsClause, ProvidesClause, TryExpr, CatchExpr,
+// (ErrorRow, NeedsClause, TryExpr, CatchExpr,
 // TypeSwitchStmt, MachineType, ContextDecl, ContextLit,
 // CallExpr.Trailing). The parser resolves no names: with(…) and
 // timeout.After(…) are ordinary calls.
@@ -217,24 +217,21 @@ type FuncDecl struct {
 	Derived *TypeDecl
 }
 
-// ContextDecl is `context Name [provides A | B] [fails E | F] [needs C | D] { entries }`.
-// Provides lists the capabilities the context exposes; the entries it builds
-// and does not list stay private to its build. Fails is the failure row of
-// its build, a signature's error row (CTX-ROWS-1b). Needs lists the
-// capabilities its providers require from the with site. Any clause may be
-// nil.
+// ContextDecl is `context Name [fails E | F] [needs C | D] { entries }`; it
+// exposes every entry it binds. Fails is the failure row of its build, a
+// signature's error row (CTX-ROWS-1b). Needs lists the capabilities its
+// providers require from the with site. Either clause may be nil.
 //
-// The decided spelling is `let Name = context [provides …] [fails …] [needs …] { … }` at
+// The decided spelling is `let Name = context [fails …] [needs …] { … }` at
 // package level; Let is the position of `let`.
 type ContextDecl struct {
-	Doc      *CommentGroup
-	Let      Pos
-	Context  Pos
-	Name     *Ident
-	Provides *ProvidesClause
-	Fails    *ErrorRow
-	Needs    *NeedsClause
-	Body     *ContextBody
+	Doc     *CommentGroup
+	Let     Pos
+	Context Pos
+	Name    *Ident
+	Fails   *ErrorRow
+	Needs   *NeedsClause
+	Body    *ContextBody
 }
 
 func (d *ImportDecl) Pos() Pos { return d.Import }
@@ -507,16 +504,6 @@ func unparenType(x Expr) Expr {
 	}
 }
 
-// ProvidesClause is a context's exposure: `provides A | B`, the same kind of
-// row as a needs clause (196n).
-type ProvidesClause struct {
-	Provides Pos
-	Names    []Expr
-}
-
-func (u *ProvidesClause) Pos() Pos { return u.Provides }
-func (u *ProvidesClause) End() Pos { return u.Names[len(u.Names)-1].End() }
-
 // FactKind distinguishes signature fact clauses.
 type FactKind int
 
@@ -686,14 +673,13 @@ type (
 		Rbrace Pos
 	}
 
-	// ContextLit is a context literal `context [provides …] [fails …] [needs …] { … }`;
+	// ContextLit is a context literal `context [fails …] [needs …] { … }`;
 	// any clause may be nil.
 	ContextLit struct {
-		Context  Pos
-		Provides *ProvidesClause
-		Fails    *ErrorRow
-		Needs    *NeedsClause
-		Body     *ContextBody
+		Context Pos
+		Fails   *ErrorRow
+		Needs   *NeedsClause
+		Body    *ContextBody
 	}
 
 	// ArrayType is the slice type `[]T`, or the fixed array type `[N]T`

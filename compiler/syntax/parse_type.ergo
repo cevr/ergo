@@ -227,17 +227,6 @@ func startsType(p mut parser) bool {
 	k == KwMap || k == Chan || k == Struct || k == Interface || k == Arrow || k == Ellipsis
 }
 
-// parseProvides parses a context's `provides A | B`.
-func parseProvides(p mut parser) uint32 {
-	let pr = want(p, Provides)
-	let m = mark(p.t)
-	parseRow(p, "provides")
-	if p.tk == Comma {
-		rowComma(p, pos(p), "provides")
-	}
-	rec(&p.t, KProvidesClause, uint32(pr), m)
-}
-
 // parseNeeds parses `needs A | B`.
 func parseNeeds(p mut parser, ctx int) uint32 {
 	let n = want(p, Needs)
@@ -722,7 +711,7 @@ func parseTypeName(p mut parser, what string) uint32 {
 	mapType(p, x)
 }
 
-// parseCapabilityName parses the TypeName of a needs, provides or context
+// parseCapabilityName parses the TypeName of a needs or context
 // key position.
 func parseCapabilityName(p mut parser, what string) uint32 {
 	enter(p)
@@ -776,14 +765,14 @@ func parseTypeArg(p mut parser) uint32 {
 
 // ---------------------------------------------------------------- contexts
 
-// parseContextLit parses `context [provides …] [fails …] [needs …] { entries }`:
+// parseContextLit parses `context [fails …] [needs …] { entries }`:
 // the header's rows in a signature's order (parseSignature), fails before
 // needs (CTX-ROWS-1b).
 func parseContextLit(p mut parser) uint32 {
 	let c = want(p, KwContext)
-	let mut prov = none
-	if p.tk == Provides {
-		prov = some(parseProvides(p))
+	if isWord(p, "provides") && (peek(p, 1) == Ident || peek(p, 1) == Go) {
+		errorAt(p, pos(p), 8, oldProvidesText)
+		return noNode
 	}
 	let mut fl = none
 	if p.tk == Fails {
@@ -797,7 +786,7 @@ func parseContextLit(p mut parser) uint32 {
 		expected(p, "expected \"{\" after context, found ")
 	}
 	let body = parseContextBody(p)
-	mkContextLit(&p.t, mark(p.t), c, prov, fl, nd, body)
+	mkContextLit(&p.t, mark(p.t), c, fl, nd, body)
 }
 
 // parseContextBody parses `{ entry, … }`.
@@ -886,7 +875,7 @@ func keysContinue(p mut parser) bool {
 }
 
 test RetiredWordsAreNames {
-	for w in []string{"takes", "escaping"} {
+	for w in []string{"takes", "escaping", "provides"} {
 		assert lexOutcome("let "+w+" = 1\n", true) == "parsed"
 		assert lexOutcome("func f("+w+" int64) int64 { "+w+" }\n", true) == "parsed"
 		assert lexOutcome("type T { "+w+" int64 }\n", true) == "parsed"
@@ -899,6 +888,12 @@ test OldTakesNamesOwn {
 	assert lexOutcome("func keep(r R) Holder takes r {}\n", true) == "S001 22 "+oldTakesText
 	assert lexOutcome("func Close(r R) takes r {}\n", true) == "S001 16 "+oldTakesText
 	assert lexOutcome("type Ops {\n\tM() takes,\n}\n", true) == "S001 16 "+oldTakesText
+}
+
+test OldProvidesIsGone {
+	assert lexOutcome("let App = context provides A | B needs C { A: a }\n", true) == "S001 18 "+oldProvidesText
+	assert lexOutcome("func f() {\n\twith context provides A { A: a } { run() }\n}\n", true) == "S001 25 "+oldProvidesText
+	assert lexOutcome("let App = context needs C { provides: a }\n", true) == "parsed"
 }
 
 test OldEscapingNamesOwn {

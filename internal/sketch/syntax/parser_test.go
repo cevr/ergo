@@ -106,8 +106,8 @@ func TestUsesIsAnIdentifier(t *testing.T) {
 // a parameter, a field or a type; a contextual word is.
 func TestKeywordsAreNotNames(t *testing.T) {
 	words := append(Keywords(), Reserved()...)
-	if n := len(Keywords()); n != 27 {
-		t.Fatalf("%d keywords, want the 26 decided ones and as", n)
+	if n := len(Keywords()); n != 26 {
+		t.Fatalf("%d keywords, want the 25 decided ones and as", n)
 	}
 	if n := len(Reserved()); n != 15 {
 		t.Fatalf("%d reserved words, want 15", n)
@@ -200,9 +200,9 @@ func TestAdmittedForms(t *testing.T) {
 		}
 	}
 	// A package-level context is a ContextDecl; a context elsewhere is a ContextLit.
-	f = parse("let App = context provides A needs B {\n\tC, D:      X{},\n\treplace E: Y{},\n\tShared,\n}\n\nfunc main() {\n\twith context { A: M{} } {\n\t\trun()\n\t}\n}\n")
+	f = parse("let App = context needs B {\n\tC, D:      X{},\n\treplace E: Y{},\n\tShared,\n}\n\nfunc main() {\n\twith context { A: M{} } {\n\t\trun()\n\t}\n}\n")
 	w := f.Decls[0].(*ContextDecl)
-	if !w.Let.IsValid() || w.Pos() != w.Let || w.Provides == nil || w.Needs == nil || len(w.Body.Entries) != 3 {
+	if !w.Let.IsValid() || w.Pos() != w.Let || w.Needs == nil || len(w.Body.Entries) != 3 {
 		t.Fatalf("context %+v", w)
 	}
 	if e := w.Body.Entries; e[0].Kind != ContextBind || len(e[0].Keys) != 1 || e[1].Kind != ContextReplace || e[2].Kind != ContextEmbed {

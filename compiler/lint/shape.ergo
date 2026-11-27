@@ -540,7 +540,6 @@ func shapeNode(
 	if k == syntax.KContextLit {
 		let cl = syntax.ContextLitOf(t, n)
 		sbWrite(b, "(ContextLit")
-		shapeOptNode(ctx, b, localGen, localOrd, isDef, cl.Provides)
 		shapeOptNode(ctx, b, localGen, localOrd, isDef, cl.Fails)
 		shapeOptNode(ctx, b, localGen, localOrd, isDef, cl.Needs)
 		shapeChildNode(ctx, b, localGen, localOrd, isDef, cl.Body)
@@ -560,13 +559,6 @@ func shapeNode(
 		shapeChildNode(ctx, b, localGen, localOrd, isDef, ce.Key)
 		shapeListNodes(ctx, b, localGen, localOrd, isDef, ce.Keys)
 		shapeOptNode(ctx, b, localGen, localOrd, isDef, ce.Value)
-		sbWrite(b, ")")
-		return
-	}
-	if k == syntax.KProvidesClause {
-		let pc = syntax.ProvidesClauseOf(t, n)
-		sbWrite(b, "(ProvidesClause")
-		shapeListNodes(ctx, b, localGen, localOrd, isDef, pc.Names)
 		sbWrite(b, ")")
 		return
 	}

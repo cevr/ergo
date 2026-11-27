@@ -287,9 +287,6 @@ func (c *checker) contextLit(w *syntax.ContextLit) (binds *capSet, known bool, c
 // named context's is (checkContexts): never read partly (rows.md, Context 8).
 func (c *checker) contextHeader(w *syntax.ContextLit) {
 	c.contextFails(w.Fails)
-	if w.Provides != nil {
-		c.errorf(w.Provides, CodeOutside, "a context's provides clause waits for context header checking (rows.md Context 8); it is not checked yet")
-	}
 	if w.Needs != nil {
 		c.errorf(w.Needs, CodeOutside, "a context's needs clause waits for context header checking (rows.md Context 8); it is not checked yet")
 	}
@@ -725,11 +722,6 @@ func (c *checker) checkContexts() {
 	for _, w := range contexts {
 		c.cur = w.file
 		d := w.Decl
-		// The header's provides clause waits for context header checking;
-		// until then it is refused, never read partly (rows.md, Context 8).
-		if d.Provides != nil {
-			c.errorf(d.Provides, CodeOutside, "a context's provides clause waits for context header checking (rows.md Context 8); it is not checked yet")
-		}
 		c.readContextHeader(w)
 		t := &target{name: "context " + w.Name, declErrors: newRow(), declUses: newRow(), context: true}
 		if d.Needs != nil {

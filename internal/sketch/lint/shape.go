@@ -432,9 +432,6 @@ func (s *shaper) node(n syntax.Node) {
 		s.b.putByte(')')
 	case *syntax.ContextLit:
 		s.b.WriteString("(ContextLit")
-		if x.Provides != nil {
-			s.child(x.Provides)
-		}
 		if x.Fails != nil {
 			s.child(x.Fails)
 		}
@@ -457,10 +454,6 @@ func (s *shaper) node(n syntax.Node) {
 		s.child(x.Key)
 		s.childExprs(x.Keys)
 		s.child(x.Value)
-		s.b.putByte(')')
-	case *syntax.ProvidesClause:
-		s.b.WriteString("(ProvidesClause")
-		s.childExprs(x.Names)
 		s.b.putByte(')')
 	case *syntax.NeedsClause:
 		s.b.WriteString("(NeedsClause")
@@ -623,9 +616,6 @@ func (s *shaper) node(n syntax.Node) {
 		if x.Name != nil {
 			s.b.putByte(' ')
 			s.ident(x.Name)
-		}
-		if x.Provides != nil {
-			s.child(x.Provides)
 		}
 		if x.Fails != nil {
 			s.child(x.Fails)

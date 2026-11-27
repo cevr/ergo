@@ -4,6 +4,8 @@ This file is the dated log of the owner's decisions for Ergo, newest first. A de
 
 ## Owner direction, 2026-11-27
 
+- **Surface diet: `provides` leaves the keywords (RSI-SURFACE-DIET-KEYWORDS; research SIMPLIFY J, owner q225 "Delete").** A context's `provides A | B` header listed the entries a `with` exposes; it was parsed, never checked (S109), and no program used it. A context now exposes every entry it binds; `context provides …` is one S001 "provides is gone: a context exposes every entry it binds; delete the provides clause", and `provides` is an ordinary name elsewhere. The header keeps `fails` and `needs` (CTX-ROWS-1/2, q254, q280). The `ProvidesClause` node and the summary's context exposure column go (summary format version 2); the context row keeps its word for the clause, always empty. Principle: subtract before you add.
+
 - **Surface diet: `takes` and `escaping` leave the keywords (RSI-SURFACE-DIET-KEYWORDS; owner, 2026-11-27, priority one "language simplification and ergonomics"; research SIMPLIFY U1, q225).** Both were retired into the mode word `own` by q168 and had no use left in the repository. Each is now an ordinary name; the parser knows it only in its old position, to give one S001 that names `own` ([grammar](spec/grammar.md) Declarations 13). The `takes` clause node, the function type's `escaping` mark and `ergo fix`'s respell of the old modes (`RunModes`) are deleted; the property `check:TestOwnModeFacts` states the `own` rule against a model in place of `fix:TestOwnSpellsTheOldModes`. The tree layout keeps the two words of the function type's row, always empty, so the linked parser needs no two-stage bootstrap. Principle: subtract before you add; fewest concepts.
 
 ## Owner direction, 2026-11-23

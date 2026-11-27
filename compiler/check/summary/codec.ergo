@@ -205,7 +205,6 @@ func encodeCheckExtras(w mut byteWriter, c CheckSection) {
 	writeU32Slice(w, c.ConstTokStarts)
 	writeU32Slice(w, c.ConstTokEnds)
 	writeU32Slice(w, c.CtxNames)
-	writeU32Slice(w, c.CtxProvides)
 	writeU32Slice(w, c.CtxFailStarts)
 	writeU32Slice(w, c.CtxNeedStarts)
 	writeU32Slice(w, c.CtxFailTypes)
@@ -671,7 +670,6 @@ func decodeCheckExtras(r mut byteReader, c mut CheckSection) fails Malformed {
 	c.ConstTokStarts = try readU32Slice(r)
 	c.ConstTokEnds = try readU32Slice(r)
 	c.CtxNames = try readU32Slice(r)
-	c.CtxProvides = try readU32Slice(r)
 	c.CtxFailStarts = try readU32Slice(r)
 	c.CtxNeedStarts = try readU32Slice(r)
 	c.CtxFailTypes = try readU32Slice(r)
@@ -829,9 +827,6 @@ func validateCheckExtras(c CheckSection, symCount int, typeCount int, tokCount i
 	}
 	try checkSpanPairs(c.ConstTokStarts, c.ConstTokEnds, tokCount, "check.constToks")
 	let nCtx = c.CtxNames.Len()
-	if c.CtxProvides.Len() != nCtx {
-		return OutOfBounds{Section: "check.contexts"}
-	}
 	try checkStarts(c.CtxFailStarts, nCtx, c.CtxFailTypes.Len(), "check.ctxFailStarts")
 	try checkStarts(c.CtxNeedStarts, nCtx, c.CtxNeedTypes.Len(), "check.ctxNeedStarts")
 	let nLaw = c.LawNames.Len()
