@@ -1,0 +1,684 @@
+import config
+import github.com/cevr/ergo/modules/atlas/adapter
+import github.com/cevr/ergo/modules/atlas/direct
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/pool
+import github.com/cevr/ergo/modules/atlas/session
+import github.com/cevr/ergo/modules/atlas/turn
+import http
+import llm
+import option
+import os
+import strings
+
+// OfficialSupportGate governs whether experimental direct Antigravity/Gemini support is enabled.
+type OfficialSupportGate {
+	AntigravityDirectSupported bool,
+}
+
+// DefaultOfficialSupportGate returns the default support policy with Antigravity/Gemini direct gated off.
+func DefaultOfficialSupportGate() OfficialSupportGate {
+	OfficialSupportGate{AntigravityDirectSupported: false}
+}
+
+// IsAntigravityDirectSupported reports whether gate enables direct Antigravity/Gemini support.
+func IsAntigravityDirectSupported(gate OfficialSupportGate) bool {
+	gate.AntigravityDirectSupported
+}
+
+// AuthMethodKind classifies the wire authentication header style of a direct provider.
+type AuthMethodKind = AuthKindBearer{} | AuthKindAnthropicKey{}
+
+// ProviderAuth carries a redacted subscription bearer token or Anthropic API key.
+type ProviderAuth = BearerAuth{Token config.Redacted[string]} | AnthropicKeyAuth{Key config.Redacted[string]}
+
+// EnvEntry represents one environment variable name/value pair checked against proxy overrides.
+type EnvEntry {
+	Name  string,
+	Value string,
+}
+
+// EndpointSpec defines endpoint configuration inputs validated against official non-proxy rules.
+type EndpointSpec {
+	Driver           adapter.DriverKind,
+	OriginOverride   option.Option[string],
+	PathOverride     option.Option[string],
+	ExtraHeaders     []http.Field,
+	EnvVars          []EnvEntry,
+	ChatGPTAccountID option.Option[string],
+	Gate             OfficialSupportGate,
+}
+
+// EndpointPolicy holds the validated official origin, API path, and safe non-secret metadata headers.
+type EndpointPolicy {
+	Driver           adapter.DriverKind,
+	Origin           string,
+	Path             string,
+	ChatGPTAccountID option.Option[string],
+	ExtraHeaders     []http.Field,
+}
+
+// AntigravityDirectGatedError refuses direct Antigravity/Gemini access while official support is disabled.
+type AntigravityDirectGatedError {
+	Driver adapter.DriverKind,
+	Reason string,
+}
+
+// NotDirectDriverError refuses constructing a direct provider client for a MetaPath driver.
+type NotDirectDriverError {
+	Driver adapter.DriverKind,
+}
+
+// ProxyOrSpoofRefusedError refuses custom base URLs, proxy origins, proxy headers, or proxy env vars.
+type ProxyOrSpoofRefusedError {
+	Driver adapter.DriverKind,
+	Field  string,
+	Reason string,
+}
+
+// AccountRotationRefusedError refuses rotating or switching accounts inside a pinned direct session.
+type AccountRotationRefusedError {
+	PinnedAccount    session.AccountID,
+	AttemptedAccount session.AccountID,
+}
+
+// MissingCredentialError refuses starting or sending without a non-empty redacted credential.
+type MissingCredentialError {
+	Driver  adapter.DriverKind,
+	Account session.AccountID,
+}
+
+// CapabilityUnsupportedError wraps an adapter capability or permission refusal without emulation.
+type CapabilityUnsupportedError {
+	Cause adapter.AdapterRefusal,
+}
+
+// TurnHeldByPoolError reports pool admission refusal naming the pinned account and future retry timestamp.
+type TurnHeldByPoolError {
+	Account   session.AccountID,
+	RetryAtMs int64,
+	Reason    pool.HoldReason,
+}
+
+// AbortedAfterFirstDeltaError enforces NoRetryAfterFirstDelta when a stream fails after >= 1 delta.
+type AbortedAfterFirstDeltaError {
+	DeltasReceived int,
+	PartialText    string,
+	Failure        llm.Failure,
+}
+
+// ConcurrentTurnRefusedError refuses starting an overlapping turn on an active pinned direct session.
+type ConcurrentTurnRefusedError {
+	Driver  adapter.DriverKind,
+	Account session.AccountID,
+}
+
+// InvalidProviderConfigError reports malformed direct client configuration such as empty AccountID or ModelID.
+type InvalidProviderConfigError {
+	Field  string,
+	Reason string,
+}
+
+// ProviderWireError reports a mapped LLM and turn failure alongside parsed rate-limit telemetry.
+type ProviderWireError {
+	Failure     llm.Failure,
+	TurnFailure turn.FailureClass,
+	RateLimit   option.Option[RateLimitInfo],
+}
+
+// DirectLoopIntegrationError wraps a failure raised by modules/atlas/direct during a provider-backed loop run.
+type DirectLoopIntegrationError {
+	Cause direct.DirectError,
+}
+
+// DirectProviderError is the closed failure union of Atlas direct provider clients and guards.
+type DirectProviderError = AntigravityDirectGatedError | NotDirectDriverError | ProxyOrSpoofRefusedError | AccountRotationRefusedError | MissingCredentialError | CapabilityUnsupportedError | TurnHeldByPoolError | AbortedAfterFirstDeltaError | ConcurrentTurnRefusedError | InvalidProviderConfigError | ProviderWireError | DirectLoopIntegrationError
+
+func requireDirectPathDriver(d adapter.DriverKind) fails DirectProviderError {
+	match adapter.PathOfDriver(d) {
+	case adapter.DirectPath:
+	case adapter.MetaPath:
+		return NotDirectDriverError{Driver: d}
+	}
+}
+
+func requireOfficialGate(d adapter.DriverKind, gate OfficialSupportGate) fails DirectProviderError {
+	try requireDirectPathDriver(d)
+	if adapter.IsAntigravityDirect(d) && !gate.AntigravityDirectSupported {
+		return AntigravityDirectGatedError{
+			Driver: d,
+			Reason: "antigravity-direct is gated off unless officially supported",
+		}
+	}
+}
+
+// OfficialOrigin returns the canonical HTTPS origin for a supported direct driver under the default gate.
+func OfficialOrigin(d adapter.DriverKind) string fails DirectProviderError {
+	try OfficialOriginForGate(d, DefaultOfficialSupportGate())
+}
+
+// OfficialOriginForGate returns the canonical HTTPS origin for driver when enabled by gate.
+func OfficialOriginForGate(d adapter.DriverKind, gate OfficialSupportGate) string fails DirectProviderError {
+	try requireOfficialGate(d, gate)
+	match d {
+	case adapter.CodexDirect:
+		"https://chatgpt.com"
+	case adapter.OpenCodeConsoleDirect, adapter.OpenCodeGoDirect:
+		"https://opencode.ai"
+	case adapter.AnthropicDirect:
+		"https://api.anthropic.com"
+	case adapter.AntigravityDirect:
+		"https://generativelanguage.googleapis.com"
+	case adapter.ClaudeMeta, adapter.CodexMeta, adapter.AntigravityMeta, adapter.GenericAcpMeta, adapter.PaneFallbackMeta:
+		NotDirectDriverError{Driver: d}
+	}
+}
+
+// OfficialPath returns the canonical API request path for driver when enabled by gate.
+func OfficialPath(d adapter.DriverKind, gate OfficialSupportGate) string fails DirectProviderError {
+	try requireOfficialGate(d, gate)
+	match d {
+	case adapter.CodexDirect:
+		"/backend-api/codex/responses"
+	case adapter.OpenCodeConsoleDirect:
+		"/zen/v1/chat/completions"
+	case adapter.OpenCodeGoDirect:
+		"/zen/go/v1/chat/completions"
+	case adapter.AnthropicDirect:
+		"/v1/messages"
+	case adapter.AntigravityDirect:
+		"/v1beta/models"
+	case adapter.ClaudeMeta, adapter.CodexMeta, adapter.AntigravityMeta, adapter.GenericAcpMeta, adapter.PaneFallbackMeta:
+		NotDirectDriverError{Driver: d}
+	}
+}
+
+// OfficialPathPrefix returns the required official path prefix for driver when enabled by gate.
+func OfficialPathPrefix(d adapter.DriverKind, gate OfficialSupportGate) string fails DirectProviderError {
+	try requireOfficialGate(d, gate)
+	match d {
+	case adapter.CodexDirect:
+		"/backend-api/codex/"
+	case adapter.OpenCodeConsoleDirect:
+		"/zen/v1/"
+	case adapter.OpenCodeGoDirect:
+		"/zen/go/v1/"
+	case adapter.AnthropicDirect:
+		"/v1/"
+	case adapter.AntigravityDirect:
+		"/v1beta/"
+	case adapter.ClaudeMeta, adapter.CodexMeta, adapter.AntigravityMeta, adapter.GenericAcpMeta, adapter.PaneFallbackMeta:
+		NotDirectDriverError{Driver: d}
+	}
+}
+
+func isForbiddenProxyHeader(name string) bool {
+	let lower = strings.ToLower(strings.TrimSpace(name))
+	match lower {
+	case "host", "forwarded", "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "x-forwarded-port", "x-real-ip", "x-original-url", "x-rewrite-url", "via", "proxy-authorization", "proxy-connection", "authorization", "x-api-key":
+		true
+	case _:
+		strings.HasPrefix(lower, "x-forwarded-") || strings.HasPrefix(lower, "proxy-")
+	}
+}
+
+func isForbiddenProxyEnv(name string) bool {
+	let upper = strings.ToUpper(strings.TrimSpace(name))
+	match upper {
+	case "ANTHROPIC_BASE_URL", "OPENAI_BASE_URL", "OPENAI_API_BASE", "CODEX_BASE_URL", "OPENCODE_BASE_URL", "OPENCODE_CONSOLE_BASE_URL", "OPENCODE_GO_BASE_URL", "GEMINI_BASE_URL", "GOOGLE_GEMINI_BASE_URL", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY":
+		true
+	case _:
+		false
+	}
+}
+
+func validateOriginOverride(d adapter.DriverKind, official string, override option.Option[string]) fails DirectProviderError {
+	match override {
+	case option.None:
+	case option.Some[string] as ov:
+		let trimmed = strings.TrimSpace(ov.Value)
+		if trimmed == "" || !strings.EqualFold(trimmed, official) {
+			return ProxyOrSpoofRefusedError{
+				Driver: d,
+				Field:  "origin",
+				Reason: "proxy or non-official origin refused: want \(official), got \(ov.Value)",
+			}
+		}
+	}
+}
+
+func validatePathOverride(d adapter.DriverKind, prefix string, defPath string, override option.Option[string]) string fails DirectProviderError {
+	match override {
+	case option.None:
+		defPath
+	case option.Some[string] as ov:
+		let p = strings.TrimSpace(ov.Value)
+		if p == "" || !strings.HasPrefix(p, "/") || strings.Contains(p, "..") || strings.Contains(p, "://") || strings.Contains(p, "?") || strings.Contains(p, "#") || strings.Contains(p, "\r") || strings.Contains(p, "\n") || strings.Contains(p, " ") {
+			return ProxyOrSpoofRefusedError{
+				Driver: d,
+				Field:  "path",
+				Reason: "invalid or smuggling endpoint path: \(ov.Value)",
+			}
+		}
+		if !strings.HasPrefix(p, prefix) {
+			return ProxyOrSpoofRefusedError{
+				Driver: d,
+				Field:  "path",
+				Reason: "endpoint path must stay under \(prefix): \(ov.Value)",
+			}
+		}
+		p
+	}
+}
+
+func validateExtraHeadersAndEnv(d adapter.DriverKind, headers []http.Field, envVars []EnvEntry) fails DirectProviderError {
+	for h in headers {
+		if isForbiddenProxyHeader(h.Name) {
+			return ProxyOrSpoofRefusedError{
+				Driver: d,
+				Field:  "header:" + h.Name,
+				Reason: "proxy, host-override, and raw credential headers are forbidden",
+			}
+		}
+	}
+	for e in envVars {
+		if isForbiddenProxyEnv(e.Name) && strings.TrimSpace(e.Value) != "" {
+			return ProxyOrSpoofRefusedError{
+				Driver: d,
+				Field:  "env:" + e.Name,
+				Reason: "proxy and base-URL environment overrides are forbidden",
+			}
+		}
+	}
+}
+
+// ValidateEndpointPolicy enforces official non-proxy endpoints, Antigravity gating, and safe headers/env.
+func ValidateEndpointPolicy(spec EndpointSpec) EndpointPolicy fails DirectProviderError {
+	let official = try OfficialOriginForGate(spec.Driver, spec.Gate)
+	let defPath = try OfficialPath(spec.Driver, spec.Gate)
+	let prefix = try OfficialPathPrefix(spec.Driver, spec.Gate)
+	try validateOriginOverride(spec.Driver, official, spec.OriginOverride)
+	let resolvedPath = try validatePathOverride(spec.Driver, prefix, defPath, spec.PathOverride)
+	try validateExtraHeadersAndEnv(spec.Driver, spec.ExtraHeaders, spec.EnvVars)
+	EndpointPolicy{
+		Driver:           spec.Driver,
+		Origin:           official,
+		Path:             resolvedPath,
+		ChatGPTAccountID: spec.ChatGPTAccountID,
+		ExtraHeaders:     spec.ExtraHeaders,
+	}
+}
+
+// BuildCredentials converts a redacted ProviderAuth into origin-bound http.Credentials without revealing secrets.
+func BuildCredentials(policy EndpointPolicy, account session.AccountID, auth ProviderAuth) []http.Credential fails DirectProviderError {
+	if strings.TrimSpace(string(account)) == "" {
+		return InvalidProviderConfigError{Field: "accountID", Reason: "accountID must not be empty"}
+	}
+	let cred = match auth {
+	case BearerAuth as b:
+		let raw = b.Token.Reveal()
+		if strings.TrimSpace(raw) == "" {
+			return MissingCredentialError{Driver: policy.Driver, Account: account}
+		}
+		http.ForOrigin(policy.Origin, "Authorization", config.NewRedacted("Bearer "+raw)) catch {
+		case http.InvalidClient as ic:
+			return ProxyOrSpoofRefusedError{Driver: policy.Driver, Field: "origin", Reason: ic.Reason}
+		}
+	case AnthropicKeyAuth as k:
+		match policy.Driver {
+		case adapter.AnthropicDirect:
+			let raw = k.Key.Reveal()
+			if strings.TrimSpace(raw) == "" {
+				return MissingCredentialError{Driver: policy.Driver, Account: account}
+			}
+			http.ForOrigin(policy.Origin, "x-api-key", k.Key) catch {
+			case http.InvalidClient as ic:
+				return ProxyOrSpoofRefusedError{Driver: policy.Driver, Field: "origin", Reason: ic.Reason}
+			}
+		case _:
+			return InvalidProviderConfigError{Field: "auth", Reason: "x-api-key auth is supported only for AnthropicDirect"}
+		}
+	}
+	[]http.Credential{cred}
+}
+
+// NewLiveHTTPClient builds a real std/http Client pinned strictly to policy.Origin with redacted credentials.
+func NewLiveHTTPClient(policy EndpointPolicy, account session.AccountID, auth ProviderAuth, limits http.Limits) http.Client fails DirectProviderError | http.InvalidClient | http.InvalidLimits needs os.Ambient {
+	let creds = try BuildCredentials(policy, account, auth)
+	try http.NewClient(policy.Origin, limits, creds)
+}
+
+// NewInMemoryProviderNet builds an in-memory http.Handler bound to policy.Origin with redacted credentials for testing.
+func NewInMemoryProviderNet(policy EndpointPolicy, account session.AccountID, auth ProviderAuth, handle own func(http.Request) http.Response needs http.Streaming) http.Handler fails DirectProviderError | http.InvalidClient {
+	let creds = try BuildCredentials(policy, account, auth)
+	try http.InMemoryAt(policy.Origin, creds, handle)
+}
+
+// NewPinnedRotationState constructs a RotationFixed session guard pinned solely to accountID.
+func NewPinnedRotationState(threadID handle.ThreadID, accountID session.AccountID, standby []session.AccountSlot) session.RotationState fails DirectProviderError {
+	if strings.TrimSpace(string(accountID)) == "" {
+		return InvalidProviderConfigError{Field: "accountID", Reason: "pinned accountID must not be empty"}
+	}
+	let mut slots = []session.AccountSlot{
+		session.AccountSlot{ID: accountID, Priority: 1, Status: session.AccountHealthy},
+	}
+	for s in standby {
+		if s.ID != accountID {
+			slots = slots.Append(s)
+		}
+	}
+	session.NewRotationState(threadID, session.RotationFixed, slots, option.Some[session.AccountID]{Value: accountID})
+}
+
+// VerifyPinnedAccount ensures requested matches the session's pinned account and never rotates.
+func VerifyPinnedAccount(pinned session.AccountID, requested session.AccountID) bool fails AccountRotationRefusedError {
+	if pinned != requested {
+		return AccountRotationRefusedError{PinnedAccount: pinned, AttemptedAccount: requested}
+	}
+	true
+}
+
+// DirectAdapter implements adapter.Adapter using honest static capabilities without emulation.
+type DirectAdapter {
+	driver adapter.DriverKind,
+	caps   adapter.Capabilities,
+} implements adapter.Adapter
+
+// NewDirectAdapter builds a DirectAdapter for a DirectPath driver under gate.
+func NewDirectAdapter(driver adapter.DriverKind, gate OfficialSupportGate) DirectAdapter fails NotDirectDriverError {
+	match adapter.PathOfDriver(driver) {
+	case adapter.MetaPath:
+		return NotDirectDriverError{Driver: driver}
+	case adapter.DirectPath:
+	}
+	DirectAdapter{
+		driver: driver,
+		caps:   adapter.CapabilitiesFor(driver, gate.AntigravityDirectSupported),
+	}
+}
+
+// Driver returns the underlying DriverKind of a.
+func Driver(a DirectAdapter) adapter.DriverKind { a.driver }
+
+// Capabilities returns the honest static Capabilities record of a.
+func Capabilities(a DirectAdapter) adapter.Capabilities { a.caps }
+
+// ResolveMode resolves requested against a.caps without emulating unsupported modes.
+func ResolveMode(a DirectAdapter, requested adapter.PermissionMode) adapter.PermissionMode {
+	adapter.ResolvePermissionMode(a.caps, requested)
+}
+
+// CheckSteer checks native steering availability on a without emulation.
+func CheckSteer(a DirectAdapter, turnActive bool, pendingPerm bool) bool fails adapter.AdapterRefusal {
+	adapter.RequireSteer(a.driver, a.caps, turnActive, pendingPerm)
+}
+
+// CanStart verifies official support gating for a.
+func CanStart(a DirectAdapter) bool fails adapter.AdapterRefusal {
+	adapter.CanStartDriver(a.driver, a.caps)
+}
+
+let gatedDirectAdapterContext = context {
+	adapter.Adapter: DirectAdapter{
+		driver: adapter.AntigravityDirect,
+		caps:   adapter.CapabilitiesFor(adapter.AntigravityDirect, false),
+	},
+}
+
+// AntigravityDirectGatedOffByDefault proves AntigravityDirect stays gated off unless officially supported.
+law AntigravityDirectGatedOffByDefault() {
+	let gate = DefaultOfficialSupportGate()
+	if IsAntigravityDirectSupported(gate) {
+		return false
+	}
+	let mut originGated = false
+	let _ = OfficialOrigin(adapter.AntigravityDirect) catch {
+	case AntigravityDirectGatedError:
+		originGated = true
+		""
+	case NotDirectDriverError, ProxyOrSpoofRefusedError, AccountRotationRefusedError, MissingCredentialError, CapabilityUnsupportedError, TurnHeldByPoolError, AbortedAfterFirstDeltaError, ConcurrentTurnRefusedError, InvalidProviderConfigError, ProviderWireError, DirectLoopIntegrationError:
+		return false
+	}
+	let mut policyGated = false
+	let _ = ValidateEndpointPolicy(EndpointSpec{
+		Driver:           adapter.AntigravityDirect,
+		OriginOverride:   option.None,
+		PathOverride:     option.None,
+		ExtraHeaders:     []http.Field{},
+		EnvVars:          []EnvEntry{},
+		ChatGPTAccountID: option.None,
+		Gate:             gate,
+	}) catch {
+	case AntigravityDirectGatedError:
+		policyGated = true
+		EndpointPolicy{Driver: adapter.AntigravityDirect, Origin: "", Path: "", ChatGPTAccountID: option.None, ExtraHeaders: []http.Field{}}
+	case NotDirectDriverError, ProxyOrSpoofRefusedError, AccountRotationRefusedError, MissingCredentialError, CapabilityUnsupportedError, TurnHeldByPoolError, AbortedAfterFirstDeltaError, ConcurrentTurnRefusedError, InvalidProviderConfigError, ProviderWireError, DirectLoopIntegrationError:
+		return false
+	}
+	let ad = NewDirectAdapter(adapter.AntigravityDirect, gate) catch {
+	case NotDirectDriverError:
+		return false
+	}
+	let mut adapterGated = false
+	let _ = ad.CanStart() catch {
+	case adapter.DirectDriverDisabled:
+		adapterGated = true
+		false
+	case adapter.CapabilityUnsupported, adapter.WriteApprovalRequired:
+		return false
+	}
+	originGated && policyGated && adapterGated && !ad.Capabilities().OfficiallySupported
+}
+
+// ProxyAndBaseUrlOverridesRefused proves proxy origins, proxy headers, path smuggling, and base-URL env overrides fail closed.
+law ProxyAndBaseUrlOverridesRefused(hostSuffix string, idx int) {
+	let drivers = []adapter.DriverKind{
+		adapter.CodexDirect,
+		adapter.OpenCodeConsoleDirect,
+		adapter.OpenCodeGoDirect,
+		adapter.AnthropicDirect,
+	}
+	let envs = []string{
+		"ANTHROPIC_BASE_URL",
+		"OPENAI_BASE_URL",
+		"CODEX_BASE_URL",
+		"OPENCODE_BASE_URL",
+		"HTTPS_PROXY",
+		"HTTP_PROXY",
+	}
+	let headers = []string{"X-Forwarded-For", "X-Forwarded-Host", "Host", "Via", "Authorization"}
+	let k = ((idx % 4) + 4) % 4
+	let drv = drivers[k]
+	let envName = envs[((idx%envs.Len())+envs.Len())%envs.Len()]
+	let hdrName = headers[((idx%headers.Len())+headers.Len())%headers.Len()]
+	let gate = DefaultOfficialSupportGate()
+	let badOrigin = "https://proxy." + hostSuffix + ".example.com"
+
+	let mut refusedOrigin = false
+	let _ = ValidateEndpointPolicy(EndpointSpec{
+		Driver:           drv,
+		OriginOverride:   option.Some[string]{Value: badOrigin},
+		PathOverride:     option.None,
+		ExtraHeaders:     []http.Field{},
+		EnvVars:          []EnvEntry{},
+		ChatGPTAccountID: option.None,
+		Gate:             gate,
+	}) catch {
+	case ProxyOrSpoofRefusedError:
+		refusedOrigin = true
+		EndpointPolicy{Driver: drv, Origin: "", Path: "", ChatGPTAccountID: option.None, ExtraHeaders: []http.Field{}}
+	case AntigravityDirectGatedError, NotDirectDriverError, AccountRotationRefusedError, MissingCredentialError, CapabilityUnsupportedError, TurnHeldByPoolError, AbortedAfterFirstDeltaError, ConcurrentTurnRefusedError, InvalidProviderConfigError, ProviderWireError, DirectLoopIntegrationError:
+		return false
+	}
+
+	let mut refusedEnv = false
+	let _ = ValidateEndpointPolicy(EndpointSpec{
+		Driver:           drv,
+		OriginOverride:   option.None,
+		PathOverride:     option.None,
+		ExtraHeaders:     []http.Field{},
+		EnvVars:          []EnvEntry{EnvEntry{Name: envName, Value: "https://evil.proxy"}},
+		ChatGPTAccountID: option.None,
+		Gate:             gate,
+	}) catch {
+	case ProxyOrSpoofRefusedError:
+		refusedEnv = true
+		EndpointPolicy{Driver: drv, Origin: "", Path: "", ChatGPTAccountID: option.None, ExtraHeaders: []http.Field{}}
+	case AntigravityDirectGatedError, NotDirectDriverError, AccountRotationRefusedError, MissingCredentialError, CapabilityUnsupportedError, TurnHeldByPoolError, AbortedAfterFirstDeltaError, ConcurrentTurnRefusedError, InvalidProviderConfigError, ProviderWireError, DirectLoopIntegrationError:
+		return false
+	}
+
+	let mut refusedHeader = false
+	let _ = ValidateEndpointPolicy(EndpointSpec{
+		Driver:           drv,
+		OriginOverride:   option.None,
+		PathOverride:     option.None,
+		ExtraHeaders:     []http.Field{http.Field{Name: hdrName, Value: "127.0.0.1"}},
+		EnvVars:          []EnvEntry{},
+		ChatGPTAccountID: option.None,
+		Gate:             gate,
+	}) catch {
+	case ProxyOrSpoofRefusedError:
+		refusedHeader = true
+		EndpointPolicy{Driver: drv, Origin: "", Path: "", ChatGPTAccountID: option.None, ExtraHeaders: []http.Field{}}
+	case AntigravityDirectGatedError, NotDirectDriverError, AccountRotationRefusedError, MissingCredentialError, CapabilityUnsupportedError, TurnHeldByPoolError, AbortedAfterFirstDeltaError, ConcurrentTurnRefusedError, InvalidProviderConfigError, ProviderWireError, DirectLoopIntegrationError:
+		return false
+	}
+
+	let mut refusedPath = false
+	let _ = ValidateEndpointPolicy(EndpointSpec{
+		Driver:           drv,
+		OriginOverride:   option.None,
+		PathOverride:     option.Some[string]{Value: "/../etc/passwd"},
+		ExtraHeaders:     []http.Field{},
+		EnvVars:          []EnvEntry{},
+		ChatGPTAccountID: option.None,
+		Gate:             gate,
+	}) catch {
+	case ProxyOrSpoofRefusedError:
+		refusedPath = true
+		EndpointPolicy{Driver: drv, Origin: "", Path: "", ChatGPTAccountID: option.None, ExtraHeaders: []http.Field{}}
+	case AntigravityDirectGatedError, NotDirectDriverError, AccountRotationRefusedError, MissingCredentialError, CapabilityUnsupportedError, TurnHeldByPoolError, AbortedAfterFirstDeltaError, ConcurrentTurnRefusedError, InvalidProviderConfigError, ProviderWireError, DirectLoopIntegrationError:
+		return false
+	}
+
+	refusedOrigin && refusedEnv && refusedHeader && refusedPath
+}
+
+// PinnedSessionNeverRotatesAccount proves a direct session refuses rotating to any other account.
+law PinnedSessionNeverRotatesAccount(a string, b string) {
+	let accA = session.AccountID("acc-a-" + a)
+	let accB = session.AccountID("acc-b-" + b)
+	let same = VerifyPinnedAccount(accA, accA) catch {
+	case AccountRotationRefusedError:
+		return false
+	}
+	let mut refused = false
+	let _ = VerifyPinnedAccount(accA, accB) catch {
+	case AccountRotationRefusedError as err:
+		refused = err.PinnedAccount == accA && err.AttemptedAccount == accB
+		false
+	}
+	let rot = NewPinnedRotationState(handle.ThreadID("th-pin"), accA, []session.AccountSlot{
+		session.AccountSlot{ID: accB, Priority: 2, Status: session.AccountHealthy},
+	}) catch {
+	case _:
+		return false
+	}
+	let mut rotRefused = false
+	let _ = session.StepRotation(rot, session.ActPoolSwitchAccount{Target: accB}) catch {
+	case session.FixedAccountPolicyRefusal as fp:
+		rotRefused = fp.Pinned == accA
+		rot
+	case session.NoEligibleHealthyAccount, session.RotationBlockedMidTurn, session.TurnRequiresOpenSession, session.DuplicateThreadSessionRefusal:
+		return false
+	}
+	same && refused && rotRefused
+}
+
+// OfficialOriginsAcceptAllFourSupportedProviders proves Codex, Console, Go, and Anthropic validate distinctly while Meta drivers fail.
+law OfficialOriginsAcceptAllFourSupportedProviders() {
+	let gate = DefaultOfficialSupportGate()
+	let specs = []adapter.DriverKind{
+		adapter.CodexDirect,
+		adapter.OpenCodeConsoleDirect,
+		adapter.OpenCodeGoDirect,
+		adapter.AnthropicDirect,
+	}
+	let mut paths = []string{}
+	for d in specs {
+		let pol = ValidateEndpointPolicy(EndpointSpec{
+			Driver:           d,
+			OriginOverride:   option.None,
+			PathOverride:     option.None,
+			ExtraHeaders:     []http.Field{},
+			EnvVars:          []EnvEntry{},
+			ChatGPTAccountID: option.None,
+			Gate:             gate,
+		}) catch {
+		case _:
+			return false
+		}
+		if !strings.HasPrefix(pol.Origin, "https://") {
+			return false
+		}
+		paths = paths.Append(pol.Path)
+	}
+	let mut metaRejected = false
+	let _ = OfficialOrigin(adapter.ClaudeMeta) catch {
+	case NotDirectDriverError:
+		metaRejected = true
+		""
+	case AntigravityDirectGatedError, ProxyOrSpoofRefusedError, AccountRotationRefusedError, MissingCredentialError, CapabilityUnsupportedError, TurnHeldByPoolError, AbortedAfterFirstDeltaError, ConcurrentTurnRefusedError, InvalidProviderConfigError, ProviderWireError, DirectLoopIntegrationError:
+		return false
+	}
+	metaRejected && paths.Len() == 4 && paths[1] != paths[2]
+}
+
+test PolicyCredentialsStayRedactedAndPinned {
+	let gate = DefaultOfficialSupportGate()
+	let pol = try ValidateEndpointPolicy(EndpointSpec{
+		Driver:           adapter.AnthropicDirect,
+		OriginOverride:   option.None,
+		PathOverride:     option.None,
+		ExtraHeaders:     []http.Field{},
+		EnvVars:          []EnvEntry{},
+		ChatGPTAccountID: option.None,
+		Gate:             gate,
+	})
+	let secret = "sk-ant-oat-secret-token"
+	let creds = try BuildCredentials(pol, session.AccountID("acc-anth"), BearerAuth{Token: config.NewRedacted(secret)})
+	assert creds.Len() == 1
+	let net = try http.InMemoryAt(pol.Origin, creds, func(r http.Request) http.Response needs http.Streaming {
+		match http.Header(r.Header, "Authorization") {
+		case option.Some[string] as v:
+			if v.Value == "Bearer "+secret {
+				return http.Response{Status: 200, Header: []http.Field{}, Body: "ok"}
+			}
+			http.Response{Status: 401, Header: []http.Field{}, Body: "bad"}
+		case option.None:
+			http.Response{Status: 401, Header: []http.Field{}, Body: "missing"}
+		}
+	})
+	let resp = try net.Send(http.Request{
+		Method:  "POST",
+		Path:    pol.Path,
+		RawPath: pol.Path,
+		Query:   []http.Field{},
+		Header:  []http.Field{},
+		Body:    http.Buffered{Text: "{}"},
+	})
+	assert resp.Status == 200 && resp.Body == "ok"
+
+	let mut crossOriginRejected = false
+	let _ = http.InMemoryAt("https://chatgpt.com", creds, func(_ http.Request) http.Response needs http.Streaming {
+		http.Response{Status: 200, Header: []http.Field{}, Body: ""}
+	}) catch {
+	case http.InvalidClient:
+		crossOriginRejected = true
+		try http.InMemoryAt("https://chatgpt.com", []http.Credential{}, func(_ http.Request) http.Response needs http.Streaming {
+			http.Response{Status: 200, Header: []http.Field{}, Body: ""}
+		})
+	}
+	assert crossOriginRejected
+}

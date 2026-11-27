@@ -1,0 +1,684 @@
+import github.com/cevr/ergo/modules/atlas/adapter
+import http
+import json
+import llm
+import option
+import strings
+
+func codexInputItems(msgs []llm.Message) []json.Value {
+	let mut items = []json.Value{}
+	for m in msgs {
+		match m {
+		case llm.User as u:
+			let content = JSONArray([]json.Value{
+				JSONObject([]json.Member{
+					json.Member{Key: "type", Value: JSONString("input_text")},
+					json.Member{Key: "text", Value: JSONString(u.Text)},
+				}),
+			})
+			items = items.Append(JSONObject([]json.Member{
+				json.Member{Key: "role", Value: JSONString("user")},
+				json.Member{Key: "content", Value: content},
+			}))
+		case llm.Assistant as a:
+			if a.Text != "" {
+				let content = JSONArray([]json.Value{
+					JSONObject([]json.Member{
+						json.Member{Key: "type", Value: JSONString("output_text")},
+						json.Member{Key: "text", Value: JSONString(a.Text)},
+					}),
+				})
+				items = items.Append(JSONObject([]json.Member{
+					json.Member{Key: "type", Value: JSONString("message")},
+					json.Member{Key: "role", Value: JSONString("assistant")},
+					json.Member{Key: "content", Value: content},
+				}))
+			}
+			for c in a.Calls {
+				let args = if strings.TrimSpace(c.Arguments) == "" { "{}" } else { c.Arguments }
+				items = items.Append(JSONObject([]json.Member{
+					json.Member{Key: "type", Value: JSONString("function_call")},
+					json.Member{Key: "call_id", Value: JSONString(c.Id)},
+					json.Member{Key: "name", Value: JSONString(c.Name)},
+					json.Member{Key: "arguments", Value: JSONString(args)},
+				}))
+			}
+		case llm.Result as res:
+			items = items.Append(JSONObject([]json.Member{
+				json.Member{Key: "type", Value: JSONString("function_call_output")},
+				json.Member{Key: "call_id", Value: JSONString(res.CallId)},
+				json.Member{Key: "output", Value: JSONString(res.Text)},
+			}))
+		}
+	}
+	items
+}
+
+func codexToolDefinitions(tools []llm.ToolSpec) []json.Value {
+	let mut out = []json.Value{}
+	for t in tools {
+		out = out.Append(JSONObject([]json.Member{
+			json.Member{Key: "type", Value: JSONString("function")},
+			json.Member{Key: "name", Value: JSONString(t.Name)},
+			json.Member{Key: "description", Value: JSONString(t.Description)},
+			json.Member{Key: "parameters", Value: EncodeToolSchemaValue(t)},
+			json.Member{Key: "strict", Value: JSONBool(false)},
+		}))
+	}
+	out
+}
+
+func codexToolChoiceValue(choice llm.Choice) json.Value {
+	match choice {
+	case llm.Auto:
+		JSONString("auto")
+	case llm.NoTools:
+		JSONString("none")
+	case llm.AnyTool:
+		JSONString("required")
+	case llm.Named as n:
+		JSONObject([]json.Member{
+			json.Member{Key: "type", Value: JSONString("function")},
+			json.Member{Key: "name", Value: JSONString(n.Name)},
+		})
+	}
+}
+
+// BuildCodexRequest encodes r into the Codex Responses API JSON body and validates schema constraints.
+func BuildCodexRequest(policy EndpointPolicy, model adapter.ModelID, r llm.Request) string fails llm.UnsupportedSchema | llm.InvalidRequest {
+	match policy.Driver {
+	case adapter.CodexDirect:
+	case _:
+		return llm.InvalidRequest{Reason: "codex wire builder requires CodexDirect driver"}
+	}
+	let modelText = strings.TrimSpace(string(model))
+	if modelText == "" {
+		return llm.InvalidRequest{Reason: "model id cannot be empty"}
+	}
+	let mut members = []json.Member{
+		json.Member{Key: "model", Value: JSONString(modelText)},
+		json.Member{Key: "instructions", Value: JSONString(r.System)},
+		json.Member{Key: "input", Value: JSONArray(codexInputItems(r.Messages))},
+		json.Member{Key: "store", Value: JSONBool(false)},
+		json.Member{Key: "stream", Value: JSONBool(true)},
+	}
+	if r.Tools.Len() > 0 {
+		members = members.Append(json.Member{Key: "tools", Value: JSONArray(codexToolDefinitions(r.Tools))})
+		members = members.Append(json.Member{Key: "tool_choice", Value: codexToolChoiceValue(r.Choice)})
+	}
+	match r.Format {
+	case llm.Prose:
+	case llm.JSON as j:
+		let schemaVal = try ParseSchemaValue(j.Schema)
+		let fmtObj = JSONObject([]json.Member{
+			json.Member{
+				Key:   "format",
+				Value: JSONObject([]json.Member{
+					json.Member{Key: "type", Value: JSONString("json_schema")},
+					json.Member{Key: "name", Value: JSONString("response")},
+					json.Member{Key: "schema", Value: schemaVal},
+					json.Member{Key: "strict", Value: JSONBool(true)},
+				}),
+			},
+		})
+		members = members.Append(json.Member{Key: "text", Value: fmtObj})
+	}
+	EncodeJSONValue(JSONObject(members))
+}
+
+// CodexHTTPHeaders builds non-secret Codex Responses request headers from policy.
+func CodexHTTPHeaders(policy EndpointPolicy) []http.Field {
+	let mut headers = []http.Field{
+		http.Field{Name: "Content-Type", Value: "application/json"},
+		http.Field{Name: "Accept", Value: "text/event-stream"},
+		http.Field{Name: "OpenAI-Beta", Value: "responses=experimental"},
+		http.Field{Name: "originator", Value: "atlas"},
+	}
+	match policy.ChatGPTAccountID {
+	case option.Some[string] as acc:
+		headers = headers.Append(http.Field{Name: "ChatGPT-Account-Id", Value: acc.Value})
+	case option.None:
+	}
+	for f in policy.ExtraHeaders {
+		headers = headers.Append(f)
+	}
+	headers
+}
+
+type codexTrackedCall {
+	ItemID      string,
+	CallID      string,
+	Name        string,
+	Index       int,
+	ArgsEmitted bool,
+	Closed      bool,
+}
+
+// CodexStreamParser accumulates incremental Responses SSE events into llm.Delta emissions.
+type CodexStreamParser {
+	Emitted      []llm.Delta,
+	TrackedCalls []codexTrackedCall,
+	NextCallIdx  int,
+	SawTextDelta bool,
+	Completed    bool,
+	StopHint     string,
+	Usage        llm.Usage,
+	Failure      option.Option[llm.Failure],
+}
+
+// NewCodexStreamParser creates a fresh Codex SSE stream accumulator.
+func NewCodexStreamParser() CodexStreamParser {
+	CodexStreamParser{
+		Emitted:      []llm.Delta{},
+		TrackedCalls: []codexTrackedCall{},
+		NextCallIdx:  0,
+		SawTextDelta: false,
+		Completed:    false,
+		StopHint:     "completed",
+		Usage:        llm.Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0},
+		Failure:      option.None,
+	}
+}
+
+type codexSSEKind = codexEvCreated{} | codexEvTextDelta{} | codexEvReasoningDelta{} | codexEvItemAdded{} | codexEvArgsDelta{} | codexEvItemDone{} | codexEvCompleted{} | codexEvIncomplete{} | codexEvFailed{} | codexEvError{} | codexEvIgnored{}
+
+type codexSSEKindRow {
+	Tag  string,
+	Kind codexSSEKind,
+}
+
+func codexSSEKindTable() []codexSSEKindRow {
+	[]codexSSEKindRow{
+		codexSSEKindRow{Tag: "response.created", Kind: codexEvCreated},
+		codexSSEKindRow{Tag: "response.in_progress", Kind: codexEvCreated},
+		codexSSEKindRow{Tag: "response.output_text.delta", Kind: codexEvTextDelta},
+		codexSSEKindRow{Tag: "response.reasoning_text.delta", Kind: codexEvReasoningDelta},
+		codexSSEKindRow{Tag: "response.reasoning_summary_text.delta", Kind: codexEvReasoningDelta},
+		codexSSEKindRow{Tag: "response.output_item.added", Kind: codexEvItemAdded},
+		codexSSEKindRow{Tag: "response.function_call_arguments.delta", Kind: codexEvArgsDelta},
+		codexSSEKindRow{Tag: "response.output_item.done", Kind: codexEvItemDone},
+		codexSSEKindRow{Tag: "response.completed", Kind: codexEvCompleted},
+		codexSSEKindRow{Tag: "response.done", Kind: codexEvCompleted},
+		codexSSEKindRow{Tag: "response.incomplete", Kind: codexEvIncomplete},
+		codexSSEKindRow{Tag: "response.failed", Kind: codexEvFailed},
+		codexSSEKindRow{Tag: "error", Kind: codexEvError},
+	}
+}
+
+func resolveCodexSSEKind(evType string, sseEvent string) codexSSEKind {
+	let target = if evType != "" { evType } else { sseEvent }
+	for row in codexSSEKindTable() {
+		if row.Tag == target {
+			return row.Kind
+		}
+	}
+	codexEvIgnored
+}
+
+func parseCodexUsage(respVal json.Value) llm.Usage {
+	match JSONField(respVal, "usage") {
+	case option.Some[json.Value] as uVal:
+		let inTok = optionOrZeroInt(JSONIntField(uVal.Value, "input_tokens"))
+		let outTok = optionOrZeroInt(JSONIntField(uVal.Value, "output_tokens"))
+		let cachedTok = match JSONField(uVal.Value, "input_tokens_details") {
+		case option.Some[json.Value] as det:
+			optionOrZeroInt(JSONIntField(det.Value, "cached_tokens"))
+		case option.None:
+			0
+		}
+		llm.Usage{Input: inTok, Output: outTok, CacheRead: cachedTok, CacheWrite: 0}
+	case option.None:
+		llm.Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}
+	}
+}
+
+func optionOrZeroInt(opt option.Option[int64]) int {
+	match opt {
+	case option.Some[int64] as v:
+		int(v.Value)
+	case option.None:
+		0
+	}
+}
+
+func emitCodexDelta[E](st CodexStreamParser, d llm.Delta, put func(d llm.Delta) fails E) CodexStreamParser fails E {
+	try put(d)
+	CodexStreamParser{..st, Emitted: st.Emitted.Append(d)}
+}
+
+func findCodexTrackedIndex(calls []codexTrackedCall, itemID string, callID string) option.Option[int] {
+	for i, c in calls {
+		if itemID != "" && c.ItemID == itemID {
+			return option.Some[int]{Value: i}
+		}
+		if callID != "" && c.CallID == callID {
+			return option.Some[int]{Value: i}
+		}
+	}
+	option.None
+}
+
+func onCodexOutputItemAdded[E](st CodexStreamParser, payload json.Value, put func(d llm.Delta) fails E) CodexStreamParser fails E {
+	let item = match JSONField(payload, "item") {
+	case option.Some[json.Value] as iv:
+		iv.Value
+	case option.None:
+		return st
+	}
+	let itemType = optionStringOrEmpty(JSONStringField(item, "type"))
+	if itemType != "function_call" {
+		return st
+	}
+	let itemID = optionStringOrEmpty(JSONStringField(item, "id"))
+	let callID = firstNonEmptyString(optionStringOrEmpty(JSONStringField(item, "call_id")), itemID)
+	let name = optionStringOrEmpty(JSONStringField(item, "name"))
+	let idx = st.NextCallIdx
+	let next = CodexStreamParser{
+		..st,
+		NextCallIdx:  idx + 1,
+		TrackedCalls: st.TrackedCalls.Append(codexTrackedCall{
+			ItemID:      itemID,
+			CallID:      callID,
+			Name:        name,
+			Index:       idx,
+			ArgsEmitted: false,
+			Closed:      false,
+		}),
+	}
+	try emitCodexDelta(next, llm.CallStart{Index: idx, Id: callID, Name: name}, put)
+}
+
+func onCodexArgsDelta[E](st CodexStreamParser, payload json.Value, put func(d llm.Delta) fails E) CodexStreamParser fails E {
+	let delta = match JSONStringField(payload, "delta") {
+	case option.Some[string] as d:
+		d.Value
+	case option.None:
+		return st
+	}
+	let itemID = optionStringOrEmpty(JSONStringField(payload, "item_id"))
+	let callID = optionStringOrEmpty(JSONStringField(payload, "call_id"))
+	match findCodexTrackedIndex(st.TrackedCalls, itemID, callID) {
+	case option.Some[int] as slotIdx:
+		let callIdx = st.TrackedCalls[slotIdx.Value].Index
+		let mut updated = st.TrackedCalls
+		let prev = updated[slotIdx.Value]
+		updated[slotIdx.Value] = codexTrackedCall{
+			ItemID:      prev.ItemID,
+			CallID:      prev.CallID,
+			Name:        prev.Name,
+			Index:       prev.Index,
+			ArgsEmitted: prev.ArgsEmitted || delta != "",
+			Closed:      prev.Closed,
+		}
+		let next = CodexStreamParser{..st, TrackedCalls: updated}
+		try emitCodexDelta(next, llm.CallArgs{Index: callIdx, Text: delta}, put)
+	case option.None:
+		let idx = st.NextCallIdx
+		let synthID = firstNonEmptyString(callID, itemID)
+		let added = CodexStreamParser{
+			..st,
+			NextCallIdx:  idx + 1,
+			TrackedCalls: st.TrackedCalls.Append(codexTrackedCall{
+				ItemID:      itemID,
+				CallID:      synthID,
+				Name:        "",
+				Index:       idx,
+				ArgsEmitted: delta != "",
+				Closed:      false,
+			}),
+		}
+		let started = try emitCodexDelta(added, llm.CallStart{Index: idx, Id: synthID, Name: ""}, put)
+		try emitCodexDelta(started, llm.CallArgs{Index: idx, Text: delta}, put)
+	}
+}
+
+func extractCodexMessageText(item json.Value) string {
+	let mut out = ""
+	for part in JSONArrayField(item, "content") {
+		let pType = optionStringOrEmpty(JSONStringField(part, "type"))
+		if pType == "output_text" || pType == "text" {
+			out = out + optionStringOrEmpty(JSONStringField(part, "text"))
+		}
+	}
+	out
+}
+
+func onCodexFunctionCallDone[E](st CodexStreamParser, item json.Value, put func(d llm.Delta) fails E) CodexStreamParser fails E {
+	let itemID = optionStringOrEmpty(JSONStringField(item, "id"))
+	let callID = firstNonEmptyString(optionStringOrEmpty(JSONStringField(item, "call_id")), itemID)
+	let name = optionStringOrEmpty(JSONStringField(item, "name"))
+	let fullArgs = optionStringOrEmpty(JSONStringField(item, "arguments"))
+	match findCodexTrackedIndex(st.TrackedCalls, itemID, callID) {
+	case option.Some[int] as slotIdx:
+		let prev = st.TrackedCalls[slotIdx.Value]
+		let mut cur = st
+		if !prev.ArgsEmitted && fullArgs != "" {
+			cur = try emitCodexDelta(cur, llm.CallArgs{Index: prev.Index, Text: fullArgs}, put)
+		}
+		if !prev.Closed {
+			cur = try emitCodexDelta(cur, llm.CallEnd{Index: prev.Index}, put)
+		}
+		let mut updated = cur.TrackedCalls
+		updated[slotIdx.Value] = codexTrackedCall{
+			ItemID:      prev.ItemID,
+			CallID:      firstNonEmptyString(prev.CallID, callID),
+			Name:        firstNonEmptyString(prev.Name, name),
+			Index:       prev.Index,
+			ArgsEmitted: prev.ArgsEmitted || fullArgs != "",
+			Closed:      true,
+		}
+		CodexStreamParser{..cur, TrackedCalls: updated}
+	case option.None:
+		let idx = st.NextCallIdx
+		let added = CodexStreamParser{
+			..st,
+			NextCallIdx:  idx + 1,
+			TrackedCalls: st.TrackedCalls.Append(codexTrackedCall{
+				ItemID:      itemID,
+				CallID:      callID,
+				Name:        name,
+				Index:       idx,
+				ArgsEmitted: fullArgs != "",
+				Closed:      true,
+			}),
+		}
+		let mut cur = try emitCodexDelta(added, llm.CallStart{Index: idx, Id: callID, Name: name}, put)
+		if fullArgs != "" {
+			cur = try emitCodexDelta(cur, llm.CallArgs{Index: idx, Text: fullArgs}, put)
+		}
+		try emitCodexDelta(cur, llm.CallEnd{Index: idx}, put)
+	}
+}
+
+func onCodexOutputItemDone[E](st CodexStreamParser, payload json.Value, put func(d llm.Delta) fails E) CodexStreamParser fails E {
+	let item = match JSONField(payload, "item") {
+	case option.Some[json.Value] as iv:
+		iv.Value
+	case option.None:
+		return st
+	}
+	let itemType = optionStringOrEmpty(JSONStringField(item, "type"))
+	if itemType == "function_call" {
+		return try onCodexFunctionCallDone(st, item, put)
+	}
+	if itemType == "message" && !st.SawTextDelta {
+		let txt = extractCodexMessageText(item)
+		if txt != "" {
+			let marked = CodexStreamParser{..st, SawTextDelta: true}
+			return try emitCodexDelta(marked, llm.Text{Text: txt}, put)
+		}
+	}
+	st
+}
+
+func mapCodexStreamError(payload json.Value) llm.Failure {
+	let target = match JSONField(payload, "response") {
+	case option.Some[json.Value] as resp:
+		resp.Value
+	case option.None:
+		payload
+	}
+	let encoded = EncodeJSONValue(target)
+	let mapped = ClassifyHTTPFailure(500, []http.Field{}, encoded, int64(0))
+	let details = ExtractErrorDetails(encoded)
+	let codeText = optionStringOrEmpty(details.Code)
+	if containsAnyKeyword(codeText+" "+details.Message, []string{"rate_limit", "too_many_requests", "usage_limit"}) {
+		return llm.RateLimited{After: option.None}
+	}
+	if containsAnyKeyword(codeText+" "+details.Message, []string{"schema", "json_schema"}) {
+		return llm.UnsupportedSchema{Reason: details.Message}
+	}
+	if containsAnyKeyword(codeText+" "+details.Message, []string{"invalid_request", "invalid_argument"}) {
+		return llm.InvalidRequest{Reason: details.Message}
+	}
+	if containsAnyKeyword(codeText+" "+details.Message, []string{"overloaded", "server_error"}) {
+		return llm.Overloaded
+	}
+	if details.Message != "" && details.Message != "empty error response" {
+		return llm.Refused{Reason: details.Message}
+	}
+	mapped.LLM
+}
+
+func onCodexTerminalResponse(st CodexStreamParser, payload json.Value, incomplete bool) CodexStreamParser {
+	let respVal = match JSONField(payload, "response") {
+	case option.Some[json.Value] as rv:
+		rv.Value
+	case option.None:
+		payload
+	}
+	let usage = parseCodexUsage(respVal)
+	let statusText = optionStringOrEmpty(JSONStringField(respVal, "status"))
+	if incomplete || statusText == "incomplete" {
+		let reason = match JSONField(respVal, "incomplete_details") {
+		case option.Some[json.Value] as det:
+			optionStringOrEmpty(JSONStringField(det.Value, "reason"))
+		case option.None:
+			"incomplete"
+		}
+		if reason == "max_output_tokens" || reason == "content_filter" {
+			return CodexStreamParser{..st, Usage: usage, StopHint: reason, Completed: true}
+		}
+		return CodexStreamParser{..st, Usage: usage, Completed: false}
+	}
+	CodexStreamParser{..st, Usage: usage, StopHint: firstNonEmptyString(statusText, "completed"), Completed: true}
+}
+
+// FeedCodexSSEEvent applies one parsed SSE event from Codex Responses and emits llm.Delta updates.
+func FeedCodexSSEEvent[E](st CodexStreamParser, ev http.ServerEvent, put func(d llm.Delta) fails E) CodexStreamParser fails llm.InvalidResponse | E {
+	let trimmed = strings.TrimSpace(ev.Data)
+	if trimmed == "" || trimmed == "[DONE]" {
+		return st
+	}
+	let payload = try DecodeJSONObject(trimmed)
+	let evType = optionStringOrEmpty(JSONStringField(payload, "type"))
+	let kind = resolveCodexSSEKind(evType, ev.Event)
+	match kind {
+	case codexEvCreated, codexEvIgnored:
+		st
+	case codexEvTextDelta:
+		match JSONStringField(payload, "delta") {
+		case option.Some[string] as d:
+			let marked = CodexStreamParser{..st, SawTextDelta: true}
+			try emitCodexDelta(marked, llm.Text{Text: d.Value}, put)
+		case option.None:
+			st
+		}
+	case codexEvReasoningDelta:
+		match JSONStringField(payload, "delta") {
+		case option.Some[string] as d:
+			try emitCodexDelta(st, llm.Reasoning{Text: d.Value}, put)
+		case option.None:
+			st
+		}
+	case codexEvItemAdded:
+		try onCodexOutputItemAdded(st, payload, put)
+	case codexEvArgsDelta:
+		try onCodexArgsDelta(st, payload, put)
+	case codexEvItemDone:
+		try onCodexOutputItemDone(st, payload, put)
+	case codexEvCompleted:
+		onCodexTerminalResponse(st, payload, false)
+	case codexEvIncomplete:
+		onCodexTerminalResponse(st, payload, true)
+	case codexEvFailed, codexEvError:
+		CodexStreamParser{..st, Failure: option.Some[llm.Failure]{Value: mapCodexStreamError(payload)}}
+	}
+}
+
+// FinishCodexStream finalizes a Codex SSE stream, returning Truncated if incomplete or any call remained open.
+func FinishCodexStream(st CodexStreamParser) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema {
+	let draft = llm.Fold(st.Emitted)
+	match st.Failure {
+	case option.Some[llm.Failure] as f:
+		match f.Value {
+		case llm.RateLimited as x:
+			return x
+		case llm.Overloaded as x:
+			return x
+		case llm.Unauthorized as x:
+			return x
+		case llm.Refused as x:
+			return x
+		case llm.Truncated as x:
+			return x
+		case llm.Transport as x:
+			return x
+		case llm.InvalidRequest as x:
+			return x
+		case llm.InvalidResponse as x:
+			return x
+		case llm.UnsupportedSchema as x:
+			return x
+		}
+	case option.None:
+	}
+	if !st.Completed || draft.Open.Len() > 0 {
+		return llm.Truncated{Text: draft.Text}
+	}
+	let stop = NormalizeFinishReason(st.StopHint, draft.Calls.Len() > 0)
+	try ValidateCompletedTurn(llm.Turn{
+		Text:  draft.Text,
+		Calls: draft.Calls,
+		Stop:  stop,
+		Usage: st.Usage,
+	})
+}
+
+func optionStringOrEmpty(opt option.Option[string]) string {
+	match opt {
+	case option.Some[string] as s:
+		s.Value
+	case option.None:
+		""
+	}
+}
+
+func firstNonEmptyString(a string, b string) string {
+	if strings.TrimSpace(a) != "" {
+		return a
+	}
+	b
+}
+
+func splitSSEAndReplay(sseBody string, chunkSize int) (CodexStreamParser, []llm.Delta) fails llm.InvalidResponse {
+	let mut reader = http.NewEventReader()
+	let mut parser = NewCodexStreamParser()
+	let mut deltas = []llm.Delta{}
+	let step = if chunkSize <= 0 { 1 } else { chunkSize }
+	let mut pos = 0
+	for pos < sseBody.Len() {
+		let nextPos = if pos+step > sseBody.Len() { sseBody.Len() } else { pos + step }
+		let part = strings.Slice(sseBody, pos, nextPos)
+		let (nextReader, events) = reader.Feed(part)
+		reader = nextReader
+		for ev in events {
+			parser = try FeedCodexSSEEvent(parser, ev, func(d llm.Delta) {
+				deltas = deltas.Append(d)
+			})
+		}
+		pos = nextPos
+	}
+	match reader.End() {
+	case option.Some[http.Truncated]:
+		return (parser, deltas)
+	case option.None:
+		(parser, deltas)
+	}
+}
+
+law CodexSSEChunkingInvariantAndFoldAgreement(partA string, partB string, chunkA int, chunkB int) {
+	let events = []http.ServerEvent{
+		http.ServerEvent{Event: "response.output_text.delta", Data: EncodeJSONValue(JSONObject([]json.Member{json.Member{Key: "type", Value: JSONString("response.output_text.delta")}, json.Member{Key: "delta", Value: JSONString(partA)}})), ID: ""},
+		http.ServerEvent{Event: "response.output_text.delta", Data: EncodeJSONValue(JSONObject([]json.Member{json.Member{Key: "type", Value: JSONString("response.output_text.delta")}, json.Member{Key: "delta", Value: JSONString(partB)}})), ID: ""},
+		http.ServerEvent{Event: "response.output_item.added", Data: `{"type":"response.output_item.added","item":{"id":"fc_1","type":"function_call","call_id":"call_1","name":"read"}}`, ID: ""},
+		http.ServerEvent{Event: "response.function_call_arguments.delta", Data: `{"type":"response.function_call_arguments.delta","item_id":"fc_1","delta":"{\"path\":\"a\"}"}`, ID: ""},
+		http.ServerEvent{Event: "response.output_item.done", Data: `{"type":"response.output_item.done","item":{"id":"fc_1","type":"function_call","call_id":"call_1","name":"read","arguments":"{\"path\":\"a\"}"}}`, ID: ""},
+		http.ServerEvent{Event: "response.completed", Data: `{"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":12,"output_tokens":7}}}`, ID: ""},
+	}
+	let sseText = http.WriteEvents(events) catch {
+	case http.Unwritable:
+		return false
+	}
+	let cA = (if chunkA < 0 { -chunkA } else { chunkA })%17 + 1
+	let cB = (if chunkB < 0 { -chunkB } else { chunkB })%19 + 1
+	let (p1, d1) = splitSSEAndReplay(sseText, cA) catch {
+	case llm.InvalidResponse:
+		return false
+	}
+	let (p2, d2) = splitSSEAndReplay(sseText, cB) catch {
+	case llm.InvalidResponse:
+		return false
+	}
+	let t1 = FinishCodexStream(p1) catch {
+	case llm.RateLimited, llm.Overloaded, llm.Unauthorized, llm.Refused, llm.Truncated, llm.Transport, llm.InvalidRequest, llm.InvalidResponse, llm.UnsupportedSchema:
+		return false
+	}
+	let t2 = FinishCodexStream(p2) catch {
+	case llm.RateLimited, llm.Overloaded, llm.Unauthorized, llm.Refused, llm.Truncated, llm.Transport, llm.InvalidRequest, llm.InvalidResponse, llm.UnsupportedSchema:
+		return false
+	}
+	let folded = llm.Fold(d1)
+		t1 == t2 &&
+		d1 == d2 &&
+		t1.Text == partA+partB &&
+		t1.Text == folded.Text &&
+		t1.Calls == folded.Calls &&
+		t1.Calls.Len() == 1 &&
+		t1.Calls[0].Arguments == `{"path":"a"}`
+}
+
+law CodexTruncatedStreamPreservesPartialText(prefix string) {
+	let events = []http.ServerEvent{
+		http.ServerEvent{Event: "response.output_text.delta", Data: EncodeJSONValue(JSONObject([]json.Member{json.Member{Key: "type", Value: JSONString("response.output_text.delta")}, json.Member{Key: "delta", Value: JSONString(prefix)}})), ID: ""},
+		http.ServerEvent{Event: "response.output_item.added", Data: `{"type":"response.output_item.added","item":{"id":"fc_open","type":"function_call","call_id":"call_open","name":"grep"}}`, ID: ""},
+	}
+	let sseText = http.WriteEvents(events) catch {
+	case http.Unwritable:
+		return false
+	}
+	let (parser, deltas) = splitSSEAndReplay(sseText, 11) catch {
+	case llm.InvalidResponse:
+		return false
+	}
+	let mut sawTruncated = false
+	let mut preservedText = ""
+	let _ = FinishCodexStream(parser) catch {
+	case llm.Truncated as tr:
+		sawTruncated = true
+		preservedText = tr.Text
+		llm.Turn{Text: "", Calls: []llm.Call{}, Stop: llm.Ended, Usage: llm.Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
+	case llm.RateLimited, llm.Overloaded, llm.Unauthorized, llm.Refused, llm.Transport, llm.InvalidRequest, llm.InvalidResponse, llm.UnsupportedSchema:
+		return false
+	}
+	sawTruncated && preservedText == prefix && llm.Fold(deltas).Text == prefix
+}
+
+test CodexFramingEncodesSystemToolsAndErrors {
+	let pol = try ValidateEndpointPolicy(EndpointSpec{
+		Driver:           adapter.CodexDirect,
+		OriginOverride:   option.None,
+		PathOverride:     option.None,
+		ExtraHeaders:     []http.Field{},
+		EnvVars:          []EnvEntry{},
+		ChatGPTAccountID: option.Some[string]{Value: "org_chatgpt_123"},
+		Gate:             DefaultOfficialSupportGate(),
+	})
+	let hdrs = CodexHTTPHeaders(pol)
+	assert HeaderFolded(hdrs, "ChatGPT-Account-Id") == option.Some[string]{Value: "org_chatgpt_123"}
+	assert HeaderFolded(hdrs, "OpenAI-Beta") == option.Some[string]{Value: "responses=experimental"}
+
+	let body = try BuildCodexRequest(pol, adapter.ModelID("gpt-5.4"), llm.Request{
+		System:    "be concise",
+		Messages:  []llm.Message{llm.User{Text: "hi"}},
+		Tools:     []llm.ToolSpec{},
+		Choice:    llm.Auto,
+		Format:    llm.Prose,
+		MaxTokens: 0,
+	})
+	let parsed = try DecodeJSONObject(body)
+	assert JSONStringField(parsed, "model") == option.Some[string]{Value: "gpt-5.4"}
+	assert JSONStringField(parsed, "instructions") == option.Some[string]{Value: "be concise"}
+	assert JSONBoolField(parsed, "stream") == option.Some[bool]{Value: true}
+	assert JSONBoolField(parsed, "store") == option.Some[bool]{Value: false}
+}

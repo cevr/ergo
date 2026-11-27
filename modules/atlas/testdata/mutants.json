@@ -1539,6 +1539,189 @@
       "killers": [
         "modules/atlas/direct:law:DirectSubagentAndDriverGateLaw"
       ]
+    },
+    {
+      "name": "atlas-provider-direct-enables-antigravity-by-default",
+      "origin": "ATLAS-PROVIDER-DIRECT",
+      "file": "modules/atlas/providers/direct/policy.ergo",
+      "decl": "DefaultOfficialSupportGate",
+      "from": "\tOfficialSupportGate{AntigravityDirectSupported: false}",
+      "to": "\tOfficialSupportGate{AntigravityDirectSupported: true}",
+      "rule": "Default official support gate must keep Antigravity/Gemini direct explicitly gated off unless officially supported.",
+      "killers": [
+        "modules/atlas/providers/direct:law:AntigravityDirectGatedOffByDefault",
+        "modules/atlas/providers/direct:law:DirectClientWiresIntoDirectLoopWithoutEmulation"
+      ]
+    },
+    {
+      "name": "atlas-provider-direct-allows-proxy-origin-override",
+      "origin": "ATLAS-PROVIDER-DIRECT",
+      "file": "modules/atlas/providers/direct/policy.ergo",
+      "decl": "validateOriginOverride",
+      "from": "\t\tif trimmed == \"\" || !strings.EqualFold(trimmed, official) {",
+      "to": "\t\tif false && (trimmed == \"\" || !strings.EqualFold(trimmed, official)) {",
+      "rule": "Direct providers must never accept custom base URLs or proxy origins (spec §0 never proxy).",
+      "killers": [
+        "modules/atlas/providers/direct:law:ProxyAndBaseUrlOverridesRefused"
+      ]
+    },
+    {
+      "name": "atlas-provider-direct-allows-proxy-headers-and-env",
+      "origin": "ATLAS-PROVIDER-DIRECT",
+      "file": "modules/atlas/providers/direct/policy.ergo",
+      "decl": "validateExtraHeadersAndEnv",
+      "from": "\t\tif isForbiddenProxyHeader(h.Name) {",
+      "to": "\t\tif false && isForbiddenProxyHeader(h.Name) {",
+      "rule": "Direct providers must reject proxy forwarding, host-override, and raw credential headers.",
+      "killers": [
+        "modules/atlas/providers/direct:law:ProxyAndBaseUrlOverridesRefused"
+      ]
+    },
+    {
+      "name": "atlas-provider-direct-allows-account-rotation",
+      "origin": "ATLAS-PROVIDER-DIRECT",
+      "file": "modules/atlas/providers/direct/policy.ergo",
+      "decl": "VerifyPinnedAccount",
+      "from": "\tif pinned != requested {",
+      "to": "\tif false && pinned != requested {",
+      "rule": "Pinned direct sessions must never rotate or switch accounts mid-session (spec §0 never account rotation).",
+      "killers": [
+        "modules/atlas/providers/direct:law:PinnedSessionNeverRotatesAccount"
+      ]
+    },
+    {
+      "name": "atlas-provider-direct-conflates-opencode-go-and-console-paths",
+      "origin": "ATLAS-PROVIDER-DIRECT",
+      "file": "modules/atlas/providers/direct/policy.ergo",
+      "decl": "OfficialPath",
+      "from": "\tcase adapter.OpenCodeGoDirect:\n\t\t\"/zen/go/v1/chat/completions\"",
+      "to": "\tcase adapter.OpenCodeGoDirect:\n\t\t\"/zen/v1/chat/completions\"",
+      "rule": "OpenCode Go and OpenCode Console must retain distinct official subscription API paths.",
+      "killers": [
+        "modules/atlas/providers/direct:law:OpenCodeConsoleAndGoStayEndpointIsolated",
+        "modules/atlas/providers/direct:law:OfficialOriginsAcceptAllFourSupportedProviders"
+      ]
+    },
+    {
+      "name": "atlas-provider-direct-clears-rate-limit-reset-timestamp",
+      "origin": "ATLAS-PROVIDER-DIRECT",
+      "file": "modules/atlas/providers/direct/wire_common.ergo",
+      "decl": "ClassifyHTTPFailure",
+      "from": "\t\t\tTurn:      turn.FailureUsageLimit{ResetAtMs: resolveRateLimitResetMs(rate, nowMs)},",
+      "to": "\t\t\tTurn:      turn.FailureProvider,",
+      "rule": "HTTP 429 rate-limit failures must classify as FailureUsageLimit preserving computed future ResetAtMs.",
+      "killers": [
+        "modules/atlas/providers/direct:law:HTTPStatusClassificationMatchesSafetyAndReset"
+      ]
+    },
+    {
+      "name": "atlas-provider-direct-accepts-duplicate-tool-call-ids",
+      "origin": "ATLAS-PROVIDER-DIRECT",
+      "file": "modules/atlas/providers/direct/wire_common.ergo",
+      "decl": "ValidateCompletedTurn",
+      "from": "\t\tfor prev in seenIDs {\n\t\t\tif prev == c.Id {\n\t\t\t\treturn llm.InvalidResponse{Reason: \"duplicate tool call id: \\(c.Id)\"}\n\t\t\t}\n\t\t}",
+      "to": "\t\tfor prev in seenIDs {\n\t\t\tif false && prev == c.Id {\n\t\t\t\treturn llm.InvalidResponse{Reason: \"duplicate tool call id: \\(c.Id)\"}\n\t\t\t}\n\t\t}",
+      "rule": "Completed model turns must reject duplicate tool-call IDs.",
+      "killers": [
+        "modules/atlas/providers/direct:CompletedTurnValidationRejectsDuplicateCallIDs"
+      ]
+    },
+    {
+      "name": "atlas-provider-direct-codex-truncated-returns-empty-text",
+      "origin": "ATLAS-PROVIDER-DIRECT",
+      "file": "modules/atlas/providers/direct/wire_codex.ergo",
+      "decl": "FinishCodexStream",
+      "from": "\tif !st.Completed || draft.Open.Len() > 0 {\n\t\treturn llm.Truncated{Text: draft.Text}\n\t}",
+      "to": "\tif !st.Completed || draft.Open.Len() > 0 {\n\t\treturn llm.Truncated{Text: \"\"}\n\t}",
+      "rule": "Truncated Codex Responses streams must preserve partial delta text already emitted.",
+      "killers": [
+        "modules/atlas/providers/direct:law:CodexTruncatedStreamPreservesPartialText"
+      ]
+    },
+    {
+      "name": "atlas-provider-direct-anthropic-truncated-drops-partial-text",
+      "origin": "ATLAS-PROVIDER-DIRECT",
+      "file": "modules/atlas/providers/direct/wire_anthropic.ergo",
+      "decl": "FinishAnthropicStream",
+      "from": "\tif !st.Completed || draft.Open.Len() > 0 {\n\t\treturn llm.Truncated{Text: draft.Text}\n\t}",
+      "to": "\tif !st.Completed || draft.Open.Len() > 0 {\n\t\treturn llm.Truncated{Text: \"\"}\n\t}",
+      "rule": "Truncated Anthropic Messages streams must preserve partial delta text already emitted.",
+      "killers": [
+        "modules/atlas/providers/direct:law:AnthropicTruncatedStreamPreservesPartialText"
+      ]
+    },
+    {
+      "name": "atlas-provider-direct-openai-ignores-missing-done-truncation",
+      "origin": "ATLAS-PROVIDER-DIRECT",
+      "file": "modules/atlas/providers/direct/wire_openai.ergo",
+      "decl": "FinishOpenAIChatStream",
+      "from": "\tif !st.SawDone || !st.FinishReasonSeen || draft.Open.Len() > 0 {",
+      "to": "\tif false && (!st.SawDone || !st.FinishReasonSeen || draft.Open.Len() > 0) {",
+      "rule": "OpenAI Chat Completions streams without terminal [DONE] or finish_reason must fail Truncated.",
+      "killers": [
+        "modules/atlas/providers/direct:law:OpenCodeChatSSEChunkingAndDoneInvariant"
+      ]
+    },
+    {
+      "name": "atlas-provider-direct-pool-allows-non-usage-reset-timestamp",
+      "origin": "ATLAS-PROVIDER-DIRECT",
+      "file": "modules/atlas/providers/direct/pool_bridge.ergo",
+      "decl": "MapFailureToTurnClass",
+      "from": "\tcase llm.Overloaded, llm.Unauthorized, llm.Refused:\n\t\tturn.FailureProvider",
+      "to": "\tcase llm.Overloaded, llm.Unauthorized, llm.Refused:\n\t\tturn.FailureUsageLimit{ResetAtMs: nowMs + int64(60000)}",
+      "rule": "Non-usage failures must keep FailureResetAtMs as None per D8.",
+      "killers": [
+        "modules/atlas/providers/direct:law:NonUsageFailuresClearResetAtPerD8"
+      ]
+    },
+    {
+      "name": "atlas-provider-direct-pool-admission-rotates-to-standby",
+      "origin": "ATLAS-PROVIDER-DIRECT",
+      "file": "modules/atlas/providers/direct/pool_bridge.ergo",
+      "decl": "AdmitPinnedSessionTurn",
+      "from": "\tlet pinnedReg = pool.UpsertAccount(pool.NewRegistry(), entry)\n\tlet costPpm = if spec.EstimatedCostPpm > 0 { spec.EstimatedCostPpm } else { pool.DefaultCostPpm() }\n\tlet req = pool.PlacementRequest{\n\t\tProvider:         DriverPoolProviderName(spec.Driver),\n\t\tModel:            string(spec.Model),\n\t\tNowMs:            spec.NowMs,\n\t\tEstimatedCostPpm: costPpm,\n\t\tPreferredAccount: option.Some[session.AccountID]{Value: spec.PinnedAccount},",
+      "to": "\tlet _ = entry\n\tlet pinnedReg = spec.Registry\n\tlet costPpm = if spec.EstimatedCostPpm > 0 { spec.EstimatedCostPpm } else { pool.DefaultCostPpm() }\n\tlet req = pool.PlacementRequest{\n\t\tProvider:         DriverPoolProviderName(spec.Driver),\n\t\tModel:            string(spec.Model),\n\t\tNowMs:            spec.NowMs,\n\t\tEstimatedCostPpm: costPpm,\n\t\tPreferredAccount: option.None,",
+      "rule": "Pinned direct session admission must never leak standby accounts into pool placement.",
+      "killers": [
+        "modules/atlas/providers/direct:law:PinnedDirectAdmissionNeverRotatesToStandbyAccount"
+      ]
+    },
+    {
+      "name": "atlas-provider-direct-pool-drops-429-hold-until-ms",
+      "origin": "ATLAS-PROVIDER-DIRECT",
+      "file": "modules/atlas/providers/direct/pool_bridge.ergo",
+      "decl": "SettlePoolOnFailure",
+      "from": "\t\tnextReg = pool.SetAccountHold(nextReg, info.AccountID, untilMs)",
+      "to": "\t\tlet _ = untilMs",
+      "rule": "Usage-limit failure settlement must arm a concrete future pool hold on the pinned account.",
+      "killers": [
+        "modules/atlas/providers/direct:law:PoolRateLimitMappingPreservesFutureHoldAndD8Reset",
+        "modules/atlas/providers/direct:PoolSpendSettleAndHoldRecoveryLifecycle"
+      ]
+    },
+    {
+      "name": "atlas-provider-direct-retries-stream-after-first-delta",
+      "origin": "ATLAS-PROVIDER-DIRECT",
+      "file": "modules/atlas/providers/direct/client.ergo",
+      "decl": "StreamGuarded",
+      "from": "\t\t\tif seenDeltas.Len() > 0 {",
+      "to": "\t\t\tif false && seenDeltas.Len() > 0 {",
+      "rule": "Direct provider stream guard must never retry once >= 1 delta has reached the sink (NoRetryAfterFirstDelta).",
+      "killers": [
+        "modules/atlas/providers/direct:law:NoRetryAfterFirstDeltaAcrossAllProviders"
+      ]
+    },
+    {
+      "name": "atlas-provider-direct-emulates-unsupported-capabilities",
+      "origin": "ATLAS-PROVIDER-DIRECT",
+      "file": "modules/atlas/providers/direct/client.ergo",
+      "decl": "BuildDirectConfig",
+      "from": "\t\tCapabilities:       c.Capabilities(),",
+      "to": "\t\tCapabilities:       adapter.Capabilities{..c.Capabilities(), DynamicToolCallbacks: true},",
+      "rule": "Direct client wiring into modules/atlas/direct must preserve Adapter.Capabilities without capability emulation.",
+      "killers": [
+        "modules/atlas/providers/direct:law:DirectClientWiresIntoDirectLoopWithoutEmulation"
+      ]
     }
   ]
 }
