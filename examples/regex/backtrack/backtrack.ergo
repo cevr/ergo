@@ -5,8 +5,8 @@
 // engine to run.
 
 import core
-import regex/engine
-import regex/syntax
+import regexengine/engine
+import regexengine/syntax
 
 // Engine is the backtracking engine. It compiles nothing: its Matcher
 // keeps the tree.

@@ -8,9 +8,9 @@
 
 import machines
 import option
-import regex/syntax
+import regexengine/syntax
 import slices
-import regex/backtrack
+import regexengine/backtrack
 import strings
 
 // Thread is an instruction that reads a byte, or Accept, and the history

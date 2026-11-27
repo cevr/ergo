@@ -11,10 +11,10 @@
 import io
 import option
 import os
-import regex/backtrack
-import regex/engine
-import regex/nfa
-import regex/syntax
+import regexengine/backtrack
+import regexengine/engine
+import regexengine/nfa
+import regexengine/syntax
 
 // Fast binds the NFA engine; Reference binds the backtracking one.
 let Fast = context { engine.Engine: nfa.Engine }
