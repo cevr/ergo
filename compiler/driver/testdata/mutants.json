@@ -1,0 +1,105 @@
+{
+  "about": "compiler/driver: workspace manifests, Go/Ergo replacement resolution, DoD SoA package discovery, CSR import wave scheduling, cycle detection, and cache keys (SELFHOST-DRIVER-CLI).",
+  "mutants": [
+    {
+      "name": "driver-cli-modfile-missing-module",
+      "origin": "wf10 SELFHOST-DRIVER-CLI",
+      "file": "compiler/driver/modfile.ergo",
+      "decl": "ParseModFile",
+      "from": "\tif !hasMod {\n\t\treturn ParseError{File: file, Line: 1, Message: \"missing module directive\"}\n\t}\n",
+      "to": "\tif false && !hasMod {\n\t\treturn ParseError{File: file, Line: 1, Message: \"missing module directive\"}\n\t}\n",
+      "rule": "An ergo.mod without a module directive must fail ParseModFile with ParseError.",
+      "killers": ["compiler/driver:ParseModFileValidates"]
+    },
+    {
+      "name": "driver-cli-gomod-wildcard-beats-exact",
+      "origin": "wf10 SELFHOST-DRIVER-CLI",
+      "file": "compiler/driver/modfile.ergo",
+      "decl": "ResolveReplacedDir",
+      "from": "\t\tif r.OldVersion != \"\" && r.OldVersion == reqVersion {\n\t\t\treturn option.Some[string]{Value: r.Dir}\n\t\t}\n",
+      "to": "\t\tif false && r.OldVersion != \"\" && r.OldVersion == reqVersion {\n\t\t\treturn option.Some[string]{Value: r.Dir}\n\t\t}\n",
+      "rule": "An exact-version go.mod replace overrides a wildcard replace for the same module path.",
+      "killers": ["compiler/driver:ParseGoModSingleBlockAndReplace"]
+    },
+    {
+      "name": "driver-cli-workfile-cycle-unrejected",
+      "origin": "wf10 SELFHOST-DRIVER-CLI",
+      "file": "compiler/driver/workfile.ergo",
+      "decl": "checkTaskDFS",
+      "from": "\t\t\tif (*color)[v] == uint32(1) {\n\t\t\t\treturn ParseError{File: file, Line: taskLines[u], Message: \"task cycle through \" + tasks[u].Name + \" -> \" + dep}\n\t\t\t}\n",
+      "to": "\t\t\tif false && (*color)[v] == uint32(1) {\n\t\t\t\treturn ParseError{File: file, Line: taskLines[u], Message: \"task cycle through \" + tasks[u].Name + \" -> \" + dep}\n\t\t\t}\n",
+      "rule": "Cyclic ergo.work task dependencies must be rejected with ParseError.",
+      "killers": ["compiler/driver:ParseWorkFileRepoAndCycleRejections"]
+    },
+    {
+      "name": "driver-cli-workfile-skip-prefix-overbroad",
+      "origin": "wf10 SELFHOST-DRIVER-CLI",
+      "file": "compiler/driver/workfile.ergo",
+      "decl": "WorkSkipsPath",
+      "from": "\t\tif clean == s || strings.HasPrefix(clean, s+\"/\") {\n",
+      "to": "\t\tif clean == s || strings.HasPrefix(clean, s) {\n",
+      "rule": "A workspace skip directory matches only exact folder or slash-bounded descendants.",
+      "killers": ["compiler/driver:ParseWorkFileRepoAndCycleRejections"]
+    },
+    {
+      "name": "driver-cli-discover-admit-testdata",
+      "origin": "wf10 SELFHOST-DRIVER-CLI",
+      "file": "compiler/driver/discover.ergo",
+      "decl": "AdmitFolder",
+      "from": "\tif name == \"testdata\" || name == \"node_modules\" || name == \"vendor\" || name == \"ergo.bind\" {\n\t\treturn false\n\t}\n",
+      "to": "\tif name == \"node_modules\" || name == \"vendor\" || name == \"ergo.bind\" {\n\t\treturn false\n\t}\n",
+      "rule": "Recursive discovery never enters testdata directories.",
+      "killers": ["compiler/driver:law:AdmitFolderExcludesReserved", "compiler/driver:DiscoverRecursiveAndSkips"]
+    },
+    {
+      "name": "driver-cli-discover-nested-module-walked",
+      "origin": "wf10 SELFHOST-DRIVER-CLI",
+      "file": "compiler/driver/discover.ergo",
+      "decl": "walkRecursive",
+      "from": "\t\tif existsRegularFile(filepath.Join([]string{sub, \"ergo.mod\"})) || existsRegularFile(filepath.Join([]string{sub, \"go.mod\"})) {\n\t\t\tcontinue\n\t\t}\n",
+      "to": "\t\tif false && existsRegularFile(filepath.Join([]string{sub, \"ergo.mod\"})) {\n\t\t\tcontinue\n\t\t}\n",
+      "rule": "Recursive module target traversal stops at nested module boundaries.",
+      "killers": ["compiler/driver:DiscoverRecursiveAndSkips"]
+    },
+    {
+      "name": "driver-cli-graph-wave-collapsed",
+      "origin": "wf10 SELFHOST-DRIVER-CLI",
+      "file": "compiler/driver/graph.ergo",
+      "decl": "ScheduleWaves",
+      "from": "\t\t\twaveOf[u] = w\n",
+      "to": "\t\t\twaveOf[u] = uint32(0) * w\n",
+      "rule": "Every importing package sits in a strictly higher topological wave than all of its dependencies.",
+      "killers": ["compiler/driver:law:ScheduleRespectsDepsAndDeterminism", "compiler/driver:GraphWaveLevelsAndCycle"]
+    },
+    {
+      "name": "driver-cli-graph-cycle-undetected",
+      "origin": "wf10 SELFHOST-DRIVER-CLI",
+      "file": "compiler/driver/graph.ergo",
+      "decl": "ScheduleWaves",
+      "from": "\tif qTail < n {\n\t\treturn CycleError{Chain: findCycleChain(g, remDeps)}\n\t}\n",
+      "to": "\tif false && qTail < n {\n\t\treturn CycleError{Chain: findCycleChain(g, remDeps)}\n\t}\n",
+      "rule": "Import cycles are rejected with a CycleError holding the dependency chain.",
+      "killers": ["compiler/driver:GraphWaveLevelsAndCycle"]
+    },
+    {
+      "name": "driver-cli-graph-replace-ignored",
+      "origin": "wf10 SELFHOST-DRIVER-CLI",
+      "file": "compiler/driver/graph.ergo",
+      "decl": "ResolveImportToPackage",
+      "from": "\tlet rStart = int(store.ModRepStart[int(modID)])\n",
+      "to": "\treturn option.None\n\tlet rStart = int(store.ModRepStart[int(modID)])\n",
+      "rule": "Cross-module imports resolve local go.mod replace directories into CSR dependency edges.",
+      "killers": ["compiler/driver:CollectImportGraphWithReplace"]
+    },
+    {
+      "name": "driver-cli-cache-ignores-file-digest",
+      "origin": "wf10 SELFHOST-DRIVER-CLI",
+      "file": "compiler/driver/cache.ergo",
+      "decl": "PackageActionKey",
+      "from": "\t\tfileParts = fileParts.Append(cachekey.Framed([]string{fd.Path, fd.ContentDigest}))\n",
+      "to": "\t\tfileParts = fileParts.Append(cachekey.Framed([]string{fd.Path, \"\"}))\n",
+      "rule": "PackageActionKey incorporates every source file content digest.",
+      "killers": ["compiler/driver:law:ActionKeySensitiveToFileEdit"]
+    }
+  ]
+}

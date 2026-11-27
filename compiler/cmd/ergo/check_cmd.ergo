@@ -1,0 +1,652 @@
+import compiler/check/bind
+import compiler/check/diag
+import compiler/check/facts
+import compiler/check/footprint
+import compiler/check/load
+import compiler/check/providing
+import compiler/check/rows
+import compiler/driver
+import compiler/report
+import compiler/syntax
+import filepath
+import fs
+import fstest
+import io
+import json
+import option
+import slices
+import strconv
+import strings
+
+// CheckOptions captures parsed flags and targets for ergo check.
+type CheckOptions {
+	Paths     []string,
+	Strict    bool,
+	Json      bool,
+	Fresh     bool,
+	Jobs      int,
+	Seed      int,
+	StdDir    string,
+	EvalSteps int,
+	EvalBytes int,
+	Help      bool,
+	HelpAll   bool,
+}
+
+// CheckFinding is one serialized diagnostic emitted by ergo check.
+type CheckFinding {
+	Code    string,
+	File    string,
+	Line    int,
+	Column  int,
+	Message string,
+}
+
+// CheckReport is the structured result of checking discovered packages.
+type CheckReport {
+	Checked      bool,
+	PolicyPassed bool,
+	Packages     []string,
+	WaveCount    uint32,
+	Revision     string,
+	Diagnostics  []CheckFinding,
+}
+
+// ParseCheckOptions parses flags and positional paths after `ergo check`.
+func ParseCheckOptions(args []string) CheckOptions fails FlagError {
+	let mut opts = CheckOptions{
+		Paths:     []string{},
+		Strict:    false,
+		Json:      false,
+		Fresh:     false,
+		Jobs:      1,
+		Seed:      1,
+		StdDir:    "",
+		EvalSteps: 0,
+		EvalBytes: 0,
+		Help:      false,
+		HelpAll:   false,
+	}
+	let mut endFlags = false
+	let mut i = 0
+	for i < args.Len() {
+		let arg = args[i]
+		if !endFlags && arg == "--" {
+			endFlags = true
+			i = i + 1
+			continue
+		}
+		if !endFlags && strings.HasPrefix(arg, "-") && arg != "-" {
+			if arg == "--help" || arg == "-h" {
+				opts.Help = true
+				i = i + 1
+				continue
+			}
+			if arg == "--help-all" {
+				opts.HelpAll = true
+				i = i + 1
+				continue
+			}
+			if arg == "--strict" {
+				opts.Strict = true
+				i = i + 1
+				continue
+			}
+			if arg == "--json" {
+				opts.Json = true
+				i = i + 1
+				continue
+			}
+			if arg == "--fresh" {
+				opts.Fresh = true
+				i = i + 1
+				continue
+			}
+			let valOpt = try consumeFlagValue(args, &i, arg, []string{"-j", "--jobs", "--seed", "--std", "--eval-steps", "--eval-bytes"})
+			match valOpt {
+			case option.Some[FlagVal] as fv:
+				let name = fv.Value.Name
+				let val = fv.Value.Value
+				if name == "-j" || name == "--jobs" {
+					opts.Jobs = try parsePositiveFlagInt("check", name, val)
+				} else if name == "--seed" {
+					opts.Seed = try parseNonNegativeFlagInt("check", name, val)
+				} else if name == "--std" {
+					opts.StdDir = val
+				} else if name == "--eval-steps" {
+					opts.EvalSteps = try parseNonNegativeFlagInt("check", name, val)
+				} else if name == "--eval-bytes" {
+					opts.EvalBytes = try parseNonNegativeFlagInt("check", name, val)
+				}
+				continue
+			case option.None:
+			}
+			return FlagError{Code: 2, Message: "ergo check: unknown option " + arg}
+		}
+		opts.Paths = opts.Paths.Append(arg)
+		i = i + 1
+	}
+	opts
+}
+
+// RunCheck executes `ergo check` via driver discovery, CSR wave scheduling, and compiler/check.
+func RunCheck(args []string, workDir string, environ []string) int needs fs.Files | io.Stdout | io.Stderr {
+	let opts = ParseCheckOptions(args) catch {
+	case FlagError as fe:
+		io.Stderr.Eprintln(fe.Message)
+		return fe.Code
+	}
+	if opts.Help {
+		io.Stdout.Print(CheckHelp())
+		return 0
+	}
+	if opts.HelpAll {
+		io.Stdout.Print(CheckAllHelp())
+		return 0
+	}
+	let rep = executeCheck(opts, workDir, environ) catch {
+	case driver.DiscoverError as de:
+		emitCheckFailure(opts.Json, de.Path+": "+de.Reason, "E_DISCOVER", de.Path)
+		return 2
+	case driver.ParseError as pe:
+		emitCheckFailure(opts.Json, driver.FormatParseError(pe), "E_MANIFEST", pe.File)
+		return 1
+	case driver.CycleError as ce:
+		emitCheckFailure(opts.Json, driver.FormatCycle(ce), "E_CYCLE", "")
+		return 1
+	case fs.NotFound as nf:
+		emitCheckFailure(opts.Json, nf.Path+": not found", "E_IO", nf.Path)
+		return 2
+	case fs.Denied as dn:
+		emitCheckFailure(opts.Json, dn.Path+": permission denied", "E_IO", dn.Path)
+		return 2
+	case fs.Failed as ff:
+		emitCheckFailure(opts.Json, ff.Path+": "+ff.Reason, "E_IO", ff.Path)
+		return 2
+	}
+	emitCheckReport(rep, opts.Json)
+	if rep.Checked && rep.PolicyPassed {
+		return 0
+	}
+	1
+}
+
+func executeCheck(opts CheckOptions, workDir string, environ []string) CheckReport fails driver.DiscoverError | driver.ParseError | driver.CycleError | fs.NotFound | fs.Denied | fs.Failed needs fs.Files {
+	let store = try driver.Discover(workDir, opts.Paths)
+	let graph = try driver.CollectImportGraph(store)
+	let sched = try driver.ScheduleWaves(graph)
+	let stdDir = resolveStdDir(opts.StdDir, store.Root, workDir)
+
+	let mut pkgNames = []string{}
+	let mut units = []load.Unit{}
+	let mut allSrcs = [][]string{}
+	let mut fileTexts Map[string, string] = Map[string, string]{}
+	let mut findings = []CheckFinding{}
+	let mut unitFileLists = [][]string{}
+	let mut revBuilder = ""
+
+	let mut userSet Map[string, bool] = Map[string, bool]{}
+	for uid in sched.Order {
+		userSet = userSet.Put(driver.PackagePath(store, uid), true)
+	}
+	if stdDir != "" {
+		let bootNames = []string{"collections", "option", "core", "prelude"}
+		for bPath in bootNames {
+			if userSet.Get(bPath) != option.None {
+				continue
+			}
+			let bootUnit = buildBootstrapUnit(stdDir, bPath)
+			match bootUnit {
+			case option.Some[BootUnit] as bu:
+				units = units.Append(bu.Value.Unit)
+				allSrcs = allSrcs.Append(bu.Value.Srcs)
+				unitFileLists = unitFileLists.Append(bu.Value.Paths)
+			case option.None:
+			}
+		}
+	}
+	let bootstrapCount = units.Len()
+
+	for uid in sched.Order {
+		let pkgPath = driver.PackagePath(store, uid)
+		let pkgDir = driver.PackageDir(store, uid)
+		pkgNames = pkgNames.Append(pkgPath)
+		let filePaths = driver.PackageFiles(store, uid)
+		let mut bFiles = []bind.File{}
+		let mut srcs = []string{}
+		let mut actionFiles = []driver.FileDigest{}
+		for fp in filePaths {
+			let src = try fs.Files.ReadFile(fp)
+			let disp = displayCheckPath(workDir, fp)
+			let fDigest = report.Revision(src)
+			revBuilder = revBuilder + fp + ":" + fDigest + "\n"
+			fileTexts = fileTexts.Put(disp, src)
+			srcs = srcs.Append(src)
+			actionFiles = actionFiles.Append(driver.FileDigest{Path: filepath.Base(fp), ContentDigest: fDigest})
+			let parsed = syntax.Parse(src)
+			if parsed.Failed {
+				findings = findings.Append(CheckFinding{
+					Code:    parsed.Code,
+					File:    disp,
+					Line:    parsed.Line,
+					Column:  parsed.Column,
+					Message: parsed.Message,
+				})
+			}
+			bFiles = bFiles.Append(bind.File{Name: disp, Parsed: parsed})
+		}
+		let aKey = driver.PackageActionKey(driver.ActionInput{
+			Compiler:    "ergo-selfhost",
+			Target:      "check",
+			PkgPath:     pkgPath,
+			Files:       actionFiles,
+			DepKeys:     []string{},
+			Flags:       if opts.Strict { []string{"--strict"} } else { []string{} },
+			Environ:     environ,
+			Experiments: []string{},
+		})
+		revBuilder = revBuilder + pkgPath + "=" + aKey + "\n"
+		units = units.Append(load.Unit{
+			Tab:   load.TablesOf("", "@pkg "+pkgBaseName(pkgPath)+" "+pkgPath+" 1\n"),
+			Files: bFiles,
+			Paths: filePaths,
+			Path:  pkgPath,
+			Dir:   pkgDir,
+		})
+		allSrcs = allSrcs.Append(srcs)
+		unitFileLists = unitFileLists.Append(filePaths)
+	}
+
+	let rev = report.Revision(revBuilder)
+	if findings.Len() > 0 {
+		return CheckReport{
+			Checked:      false,
+			PolicyPassed: false,
+			Packages:     pkgNames,
+			WaveCount:    sched.WaveCount,
+			Revision:     rev,
+			Diagnostics:  sortFindings(findings),
+		}
+	}
+
+	let outside = load.Outside(units, stdDir)
+	let mut known Map[string, bool] = Map[string, bool]{}
+	for u in units {
+		known = known.Put(u.Path, true)
+	}
+	for iface in outside {
+		known = known.Put(iface.Path, true)
+	}
+
+	let threads = if opts.Jobs > 0 { opts.Jobs } else { 1 }
+	let prog = load.LoadAll(units, outside, threads)
+	let mut deps Map[string, Map[string, bool]] = Map[string, Map[string, bool]]{}
+	for e in prog.Loaded {
+		let r = diag.Resources(e.S, e.K, deps)
+		deps = deps.Put(e.Path, r)
+	}
+
+	for i in 0..prog.Loaded.Len() {
+		let ui = prog.Units[i]
+		if ui < bootstrapCount {
+			continue
+		}
+		let typed = load.TypeAt(prog, i)
+		let mut miss = []string{}
+		for imp in bind.Imports(typed.K.Files) {
+			if known.Get(imp) == option.None {
+				miss = miss.Append(imp)
+			}
+		}
+		let ds = collectUnitDiags(typed, allSrcs[ui], miss, deps)
+		let mut lines = []syntax.Lines{}
+		for s in allSrcs[ui] {
+			lines = lines.Append(syntax.LinesOf(s))
+		}
+		for g in ds {
+			let fIdx = g.File
+			let disp = if fIdx < typed.K.Files.Len() { typed.K.Files[fIdx].Name } else { units[ui].Path }
+			let pos = if fIdx < lines.Len() {
+				syntax.PositionOf(lines[fIdx], g.Offset)
+			} else {
+				syntax.Position{Line: 1, Column: 1}
+			}
+			findings = findings.Append(CheckFinding{
+				Code:    g.Code,
+				File:    disp,
+				Line:    pos.Line,
+				Column:  pos.Column,
+				Message: g.Message,
+			})
+		}
+	}
+
+	let sorted = sortFindings(findings)
+	let ok = sorted.Len() == 0
+	CheckReport{
+		Checked:      ok,
+		PolicyPassed: ok,
+		Packages:     pkgNames,
+		WaveCount:    sched.WaveCount,
+		Revision:     rev,
+		Diagnostics:  sorted,
+	}
+}
+
+func collectUnitDiags(d load.Typed, srcs []string, miss []string, deps Map[string, Map[string, bool]]) []diag.Diag {
+	let held = diag.Held(d.S, d.K, d.T, deps)
+	let mut ds = diag.UnusedWithImports(d.K.Files, d.S, d.K.U, d.K.Ps, miss, providing.Quiet(d.S, d.K, held), d.T.UsedImports)
+	for g in diag.Flow(d.S, d.K, d.T, srcs) {
+		ds = ds.Append(g)
+	}
+	for g in diag.OwnMarks(d.S, d.K, d.T) {
+		ds = ds.Append(g)
+	}
+	for g in diag.Harnesses(d.K) {
+		ds = ds.Append(g)
+	}
+	for g in diag.AsWritten(d.K.Parsed) {
+		ds = ds.Append(g)
+	}
+	for g in diag.MachineTuples(d.K.Parsed) {
+		ds = ds.Append(g)
+	}
+	for g in rows.Rows(d.S, d.K, d.T) {
+		ds = ds.Append(g)
+	}
+	for g in providing.Check(d.S, d.K) {
+		ds = ds.Append(g)
+	}
+	for g in diag.Dropped(d.S, d.K, d.T, footprint.Of(d.S, d.K, d.T), deps) {
+		ds = ds.Append(g)
+	}
+	for g in d.T.Diags {
+		let (f, row) = bind.RowOf(d.K.Ps, g.At)
+		let parsed = d.K.Parsed[f]
+		let id = syntax.NodeAt(parsed.Tree, row)
+		let offset = syntax.NodePos(parsed, id)
+		ds = ds.Append(diag.Diag{
+			File:    f,
+			Offset:  offset,
+			Length:  syntax.NodeEnd(parsed, id) - offset,
+			Code:    "S108",
+			Message: "type or binding error",
+		})
+	}
+	for g in d.T.SelfInference {
+		let parsed = d.K.Parsed[g.File]
+		let offset = syntax.NodePos(parsed, g.At)
+		ds = ds.Append(diag.Diag{
+			File:    g.File,
+			Offset:  offset,
+			Length:  syntax.NodeEnd(parsed, g.At) - offset,
+			Code:    "S108",
+			Message: "cannot infer " + g.Param + "; write the type arguments, e.g. " + g.Example,
+		})
+	}
+	for g in d.T.BareSelfCalls {
+		let parsed = d.K.Parsed[g.File]
+		let offset = syntax.NodePos(parsed, g.At)
+		ds = ds.Append(diag.Diag{
+			File:    g.File,
+			Offset:  offset,
+			Length:  syntax.NodeEnd(parsed, g.At) - offset,
+			Code:    "S108",
+			Message: g.Name + " needs a value: write x." + g.Name + "(...)",
+		})
+	}
+	for g in d.T.LookupDiags {
+		let parsed = d.K.Parsed[g.File]
+		let offset = syntax.NodePos(parsed, g.At)
+		ds = ds.Append(diag.Diag{
+			File:    g.File,
+			Offset:  offset,
+			Length:  syntax.NodeEnd(parsed, g.At) - offset,
+			Code:    g.Code,
+			Message: g.Message,
+		})
+	}
+	let mut s = d.S
+	for g in facts.Diags(&s, d.K) {
+		ds = ds.Append(g)
+	}
+	diag.Sorted(ds)
+}
+
+type BootUnit {
+	Unit  load.Unit,
+	Srcs  []string,
+	Paths []string,
+}
+
+func pkgBaseName(pkgPath string) string {
+	let b = filepath.Base(pkgPath)
+	if b == "." || b == "/" || b == "" {
+		return "main"
+	}
+	b
+}
+
+func buildBootstrapUnit(stdDir string, pkgPath string) option.Option[BootUnit] needs fs.Files {
+	let dir = if pkgPath == "prelude" { stdDir } else { filepath.Join([]string{stdDir, pkgPath}) }
+	let mut rawNames = []string{}
+	if pkgPath == "prelude" {
+		rawNames = []string{"builtin.ergo", "prelude.ergo"}
+	} else {
+		let entries = fs.Files.ReadDir(dir) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return option.None
+		}
+		for name in entries {
+			if driver.AdmitSourceFile(name) {
+				rawNames = rawNames.Append(name)
+			}
+		}
+		rawNames = slices.Sort(rawNames)
+	}
+	if rawNames.Len() == 0 {
+		return option.None
+	}
+	let mut bFiles = []bind.File{}
+	let mut paths = []string{}
+	let mut srcs = []string{}
+	for name in rawNames {
+		let full = filepath.Join([]string{dir, name})
+		let src = fs.Files.ReadFile(full) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return option.None
+		}
+		bFiles = bFiles.Append(bind.File{Name: name, Parsed: syntax.Parse(src)})
+		paths = paths.Append(full)
+		srcs = srcs.Append(src)
+	}
+	option.Some[BootUnit]{
+		Value: BootUnit{
+			Unit: load.Unit{
+				Tab:   load.TablesOf("", "@pkg "+pkgPath+" "+pkgPath+" 1\n"),
+				Files: bFiles,
+				Paths: paths,
+				Path:  pkgPath,
+				Dir:   dir,
+			},
+			Srcs:  srcs,
+			Paths: paths,
+		},
+	}
+}
+
+func resolveStdDir(explicit string, root string, workDir string) string needs fs.Files {
+	if explicit != "" {
+		return explicit
+	}
+	let starts = []string{workDir, root}
+	for base in starts {
+		let mut cur = filepath.Clean(base)
+		for true {
+			let cand = filepath.Join([]string{cur, "internal", "sketch", "std"})
+			let st = fs.Files.Stat(cand) catch {
+			case fs.NotFound, fs.Denied, fs.Failed:
+				fs.Info{Name: "", Size: 0, Dir: false, Perm: 0}
+			}
+			if st.Dir {
+				return cand
+			}
+			let parent = filepath.Dir(cur)
+			if parent == cur {
+				break
+			}
+			cur = parent
+		}
+	}
+	""
+}
+
+func displayCheckPath(workDir string, fullPath string) string {
+	let rel = filepath.Rel(workDir, fullPath) catch {
+	case filepath.NotRelative:
+		return fullPath
+	}
+	if rel == "." || strings.HasPrefix(rel, "..") {
+		return fullPath
+	}
+	rel
+}
+
+func sortFindings(xs []CheckFinding) []CheckFinding {
+	slices.SortFunc(xs, func(a CheckFinding, b CheckFinding) int {
+		if a.File < b.File {
+			return -1
+		}
+		if a.File > b.File {
+			return 1
+		}
+		if a.Line != b.Line {
+			return a.Line - b.Line
+		}
+		if a.Column != b.Column {
+			return a.Column - b.Column
+		}
+		if a.Code < b.Code {
+			return -1
+		}
+		if a.Code > b.Code {
+			return 1
+		}
+		0
+	})
+}
+
+func emitCheckFailure(asJSON bool, msg string, code string, file string) needs io.Stdout | io.Stderr {
+	let rep = CheckReport{
+		Checked:      false,
+		PolicyPassed: false,
+		Packages:     []string{},
+		WaveCount:    uint32(0),
+		Revision:     "",
+		Diagnostics:  []CheckFinding{CheckFinding{Code: code, File: file, Line: 1, Column: 1, Message: msg}},
+	}
+	if asJSON {
+		io.Stdout.Println(formatCheckJSON(rep, true))
+		return
+	}
+	io.Stdout.Println(formatCheckJSON(rep, false))
+	io.Stderr.Eprintln("ergo check: " + msg)
+}
+
+func emitCheckReport(rep CheckReport, pretty bool) needs io.Stdout | io.Stderr {
+	io.Stdout.Println(formatCheckJSON(rep, pretty))
+	if !rep.Checked {
+		if !pretty {
+			for d in rep.Diagnostics {
+				io.Stderr.Eprintln(d.File + ":" + strconv.Itoa(d.Line) + ":" + strconv.Itoa(d.Column) + ": " + d.Code + ": " + d.Message)
+			}
+		}
+	}
+}
+
+func formatCheckJSON(rep CheckReport, pretty bool) string {
+	let sep = if pretty { ": " } else { ":" }
+	let checked = if rep.Checked { "true" } else { "false" }
+	let policy = if rep.PolicyPassed { "true" } else { "false" }
+	let mut pkgParts = []string{}
+	for p in rep.Packages {
+		pkgParts = pkgParts.Append(jsonQuote(p))
+	}
+	let mut diagParts = []string{}
+	for d in rep.Diagnostics {
+		diagParts = diagParts.Append("{\"code\":" + jsonQuote(d.Code) + ",\"file\":" + jsonQuote(d.File) + ",\"line\":" + strconv.Itoa(d.Line) + ",\"column\":" + strconv.Itoa(d.Column) + ",\"message\":" + jsonQuote(d.Message) + "}")
+	}
+	let raw = "{\"checked\"" + sep + checked + ",\"policyPassed\"" + sep + policy + ",\"packages\"" + sep + "[" + strings.Join(pkgParts, ",") + "],\"waveCount\"" + sep + strconv.Itoa(int(rep.WaveCount)) + ",\"revision\"" + sep + jsonQuote(rep.Revision) + ",\"diagnostics\"" + sep + "[" + strings.Join(diagParts, ",") + "]}"
+	if pretty {
+		return json.Indent(raw, "", "  ") catch {
+		case json.Malformed:
+			raw
+		}
+	}
+	raw
+}
+
+test CheckCmdChecksValidAndInvalidAndCycle {
+	let mem = fstest.NewMemory()
+	mem.MkdirAll("/ws/app") catch {
+	case fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.WriteFile("/ws/ergo.mod", "module sample\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.WriteFile("/ws/app/a.ergo", "func Double(n int) int {\n\tn * 2\n}\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+	let recOK = io.NewRecorder()
+	let codeOK = with context {
+		fs.Files:  mem,
+		io.Stdout: recOK,
+		io.Stderr: recOK,
+	} {
+		RunCheck([]string{"--json"}, "/ws", []string{})
+	}
+	assert codeOK == 0
+	assert strings.Contains(recOK.Text(), "\"checked\": true")
+	assert strings.Contains(recOK.Text(), "\"policyPassed\": true")
+
+	mem.WriteFile("/ws/app/bad.ergo", "func Broken() int {\n\treturn unknownName\n}\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+	let recBad = io.NewRecorder()
+	let codeBad = with context {
+		fs.Files:  mem,
+		io.Stdout: recBad,
+		io.Stderr: recBad,
+	} {
+		RunCheck([]string{}, "/ws", []string{})
+	}
+	assert codeBad == 1
+	assert strings.Contains(recBad.Text(), "\"checked\":false")
+
+	mem.WriteFile("/ws/app/bad.ergo", "import sample/b\nfunc A() int { 1 }\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.MkdirAll("/ws/b") catch {
+	case fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.WriteFile("/ws/b/b.ergo", "import sample/app\nfunc B() int { 2 }\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+	let recCyc = io.NewRecorder()
+	let codeCyc = with context {
+		fs.Files:  mem,
+		io.Stdout: recCyc,
+		io.Stderr: recCyc,
+	} {
+		RunCheck([]string{}, "/ws", []string{})
+	}
+	assert codeCyc == 1
+	assert strings.Contains(recCyc.Text(), "import cycle:")
+}

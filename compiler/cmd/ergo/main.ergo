@@ -1,0 +1,42 @@
+import core
+import fs
+import io
+import os
+import slices
+
+// RunHost runs the self-hosted ergo CLI against ambient host capabilities.
+func RunHost() fails os.Exit needs os.Process | fs.Files | fs.Writes | io.Stdout | io.Stderr | io.Stdin {
+	let args = os.Process.Args()
+	let workDir = os.Process.Getwd() catch {
+	case os.NoWorkdir:
+		"."
+	}
+	let envMap = os.Process.Environ()
+	let mut envList = []string{}
+	for k, v in envMap {
+		envList = envList.Append(k + "=" + v)
+	}
+	envList = slices.Sort(envList)
+	let code = Dispatch(args, workDir, envList)
+	if code == 0 {
+		return
+	}
+	let parsed = os.ParseCode(code) catch {
+	case core.Unsatisfied:
+		return os.Exit{Code: 1, Message: ""}
+	}
+	os.Exit{Code: parsed, Message: ""}
+}
+
+func main() fails os.Exit needs os.Ambient {
+	with context {
+		os.Process: os.NewHost(),
+		fs.Files:   fs.NewHost(),
+		fs.Writes:  fs.NewHost(),
+		io.Stdout:  io.NewHost(),
+		io.Stderr:  io.NewErrors(),
+		io.Stdin:   io.NewStdin(),
+	} {
+		try RunHost()
+	}
+}

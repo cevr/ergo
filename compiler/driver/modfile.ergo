@@ -1,0 +1,430 @@
+import filepath
+import option
+import slices
+import strconv
+import strings
+
+// ParseError reports malformed syntax in ergo.mod, ergo.work, or go.mod.
+type ParseError {
+	File    string,
+	Line    int,
+	Message string,
+}
+
+// FormatParseError returns a human-readable line for e.
+func FormatParseError(e ParseError) string {
+	e.File + ":" + strconv.Itoa(e.Line) + ": " + e.Message
+}
+
+// ModFile describes a parsed ergo.mod manifest.
+type ModFile {
+	Name   string,
+	Ergo   string,
+	Trust  []string,
+	Claims []string,
+}
+
+// GoRequire describes one required module in go.mod.
+type GoRequire {
+	Path    string,
+	Version string,
+}
+
+// GoReplace describes one replacement rule in go.mod.
+type GoReplace {
+	Old        string,
+	OldVersion string,
+	New        string,
+	NewVersion string,
+}
+
+// GoMod describes the subset of go.mod directives read by the workspace driver.
+type GoMod {
+	Module  string,
+	Go      string,
+	Require []GoRequire,
+	Replace []GoReplace,
+}
+
+// LocalReplace describes a local-directory replace rule resolved against its module directory.
+type LocalReplace {
+	Module     string,
+	OldVersion string,
+	Dir        string,
+}
+
+// IsValidModPath reports whether path is a valid Ergo module path.
+func IsValidModPath(path string) bool {
+	if path == "" || strings.HasPrefix(path, "/") || strings.HasSuffix(path, "/") {
+		return false
+	}
+	let segs = strings.Split(path, "/")
+	for seg in segs {
+		if !isValidModSegment(seg) {
+			return false
+		}
+	}
+	true
+}
+
+func isValidModSegment(seg string) bool {
+	if seg == "" || seg == "." || seg == ".." {
+		return false
+	}
+	if strings.HasPrefix(seg, "-") || strings.HasSuffix(seg, "-") || strings.HasPrefix(seg, "~") {
+		return false
+	}
+	for i in 0..seg.Len() {
+		let c = seg[i]
+		let lower = c >= 97 && c <= 122
+		let upper = c >= 65 && c <= 90
+		let digit = c >= 48 && c <= 57
+		let special = c == 45 || c == 46 || c == 95 || c == 126
+		if !lower && !upper && !digit && !special {
+			return false
+		}
+	}
+	true
+}
+
+// ParseModFile parses an ergo.mod document and validates its directives.
+func ParseModFile(text string, file string) ModFile fails ParseError {
+	let lines = strings.Split(text, "\n")
+	let mut modName = ""
+	let mut hasMod = false
+	let mut ergoVer = ""
+	let mut trust = []string{}
+	let mut claims = []string{}
+	for idx in 0..lines.Len() {
+		let lineNo = idx + 1
+		let stripped = stripLineComment(lines[idx])
+		let words = strings.Fields(stripped)
+		if words.Len() == 0 {
+			continue
+		}
+		let head = words[0]
+		if head == "module" {
+			if hasMod {
+				return ParseError{File: file, Line: lineNo, Message: "duplicate module directive"}
+			}
+			if words.Len() != 2 {
+				return ParseError{File: file, Line: lineNo, Message: "module expects one module path"}
+			}
+			if !IsValidModPath(words[1]) {
+				return ParseError{File: file, Line: lineNo, Message: "invalid module path: " + words[1]}
+			}
+			modName = words[1]
+			hasMod = true
+		} else if head == "ergo" {
+			if words.Len() != 2 {
+				return ParseError{File: file, Line: lineNo, Message: "ergo expects one version word"}
+			}
+			ergoVer = words[1]
+		} else if head == "trust" {
+			if words.Len() != 3 || words[1] != "go" || !IsValidModPath(words[2]) {
+				return ParseError{File: file, Line: lineNo, Message: "trust expects: trust go <module>"}
+			}
+			trust = trust.Append(words[2])
+		} else if head == "claimfeed" {
+			if words.Len() < 2 {
+				return ParseError{File: file, Line: lineNo, Message: "claimfeed expects at least one argument"}
+			}
+			claims = claims.Append(stripped)
+		} else {
+			return ParseError{File: file, Line: lineNo, Message: "unknown directive: " + head}
+		}
+	}
+	if !hasMod {
+		return ParseError{File: file, Line: 1, Message: "missing module directive"}
+	}
+	ModFile{Name: modName, Ergo: ergoVer, Trust: trust, Claims: claims}
+}
+
+// FormatModFile renders m in canonical ergo.mod form.
+func FormatModFile(m ModFile) string {
+	let mut out = "module " + m.Name + "\n"
+	if m.Ergo != "" {
+		out = out + "ergo " + m.Ergo + "\n"
+	}
+	for t in m.Trust {
+		out = out + "trust go " + t + "\n"
+	}
+	for c in m.Claims {
+		out = out + c + "\n"
+	}
+	out
+}
+
+// ParseGoMod parses module, go, require, and replace directives from go.mod text.
+func ParseGoMod(text string, file string) GoMod fails ParseError {
+	let lines = strings.Split(text, "\n")
+	let mut modName = ""
+	let mut goVer = ""
+	let mut reqs = []GoRequire{}
+	let mut reps = []GoReplace{}
+	let mut block = ""
+	for idx in 0..lines.Len() {
+		let lineNo = idx + 1
+		let tokens = try lexGoModLine(lines[idx], file, lineNo)
+		if tokens.Len() == 0 {
+			continue
+		}
+		if block != "" {
+			if tokens[0] == ")" {
+				if tokens.Len() != 1 {
+					return ParseError{File: file, Line: lineNo, Message: "unexpected tokens after )"}
+				}
+				block = ""
+				continue
+			}
+			if block == "require" {
+				reqs = reqs.Append(try parseGoRequireLine(tokens, file, lineNo))
+			} else if block == "replace" {
+				reps = reps.Append(try parseGoReplaceLine(tokens, file, lineNo))
+			}
+			continue
+		}
+		let head = tokens[0]
+		if tokens.Len() == 2 && tokens[1] == "(" {
+			if head == "require" || head == "replace" || head == "exclude" || head == "retract" || head == "tool" || head == "ignore" {
+				block = head
+				continue
+			}
+		}
+		if head == "module" {
+			if tokens.Len() != 2 {
+				return ParseError{File: file, Line: lineNo, Message: "module expects one path"}
+			}
+			modName = tokens[1]
+		} else if head == "go" {
+			if tokens.Len() != 2 {
+				return ParseError{File: file, Line: lineNo, Message: "go expects one version"}
+			}
+			goVer = tokens[1]
+		} else if head == "require" {
+			reqs = reqs.Append(try parseGoRequireLine(tokens[1:tokens.Len()], file, lineNo))
+		} else if head == "replace" {
+			reps = reps.Append(try parseGoReplaceLine(tokens[1:tokens.Len()], file, lineNo))
+		}
+	}
+	if block != "" {
+		return ParseError{File: file, Line: lines.Len(), Message: "unclosed " + block + " block"}
+	}
+	GoMod{Module: modName, Go: goVer, Require: reqs, Replace: reps}
+}
+
+func parseGoRequireLine(tokens []string, file string, lineNo int) GoRequire fails ParseError {
+	if tokens.Len() != 2 {
+		return ParseError{File: file, Line: lineNo, Message: "require expects path and version"}
+	}
+	GoRequire{Path: tokens[0], Version: tokens[1]}
+}
+
+func parseGoReplaceLine(tokens []string, file string, lineNo int) GoReplace fails ParseError {
+	let arrow = slices.Index(tokens, "=>")
+	if arrow < 1 || arrow >= tokens.Len()-1 {
+		return ParseError{File: file, Line: lineNo, Message: "replace expects old [ver] => new [ver]"}
+	}
+	let left = tokens[0:arrow]
+	let right = tokens[arrow+1 : tokens.Len()]
+	if left.Len() > 2 || right.Len() > 2 {
+		return ParseError{File: file, Line: lineNo, Message: "invalid replace arity"}
+	}
+	let mut oldVer = ""
+	if left.Len() == 2 {
+		oldVer = left[1]
+	}
+	let mut newVer = ""
+	if right.Len() == 2 {
+		newVer = right[1]
+	}
+	GoReplace{Old: left[0], OldVersion: oldVer, New: right[0], NewVersion: newVer}
+}
+
+func stripLineComment(line string) string {
+	let n = line.Len()
+	for i in 0..n {
+		if i+1 < n && line[i] == 47 && line[i+1] == 47 {
+			return line.Slice(0, i)
+		}
+	}
+	line
+}
+
+func lexGoModLine(line string, file string, lineNo int) []string fails ParseError {
+	let mut out = []string{}
+	let n = line.Len()
+	let mut i = 0
+	for i < n {
+		let c = line[i]
+		if c == 32 || c == 9 || c == 13 {
+			i = i + 1
+			continue
+		}
+		if i+1 < n && c == 47 && line[i+1] == 47 {
+			break
+		}
+		if c == 40 || c == 41 {
+			out = out.Append(line.Slice(i, i+1))
+			i = i + 1
+			continue
+		}
+		if c == 34 {
+			let start = i + 1
+			i = start
+			let mut closed = false
+			let mut buf = ""
+			for i < n {
+				let ch = line[i]
+				if ch == 92 && i+1 < n {
+					buf = buf + line.Slice(i+1, i+2)
+					i = i + 2
+					continue
+				}
+				if ch == 34 {
+					closed = true
+					i = i + 1
+					break
+				}
+				buf = buf + line.Slice(i, i+1)
+				i = i + 1
+			}
+			if !closed {
+				return ParseError{File: file, Line: lineNo, Message: "unterminated string literal"}
+			}
+			out = out.Append(buf)
+			continue
+		}
+		if c == 96 {
+			let start = i + 1
+			i = start
+			let mut closed = false
+			for i < n {
+				if line[i] == 96 {
+					closed = true
+					i = i + 1
+					break
+				}
+				i = i + 1
+			}
+			if !closed {
+				return ParseError{File: file, Line: lineNo, Message: "unterminated raw string literal"}
+			}
+			out = out.Append(line.Slice(start, i-1))
+			continue
+		}
+		let start = i
+		for i < n {
+			let ch = line[i]
+			if ch == 32 || ch == 9 || ch == 13 || ch == 40 || ch == 41 {
+				break
+			}
+			if i+1 < n && ch == 47 && line[i+1] == 47 {
+				break
+			}
+			i = i + 1
+		}
+		out = out.Append(line.Slice(start, i))
+	}
+	out
+}
+
+// IsLocalPath reports whether target names a local filesystem path rather than a module version.
+func IsLocalPath(target string) bool {
+	target == "." || target == ".." || strings.HasPrefix(target, "./") || strings.HasPrefix(target, "../") || filepath.IsAbs(target)
+}
+
+// LocalReplaces extracts local directory replacements from gm resolved relative to modDir.
+func LocalReplaces(modDir string, gm GoMod) []LocalReplace {
+	let mut out = []LocalReplace{}
+	for r in gm.Replace {
+		if r.NewVersion != "" || !IsLocalPath(r.New) {
+			continue
+		}
+		let resolved = if filepath.IsAbs(r.New) {
+			filepath.Clean(r.New)
+		} else {
+			filepath.Clean(filepath.Join([]string{modDir, r.New}))
+		}
+		out = out.Append(LocalReplace{Module: r.Old, OldVersion: r.OldVersion, Dir: resolved})
+	}
+	out
+}
+
+// ResolveReplacedDir finds the local replacement directory for modPath and optional reqVersion.
+func ResolveReplacedDir(replaces []LocalReplace, modPath string, reqVersion string) option.Option[string] {
+	let mut fallback option.Option[string] = option.None
+	for r in replaces {
+		if r.Module != modPath {
+			continue
+		}
+		if r.OldVersion != "" && r.OldVersion == reqVersion {
+			return option.Some[string]{Value: r.Dir}
+		}
+		if r.OldVersion == "" {
+			fallback = option.Some[string]{Value: r.Dir}
+		}
+	}
+	fallback
+}
+
+// ModFileRoundtrip: any valid module path formatted and re-parsed keeps its module name.
+law ModFileRoundtrip(name string) {
+	if !IsValidModPath(name) {
+		return true
+	}
+	let m = ModFile{Name: name, Ergo: "1", Trust: []string{"example.com/dep"}, Claims: []string{}}
+	let text = FormatModFile(m)
+	let parsed = ParseModFile(text, "ergo.mod") catch {
+	case ParseError:
+		return false
+	}
+	parsed.Name == m.Name && parsed.Ergo == m.Ergo && parsed.Trust.Len() == 1 && parsed.Trust[0] == "example.com/dep"
+}
+
+test ParseModFileValidates {
+	let ok = ParseModFile("// header\nmodule compiler\nergo 1\ntrust go example.com/pkg\n", "ergo.mod") catch {
+	case ParseError:
+		assert false
+		return
+	}
+	assert ok.Name == "compiler"
+	assert ok.Ergo == "1"
+	assert ok.Trust.Len() == 1 && ok.Trust[0] == "example.com/pkg"
+
+	let missing = ParseModFile("ergo 1\n", "ergo.mod") catch {
+	case ParseError:
+		ModFile{Name: "failed", Ergo: "", Trust: []string{}, Claims: []string{}}
+	}
+	assert missing.Name == "failed"
+
+	let dup = ParseModFile("module a\nmodule b\n", "ergo.mod") catch {
+	case ParseError:
+		ModFile{Name: "failed", Ergo: "", Trust: []string{}, Claims: []string{}}
+	}
+	assert dup.Name == "failed"
+
+	let bad = ParseModFile("module a/../b\n", "ergo.mod") catch {
+	case ParseError:
+		ModFile{Name: "failed", Ergo: "", Trust: []string{}, Claims: []string{}}
+	}
+	assert bad.Name == "failed"
+}
+
+test ParseGoModSingleBlockAndReplace {
+	let src = "module example.com/app\n\ngo 1.27\n\nrequire (\n\texample.com/a v1.0.0 // indirect\n\t\"example.com/b\" v2.1.0\n)\n\nreplace example.com/a v1.0.0 => ../a-exact\nreplace (\n\texample.com/a => ../a-any\n\texample.com/remote => example.com/fork v1.2.3\n)\n"
+	let gm = ParseGoMod(src, "go.mod") catch {
+	case ParseError:
+		assert false
+		return
+	}
+	assert gm.Module == "example.com/app"
+	assert gm.Require.Len() == 2
+	assert gm.Require[1].Path == "example.com/b" && gm.Require[1].Version == "v2.1.0"
+	let reps = LocalReplaces("/ws/app", gm)
+	assert reps.Len() == 2
+	let exact = ResolveReplacedDir(reps, "example.com/a", "v1.0.0")
+	let other = ResolveReplacedDir(reps, "example.com/a", "v1.9.0")
+	assert exact == (option.Some[string]{Value: "/ws/a-exact"})
+	assert other == (option.Some[string]{Value: "/ws/a-any"})
+}

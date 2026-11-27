@@ -1,0 +1,172 @@
+import compiler/cachekey
+import slices
+import strconv
+
+// FileDigest pairs a normalized package-relative source path with its content digest.
+type FileDigest {
+	Path          string,
+	ContentDigest string,
+}
+
+// ActionInput describes all inputs that invalidate a package check or build action key.
+type ActionInput {
+	Compiler    string,
+	Target      string,
+	PkgPath     string,
+	Files       []FileDigest,
+	DepKeys     []string,
+	Flags       []string,
+	Environ     []string,
+	Experiments []string,
+}
+
+// CacheKeys holds computed action, warm-answer, and directory listing digests for a unit.
+type CacheKeys {
+	PackageKey string,
+	WarmKey    string,
+	ListingKey string,
+}
+
+// PackageActionKey computes a deterministic build/check action key using compiler/cachekey.
+func PackageActionKey(input ActionInput) string {
+	let sortedFiles = sortFileDigests(input.Files)
+	let mut fileParts = []string{}
+	for fd in sortedFiles {
+		fileParts = fileParts.Append(cachekey.Framed([]string{fd.Path, fd.ContentDigest}))
+	}
+	let sortedDeps = slices.Sort(input.DepKeys)
+	let sortedFlags = slices.Sort(input.Flags)
+	let sortedExps = slices.Sort(input.Experiments)
+	let filteredEnv = cachekey.Environ(input.Environ, "")
+	let fields = []cachekey.Field{
+		cachekey.Field{Name: "compiler", Value: input.Compiler},
+		cachekey.Field{Name: "target", Value: input.Target},
+		cachekey.Field{Name: "pkg", Value: input.PkgPath},
+		cachekey.Field{Name: "files", Value: cachekey.Framed(fileParts)},
+		cachekey.Field{Name: "deps", Value: cachekey.Framed(sortedDeps)},
+		cachekey.Field{Name: "flags", Value: cachekey.Framed(sortedFlags)},
+		cachekey.Field{Name: "env", Value: cachekey.Framed(filteredEnv)},
+		cachekey.Field{Name: "exp", Value: cachekey.Framed(sortedExps)},
+	}
+	cachekey.BuildID(cachekey.Fields(fields), sortedDeps.Len()+sortedFiles.Len()+1)
+}
+
+func sortFileDigests(xs []FileDigest) []FileDigest {
+	slices.SortFunc(xs, func(a FileDigest, b FileDigest) int {
+		if a.Path < b.Path {
+			return -1
+		}
+		if a.Path > b.Path {
+			return 1
+		}
+		if a.ContentDigest < b.ContentDigest {
+			return -1
+		}
+		if a.ContentDigest > b.ContentDigest {
+			return 1
+		}
+		0
+	})
+}
+
+// WorkspaceWarmKey computes the workspace warm-answer cache key via cachekey.WarmKey.
+func WorkspaceWarmKey(compiler string, parts []string, environ []string, experiments []string) string {
+	cachekey.WarmKey(compiler, parts, environ, experiments)
+}
+
+// DirListingDigest summarizes directory entry names and directory flags via cachekey.ListingDigest.
+func DirListingDigest(names []string, isDir []bool) string {
+	let n = names.Len()
+	let mut entries = []cachekey.Entry{}
+	for i in 0..n {
+		let mode = if i < isDir.Len() && isDir[i] { 1 } else { 0 }
+		entries = entries.Append(cachekey.Entry{Name: names[i], Type: mode})
+	}
+	cachekey.ListingDigest(entries)
+}
+
+// ActionKeysForPackage combines action key, warm key, and directory listing digest for one package unit.
+func ActionKeysForPackage(input ActionInput, dirNames []string, isDir []bool) CacheKeys {
+	let pkgKey = PackageActionKey(input)
+	let listing = DirListingDigest(dirNames, isDir)
+	let warm = WorkspaceWarmKey(input.Compiler, []string{input.PkgPath, pkgKey, listing, strconv.Itoa(input.Files.Len())}, input.Environ, input.Experiments)
+	CacheKeys{
+		PackageKey: pkgKey,
+		WarmKey:    warm,
+		ListingKey: listing,
+	}
+}
+
+// ActionKeySensitiveToFileEdit: changing any file content digest changes PackageActionKey.
+law ActionKeySensitiveToFileEdit(a string, b string) {
+	if a == b {
+		return true
+	}
+	let inA = ActionInput{
+		Compiler:    "ergo 1",
+		Target:      "native",
+		PkgPath:     "app/main",
+		Files:       []FileDigest{FileDigest{Path: "main.ergo", ContentDigest: a}},
+		DepKeys:     []string{},
+		Flags:       []string{},
+		Environ:     []string{},
+		Experiments: []string{},
+	}
+	let inB = ActionInput{
+		Compiler:    "ergo 1",
+		Target:      "native",
+		PkgPath:     "app/main",
+		Files:       []FileDigest{FileDigest{Path: "main.ergo", ContentDigest: b}},
+		DepKeys:     []string{},
+		Flags:       []string{},
+		Environ:     []string{},
+		Experiments: []string{},
+	}
+	PackageActionKey(inA) != PackageActionKey(inB)
+}
+
+// ActionKeyIgnoresFileInputOrder: PackageActionKey produces identical keys regardless of file slice order.
+law ActionKeyIgnoresFileInputOrder(d1 string, d2 string) {
+	let f1 = FileDigest{Path: "a.ergo", ContentDigest: d1}
+	let f2 = FileDigest{Path: "b.ergo", ContentDigest: d2}
+	let in1 = ActionInput{
+		Compiler:    "ergo 1",
+		Target:      "native",
+		PkgPath:     "app/main",
+		Files:       []FileDigest{f1, f2},
+		DepKeys:     []string{"k2", "k1"},
+		Flags:       []string{"--strict"},
+		Environ:     []string{"CI=1"},
+		Experiments: []string{},
+	}
+	let in2 = ActionInput{
+		Compiler:    "ergo 1",
+		Target:      "native",
+		PkgPath:     "app/main",
+		Files:       []FileDigest{f2, f1},
+		DepKeys:     []string{"k1", "k2"},
+		Flags:       []string{"--strict"},
+		Environ:     []string{"CI=1"},
+		Experiments: []string{},
+	}
+	PackageActionKey(in1) == PackageActionKey(in2)
+}
+
+test CacheKeyDeterminismAndWarmParity {
+	let in1 = ActionInput{
+		Compiler:    "ergo 1",
+		Target:      "native",
+		PkgPath:     "compiler/driver",
+		Files:       []FileDigest{FileDigest{Path: "cache.ergo", ContentDigest: "h1"}},
+		DepKeys:     []string{"dep0"},
+		Flags:       []string{"--strict"},
+		Environ:     []string{"HOME=/tmp", "ERGO_FALLBACK=off"},
+		Experiments: []string{"s6"},
+	}
+	let keys = ActionKeysForPackage(in1, []string{"cache.ergo", "testdata"}, []bool{false, true})
+	assert keys.PackageKey != ""
+	assert keys.ListingKey == DirListingDigest([]string{"testdata", "cache.ergo"}, []bool{true, false})
+	assert keys.WarmKey == cachekey.WarmKey("ergo 1", []string{"compiler/driver", keys.PackageKey, keys.ListingKey, "1"}, in1.Environ, in1.Experiments)
+	let uncached = WorkspaceWarmKey("", []string{"part"}, []string{}, []string{})
+	assert uncached == ""
+}

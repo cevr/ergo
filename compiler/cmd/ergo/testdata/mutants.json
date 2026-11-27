@@ -1,0 +1,75 @@
+{
+  "about": "compiler/cmd/ergo: zero-leakage help pages, unified flag dispatch, retired Go-tier rejection, and wired fmt/check commands (SELFHOST-DRIVER-CLI).",
+  "mutants": [
+    {
+      "name": "driver-cli-help-leaks-native-flag",
+      "origin": "wf10 SELFHOST-DRIVER-CLI",
+      "file": "compiler/cmd/ergo/help.ergo",
+      "decl": "CheckHelp",
+      "from": "Options:\\n  --strict",
+      "to": "Options:\\n  --native\\n  --strict",
+      "rule": "Primary CLI help must never expose retired Go/backend-tier flags like --native.",
+      "killers": ["compiler/cmd/ergo:law:PrimaryHelpIsClean", "compiler/cmd/ergo:HelpGroupedNoGoLeakage"]
+    },
+    {
+      "name": "driver-cli-help-drops-examples-group",
+      "origin": "wf10 SELFHOST-DRIVER-CLI",
+      "file": "compiler/cmd/ergo/help.ergo",
+      "decl": "GeneralHelp",
+      "from": "\tout = out + \"Examples:\\n\"\n",
+      "to": "\tout = out + \"Usage:\\n\"\n",
+      "rule": "General --help includes grouped Examples:, Core:, Verify & Inspect:, and Packages & Workspace: sections.",
+      "killers": ["compiler/cmd/ergo:HelpGroupedNoGoLeakage"]
+    },
+    {
+      "name": "driver-cli-dispatch-accepts-retired-native",
+      "origin": "wf10 SELFHOST-DRIVER-CLI",
+      "file": "compiler/cmd/ergo/check_cmd.ergo",
+      "decl": "ParseCheckOptions",
+      "from": "\t\t\treturn FlagError{Code: 2, Message: \"ergo check: unknown option \" + arg}\n",
+      "to": "\t\t\topts.Paths = opts.Paths.Append(arg)\n\t\t\ti = i + 1\n\t\t\tcontinue\n",
+      "rule": "Unknown and retired backend flags (--native, --compiled, --target, -go-text, --go-trace) fail with exit code 2 instead of being treated as positional paths.",
+      "killers": ["compiler/cmd/ergo:law:RetiredLeakageFlagsRejected"]
+    },
+    {
+      "name": "driver-cli-dispatch-omits-default-discovery",
+      "origin": "wf10 SELFHOST-DRIVER-CLI",
+      "file": "compiler/cmd/ergo/dispatch.ergo",
+      "decl": "runStubHook",
+      "from": "\t\t[]string{driver.ResolveTargetDefault(workDir)}\n",
+      "to": "\t\t[]string{\".\"}\n",
+      "rule": "Omitted target paths resolve cleanly via driver.ResolveTargetDefault (. vs ./...).",
+      "killers": ["compiler/cmd/ergo:DispatchRoutesFmtCheckHelpAndStubs"]
+    },
+    {
+      "name": "driver-cli-fmt-check-exits-zero",
+      "origin": "wf10 SELFHOST-DRIVER-CLI",
+      "file": "compiler/cmd/ergo/fmt_cmd.ergo",
+      "decl": "runFmtFiles",
+      "from": "\tif opts.Check && changed.Len() > 0 {\n\t\treturn 1\n\t}\n",
+      "to": "\tif opts.Check && changed.Len() > 0 {\n\t\treturn 0\n\t}\n",
+      "rule": "ergo fmt --check exits 1 whenever any file differs from canonical format.",
+      "killers": ["compiler/cmd/ergo:FmtCmdCheckStdinAndWrite"]
+    },
+    {
+      "name": "driver-cli-check-drops-expr-diags",
+      "origin": "wf10 SELFHOST-DRIVER-CLI",
+      "file": "compiler/cmd/ergo/check_cmd.ergo",
+      "decl": "collectUnitDiags",
+      "from": "\tfor g in d.T.Diags {\n\t\tlet (f, row) = bind.RowOf(d.K.Ps, g.At)\n\t\tlet parsed = d.K.Parsed[f]\n\t\tlet id = syntax.NodeAt(parsed.Tree, row)\n\t\tlet offset = syntax.NodePos(parsed, id)\n\t\tds = ds.Append(diag.Diag{\n\t\t\tFile:    f,\n\t\t\tOffset:  offset,\n\t\t\tLength:  syntax.NodeEnd(parsed, id) - offset,\n\t\t\tCode:    \"S108\",\n\t\t\tMessage: \"type or binding error\",\n\t\t})\n\t}\n",
+      "to": "\tfor g in d.T.Diags {\n\t\tlet _ = g\n\t}\n",
+      "rule": "ergo check reports expression type and binding diagnostics from compiler/check/expr.",
+      "killers": ["compiler/cmd/ergo:CheckCmdChecksValidAndInvalidAndCycle"]
+    },
+    {
+      "name": "driver-cli-check-cycle-silent",
+      "origin": "wf10 SELFHOST-DRIVER-CLI",
+      "file": "compiler/cmd/ergo/check_cmd.ergo",
+      "decl": "RunCheck",
+      "from": "\tcase driver.CycleError as ce:\n\t\temitCheckFailure(opts.Json, driver.FormatCycle(ce), \"E_CYCLE\", \"\")\n\t\treturn 1\n",
+      "to": "\tcase driver.CycleError as ce:\n\t\temitCheckFailure(opts.Json, driver.FormatCycle(ce), \"E_CYCLE\", \"\")\n\t\treturn 0\n",
+      "rule": "ergo check rejects import cycles with exit code 1.",
+      "killers": ["compiler/cmd/ergo:CheckCmdChecksValidAndInvalidAndCycle"]
+    }
+  ]
+}

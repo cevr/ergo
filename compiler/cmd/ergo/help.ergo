@@ -1,0 +1,285 @@
+import option
+import strings
+
+// CommandFate classifies whether a CLI command runs, was removed, or is pending port.
+type CommandFate = FateAvailable{} | FateRemoved{} | FateDark{}
+
+// CommandDesc describes one entry in the CLI command table.
+type CommandDesc {
+	Name    string,
+	Fate    CommandFate,
+	Group   string,
+	Hidden  bool,
+	Usage   string,
+	Help    string,
+	AllHelp string,
+	Reason  string,
+}
+
+// HelpBanner returns the one-line tagline for ergo --help.
+func HelpBanner() string {
+	"ergo — failures handled, services supplied, laws tested"
+}
+
+// CheckHelp returns primary help text for ergo check.
+func CheckHelp() string {
+	"usage: ergo check [PATH...] [--strict] [--json] [-j N] [--fresh]\n\nCheck Ergo source files, packages, or modules and evaluate pure laws.\nOmitting PATH checks the current package or module.\n\nExamples:\n  ergo check                 Check the current package or module\n  ergo check ./cmd/app       Check one package folder\n  ergo check --json          Print full diagnostic report as JSON\n  ergo check --strict        Fail if any law is left undecided\n\nOptions:\n  --strict           fail policy on warnings or undecided laws\n  --json             emit full DiagnosticReport JSON (with lint advice)\n  -j, --jobs N       parallel workers for multi-package checks\n  --fresh            ignore cached answers and verdicts\n  --seed N           property seed for check-time law evaluation\n  --std DIR          standard library folder override\n\nExit codes: 0 passed; 1 check or policy failed; 2 invalid invocation.\nRun ergo check --help-all for internal evaluation budget flags.\n"
+}
+
+// CheckAllHelp returns extended help text for ergo check --help-all.
+func CheckAllHelp() string {
+	CheckHelp() + "\nAdvanced options:\n  --eval-steps N     evaluation step budget for check-time laws\n  --eval-bytes N     evaluation allocation budget in bytes\n"
+}
+
+// TestHelp returns primary help text for ergo test.
+func TestHelp() string {
+	"usage: ergo test [PATH...] [OPTIONS]\n\nRun tests and laws using the fastest sound execution path automatically.\nMulti-package runs execute in parallel by default (-j 1 serializes).\nOmitting PATH tests the current package or module.\n\nExamples:\n  ergo test                    Test the current package or module\n  ergo test -k Parse           Run tests or laws matching \"Parse\"\n  ergo test --skip Slow        Skip tests or laws matching \"Slow\"\n  ergo test --fresh -j 4       Bypass caches and run with 4 workers\n  ergo test ./a ./b/...        Test explicit targets and subtrees\n\nOptions:\n  -k, --filter PATTERN  run only tests or laws matching regex/name PATTERN\n  --skip PATTERN        skip tests or laws matching regex/name PATTERN\n  --fresh               ignore cached answers and stored verdicts\n  -j, --jobs N          worker count (-j 1 to serialize)\n  --seed N              random seed for property tests and laws\n  --states N            search state budget for machine laws\n  --locked              require current proved entries in ergo.laws\n  --debug               keep symbol table and debug info\n  --json                emit JSON output\n\nUse ergo verify {mutants,explore,conform,cases} for heavy verification modes.\nExit codes: 0 all passed; 1 test or law failed; 2 defect or invalid invocation.\nRun ergo test --help-all for sharding and timings flags.\n"
+}
+
+// TestAllHelp returns extended help text for ergo test --help-all.
+func TestAllHelp() string {
+	TestHelp() + "\nSharding & advanced options:\n  --trace                    print scene test steps after running one package\n  --parallel                 enable parallel runner explicitly\n  --shard i/n                run 1-indexed shard i of n\n  --timings FILE             timing history JSON for shard balancing\n  --emitted                  print emitted module digest without building\n  -work, --work              keep and print emitted module directory on stderr\n  --mutants / --explore / --cases   prefer ergo verify {mutants,explore,cases}\n"
+}
+
+// BuildHelp returns primary help text for ergo build.
+func BuildHelp() string {
+	"usage: ergo build [PATH] [-o PATH] [--locked] [--debug] [--release] [--platform OS/ARCH]\n\nBuild an executable binary or library module from Ergo source.\nOmitting PATH builds the current package.\n\nExamples:\n  ergo build                       Build current package executable\n  ergo build ./cmd/app -o dist/app Write binary to dist/app\n  ergo build --release ./cmd/srv   Build with optimization profile\n\nOptions:\n  -o PATH              output file path\n  --locked             refuse build if ergo.laws rewrite entries are stale/missing\n  --debug              keep symbol table and DWARF debug information\n  --release            enable release optimization\n  --platform OS/ARCH   target platform (e.g. linux/arm64, linux/amd64)\n  --fresh              ignore build cache\n\nExit codes: 0 built; 1 check or build failed; 2 invalid invocation.\nRun ergo build --help-all for emission and debugging flags.\n"
+}
+
+// BuildAllHelp returns extended help text for ergo build --help-all.
+func BuildAllHelp() string {
+	BuildHelp() + "\nInternal debugging options:\n  --emitted              print emitted digest without building\n  -work, --work          keep intermediate build directory\n  --fallback on|off      control fallback on lowering gaps\n  --views=off            disable zero-copy view optimization\n  --rewrites=MODE        control law rewrites (on|proved|off)\n"
+}
+
+// RunHelp returns primary help text for ergo run.
+func RunHelp() string {
+	"usage: ergo run [PATH] [--locked] [--debug] [--fresh] [--] [ARGS...]\n\nBuild and execute the Ergo program at PATH (defaults to .).\n\nExamples:\n  ergo run                       Run the current package\n  ergo run ./cmd/app -- --flag   Pass arguments to the program\n\nOptions:\n  --locked             require current proved entries in ergo.laws\n  --debug              keep debug info\n  --fresh              rebuild ignoring cache\n  --json               emit structured failure output\n\nExit codes: program exit code; 1 check or build failed; 2 invalid invocation.\nRun ergo run --help-all for internal debugging flags.\n"
+}
+
+// RunAllHelp returns extended help text for ergo run --help-all.
+func RunAllHelp() string {
+	RunHelp() + "\nInternal debugging options:\n  --fallback on|off      control fallback on lowering gaps\n"
+}
+
+// FmtHelp returns primary help text for ergo fmt.
+func FmtHelp() string {
+	"usage: ergo fmt [PATH...] [--check] [--json]\n       ergo fmt --stdin [--check]\n\nFormat Ergo source files in canonical style.\nOmitting PATH formats the current package or module.\n\nExamples:\n  ergo fmt                 Format the current package or module\n  ergo fmt --check ./...   Exit 1 if any file differs from canonical format\n  ergo fmt --stdin         Format source read from standard input\n\nOptions:\n  --check    report whether files need formatting without modifying them\n  --stdin    read source from standard input and write formatted output to stdout\n  --json     emit structured JSON result\n\nExit codes: 0 formatted or already clean; 1 --check found differences; 2 syntax or usage error.\n"
+}
+
+// LintHelp returns primary help text for ergo lint.
+func LintHelp() string {
+	"usage: ergo lint [PATH...] [--strict] [--json] [--fresh]\n\nRun architecture and style rules across Ergo packages.\nOmitting PATH lints the current package or module.\n\nOptions:\n  --strict             fail on lint warnings as well as errors\n  --json               emit structured lint findings as JSON\n  --fresh              ignore cached answers\n  --lint-config FILE   lint configuration file override\n  --rules MANIFEST     rule pack manifest\n  --preset P           named rule preset\n\nExit codes: 0 clean; 1 findings reported; 2 invalid invocation.\n"
+}
+
+// FixHelp returns primary help text for ergo fix.
+func FixHelp() string {
+	"usage: ergo fix [--check] [--json] [PATH...]\n\nApply canonical formatting and safe mechanical lint fixes.\nOmitting PATH fixes the current package or module.\n\nOptions:\n  --check    report pending fixes without writing files\n  --json     emit structured fix summary as JSON\n\nExit codes: 0 clean or applied; 1 --check found pending fixes; 2 error.\nRun ergo fix --help-all for migration flags.\n"
+}
+
+// FixAllHelp returns extended help text for ergo fix --help-all.
+func FixAllHelp() string {
+	FixHelp() + "\nRetired & migration options:\n  --dry-run              preview changes without writing (use --check instead)\n  --comments             strip non-doc comments forbidden by no-comments\n"
+}
+
+// VerifyHelp returns primary help text for ergo verify.
+func VerifyHelp() string {
+	"usage: ergo verify SUBCOMMAND [OPTIONS]\n\nRun heavy verification workflows: mutation testing, schedule exploration,\ntrace conformance checking, and CLI golden cases.\n\nExamples:\n  ergo verify mutants                    Verify mutant ledgers under .\n  ergo verify explore dfs ./pkg          Explore concurrent schedules with DFS\n  ergo verify conform --machine M --trace t.jsonl\n  ergo verify cases ./cmd/app --cases ./cases\n\nSubcommands:\n  mutants    verify hand and derived mutants against tests and laws\n  explore    search or replay concurrent task interleavings\n  conform    verify an execution trace conforms to a machine specification\n  cases      run black-box golden input/output cases against a built program\n\nExit codes: 0 passed; 1 verification failure; 2 usage error.\n"
+}
+
+// InspectHelp returns primary help text for ergo inspect.
+func InspectHelp() string {
+	"usage: ergo inspect [api|machine|deps|facts|copies|forms|rewrites|graph] [PATH...] [--json]\n\nInspect checked package APIs, machine states, imports, facts, and dependency graphs.\nOmitting PATH inspects the current package or module.\n\nSubcommands:\n  api        print exported package declarations and signatures\n  machine    print machine state transitions and laws\n  deps       print module and package dependencies\n  facts      print derived value/refinement facts\n  copies     print ownership and move analysis summary\n  forms      print canonical AST and lowered IR summary\n  rewrites   print law rewrite status\n  graph      inspect CSR import graph and wave schedule\n\nOptions:\n  --json     emit structured JSON output\n  --fresh    ignore cached analysis\n\nExit codes: 0 ok; 1 failure; 2 usage error.\n"
+}
+
+// WorkspaceSubHelp returns concise help for workspace/utility subcommands.
+func WorkspaceSubHelp(name string, usage string, summary string) string {
+	"usage: ergo " + usage + "\n\n" + summary + "\n\nExit codes: 0 ok; 1 failure; 2 invalid invocation.\n"
+}
+
+// AllCommands returns the complete CLI command table in canonical display order.
+func AllCommands() []CommandDesc {
+	[]CommandDesc{
+		CommandDesc{Name: "check", Fate: FateAvailable, Group: "core", Hidden: false, Usage: "check [PATH...] [--strict] [--json] [-j N] [--fresh]", Help: CheckHelp(), AllHelp: CheckAllHelp(), Reason: ""},
+		CommandDesc{Name: "test", Fate: FateAvailable, Group: "core", Hidden: false, Usage: "test [PATH...] [-k PATTERN] [--skip PATTERN] [--fresh] [-j N] [--seed N] [--json]", Help: TestHelp(), AllHelp: TestAllHelp(), Reason: ""},
+		CommandDesc{Name: "build", Fate: FateAvailable, Group: "core", Hidden: false, Usage: "build [PATH] [-o PATH] [--locked] [--debug] [--release] [--platform OS/ARCH]", Help: BuildHelp(), AllHelp: BuildAllHelp(), Reason: ""},
+		CommandDesc{Name: "run", Fate: FateAvailable, Group: "core", Hidden: false, Usage: "run [PATH] [--locked] [--debug] [--json] [--] [ARGS...]", Help: RunHelp(), AllHelp: RunAllHelp(), Reason: ""},
+		CommandDesc{Name: "fmt", Fate: FateAvailable, Group: "core", Hidden: false, Usage: "fmt [PATH...] [--check] [--json] | fmt --stdin", Help: FmtHelp(), AllHelp: FmtHelp(), Reason: ""},
+		CommandDesc{Name: "lint", Fate: FateAvailable, Group: "core", Hidden: false, Usage: "lint [PATH...] [--strict] [--json] [--fresh]", Help: LintHelp(), AllHelp: LintHelp(), Reason: ""},
+		CommandDesc{Name: "fix", Fate: FateAvailable, Group: "core", Hidden: false, Usage: "fix [--check] [--json] [PATH...]", Help: FixHelp(), AllHelp: FixAllHelp(), Reason: ""},
+		CommandDesc{Name: "verify", Fate: FateAvailable, Group: "verify", Hidden: false, Usage: "verify mutants|explore|conform|cases ...", Help: VerifyHelp(), AllHelp: VerifyHelp(), Reason: ""},
+		CommandDesc{Name: "inspect", Fate: FateAvailable, Group: "verify", Hidden: false, Usage: "inspect [api|machine|deps|facts|copies|forms|rewrites|graph] ...", Help: InspectHelp(), AllHelp: InspectHelp(), Reason: ""},
+		CommandDesc{Name: "code", Fate: FateAvailable, Group: "verify", Hidden: false, Usage: "code [--in DIR] [--json] COMMAND [ARGS...]", Help: WorkspaceSubHelp("code", "code [--in DIR] [--json] COMMAND [ARGS...]", "Query checked source structure."), AllHelp: "", Reason: ""},
+		CommandDesc{Name: "dev", Fate: FateAvailable, Group: "verify", Hidden: false, Usage: "dev [DIR] [--idle DURATION]", Help: WorkspaceSubHelp("dev", "dev [DIR] [--idle DURATION]", "Run interactive development watcher."), AllHelp: "", Reason: ""},
+		CommandDesc{Name: "gen", Fate: FateAvailable, Group: "workspace", Hidden: false, Usage: "gen rpc|cli [--check] DIR.OPTYPE", Help: WorkspaceSubHelp("gen", "gen rpc|cli [--check] DIR.OPTYPE", "Generate typed RPC and CLI transports."), AllHelp: "", Reason: ""},
+		CommandDesc{Name: "task", Fate: FateAvailable, Group: "workspace", Hidden: false, Usage: "task --list [--json] [DIR] | task gen [--check] [--fresh] [NAME...]", Help: WorkspaceSubHelp("task", "task --list [--json] [DIR] | task gen [--check] [--fresh] [NAME...]", "List or execute workspace tasks and generators."), AllHelp: "", Reason: ""},
+		CommandDesc{Name: "get", Fate: FateAvailable, Group: "workspace", Hidden: false, Usage: "get MODULE[@VERSION]...", Help: WorkspaceSubHelp("get", "get MODULE[@VERSION]...", "Resolve module dependencies."), AllHelp: "", Reason: ""},
+		CommandDesc{Name: "bind", Fate: FateAvailable, Group: "workspace", Hidden: false, Usage: "bind [-o DIR] PACKAGE...", Help: WorkspaceSubHelp("bind", "bind [-o DIR] PACKAGE...", "Generate foreign package bindings."), AllHelp: "", Reason: ""},
+		CommandDesc{Name: "work", Fate: FateAvailable, Group: "workspace", Hidden: false, Usage: "work COMMAND [ARGS...]", Help: WorkspaceSubHelp("work", "work COMMAND [ARGS...]", "Manage copy-on-write workspaces."), AllHelp: "", Reason: ""},
+		CommandDesc{Name: "version", Fate: FateAvailable, Group: "workspace", Hidden: false, Usage: "version [--json]", Help: WorkspaceSubHelp("version", "version [--json]", "Print ergo driver and toolchain version."), AllHelp: "", Reason: ""},
+		CommandDesc{Name: "diagnostics", Fate: FateAvailable, Group: "plumbing", Hidden: true, Usage: "diagnostics [PATH] [--strict] [--json]", Help: CheckHelp(), AllHelp: CheckAllHelp(), Reason: ""},
+		CommandDesc{Name: "lib", Fate: FateAvailable, Group: "plumbing", Hidden: true, Usage: "lib [PATH] -o DIR", Help: BuildHelp(), AllHelp: BuildAllHelp(), Reason: ""},
+		CommandDesc{Name: "graph", Fate: FateAvailable, Group: "plumbing", Hidden: true, Usage: "graph [--in DIR|DIR/...] export|cycles|waves [--json]", Help: InspectHelp(), AllHelp: InspectHelp(), Reason: ""},
+		CommandDesc{Name: "conform", Fate: FateAvailable, Group: "plumbing", Hidden: true, Usage: "conform [DIR] --machine M --trace FILE", Help: VerifyHelp(), AllHelp: VerifyHelp(), Reason: ""},
+		CommandDesc{Name: "budget", Fate: FateAvailable, Group: "plumbing", Hidden: true, Usage: "budget -- COMMAND [ARGS...]", Help: VerifyHelp(), AllHelp: VerifyHelp(), Reason: ""},
+		CommandDesc{Name: "tsmap", Fate: FateAvailable, Group: "plumbing", Hidden: true, Usage: "tsmap [--emit-js FILE.ergo]", Help: InspectHelp(), AllHelp: InspectHelp(), Reason: ""},
+		CommandDesc{Name: "edition", Fate: FateRemoved, Group: "", Hidden: false, Usage: "", Help: "", AllHelp: "", Reason: "there is one language and no editions"},
+		CommandDesc{Name: "lint receipt", Fate: FateRemoved, Group: "", Hidden: false, Usage: "", Help: "", AllHelp: "", Reason: "cost receipts return with rule packs"},
+		CommandDesc{Name: "query", Fate: FateRemoved, Group: "", Hidden: false, Usage: "", Help: "", AllHelp: "", Reason: "use ergo inspect instead"},
+		CommandDesc{Name: "type", Fate: FateRemoved, Group: "", Hidden: false, Usage: "", Help: "", AllHelp: "", Reason: "use ergo inspect instead"},
+		CommandDesc{Name: "explain", Fate: FateRemoved, Group: "", Hidden: false, Usage: "", Help: "", AllHelp: "", Reason: "use ergo inspect instead"},
+		CommandDesc{Name: "lsp", Fate: FateDark, Group: "", Hidden: false, Usage: "", Help: "", AllHelp: "", Reason: ""},
+		CommandDesc{Name: "mcp", Fate: FateDark, Group: "", Hidden: false, Usage: "", Help: "", AllHelp: "", Reason: ""},
+	}
+}
+
+// LookupCommand finds the command entry matching the leading tokens of args.
+func LookupCommand(args []string) option.Option[CommandDesc] {
+	if args.Len() == 0 {
+		return option.None
+	}
+	let cmds = AllCommands()
+	if args.Len() >= 2 {
+		let two = args[0] + " " + args[1]
+		for c in cmds {
+			if c.Name == two {
+				return option.Some[CommandDesc]{Value: c}
+			}
+		}
+	}
+	for c in cmds {
+		if c.Name == args[0] {
+			return option.Some[CommandDesc]{Value: c}
+		}
+	}
+	option.None
+}
+
+// GeneralHelp formats the grouped primary help output without internal plumbing or Go-tier leakage.
+func GeneralHelp() string {
+	let cmds = AllCommands()
+	let mut out = HelpBanner() + "\n"
+	out = out + "usage: ergo COMMAND [OPTIONS] [PATH...]\n\n"
+	out = out + "Examples:\n"
+	out = out + "  ergo check                       Check current package or module\n"
+	out = out + "  ergo test                        Run tests and laws in parallel\n"
+	out = out + "  ergo test -k Parse --fresh       Run matching tests bypassing caches\n"
+	out = out + "  ergo run examples/lookup         Build and run a program\n"
+	out = out + "  ergo verify mutants              Run mutation checks on the project\n\n"
+	out = out + formatHelpGroup(cmds, "core", "Core:")
+	out = out + formatHelpGroup(cmds, "verify", "Verify & Inspect:")
+	out = out + formatHelpGroup(cmds, "workspace", "Packages & Workspace:")
+	out = out + "Run ergo COMMAND --help for command options and exit codes.\n"
+	out = out + "Run ergo --help-all for advanced options and compatibility aliases.\n"
+	out
+}
+
+func formatHelpGroup(cmds []CommandDesc, key string, title string) string {
+	let mut out = title + "\n"
+	for c in cmds {
+		match c.Fate {
+		case FateAvailable:
+			if !c.Hidden && c.Group == key {
+				out = out + "  ergo " + c.Usage + "\n"
+			}
+		case FateRemoved, FateDark:
+		}
+	}
+	out + "\n"
+}
+
+// GeneralHelpAll formats GeneralHelp followed by hidden plumbing commands.
+func GeneralHelpAll() string {
+	let cmds = AllCommands()
+	let mut out = GeneralHelp() + "\nPlumbing & compatibility commands:\n"
+	for c in cmds {
+		match c.Fate {
+		case FateAvailable:
+			if c.Hidden {
+				out = out + "  ergo " + c.Usage + "\n"
+			}
+		case FateRemoved, FateDark:
+		}
+	}
+	out
+}
+
+// PrimaryHelpTexts returns all primary user-facing help pages checked against leakage tokens.
+func PrimaryHelpTexts() []string {
+	[]string{
+		GeneralHelp(),
+		CheckHelp(),
+		TestHelp(),
+		BuildHelp(),
+		RunHelp(),
+		FmtHelp(),
+		LintHelp(),
+		FixHelp(),
+		VerifyHelp(),
+		InspectHelp(),
+	}
+}
+
+// ForbiddenPrimaryHelpTokens returns legacy prototype and Go-toolchain leakage tokens disallowed from primary help.
+func ForbiddenPrimaryHelpTokens() []string {
+	[]string{
+		"Ergo prototype",
+		"Go is the only target",
+		"--target go",
+		"--native",
+		"--compiled",
+		"ergo budget",
+		"ergo tsmap",
+		"ergo diagnostics",
+		"ergo lib",
+		"ergo conform",
+		"-work",
+		"--emitted",
+		"-go-text",
+		"--go-trace",
+		"-fallback",
+		"-views=off",
+		"-rewrites",
+		"--dry-run",
+	}
+}
+
+// HasNoForbiddenHelpTokens verifies that primary help text never exposes any forbidden leakage token.
+func HasNoForbiddenHelpTokens(helpText string) bool {
+	for tok in ForbiddenPrimaryHelpTokens() {
+		if strings.Contains(helpText, tok) {
+			return false
+		}
+	}
+	true
+}
+
+// PrimaryHelpIsClean: every primary help page contains zero forbidden backend or prototype tokens.
+law PrimaryHelpIsClean(idx uint32) {
+	let pages = PrimaryHelpTexts()
+	let page = pages[int(idx%uint32(pages.Len()))]
+	HasNoForbiddenHelpTokens(page)
+}
+
+test HelpGroupedNoGoLeakage {
+	let general = GeneralHelp()
+	let wants = []string{
+		"ergo — failures handled, services supplied, laws tested",
+		"Examples:",
+		"Core:",
+		"Verify & Inspect:",
+		"Packages & Workspace:",
+		"verify mutants|explore|conform|cases",
+		"inspect [api|machine|deps|facts|copies|forms|rewrites|graph]",
+		"--help-all",
+	}
+	for w in wants {
+		assert strings.Contains(general, w)
+	}
+	for page in PrimaryHelpTexts() {
+		assert HasNoForbiddenHelpTokens(page)
+	}
+	let all = GeneralHelpAll() + TestAllHelp() + BuildAllHelp() + FixAllHelp()
+	for adv in []string{"budget", "tsmap", "diagnostics", "lib", "conform", "-work", "--emitted"} {
+		assert strings.Contains(all, adv)
+	}
+}
