@@ -1,0 +1,253 @@
+import github.com/cevr/ergo/modules/orchestrate/orchestrate
+import http
+import json
+import mcp/httpmcp
+import option
+import os/host
+import queue
+import strconv
+import strings
+import time
+
+func jsonResponse(status int, body string) http.Response {
+	http.Response{
+		Status: status,
+		Header: []http.Field{http.Field{Name: "Content-Type", Value: "application/json"}},
+		Body:   body,
+	}
+}
+
+func errorJSONResponse(status int, err orchestrate.InvalidInput) http.Response {
+	jsonResponse(status, json.Encode(json.Codec[orchestrate.InvalidInput]{MaxBytes: 0, MaxDepth: 0}, err))
+}
+
+func optionalQueryParam(fields []http.Field, name string) json.Optional[string] {
+	match http.Query(fields, name) {
+	case option.Some[string] as v:
+		json.Present[string]{Value: v.Value}
+	case option.None:
+		json.Absent
+	}
+}
+
+func optionalQueryInt(fields []http.Field, name string) json.Optional[int] fails orchestrate.InvalidInput {
+	match http.Query(fields, name) {
+	case option.Some[string] as v:
+		let n = strconv.Atoi(strings.TrimSpace(v.Value)) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return orchestrate.InvalidInput{Field: name, Why: "must be an integer"}
+		}
+		json.Present[int]{Value: n}
+	case option.None:
+		json.Absent
+	}
+}
+
+func wantsSSE(headers []http.Field) bool {
+	for f in headers {
+		if strings.EqualFold(f.Name, "Accept") && strings.Contains(strings.ToLower(f.Value), "text/event-stream") {
+			return true
+		}
+	}
+	false
+}
+
+func hasReadinessOverrides(query []http.Field) bool {
+	let keys = []string{"volume", "maxLoad", "recoveryMaxLoad", "minMemGiB", "recoveryMinMemGiB", "maxDiskPct", "recoveryMaxDiskPct", "previousState"}
+	for k in keys {
+		if http.Query(query, k) != option.None {
+			return true
+		}
+	}
+	false
+}
+
+func handleReadinessHTTP(hub ControlHub, req http.Request) http.Response {
+	if req.Method != "GET" {
+		return http.Response{Status: 405, Header: []http.Field{http.Field{Name: "Allow", Value: "GET"}}, Body: ""}
+	}
+	if !hasReadinessOverrides(req.Query) {
+		let at = hub.Clock.Now().Format(time.RFC3339)
+		let (next, edge, rep) = ProbeReadiness(hub.Host, hub.Tracker.Get(), at)
+		hub.Tracker.Set(next)
+		match edge {
+		case option.Some[orchestrate.ReadinessChanged] as e:
+			let _ = PublishReadinessEdge(hub, e.Value)
+		case option.None:
+		}
+		let status = if rep.Ready { 200 } else { 503 }
+		return jsonResponse(status, json.Encode(json.Codec[orchestrate.HostReadinessReport]{MaxBytes: 0, MaxDepth: 0}, rep))
+	}
+	let input = orchestrate.HostReadinessInput{
+		Volume:             optionalQueryParam(req.Query, "volume"),
+		MaxLoad:            optionalQueryParam(req.Query, "maxLoad"),
+		RecoveryMaxLoad:    optionalQueryParam(req.Query, "recoveryMaxLoad"),
+		MinMemGiB:          optionalQueryParam(req.Query, "minMemGiB"),
+		RecoveryMinMemGiB:  optionalQueryParam(req.Query, "recoveryMinMemGiB"),
+		MaxDiskPct:         optionalQueryParam(req.Query, "maxDiskPct"),
+		RecoveryMaxDiskPct: optionalQueryParam(req.Query, "recoveryMaxDiskPct"),
+		PreviousState:      optionalQueryParam(req.Query, "previousState"),
+	}
+	let rep = hub.Service.HostReadiness(input) catch {
+	case orchestrate.InvalidInput as e:
+		return errorJSONResponse(400, e)
+	case host.Unavailable as e:
+		let (_, _, fallbackRep) = probeFailureReport(hub.Tracker.Get(), hub.Clock.Now().Format(time.RFC3339), orchestrate.ReadinessStateName(hub.Tracker.Get().State), "host unavailable (\(e.Target)): \(e.Reason)")
+		return jsonResponse(503, json.Encode(json.Codec[orchestrate.HostReadinessReport]{MaxBytes: 0, MaxDepth: 0}, fallbackRep))
+	case host.Malformed as e:
+		let (_, _, fallbackRep) = probeFailureReport(hub.Tracker.Get(), hub.Clock.Now().Format(time.RFC3339), orchestrate.ReadinessStateName(hub.Tracker.Get().State), "host malformed (\(e.Source)): \(e.Reason)")
+		return jsonResponse(503, json.Encode(json.Codec[orchestrate.HostReadinessReport]{MaxBytes: 0, MaxDepth: 0}, fallbackRep))
+	}
+	let status = if rep.Ready { 200 } else { 503 }
+	jsonResponse(status, json.Encode(json.Codec[orchestrate.HostReadinessReport]{MaxBytes: 0, MaxDepth: 0}, rep))
+}
+
+func resolveSinceParam(req http.Request) json.Optional[int] fails orchestrate.InvalidInput {
+	match http.Header(req.Header, "Last-Event-ID") {
+	case option.Some[string] as raw:
+		let trimmed = strings.TrimSpace(raw.Value)
+		if trimmed != "" {
+			let n = strconv.Atoi(trimmed) catch {
+			case strconv.Malformed, strconv.OutOfRange:
+				return orchestrate.InvalidInput{Field: "Last-Event-ID", Why: "must be a non-negative integer"}
+			}
+			return json.Present[int]{Value: n}
+		}
+	case option.None:
+	}
+	try optionalQueryInt(req.Query, "since")
+}
+
+func formatSSEFrame(id string, data string) string {
+	let safeData = strings.ReplaceAll(data, "\r", "")
+	http.WriteEvents([]http.ServerEvent{
+		http.ServerEvent{Event: "message", Data: safeData, ID: id},
+	}) catch {
+	case http.Unwritable:
+		""
+	}
+}
+
+func handleEventsHTTP(hub ControlHub, req http.Request) http.Response needs http.Streaming {
+	if req.Method != "GET" {
+		return http.Response{Status: 405, Header: []http.Field{http.Field{Name: "Allow", Value: "GET"}}, Body: ""}
+	}
+	let sinceOpt = resolveSinceParam(req) catch {
+	case orchestrate.InvalidInput as e:
+		return errorJSONResponse(400, e)
+	}
+	let limitOpt = optionalQueryInt(req.Query, "limit") catch {
+	case orchestrate.InvalidInput as e:
+		return errorJSONResponse(400, e)
+	}
+	let sourceOpt = match optionalQueryParam(req.Query, "source") {
+	case json.Present[string] as s:
+		json.Present[string]{Value: s.Value}
+	case json.Absent:
+		if wantsSSE(req.Header) { json.Present[string]{Value: "all"} } else { json.Absent }
+	}
+	let input = orchestrate.EventsSinceInput{
+		Repo:   optionalQueryParam(req.Query, "repo"),
+		Run:    optionalQueryParam(req.Query, "run"),
+		Kind:   optionalQueryParam(req.Query, "kind"),
+		UnitID: optionalQueryParam(req.Query, "unitId"),
+		Since:  sinceOpt,
+		Limit:  limitOpt,
+		Source: sourceOpt,
+	}
+	if !wantsSSE(req.Header) {
+		let page = hub.Service.EventsSince(input) catch {
+		case orchestrate.InvalidInput as e:
+			return errorJSONResponse(400, e)
+		case orchestrate.StoreFailed as e:
+			return jsonResponse(500, "{\"error\":"+json.Encode(json.Codec[string]{MaxBytes: 0, MaxDepth: 0}, e.Reason)+"}")
+		}
+		return jsonResponse(200, json.Encode(json.Codec[orchestrate.EventStreamPage]{MaxBytes: 0, MaxDepth: 0}, page))
+	}
+	let sub = RegisterSSE(hub)
+	let backlog = hub.Service.EventsSince(input) catch {
+	case orchestrate.InvalidInput as e:
+		UnregisterSSE(hub, sub)
+		return errorJSONResponse(400, e)
+	case orchestrate.StoreFailed as e:
+		UnregisterSSE(hub, sub)
+		return jsonResponse(500, "{\"error\":"+json.Encode(json.Codec[string]{MaxBytes: 0, MaxDepth: 0}, e.Reason)+"}")
+	}
+	let headers = []http.Field{
+		http.Field{Name: "Content-Type", Value: "text/event-stream"},
+		http.Field{Name: "Cache-Control", Value: "no-cache"},
+	}
+	let resp = http.Stream(200, headers, func(w http.BodyWriter) fails http.WriteFailed {
+		let mut sentIDs = Map[string, bool]{}
+		for item in backlog.Items {
+			let sid = strconv.Itoa(item.Cursor)
+			sentIDs = sentIDs.Put(sid, true)
+			let payload = json.Encode(json.Codec[orchestrate.EventStreamEntry]{MaxBytes: 0, MaxDepth: 0}, item)
+			let frame = formatSSEFrame(sid, payload)
+			if frame != "" {
+				try w.Write(frame)
+			}
+		}
+		for {
+			let push = sub.Queue.Pop() catch {
+			case queue.Closed:
+				break
+			}
+			let matchRepo = match http.Query(req.Query, "repo") {
+			case option.Some[string] as want:
+				push.Repo == want.Value || push.Repo == "host"
+			case option.None:
+				true
+			}
+			let matchRun = match http.Query(req.Query, "run") {
+			case option.Some[string] as want:
+				push.Run == want.Value || push.Run == "readiness"
+			case option.None:
+				true
+			}
+			let matchKind = match http.Query(req.Query, "kind") {
+			case option.Some[string] as want:
+				push.Kind == want.Value
+			case option.None:
+				true
+			}
+			if !matchRepo || !matchRun || !matchKind {
+				continue
+			}
+			if sentIDs.Get(push.ID) != option.None {
+				continue
+			}
+			sentIDs = sentIDs.Put(push.ID, true)
+			let frame = formatSSEFrame(push.ID, push.Data)
+			if frame != "" {
+				try w.Write(frame)
+			}
+		}
+	})
+	UnregisterSSE(hub, sub)
+	resp
+}
+
+// DispatchHTTP routes HTTP requests across /healthz, /readiness, /events (JSON and SSE), and /mcp (Streamable HTTP + SSE).
+func DispatchHTTP(hub ControlHub, ep httpmcp.Endpoint, req http.Request) http.Response needs http.Streaming {
+	if req.Path == "/healthz" {
+		if req.Method != "GET" {
+			return http.Response{Status: 405, Header: []http.Field{http.Field{Name: "Allow", Value: "GET"}}, Body: ""}
+		}
+		return jsonResponse(200, "{\"ok\":true}")
+	}
+	if req.Path == "/readiness" {
+		return handleReadinessHTTP(hub, req)
+	}
+	if req.Path == "/events" {
+		return handleEventsHTTP(hub, req)
+	}
+	if req.Path == "/mcp" {
+		let resp = httpmcp.Handle(ep, req)
+		if req.Method == "POST" {
+			let _ = PollLedgerAndNotify(hub)
+		}
+		return resp
+	}
+	http.Response{Status: 404, Header: []http.Field{}, Body: "not found"}
+}

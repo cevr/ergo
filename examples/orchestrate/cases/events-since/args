@@ -1,0 +1,12 @@
+--store
+:memory:
+events
+--repo
+ergo
+--run
+wf10
+--since
+0
+--limit
+5
+--json

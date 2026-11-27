@@ -21,7 +21,7 @@ type Output = api.Output
 
 // Commands are the commands of orchestrate.Api, one per operation, in its order.
 func Commands() []flag.Command[Request] {
-	[]flag.Command[Request]{commandUnitOpen(), commandReceiptRecord(), commandUnitState(), commandUnitAccept(), commandUnitLand(), commandUnitClose(), commandCommitmentAdd(), commandCommitmentAssign(), commandCommitmentLand(), commandCommitmentDecide(), commandCommitmentList(), commandQueueUpsert(), commandQueueRemove(), commandQueueList(), commandQuestionAsk(), commandQuestionAnswer(), commandQuestionList(), commandRunHeadSet(), commandRunSummary(), commandUnitList(), commandDecisionRecord(), commandDecisionList(), commandLandingRecord(), commandLandingList(), commandEventRecord(), commandEventLog(), commandImportPlan(), commandHostStatus(), commandHostProcesses()}
+	[]flag.Command[Request]{commandUnitOpen(), commandReceiptRecord(), commandUnitState(), commandUnitAccept(), commandUnitLand(), commandUnitClose(), commandCommitmentAdd(), commandCommitmentAssign(), commandCommitmentLand(), commandCommitmentDecide(), commandCommitmentList(), commandQueueUpsert(), commandQueueRemove(), commandQueueList(), commandQuestionAsk(), commandQuestionAnswer(), commandQuestionList(), commandRunHeadSet(), commandRunSummary(), commandUnitList(), commandDecisionRecord(), commandDecisionList(), commandLandingRecord(), commandLandingList(), commandEventRecord(), commandEventLog(), commandImportPlan(), commandHostStatus(), commandHostProcesses(), commandHostReadiness(), commandEventsSince()}
 }
 
 func commandUnitOpen() flag.Command[Request] {
@@ -650,6 +650,125 @@ func commandHostProcesses() flag.Command[Request] {
 	}, Commands: []flag.Command[Request]{}}
 }
 
+func commandHostReadiness() flag.Command[Request] {
+	let f0 = flag.OptionalString("volume", "input.Volume (json.Optional[string])")
+	let f2 = flag.OptionalString("max-load", "input.MaxLoad (json.Optional[string])")
+	let f4 = flag.OptionalString("recovery-max-load", "input.RecoveryMaxLoad (json.Optional[string])")
+	let f6 = flag.OptionalString("min-mem-gi-b", "input.MinMemGiB (json.Optional[string])")
+	let f8 = flag.OptionalString("recovery-min-mem-gi-b", "input.RecoveryMinMemGiB (json.Optional[string])")
+	let f10 = flag.OptionalString("max-disk-pct", "input.MaxDiskPct (json.Optional[string])")
+	let f12 = flag.OptionalString("recovery-max-disk-pct", "input.RecoveryMaxDiskPct (json.Optional[string])")
+	let f14 = flag.OptionalString("previous-state", "input.PreviousState (json.Optional[string])")
+	let usage = orchestrateapi.Doc(orchestrateapi.HostReadinessOp)
+	flag.Command[Request]{Name: "host-readiness", Usage: usage, Set: flag.Set{Name: "host-readiness", Usage: usage, Flags: []flag.Flag{f0, f2, f4, f6, f8, f10, f12, f14}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		let u1 = match f0.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u3 = match f2.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u5 = match f4.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u7 = match f6.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u9 = match f8.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u11 = match f10.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u13 = match f12.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u15 = match f14.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		orchestrateapi.HostReadinessRequest{Input: orchestrate.HostReadinessInput{Volume: u1, MaxLoad: u3, RecoveryMaxLoad: u5, MinMemGiB: u7, RecoveryMinMemGiB: u9, MaxDiskPct: u11, RecoveryMaxDiskPct: u13, PreviousState: u15}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandEventsSince() flag.Command[Request] {
+	let f0 = flag.OptionalString("repo", "input.Repo (json.Optional[string])")
+	let f2 = flag.OptionalString("run", "input.Run (json.Optional[string])")
+	let f4 = flag.OptionalString("kind", "input.Kind (json.Optional[string])")
+	let f6 = flag.OptionalString("unit-id", "input.UnitID (json.Optional[string])")
+	let f8 = flag.OptionalInt("since", "input.Since (json.Optional[int])")
+	let f10 = flag.OptionalInt("limit", "input.Limit (json.Optional[int])")
+	let f12 = flag.OptionalString("source", "input.Source (json.Optional[string])")
+	let usage = orchestrateapi.Doc(orchestrateapi.EventsSinceOp)
+	flag.Command[Request]{Name: "events-since", Usage: usage, Set: flag.Set{Name: "events-since", Usage: usage, Flags: []flag.Flag{f0, f2, f4, f6, f8, f10, f12}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		let u1 = match f0.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u3 = match f2.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u5 = match f4.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u7 = match f6.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u9 = match f8.Get(v) {
+		case option.Some[int] as s:
+			json.Present[int]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u11 = match f10.Get(v) {
+		case option.Some[int] as s:
+			json.Present[int]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u13 = match f12.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		orchestrateapi.EventsSinceRequest{Input: orchestrate.EventsSinceInput{Repo: u1, Run: u3, Kind: u5, UnitID: u7, Since: u9, Limit: u11, Source: u13}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
 func argText(a flag.ArgSpec, v flag.Values) string {
 	match a.Get(v) {
 	case option.Some[string] as s:
@@ -780,6 +899,14 @@ func Parse(args []string) Request fails flag.Failure {
 	case "host-processes":
 		let c = commandHostProcesses()
 		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate host-processes"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "host-readiness":
+		let c = commandHostReadiness()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate host-readiness"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "events-since":
+		let c = commandEventsSince()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate events-since"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case _:
 		try flag.ParseCommand("orchestrate", "orchestrate.Api on a command line", Commands(), args)
@@ -1220,6 +1347,87 @@ func Print(r Request) []string {
 		case json.Absent:
 		}
 		out
+	case orchestrateapi.HostReadinessRequest as x:
+		let mut out = []string{"host-readiness"}
+		match x.Input.Volume {
+		case json.Present[string] as s:
+			out = out.Append("-volume=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.MaxLoad {
+		case json.Present[string] as s:
+			out = out.Append("-max-load=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.RecoveryMaxLoad {
+		case json.Present[string] as s:
+			out = out.Append("-recovery-max-load=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.MinMemGiB {
+		case json.Present[string] as s:
+			out = out.Append("-min-mem-gi-b=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.RecoveryMinMemGiB {
+		case json.Present[string] as s:
+			out = out.Append("-recovery-min-mem-gi-b=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.MaxDiskPct {
+		case json.Present[string] as s:
+			out = out.Append("-max-disk-pct=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.RecoveryMaxDiskPct {
+		case json.Present[string] as s:
+			out = out.Append("-recovery-max-disk-pct=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.PreviousState {
+		case json.Present[string] as s:
+			out = out.Append("-previous-state=\(s.Value)")
+		case json.Absent:
+		}
+		out
+	case orchestrateapi.EventsSinceRequest as x:
+		let mut out = []string{"events-since"}
+		match x.Input.Repo {
+		case json.Present[string] as s:
+			out = out.Append("-repo=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.Run {
+		case json.Present[string] as s:
+			out = out.Append("-run=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.Kind {
+		case json.Present[string] as s:
+			out = out.Append("-kind=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.UnitID {
+		case json.Present[string] as s:
+			out = out.Append("-unit-id=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.Since {
+		case json.Present[int] as s:
+			out = out.Append("-since=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.Limit {
+		case json.Present[int] as s:
+			out = out.Append("-limit=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.Source {
+		case json.Present[string] as s:
+			out = out.Append("-source=\(s.Value)")
+		case json.Absent:
+		}
+		out
 	}
 }
 
@@ -1399,6 +1607,14 @@ func Show(o orchestrateapi.Outcome, asJSON bool, p Policy) Output {
 			let v = reply.Value
 			let encoded = rpc.Encode(v)
 			answer(asJSON, encoded, encoded)
+		case orchestrateapi.HostReadinessReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case orchestrateapi.EventsSinceReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
 		}
 	case orchestrateapi.Rejected as rejected:
 		let status = p.Code(rejected.Failure)
@@ -1524,6 +1740,12 @@ func Read(r Request, out Output) orchestrateapi.Outcome fails rpc.Transport {
 		case orchestrateapi.HostProcessesRequest:
 			let v = try rpc.Decode[orchestrate.HostProcessList]("value", text)
 			orchestrateapi.Done{Reply: orchestrateapi.HostProcessesReply{Value: v}}
+		case orchestrateapi.HostReadinessRequest:
+			let v = try rpc.Decode[orchestrate.HostReadinessReport]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.HostReadinessReply{Value: v}}
+		case orchestrateapi.EventsSinceRequest:
+			let v = try rpc.Decode[orchestrate.EventStreamPage]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.EventsSinceReply{Value: v}}
 		}
 	} else if out.Code == 1 {
 		match r {
@@ -2176,6 +2398,31 @@ func Read(r Request, out Output) orchestrateapi.Outcome fails rpc.Transport {
 			case _:
 				return rpc.Transport{Reason: "the command line answered HostProcesses with an undeclared failure: " + text}
 			}
+		case orchestrateapi.HostReadinessRequest:
+			match rpc.TagOf(text) {
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "Unavailable":
+				let e = try rpc.Decode[host.Unavailable]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.Unavailable{E: e}}
+			case "Malformed":
+				let e = try rpc.Decode[host.Malformed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.Malformed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered HostReadiness with an undeclared failure: " + text}
+			}
+		case orchestrateapi.EventsSinceRequest:
+			match rpc.TagOf(text) {
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered EventsSince with an undeclared failure: " + text}
+			}
 		}
 	} else {
 		return rpc.Transport{Reason: "the command line answered status \(out.Code): " + out.Err}
@@ -2273,7 +2520,7 @@ func RunOnTerminal(args []string, p Policy) Output needs orchestrate.Api | term.
 
 // Completion is the script that completes orchestrate's commands in shell.
 func Completion(shell api.Shell) string {
-	api.Completion("orchestrate", shell, []api.Entry{api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitOpenOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitOpenOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.ReceiptRecordOp), Doc: orchestrateapi.Doc(orchestrateapi.ReceiptRecordOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitStateOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitStateOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitAcceptOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitAcceptOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitLandOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitLandOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitCloseOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitCloseOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.CommitmentAddOp), Doc: orchestrateapi.Doc(orchestrateapi.CommitmentAddOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.CommitmentAssignOp), Doc: orchestrateapi.Doc(orchestrateapi.CommitmentAssignOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.CommitmentLandOp), Doc: orchestrateapi.Doc(orchestrateapi.CommitmentLandOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.CommitmentDecideOp), Doc: orchestrateapi.Doc(orchestrateapi.CommitmentDecideOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.CommitmentListOp), Doc: orchestrateapi.Doc(orchestrateapi.CommitmentListOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.QueueUpsertOp), Doc: orchestrateapi.Doc(orchestrateapi.QueueUpsertOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.QueueRemoveOp), Doc: orchestrateapi.Doc(orchestrateapi.QueueRemoveOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.QueueListOp), Doc: orchestrateapi.Doc(orchestrateapi.QueueListOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.QuestionAskOp), Doc: orchestrateapi.Doc(orchestrateapi.QuestionAskOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.QuestionAnswerOp), Doc: orchestrateapi.Doc(orchestrateapi.QuestionAnswerOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.QuestionListOp), Doc: orchestrateapi.Doc(orchestrateapi.QuestionListOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.RunHeadSetOp), Doc: orchestrateapi.Doc(orchestrateapi.RunHeadSetOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.RunSummaryOp), Doc: orchestrateapi.Doc(orchestrateapi.RunSummaryOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitListOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitListOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.DecisionRecordOp), Doc: orchestrateapi.Doc(orchestrateapi.DecisionRecordOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.DecisionListOp), Doc: orchestrateapi.Doc(orchestrateapi.DecisionListOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.LandingRecordOp), Doc: orchestrateapi.Doc(orchestrateapi.LandingRecordOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.LandingListOp), Doc: orchestrateapi.Doc(orchestrateapi.LandingListOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.EventRecordOp), Doc: orchestrateapi.Doc(orchestrateapi.EventRecordOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.EventLogOp), Doc: orchestrateapi.Doc(orchestrateapi.EventLogOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.ImportPlanOp), Doc: orchestrateapi.Doc(orchestrateapi.ImportPlanOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.HostStatusOp), Doc: orchestrateapi.Doc(orchestrateapi.HostStatusOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.HostProcessesOp), Doc: orchestrateapi.Doc(orchestrateapi.HostProcessesOp)}})
+	api.Completion("orchestrate", shell, []api.Entry{api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitOpenOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitOpenOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.ReceiptRecordOp), Doc: orchestrateapi.Doc(orchestrateapi.ReceiptRecordOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitStateOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitStateOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitAcceptOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitAcceptOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitLandOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitLandOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitCloseOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitCloseOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.CommitmentAddOp), Doc: orchestrateapi.Doc(orchestrateapi.CommitmentAddOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.CommitmentAssignOp), Doc: orchestrateapi.Doc(orchestrateapi.CommitmentAssignOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.CommitmentLandOp), Doc: orchestrateapi.Doc(orchestrateapi.CommitmentLandOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.CommitmentDecideOp), Doc: orchestrateapi.Doc(orchestrateapi.CommitmentDecideOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.CommitmentListOp), Doc: orchestrateapi.Doc(orchestrateapi.CommitmentListOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.QueueUpsertOp), Doc: orchestrateapi.Doc(orchestrateapi.QueueUpsertOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.QueueRemoveOp), Doc: orchestrateapi.Doc(orchestrateapi.QueueRemoveOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.QueueListOp), Doc: orchestrateapi.Doc(orchestrateapi.QueueListOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.QuestionAskOp), Doc: orchestrateapi.Doc(orchestrateapi.QuestionAskOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.QuestionAnswerOp), Doc: orchestrateapi.Doc(orchestrateapi.QuestionAnswerOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.QuestionListOp), Doc: orchestrateapi.Doc(orchestrateapi.QuestionListOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.RunHeadSetOp), Doc: orchestrateapi.Doc(orchestrateapi.RunHeadSetOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.RunSummaryOp), Doc: orchestrateapi.Doc(orchestrateapi.RunSummaryOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitListOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitListOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.DecisionRecordOp), Doc: orchestrateapi.Doc(orchestrateapi.DecisionRecordOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.DecisionListOp), Doc: orchestrateapi.Doc(orchestrateapi.DecisionListOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.LandingRecordOp), Doc: orchestrateapi.Doc(orchestrateapi.LandingRecordOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.LandingListOp), Doc: orchestrateapi.Doc(orchestrateapi.LandingListOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.EventRecordOp), Doc: orchestrateapi.Doc(orchestrateapi.EventRecordOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.EventLogOp), Doc: orchestrateapi.Doc(orchestrateapi.EventLogOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.ImportPlanOp), Doc: orchestrateapi.Doc(orchestrateapi.ImportPlanOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.HostStatusOp), Doc: orchestrateapi.Doc(orchestrateapi.HostStatusOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.HostProcessesOp), Doc: orchestrateapi.Doc(orchestrateapi.HostProcessesOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.HostReadinessOp), Doc: orchestrateapi.Doc(orchestrateapi.HostReadinessOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.EventsSinceOp), Doc: orchestrateapi.Doc(orchestrateapi.EventsSinceOp)}})
 }
 
 // Wire is the command line as a transport of the hub's calls.

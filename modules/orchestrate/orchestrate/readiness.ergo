@@ -1,0 +1,551 @@
+import machines
+import option
+import os/host
+import strings
+
+// ReadinessState is the edge-triggered host readiness state with hysteresis.
+type ReadinessState = Ready{} | Backpressure{} | Unhealthy{}
+
+// ReadinessPolicy configures host readiness hysteresis bounds and adaptive poll backoff.
+type ReadinessPolicy {
+	Volume             string,
+	MaxLoad            float64,
+	RecoveryMaxLoad    float64,
+	MinMemGiB          float64,
+	RecoveryMinMemGiB  float64,
+	MaxDiskPct         float64,
+	RecoveryMaxDiskPct float64,
+	PollIntervalMs     int,
+	MaxBackoffMs       int,
+	BackoffMultiplier  int,
+}
+
+// HostMetrics captures normalized host load, memory, and volume capacity figures used for readiness evaluation.
+type HostMetrics {
+	Volume       string,
+	Cores        int,
+	LoadOne      float64,
+	LoadFive     float64,
+	LoadFifteen  float64,
+	MemTotalGiB  float64,
+	MemAvailGiB  float64,
+	DiskTotalGiB float64,
+	DiskUsedGiB  float64,
+	DiskAvailGiB float64,
+	DiskUsedPct  float64,
+}
+
+// ReadinessSample is one point-in-time observation fed into the readiness state machine.
+type ReadinessSample = HostMetricsSample{At string, Metrics HostMetrics} | HostProbeFailed{At string, Reason string}
+
+// ReadinessChanged is emitted strictly on transitions between distinct ReadinessState values.
+type ReadinessChanged {
+	At      string,
+	From    ReadinessState,
+	To      ReadinessState,
+	Reason  string,
+	Metrics option.Option[HostMetrics],
+}
+
+// ReadinessTracker holds the current readiness state, hysteresis counters, and latest observed sample.
+type ReadinessTracker {
+	Policy              ReadinessPolicy,
+	State               ReadinessState,
+	Reason              string,
+	Metrics             option.Option[HostMetrics],
+	LastChangedAt       option.Option[string],
+	LastSampleAt        option.Option[string],
+	ConsecutiveNonReady int,
+	TransitionCount     int,
+}
+
+// DefaultReadinessVolume is the filesystem volume monitored by default for host readiness.
+let DefaultReadinessVolume = "/workspaces"
+
+// DefaultMaxLoad is the 1-minute load average threshold above which Ready transitions to Backpressure.
+let DefaultMaxLoad = 16.0
+
+// DefaultRecoveryMaxLoad is the hysteresis exit load threshold at or below which Backpressure clears to Ready.
+let DefaultRecoveryMaxLoad = 13.6
+
+// DefaultMinMemGiB is the available memory threshold in GiB below which Ready transitions to Backpressure.
+let DefaultMinMemGiB = 8.0
+
+// DefaultRecoveryMinMemGiB is the hysteresis exit memory threshold in GiB at or above which Backpressure clears to Ready.
+let DefaultRecoveryMinMemGiB = 9.0
+
+// DefaultMaxDiskPct is the disk usage percentage threshold above which Ready transitions to Backpressure.
+let DefaultMaxDiskPct = 93.0
+
+// DefaultRecoveryMaxDiskPct is the hysteresis exit disk usage threshold at or below which Backpressure clears to Ready.
+let DefaultRecoveryMaxDiskPct = 90.0
+
+// DefaultPollIntervalMs is the base readiness poll interval in milliseconds.
+let DefaultPollIntervalMs = 2000
+
+// DefaultMaxBackoffMs is the maximum backoff interval in milliseconds while non-ready.
+let DefaultMaxBackoffMs = 16000
+
+// DefaultBackoffMultiplier is the exponential multiplier applied while remaining non-ready.
+let DefaultBackoffMultiplier = 2
+
+// DefaultReadinessPolicy returns the default host readiness policy for /workspaces.
+func DefaultReadinessPolicy() ReadinessPolicy {
+	ReadinessPolicy{
+		Volume:             DefaultReadinessVolume,
+		MaxLoad:            DefaultMaxLoad,
+		RecoveryMaxLoad:    DefaultRecoveryMaxLoad,
+		MinMemGiB:          DefaultMinMemGiB,
+		RecoveryMinMemGiB:  DefaultRecoveryMinMemGiB,
+		MaxDiskPct:         DefaultMaxDiskPct,
+		RecoveryMaxDiskPct: DefaultRecoveryMaxDiskPct,
+		PollIntervalMs:     DefaultPollIntervalMs,
+		MaxBackoffMs:       DefaultMaxBackoffMs,
+		BackoffMultiplier:  DefaultBackoffMultiplier,
+	}
+}
+
+// PolicyWithBounds derives hysteresis recovery bounds around primary readiness limits and validates the policy.
+func PolicyWithBounds(volume string, maxLoad float64, minMemGiB float64, maxDiskPct float64, pollIntervalMs int) ReadinessPolicy fails InvalidInput {
+	let recLoad = maxLoad * 0.85
+	let recMem = if minMemGiB > 0.0 { minMemGiB * 1.125 } else { 0.0 }
+	let recDisk = if maxDiskPct >= 5.0 { maxDiskPct - 3.0 } else { maxDiskPct * 0.9 }
+	let maxBackoff = if pollIntervalMs*8 > pollIntervalMs { pollIntervalMs * 8 } else { pollIntervalMs }
+	let p = ReadinessPolicy{
+		Volume:             volume,
+		MaxLoad:            maxLoad,
+		RecoveryMaxLoad:    recLoad,
+		MinMemGiB:          minMemGiB,
+		RecoveryMinMemGiB:  recMem,
+		MaxDiskPct:         maxDiskPct,
+		RecoveryMaxDiskPct: recDisk,
+		PollIntervalMs:     pollIntervalMs,
+		MaxBackoffMs:       maxBackoff,
+		BackoffMultiplier:  DefaultBackoffMultiplier,
+	}
+	try ValidateReadinessPolicy(p)
+}
+
+// ValidateReadinessPolicy validates threshold ordering, numeric finiteness, and poll timing bounds.
+func ValidateReadinessPolicy(p ReadinessPolicy) ReadinessPolicy fails InvalidInput {
+	try requireText("volume", p.Volume)
+	if !finiteNonNegFloat(p.MaxLoad) || p.MaxLoad <= 0.0 {
+		return InvalidInput{Field: "maxLoad", Why: "must be finite and > 0"}
+	}
+	if !finiteNonNegFloat(p.RecoveryMaxLoad) || p.RecoveryMaxLoad <= 0.0 || p.RecoveryMaxLoad > p.MaxLoad {
+		return InvalidInput{Field: "recoveryMaxLoad", Why: "must be finite and within (0, maxLoad]"}
+	}
+	if !finiteNonNegFloat(p.MinMemGiB) {
+		return InvalidInput{Field: "minMemGiB", Why: "must be finite and >= 0"}
+	}
+	if !finiteNonNegFloat(p.RecoveryMinMemGiB) || p.RecoveryMinMemGiB < p.MinMemGiB {
+		return InvalidInput{Field: "recoveryMinMemGiB", Why: "must be finite and >= minMemGiB"}
+	}
+	if !finiteNonNegFloat(p.MaxDiskPct) || p.MaxDiskPct <= 0.0 || p.MaxDiskPct > 100.0 {
+		return InvalidInput{Field: "maxDiskPct", Why: "must be finite and within (0, 100]"}
+	}
+	if !finiteNonNegFloat(p.RecoveryMaxDiskPct) || p.RecoveryMaxDiskPct <= 0.0 || p.RecoveryMaxDiskPct > p.MaxDiskPct {
+		return InvalidInput{Field: "recoveryMaxDiskPct", Why: "must be finite and within (0, maxDiskPct]"}
+	}
+	if p.PollIntervalMs <= 0 {
+		return InvalidInput{Field: "pollIntervalMs", Why: "must be > 0"}
+	}
+	if p.MaxBackoffMs < p.PollIntervalMs {
+		return InvalidInput{Field: "maxBackoffMs", Why: "must be >= pollIntervalMs"}
+	}
+	if p.BackoffMultiplier < 1 {
+		return InvalidInput{Field: "backoffMultiplier", Why: "must be >= 1"}
+	}
+	p
+}
+
+// ReadinessStateName returns the canonical lowercase name of s.
+func ReadinessStateName(s ReadinessState) string {
+	match s {
+	case Ready:
+		"ready"
+	case Backpressure:
+		"backpressure"
+	case Unhealthy:
+		"unhealthy"
+	}
+}
+
+// ParseReadinessState parses a readiness state name ("ready", "backpressure", or "unhealthy").
+func ParseReadinessState(raw string) option.Option[ReadinessState] {
+	match strings.TrimSpace(raw) {
+	case "ready":
+		option.Some[ReadinessState]{Value: Ready}
+	case "backpressure":
+		option.Some[ReadinessState]{Value: Backpressure}
+	case "unhealthy":
+		option.Some[ReadinessState]{Value: Unhealthy}
+	case _:
+		option.None
+	}
+}
+
+// IsReady reports whether s is Ready.
+func IsReady(s ReadinessState) bool {
+	match s {
+	case Ready:
+		true
+	case Backpressure, Unhealthy:
+		false
+	}
+}
+
+// MetricsFromReport extracts normalized readiness metrics for volume from a HostStatusReport.
+func MetricsFromReport(report HostStatusReport, volume string) HostMetrics fails host.Unavailable | host.Malformed {
+	if report.Cores <= 0 {
+		return host.Malformed{Source: "host", Reason: "core count must be > 0"}
+	}
+	for v in report.Volumes {
+		if v.Path == volume {
+			let denom = v.UsedBytes + v.AvailableBytes
+			let pct = if denom > int64(0) {
+				(float64(v.UsedBytes) * 100.0) / float64(denom)
+			} else if v.TotalBytes > int64(0) {
+				(float64(v.UsedBytes) * 100.0) / float64(v.TotalBytes)
+			} else {
+				return host.Malformed{Source: volume, Reason: "volume total bytes must be > 0"}
+			}
+			return HostMetrics{
+				Volume:       v.Path,
+				Cores:        report.Cores,
+				LoadOne:      report.Load.One,
+				LoadFive:     report.Load.Five,
+				LoadFifteen:  report.Load.Fifteen,
+				MemTotalGiB:  report.Memory.TotalGiB,
+				MemAvailGiB:  report.Memory.AvailableGiB,
+				DiskTotalGiB: v.TotalGiB,
+				DiskUsedGiB:  v.UsedGiB,
+				DiskAvailGiB: v.AvailableGiB,
+				DiskUsedPct:  pct,
+			}
+		}
+	}
+	host.Unavailable{Target: volume, Reason: "monitored volume missing from host report"}
+}
+
+func finiteNonNegFloat(x float64) bool {
+	x-x == 0.0 && x >= 0.0
+}
+
+func breachReasons(metrics HostMetrics, maxLoad float64, minMemGiB float64, maxDiskPct float64) string {
+	let mut reasons = []string{}
+	if metrics.LoadOne > maxLoad {
+		reasons = reasons.Append("load \(metrics.LoadOne) > \(maxLoad)")
+	}
+	if metrics.MemAvailGiB < minMemGiB {
+		reasons = reasons.Append("memAvailGiB \(metrics.MemAvailGiB) < \(minMemGiB)")
+	}
+	if metrics.DiskUsedPct > maxDiskPct {
+		reasons = reasons.Append("diskUsedPct \(metrics.DiskUsedPct) > \(maxDiskPct)")
+	}
+	if reasons.Len() == 0 {
+		return ""
+	}
+	strings.Join(reasons, "; ")
+}
+
+func recoveryGapReasons(p ReadinessPolicy, metrics HostMetrics) string {
+	breachReasons(metrics, p.RecoveryMaxLoad, p.RecoveryMinMemGiB, p.RecoveryMaxDiskPct)
+}
+
+// StepReadiness computes the next ReadinessState and optional ReadinessChanged edge for one sample.
+func StepReadiness(policy ReadinessPolicy, current ReadinessState, sample ReadinessSample) machines.Decision[ReadinessState, ReadinessChanged] {
+	match sample {
+	case HostProbeFailed as f:
+		if current == Unhealthy {
+			return machines.Stay[ReadinessState]{Next: Unhealthy}
+		}
+		machines.Emit[ReadinessState, ReadinessChanged]{
+			Next:   Unhealthy,
+			Output: ReadinessChanged{At: f.At, From: current, To: Unhealthy, Reason: f.Reason, Metrics: option.None},
+		}
+	case HostMetricsSample as s:
+		let optMetrics = option.Some[HostMetrics]{Value: s.Metrics}
+		match current {
+		case Ready:
+			let trip = breachReasons(s.Metrics, policy.MaxLoad, policy.MinMemGiB, policy.MaxDiskPct)
+			if trip == "" {
+				return machines.Stay[ReadinessState]{Next: Ready}
+			}
+			machines.Emit[ReadinessState, ReadinessChanged]{
+				Next:   Backpressure,
+				Output: ReadinessChanged{At: s.At, From: Ready, To: Backpressure, Reason: trip, Metrics: optMetrics},
+			}
+		case Backpressure:
+			let hold = recoveryGapReasons(policy, s.Metrics)
+			if hold != "" {
+				return machines.Stay[ReadinessState]{Next: Backpressure}
+			}
+			machines.Emit[ReadinessState, ReadinessChanged]{
+				Next:   Ready,
+				Output: ReadinessChanged{At: s.At, From: Backpressure, To: Ready, Reason: "recovered below hysteresis exit thresholds", Metrics: optMetrics},
+			}
+		case Unhealthy:
+			let hold = recoveryGapReasons(policy, s.Metrics)
+			if hold == "" {
+				return machines.Emit[ReadinessState, ReadinessChanged]{
+					Next:   Ready,
+					Output: ReadinessChanged{At: s.At, From: Unhealthy, To: Ready, Reason: "probe recovered within readiness thresholds", Metrics: optMetrics},
+				}
+			}
+			machines.Emit[ReadinessState, ReadinessChanged]{
+				Next:   Backpressure,
+				Output: ReadinessChanged{At: s.At, From: Unhealthy, To: Backpressure, Reason: hold, Metrics: optMetrics},
+			}
+		}
+	}
+}
+
+// NewReadinessTracker constructs an initial ReadinessTracker starting in Ready under policy.
+func NewReadinessTracker(policy ReadinessPolicy) ReadinessTracker {
+	ReadinessTracker{
+		Policy:              policy,
+		State:               Ready,
+		Reason:              "ready",
+		Metrics:             option.None,
+		LastChangedAt:       option.None,
+		LastSampleAt:        option.None,
+		ConsecutiveNonReady: 0,
+		TransitionCount:     0,
+	}
+}
+
+func stepTrackerDecision(tracker ReadinessTracker, sample ReadinessSample) machines.Decision[ReadinessTracker, ReadinessChanged] {
+	let sampleAt = match sample {
+	case HostMetricsSample as m:
+		m.At
+	case HostProbeFailed as f:
+		f.At
+	}
+	let sampleMetrics = match sample {
+	case HostMetricsSample as m:
+		option.Some[HostMetrics]{Value: m.Metrics}
+	case HostProbeFailed:
+		option.None
+	}
+	match StepReadiness(tracker.Policy, tracker.State, sample) {
+	case machines.Emit[ReadinessState, ReadinessChanged] as em:
+		let nonReady = if IsReady(em.Next) { 0 } else { tracker.ConsecutiveNonReady + 1 }
+		let next = ReadinessTracker{
+			Policy:              tracker.Policy,
+			State:               em.Next,
+			Reason:              em.Output.Reason,
+			Metrics:             sampleMetrics,
+			LastChangedAt:       option.Some[string]{Value: sampleAt},
+			LastSampleAt:        option.Some[string]{Value: sampleAt},
+			ConsecutiveNonReady: nonReady,
+			TransitionCount:     tracker.TransitionCount + 1,
+		}
+		machines.Emit[ReadinessTracker, ReadinessChanged]{Next: next, Output: em.Output}
+	case machines.Stay[ReadinessState] as st:
+		let nonReady = if IsReady(st.Next) { 0 } else { tracker.ConsecutiveNonReady + 1 }
+		let nextReason = if IsReady(st.Next) {
+			"ready"
+		} else {
+			match sample {
+			case HostMetricsSample as m:
+				recoveryGapReasons(tracker.Policy, m.Metrics)
+			case HostProbeFailed as f:
+				f.Reason
+			}
+		}
+		let next = ReadinessTracker{
+			Policy:              tracker.Policy,
+			State:               st.Next,
+			Reason:              nextReason,
+			Metrics:             sampleMetrics,
+			LastChangedAt:       tracker.LastChangedAt,
+			LastSampleAt:        option.Some[string]{Value: sampleAt},
+			ConsecutiveNonReady: nonReady,
+			TransitionCount:     tracker.TransitionCount,
+		}
+		machines.Stay[ReadinessTracker]{Next: next}
+	case machines.Enter[ReadinessState] as en:
+		machines.Enter[ReadinessTracker]{Next: ReadinessTracker{..tracker, State: en.Next, LastSampleAt: option.Some[string]{Value: sampleAt}}}
+	case machines.Tell[ReadinessState, ReadinessChanged] as tl:
+		machines.Tell[ReadinessTracker, ReadinessChanged]{Next: ReadinessTracker{..tracker, LastSampleAt: option.Some[string]{Value: sampleAt}}, Output: tl.Output}
+	case machines.Ignore:
+		machines.Ignore
+	case machines.Reject:
+		machines.Reject
+	case machines.Done[ReadinessChanged] as done:
+		machines.Done[ReadinessChanged]{Output: done.Output}
+	}
+}
+
+// ReadinessMachine is the Ergo machine tracking edge-triggered host readiness across sample traces.
+type ReadinessMachine machine[ReadinessTracker, ReadinessSample] {
+	initial: NewReadinessTracker,
+	step:    stepTrackerDecision,
+}
+
+// AdvanceReadiness steps tracker with one sample, returning the updated tracker and any emitted transition edge.
+func AdvanceReadiness(tracker ReadinessTracker, sample ReadinessSample) (ReadinessTracker, option.Option[ReadinessChanged]) {
+	match stepTrackerDecision(tracker, sample) {
+	case machines.Emit[ReadinessTracker, ReadinessChanged] as em:
+		(em.Next, option.Some[ReadinessChanged]{Value: em.Output})
+	case machines.Stay[ReadinessTracker] as st:
+		(st.Next, option.None)
+	case machines.Enter[ReadinessTracker] as en:
+		(en.Next, option.None)
+	case machines.Tell[ReadinessTracker, ReadinessChanged] as tl:
+		(tl.Next, option.Some[ReadinessChanged]{Value: tl.Output})
+	case machines.Ignore:
+		(tracker, option.None)
+	case machines.Reject:
+		(tracker, option.None)
+	case machines.Done[ReadinessChanged]:
+		(tracker, option.None)
+	}
+}
+
+// NextPollDelayMs computes the adaptive poll interval in milliseconds given current state and consecutive non-ready polls.
+func NextPollDelayMs(policy ReadinessPolicy, state ReadinessState, consecutiveNonReady int) int {
+	if IsReady(state) || consecutiveNonReady <= 0 {
+		return policy.PollIntervalMs
+	}
+	let mut delay = int64(policy.PollIntervalMs)
+	let maxD = int64(policy.MaxBackoffMs)
+	let mult = int64(policy.BackoffMultiplier)
+	let steps = if consecutiveNonReady > 16 { 15 } else { consecutiveNonReady - 1 }
+	for _ in 0..steps {
+		if delay >= maxD || mult <= int64(1) {
+			return int(maxD)
+		}
+		let grown = delay * mult
+		delay = if grown >= maxD || grown <= int64(0) { maxD } else { grown }
+	}
+	int(delay)
+}
+
+func makeLawMetrics(loadOne float64, memAvail float64, diskPct float64) HostMetrics {
+	HostMetrics{
+		Volume:       DefaultReadinessVolume,
+		Cores:        16,
+		LoadOne:      loadOne,
+		LoadFive:     loadOne,
+		LoadFifteen:  loadOne,
+		MemTotalGiB:  64.0,
+		MemAvailGiB:  memAvail,
+		DiskTotalGiB: 500.0,
+		DiskUsedGiB:  (diskPct / 100.0) * 500.0,
+		DiskAvailGiB: ((100.0 - diskPct) / 100.0) * 500.0,
+		DiskUsedPct:  diskPct,
+	}
+}
+
+func runReadinessTrace(policy ReadinessPolicy, trace []ReadinessSample) (ReadinessTracker, []ReadinessChanged) {
+	let outcome = machines.Run(machines.Start(ReadinessMachine{}, policy), trace) catch {
+	case machines.Rejected:
+		return (NewReadinessTracker(policy), []ReadinessChanged{})
+	}
+	match outcome {
+	case machines.Running[ReadinessTracker, ReadinessChanged] as r:
+		(r.State, r.Emitted)
+	case machines.Finished[ReadinessTracker, ReadinessChanged] as f:
+		(f.State, f.Emitted)
+	}
+}
+
+// ReadinessHysteresisPreventsFlapping verifies that jitter strictly inside the hysteresis band never causes Ready<->Backpressure oscillations.
+law ReadinessHysteresisPreventsFlapping(rawLoads []int, startBackpressure bool) {
+	let p = DefaultReadinessPolicy()
+	let mut trace = []ReadinessSample{}
+	if startBackpressure {
+		trace = trace.Append(HostMetricsSample{At: "t0", Metrics: makeLawMetrics(18.0, 20.0, 70.0)})
+	} else {
+		trace = trace.Append(HostMetricsSample{At: "t0", Metrics: makeLawMetrics(8.0, 20.0, 70.0)})
+	}
+	for i, x in rawLoads {
+		let mag = if x < 0 { -(x + 1) } else { x }
+		let loadBand = 14.0 + (float64(mag%15) * 0.1)
+		trace = trace.Append(HostMetricsSample{At: "t\(i + 1)", Metrics: makeLawMetrics(loadBand, 20.0, 70.0)})
+	}
+	let (final, edges) = runReadinessTrace(p, trace)
+	let wantEdges = if startBackpressure { 1 } else { 0 }
+	let wantState = if startBackpressure { Backpressure } else { Ready }
+	edges.Len() == wantEdges && final.State == wantState && final.TransitionCount == wantEdges
+}
+
+// ReadinessBackpressureExitRequiresExitThreshold verifies that exiting Backpressure to Ready is refused until every metric clears its stricter recovery threshold.
+law ReadinessBackpressureExitRequiresExitThreshold(loadStepRaw int, memStepRaw int, diskStepRaw int) {
+	let p = DefaultReadinessPolicy()
+	let lm = if loadStepRaw < 0 { -(loadStepRaw + 1) } else { loadStepRaw }
+	let mm = if memStepRaw < 0 { -(memStepRaw + 1) } else { memStepRaw }
+	let dm = if diskStepRaw < 0 { -(diskStepRaw + 1) } else { diskStepRaw }
+	let bandLoad = 13.7 + (float64(lm%20) * 0.1)
+	let bandMem = 8.1 + (float64(mm%8) * 0.1)
+	let bandDisk = 90.2 + (float64(dm%25) * 0.1)
+	let trace = []ReadinessSample{
+		HostMetricsSample{At: "t0", Metrics: makeLawMetrics(18.0, 20.0, 70.0)},
+		HostMetricsSample{At: "t1", Metrics: makeLawMetrics(bandLoad, 20.0, 70.0)},
+		HostMetricsSample{At: "t2", Metrics: makeLawMetrics(10.0, bandMem, 70.0)},
+		HostMetricsSample{At: "t3", Metrics: makeLawMetrics(10.0, 20.0, bandDisk)},
+		HostMetricsSample{At: "t4", Metrics: makeLawMetrics(p.RecoveryMaxLoad, p.RecoveryMinMemGiB, p.RecoveryMaxDiskPct)},
+	}
+	let (final, edges) = runReadinessTrace(p, trace)
+	let mut allDistinct = true
+	for edge in edges {
+		if edge.From == edge.To {
+			allDistinct = false
+		}
+	}
+		allDistinct &&
+		edges.Len() == 2 &&
+		edges[0].From == Ready && edges[0].To == Backpressure &&
+		edges[1].From == Backpressure && edges[1].To == Ready &&
+		final.State == Ready
+}
+
+// ReadinessReplayIsDeterministic verifies that replaying any sample trace produces identical state and transition edges, and only genuine edges emit events.
+law ReadinessReplayIsDeterministic(codes []int) {
+	let p = DefaultReadinessPolicy()
+	let mut trace = []ReadinessSample{}
+	for i, code in codes {
+		let m = ((code % 5) + 5) % 5
+		let sample = match m {
+		case 0:
+			HostMetricsSample{At: "s\(i)", Metrics: makeLawMetrics(6.0, 24.0, 65.0)}
+		case 1:
+			HostMetricsSample{At: "s\(i)", Metrics: makeLawMetrics(14.8, 12.0, 80.0)}
+		case 2:
+			HostMetricsSample{At: "s\(i)", Metrics: makeLawMetrics(19.0, 6.0, 95.0)}
+		case 3:
+			HostMetricsSample{At: "s\(i)", Metrics: makeLawMetrics(11.0, 8.5, 91.5)}
+		case _:
+			HostProbeFailed{At: "s\(i)", Reason: "proc unavailable"}
+		}
+		trace = trace.Append(sample)
+	}
+	let (s1, e1) = runReadinessTrace(p, trace)
+	let (s2, e2) = runReadinessTrace(p, trace)
+	let mut edgesValid = true
+	for edge in e1 {
+		if edge.From == edge.To {
+			edgesValid = false
+		}
+	}
+	s1 == s2 && e1 == e2 && edgesValid && e1.Len() == s1.TransitionCount
+}
+
+// ReadinessBackoffMonotonicAndBounded verifies poll delay stays equal to PollIntervalMs while ready and grows exponentially capped by MaxBackoffMs when non-ready.
+law ReadinessBackoffMonotonicAndBounded(stepsRaw int) {
+	let p = DefaultReadinessPolicy()
+	let n = ((stepsRaw % 12) + 12) % 12
+	let readyDelay = NextPollDelayMs(p, Ready, n)
+	let d0 = NextPollDelayMs(p, Backpressure, n)
+	let d1 = NextPollDelayMs(p, Backpressure, n+1)
+	let du = NextPollDelayMs(p, Unhealthy, n+1)
+	let step1 = NextPollDelayMs(p, Backpressure, 1)
+	let step2 = NextPollDelayMs(p, Backpressure, 2)
+		readyDelay == p.PollIntervalMs &&
+		d0 >= p.PollIntervalMs && d0 <= p.MaxBackoffMs &&
+		d1 >= d0 && d1 <= p.MaxBackoffMs &&
+		du == d1 &&
+		step1 == p.PollIntervalMs && step2 > step1
+}

@@ -1,0 +1,356 @@
+import github.com/cevr/ergo/modules/orchestrate/orchestrate
+import io
+import json
+import orchestrate/server
+import os
+import os/host
+import signal
+import strconv
+import strings
+import time
+
+func flagValue(args []string, i int, name string, cmd string) (string, int) fails os.Exit {
+	let a = args[i]
+	let longEq = "--" + name + "="
+	let shortEq = "-" + name + "="
+	if strings.HasPrefix(a, longEq) {
+		return (strings.TrimPrefix(a, longEq), i + 1)
+	}
+	if strings.HasPrefix(a, shortEq) {
+		return (strings.TrimPrefix(a, shortEq), i + 1)
+	}
+	if i+1 >= args.Len() {
+		return os.Exit{Code: 2, Message: "\(cmd): --\(name) requires a value"}
+	}
+	(args[i+1], i + 2)
+}
+
+func matchesFlag(arg string, name string) bool {
+	arg == "--"+name || arg == "-"+name || strings.HasPrefix(arg, "--"+name+"=") || strings.HasPrefix(arg, "-"+name+"=")
+}
+
+func parseDurFlag(raw string, name string, cmd string) duration fails os.Exit {
+	let d = time.ParseDuration(strings.TrimSpace(raw)) catch {
+	case time.ParseError:
+		return os.Exit{Code: 2, Message: "\(cmd): invalid --\(name) duration \(raw)"}
+	}
+	if d < 0ns {
+		return os.Exit{Code: 2, Message: "\(cmd): --\(name) must be >= 0"}
+	}
+	d
+}
+
+func parseWaitCommand(args []string) (orchestrate.ReadinessPolicy, duration, bool) fails os.Exit {
+	let mut vol json.Optional[string] = json.Absent
+	let mut maxLoad json.Optional[string] = json.Absent
+	let mut recLoad json.Optional[string] = json.Absent
+	let mut minMem json.Optional[string] = json.Absent
+	let mut recMem json.Optional[string] = json.Absent
+	let mut maxDisk json.Optional[string] = json.Absent
+	let mut recDisk json.Optional[string] = json.Absent
+	let mut timeoutDur = 5m
+	let mut intervalDur = 2s
+	let mut jsonMode = false
+	let mut i = 0
+	for i < args.Len() {
+		let a = args[i]
+		if a == "--json" || a == "-json" {
+			jsonMode = true
+			i = i + 1
+			continue
+		}
+		if matchesFlag(a, "volume") {
+			let (v, next) = try flagValue(args, i, "volume", "orchestrate wait")
+			vol = json.Present[string]{Value: v}
+			i = next
+			continue
+		}
+		if matchesFlag(a, "max-load") {
+			let (v, next) = try flagValue(args, i, "max-load", "orchestrate wait")
+			maxLoad = json.Present[string]{Value: v}
+			i = next
+			continue
+		}
+		if matchesFlag(a, "recovery-max-load") {
+			let (v, next) = try flagValue(args, i, "recovery-max-load", "orchestrate wait")
+			recLoad = json.Present[string]{Value: v}
+			i = next
+			continue
+		}
+		if matchesFlag(a, "min-mem-gib") {
+			let (v, next) = try flagValue(args, i, "min-mem-gib", "orchestrate wait")
+			minMem = json.Present[string]{Value: v}
+			i = next
+			continue
+		}
+		if matchesFlag(a, "recovery-min-mem-gib") {
+			let (v, next) = try flagValue(args, i, "recovery-min-mem-gib", "orchestrate wait")
+			recMem = json.Present[string]{Value: v}
+			i = next
+			continue
+		}
+		if matchesFlag(a, "max-disk-pct") {
+			let (v, next) = try flagValue(args, i, "max-disk-pct", "orchestrate wait")
+			maxDisk = json.Present[string]{Value: v}
+			i = next
+			continue
+		}
+		if matchesFlag(a, "recovery-max-disk-pct") {
+			let (v, next) = try flagValue(args, i, "recovery-max-disk-pct", "orchestrate wait")
+			recDisk = json.Present[string]{Value: v}
+			i = next
+			continue
+		}
+		if matchesFlag(a, "timeout") {
+			let (v, next) = try flagValue(args, i, "timeout", "orchestrate wait")
+			timeoutDur = try parseDurFlag(v, "timeout", "orchestrate wait")
+			i = next
+			continue
+		}
+		if matchesFlag(a, "interval") {
+			let (v, next) = try flagValue(args, i, "interval", "orchestrate wait")
+			intervalDur = try parseDurFlag(v, "interval", "orchestrate wait")
+			if intervalDur <= 0ns {
+				return os.Exit{Code: 2, Message: "orchestrate wait: --interval must be > 0"}
+			}
+			i = next
+			continue
+		}
+		return os.Exit{Code: 2, Message: "orchestrate wait: unknown flag \(a)"}
+	}
+	let basePolicy = orchestrate.PolicyFromReadinessInput(orchestrate.HostReadinessInput{
+		Volume:             vol,
+		MaxLoad:            maxLoad,
+		RecoveryMaxLoad:    recLoad,
+		MinMemGiB:          minMem,
+		RecoveryMinMemGiB:  recMem,
+		MaxDiskPct:         maxDisk,
+		RecoveryMaxDiskPct: recDisk,
+		PreviousState:      json.Absent,
+	}) catch {
+	case orchestrate.InvalidInput as e:
+		return os.Exit{Code: 2, Message: "orchestrate wait: \(e.Field): \(e.Why)"}
+	}
+	let pollMs = time.Count(intervalDur, 1ms)
+	let effectiveMs = if pollMs > 0 { pollMs } else { 1 }
+	let maxBackoff = if effectiveMs*8 > effectiveMs { effectiveMs * 8 } else { effectiveMs }
+	let policy = orchestrate.ValidateReadinessPolicy(orchestrate.ReadinessPolicy{
+		..basePolicy,
+		PollIntervalMs: effectiveMs,
+		MaxBackoffMs:   maxBackoff,
+	}) catch {
+	case orchestrate.InvalidInput as e:
+		return os.Exit{Code: 2, Message: "orchestrate wait: \(e.Field): \(e.Why)"}
+	}
+	(policy, timeoutDur, jsonMode)
+}
+
+type eventsCmdOptions {
+	req      orchestrate.EventsSinceInput,
+	follow   bool,
+	interval duration,
+	jsonMode bool,
+}
+
+func parseEventsCommand(args []string) eventsCmdOptions fails os.Exit {
+	let mut repo json.Optional[string] = json.Absent
+	let mut run json.Optional[string] = json.Absent
+	let mut kind json.Optional[string] = json.Absent
+	let mut unitID json.Optional[string] = json.Absent
+	let mut since json.Optional[int] = json.Absent
+	let mut limit json.Optional[int] = json.Absent
+	let mut source json.Optional[string] = json.Absent
+	let mut follow = false
+	let mut interval = 1s
+	let mut jsonMode = false
+	let mut i = 0
+	for i < args.Len() {
+		let a = args[i]
+		if a == "--follow" || a == "-follow" || a == "-f" {
+			follow = true
+			i = i + 1
+			continue
+		}
+		if a == "--json" || a == "-json" {
+			jsonMode = true
+			i = i + 1
+			continue
+		}
+		if matchesFlag(a, "repo") {
+			let (v, next) = try flagValue(args, i, "repo", "orchestrate events")
+			repo = json.Present[string]{Value: v}
+			i = next
+			continue
+		}
+		if matchesFlag(a, "run") {
+			let (v, next) = try flagValue(args, i, "run", "orchestrate events")
+			run = json.Present[string]{Value: v}
+			i = next
+			continue
+		}
+		if matchesFlag(a, "kind") {
+			let (v, next) = try flagValue(args, i, "kind", "orchestrate events")
+			kind = json.Present[string]{Value: v}
+			i = next
+			continue
+		}
+		if matchesFlag(a, "unit-id") {
+			let (v, next) = try flagValue(args, i, "unit-id", "orchestrate events")
+			unitID = json.Present[string]{Value: v}
+			i = next
+			continue
+		}
+		if matchesFlag(a, "since") {
+			let (v, next) = try flagValue(args, i, "since", "orchestrate events")
+			let n = strconv.Atoi(strings.TrimSpace(v)) catch {
+			case strconv.Malformed, strconv.OutOfRange:
+				return os.Exit{Code: 2, Message: "orchestrate events: --since must be a non-negative integer"}
+			}
+			since = json.Present[int]{Value: n}
+			i = next
+			continue
+		}
+		if matchesFlag(a, "limit") {
+			let (v, next) = try flagValue(args, i, "limit", "orchestrate events")
+			let n = strconv.Atoi(strings.TrimSpace(v)) catch {
+			case strconv.Malformed, strconv.OutOfRange:
+				return os.Exit{Code: 2, Message: "orchestrate events: --limit must be an integer"}
+			}
+			limit = json.Present[int]{Value: n}
+			i = next
+			continue
+		}
+		if matchesFlag(a, "source") {
+			let (v, next) = try flagValue(args, i, "source", "orchestrate events")
+			source = json.Present[string]{Value: v}
+			i = next
+			continue
+		}
+		if matchesFlag(a, "interval") {
+			let (v, next) = try flagValue(args, i, "interval", "orchestrate events")
+			interval = try parseDurFlag(v, "interval", "orchestrate events")
+			if interval <= 0ns {
+				return os.Exit{Code: 2, Message: "orchestrate events: --interval must be > 0"}
+			}
+			i = next
+			continue
+		}
+		return os.Exit{Code: 2, Message: "orchestrate events: unknown flag \(a)"}
+	}
+	eventsCmdOptions{
+		req:      orchestrate.EventsSinceInput{Repo: repo, Run: run, Kind: kind, UnitID: unitID, Since: since, Limit: limit, Source: source},
+		follow:   follow,
+		interval: interval,
+		jsonMode: jsonMode,
+	}
+}
+
+func parseServeCommand(args []string) (string, orchestrate.ReadinessPolicy, duration) fails os.Exit {
+	let mut addr = "127.0.0.1:8080"
+	let mut vol json.Optional[string] = json.Absent
+	let mut maxLoad json.Optional[string] = json.Absent
+	let mut minMem json.Optional[string] = json.Absent
+	let mut maxDisk json.Optional[string] = json.Absent
+	let mut interval = 2s
+	let mut i = 0
+	for i < args.Len() {
+		let a = args[i]
+		if matchesFlag(a, "http") {
+			let (v, next) = try flagValue(args, i, "http", "orchestrate serve")
+			addr = strings.TrimSpace(v)
+			i = next
+			continue
+		}
+		if matchesFlag(a, "listen") {
+			let (v, next) = try flagValue(args, i, "listen", "orchestrate serve")
+			addr = strings.TrimSpace(v)
+			i = next
+			continue
+		}
+		if matchesFlag(a, "volume") {
+			let (v, next) = try flagValue(args, i, "volume", "orchestrate serve")
+			vol = json.Present[string]{Value: v}
+			i = next
+			continue
+		}
+		if matchesFlag(a, "max-load") {
+			let (v, next) = try flagValue(args, i, "max-load", "orchestrate serve")
+			maxLoad = json.Present[string]{Value: v}
+			i = next
+			continue
+		}
+		if matchesFlag(a, "min-mem-gib") {
+			let (v, next) = try flagValue(args, i, "min-mem-gib", "orchestrate serve")
+			minMem = json.Present[string]{Value: v}
+			i = next
+			continue
+		}
+		if matchesFlag(a, "max-disk-pct") {
+			let (v, next) = try flagValue(args, i, "max-disk-pct", "orchestrate serve")
+			maxDisk = json.Present[string]{Value: v}
+			i = next
+			continue
+		}
+		if matchesFlag(a, "interval") {
+			let (v, next) = try flagValue(args, i, "interval", "orchestrate serve")
+			interval = try parseDurFlag(v, "interval", "orchestrate serve")
+			if interval <= 0ns {
+				return os.Exit{Code: 2, Message: "orchestrate serve: --interval must be > 0"}
+			}
+			i = next
+			continue
+		}
+		return os.Exit{Code: 2, Message: "orchestrate serve: unknown flag \(a)"}
+	}
+	if addr == "" {
+		return os.Exit{Code: 2, Message: "orchestrate serve: --http address must not be empty"}
+	}
+	let policy = orchestrate.PolicyFromReadinessInput(orchestrate.HostReadinessInput{
+		Volume:             vol,
+		MaxLoad:            maxLoad,
+		RecoveryMaxLoad:    json.Absent,
+		MinMemGiB:          minMem,
+		RecoveryMinMemGiB:  json.Absent,
+		MaxDiskPct:         maxDisk,
+		RecoveryMaxDiskPct: json.Absent,
+		PreviousState:      json.Absent,
+	}) catch {
+	case orchestrate.InvalidInput as e:
+		return os.Exit{Code: 2, Message: "orchestrate serve: \(e.Field): \(e.Why)"}
+	}
+	(addr, policy, interval)
+}
+
+func runWaitCmd(sys host.System, clock time.Clock, args []string) fails os.Exit needs os.Ambient | io.Console {
+	let (policy, timeoutDur, jsonMode) = try parseWaitCommand(args)
+	let sched = time.NewLiveScheduler()
+	let waitClock = time.NewHost()
+	let stops = signal.Watch([]signal.Stop{signal.Interrupt, signal.Terminate, signal.Hangup})
+	let res = signal.UntilStop(stops) {
+		with context { time.Clock: waitClock, time.Scheduler: sched } {
+			server.RunWaitAt(sys, policy, timeoutDur, func() string {
+				clock.Now().Format(time.RFC3339)
+			})
+		}
+	} catch {
+	case signal.Stopped as s:
+		signal.Unwatch(stops)
+		return os.Exit{Code: signal.StatusOf(s.Kind), Message: ""}
+	case orchestrate.InvalidInput as e:
+		signal.Unwatch(stops)
+		return os.Exit{Code: 2, Message: "orchestrate wait: \(e.Field): \(e.Why)"}
+	}
+	signal.Unwatch(stops)
+	if jsonMode {
+		io.Console.Println(json.Encode(json.Codec[orchestrate.HostReadinessReport]{MaxBytes: 0, MaxDepth: 0}, res.Report))
+	} else if res.Ready {
+		let m = res.Report.Metrics
+		io.Console.Println("ready volume=\(m.Volume) load=\(m.LoadOne) memGiB=\(m.MemAvailGiB) diskPct=\(m.DiskUsedPct)")
+	}
+	if !res.Ready {
+		if jsonMode {
+			return os.Exit{Code: 1, Message: ""}
+		}
+		return os.Exit{Code: 1, Message: "orchestrate wait: timed out in state \(res.Report.State): \(res.Report.Reason)"}
+	}
+}

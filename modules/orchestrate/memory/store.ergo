@@ -163,6 +163,11 @@ func ListEventLog(s Store, filter orchestrate.EventLogFilter) orchestrate.EventP
 	orchestrate.QueryEventLog(s.cell.Get().state, filter)
 }
 
+// ListEventLogSince returns operational ledger events with ID strictly greater than filter.SinceID in ascending order.
+func ListEventLogSince(s Store, filter orchestrate.EventLogSinceFilter) orchestrate.EventPage fails orchestrate.StoreFailed {
+	orchestrate.QueryEventLogSince(s.cell.Get().state, filter)
+}
+
 let overMemoryStore = context { orchestrate.Store: New() }
 
 func sampleHost() host.Static fails host.Malformed {

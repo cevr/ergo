@@ -1,0 +1,16 @@
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"case","version":"1"}}}
+{"jsonrpc":"2.0","method":"notifications/initialized"}
+{"jsonrpc":"2.0","id":2,"method":"resources/list"}
+{"jsonrpc":"2.0","id":3,"method":"resources/subscribe","params":{"uri":"orchestrate://run/ergo/wf10/events"}}
+{"jsonrpc":"2.0","id":4,"method":"resources/subscribe","params":{"uri":"orchestrate://run/ergo/wf10/summary"}}
+{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"unit-open","arguments":{"commandID":"sub-u1","actor":"root","repo":"ergo","run":"wf10","id":"ORCH-EV-1","title":"Event unit","requires":["acceptance"]}}}
+{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"event-record","arguments":{"commandID":"sub-e1","actor":"worker","repo":"ergo","run":"wf10","kind":"hand-back","unitID":"ORCH-EV-1","summary":"ready for review"}}}
+{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"events-since","arguments":{"repo":"ergo","run":"wf10","since":0,"limit":5}}}
+{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"events-since","arguments":{"repo":"ergo","run":"wf10","since":0,"limit":10,"source":"all"}}}
+{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"host-readiness","arguments":{"volume":"/workspaces","maxLoad":"16","minMemGiB":"8","maxDiskPct":"93"}}}
+{"jsonrpc":"2.0","id":10,"method":"resources/read","params":{"uri":"orchestrate://run/ergo/wf10/summary"}}
+{"jsonrpc":"2.0","id":11,"method":"resources/read","params":{"uri":"orchestrate://run/ergo/wf10/events"}}
+{"jsonrpc":"2.0","id":12,"method":"resources/read","params":{"uri":"orchestrate://host/readiness"}}
+{"jsonrpc":"2.0","id":13,"method":"resources/read","params":{"uri":"orchestrate://host/status"}}
+{"jsonrpc":"2.0","id":14,"method":"resources/unsubscribe","params":{"uri":"orchestrate://run/ergo/wf10/events"}}
+{"jsonrpc":"2.0","id":15,"method":"tools/call","params":{"name":"event-record","arguments":{"commandID":"sub-e2","actor":"root","repo":"ergo","run":"wf10","kind":"status","summary":"after unsubscribe"}}}

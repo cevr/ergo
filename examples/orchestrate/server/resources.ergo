@@ -1,0 +1,251 @@
+import cmp
+import github.com/cevr/ergo/modules/orchestrate/orchestrate
+import json
+import mcp
+import option
+import os/host
+import slices
+import strings
+import sync
+import time
+
+// RunRef identifies one known (repo, run) ledger namespace discovered from a Store snapshot.
+type RunRef {
+	Repo string,
+	Run  string,
+}
+
+// ResourceURI classifies a parsed orchestrate:// MCP resource URI.
+type ResourceURI =
+	| HostReadinessURI{}
+	| HostStatusURI{}
+	| RunSummaryURI{Repo string, Run string}
+	| RunEventsURI{Repo string, Run string}
+	| UnknownResourceURI{}
+
+// ParseResourceURI parses a resource URI under the orchestrate:// scheme.
+func ParseResourceURI(uri string) ResourceURI {
+	if uri == "orchestrate://host/readiness" {
+		return HostReadinessURI
+	}
+	if uri == "orchestrate://host/status" {
+		return HostStatusURI
+	}
+	if strings.HasPrefix(uri, "orchestrate://run/") {
+		let rest = strings.TrimPrefix(uri, "orchestrate://run/")
+		let parts = strings.Split(rest, "/")
+		if parts.Len() == 3 && strings.TrimSpace(parts[0]) != "" && strings.TrimSpace(parts[1]) != "" {
+			if parts[2] == "summary" {
+				return RunSummaryURI{Repo: parts[0], Run: parts[1]}
+			}
+			if parts[2] == "events" {
+				return RunEventsURI{Repo: parts[0], Run: parts[1]}
+			}
+		}
+	}
+	UnknownResourceURI
+}
+
+// RunSummaryURIFor returns the MCP resource URI for one run's summary.
+func RunSummaryURIFor(repo string, run string) string {
+	"orchestrate://run/\(repo)/\(run)/summary"
+}
+
+// RunEventsURIFor returns the MCP resource URI for one run's event stream.
+func RunEventsURIFor(repo string, run string) string {
+	"orchestrate://run/\(repo)/\(run)/events"
+}
+
+// KnownRuns extracts every distinct (repo, run) pair present in store's snapshot, sorted by repo then run.
+func KnownRuns(store orchestrate.Store) []RunRef fails orchestrate.StoreFailed {
+	let snap = try store.Snapshot()
+	let mut seen = Map[string, RunRef]{}
+	for k, _ in snap.RunMetas {
+		seen = seen.Put("\(k.Repo)\u0000\(k.Run)", RunRef{Repo: k.Repo, Run: k.Run})
+	}
+	for k, _ in snap.Units {
+		seen = seen.Put("\(k.Repo)\u0000\(k.Run)", RunRef{Repo: k.Repo, Run: k.Run})
+	}
+	for k, _ in snap.Decisions {
+		seen = seen.Put("\(k.Repo)\u0000\(k.Run)", RunRef{Repo: k.Repo, Run: k.Run})
+	}
+	for k, _ in snap.Landings {
+		seen = seen.Put("\(k.Repo)\u0000\(k.Run)", RunRef{Repo: k.Repo, Run: k.Run})
+	}
+	for ev in snap.EventLog {
+		seen = seen.Put("\(ev.Repo)\u0000\(ev.Run)", RunRef{Repo: ev.Repo, Run: ev.Run})
+	}
+	let mut out = []RunRef{}
+	for _, r in seen {
+		out = out.Append(r)
+	}
+	slices.SortFunc(out, func(a RunRef, b RunRef) int {
+		if a.Repo != b.Repo {
+			return cmp.Compare(a.Repo, b.Repo)
+		}
+		cmp.Compare(a.Run, b.Run)
+	})
+}
+
+// ProbeReadiness steps tracker once against sys at RFC3339 timestamp at, catching probe failures into Unhealthy.
+func ProbeReadiness(sys host.System, tracker orchestrate.ReadinessTracker, at string) (orchestrate.ReadinessTracker, option.Option[orchestrate.ReadinessChanged], orchestrate.HostReadinessReport) {
+	let prevName = orchestrate.ReadinessStateName(tracker.State)
+	let statusReport = orchestrate.QueryHostStatus(sys, orchestrate.HostStatusInput{Volumes: []string{tracker.Policy.Volume}}) catch {
+	case orchestrate.InvalidInput as e:
+		return probeFailureReport(tracker, at, prevName, "\(e.Field): \(e.Why)")
+	case host.Unavailable as e:
+		return probeFailureReport(tracker, at, prevName, "host unavailable (\(e.Target)): \(e.Reason)")
+	case host.Malformed as e:
+		return probeFailureReport(tracker, at, prevName, "host malformed (\(e.Source)): \(e.Reason)")
+	}
+	let metrics = orchestrate.MetricsFromReport(statusReport, tracker.Policy.Volume) catch {
+	case host.Unavailable as e:
+		return probeFailureReport(tracker, at, prevName, "volume unavailable (\(e.Target)): \(e.Reason)")
+	case host.Malformed as e:
+		return probeFailureReport(tracker, at, prevName, "volume malformed (\(e.Source)): \(e.Reason)")
+	}
+	let (next, edge) = orchestrate.AdvanceReadiness(tracker, orchestrate.HostMetricsSample{At: at, Metrics: metrics})
+	let transitioned = match edge {
+	case option.Some[orchestrate.ReadinessChanged]:
+		true
+	case option.None:
+		false
+	}
+	let report = orchestrate.HostReadinessReport{
+		State:         orchestrate.ReadinessStateName(next.State),
+		Ready:         orchestrate.IsReady(next.State),
+		PreviousState: prevName,
+		Transitioned:  transitioned,
+		Reason:        next.Reason,
+		CheckedAt:     at,
+		Metrics:       metrics,
+		Policy:        next.Policy,
+	}
+	(next, edge, report)
+}
+
+func probeFailureReport(tracker orchestrate.ReadinessTracker, at string, prevName string, reason string) (orchestrate.ReadinessTracker, option.Option[orchestrate.ReadinessChanged], orchestrate.HostReadinessReport) {
+	let (next, edge) = orchestrate.AdvanceReadiness(tracker, orchestrate.HostProbeFailed{At: at, Reason: reason})
+	let transitioned = match edge {
+	case option.Some[orchestrate.ReadinessChanged]:
+		true
+	case option.None:
+		false
+	}
+	let emptyMetrics = orchestrate.HostMetrics{
+		Volume:       tracker.Policy.Volume,
+		Cores:        0,
+		LoadOne:      0.0,
+		LoadFive:     0.0,
+		LoadFifteen:  0.0,
+		MemTotalGiB:  0.0,
+		MemAvailGiB:  0.0,
+		DiskTotalGiB: 0.0,
+		DiskUsedGiB:  0.0,
+		DiskAvailGiB: 0.0,
+		DiskUsedPct:  0.0,
+	}
+	let report = orchestrate.HostReadinessReport{
+		State:         orchestrate.ReadinessStateName(next.State),
+		Ready:         false,
+		PreviousState: prevName,
+		Transitioned:  transitioned,
+		Reason:        next.Reason,
+		CheckedAt:     at,
+		Metrics:       emptyMetrics,
+		Policy:        next.Policy,
+	}
+	(next, edge, report)
+}
+
+// BuildResourceSet builds the MCP ResourceSet exposing host readiness, host status, run summaries, and run event streams.
+func BuildResourceSet(store orchestrate.Store, service orchestrate.Service, sys host.System, clock time.Clock, tracker sync.Ref[orchestrate.ReadinessTracker]) mcp.ResourceSet {
+	mcp.ResourceSet{
+		Subscribe:   true,
+		ListChanged: false,
+		List:        func() []mcp.Resource {
+			let mut items = []mcp.Resource{
+				mcp.Resource{
+					URI:         "orchestrate://host/readiness",
+					Name:        "Host Readiness",
+					Description: "Edge-triggered host readiness state, hysteresis thresholds, and live metrics.",
+					MIMEType:    "application/json",
+				},
+				mcp.Resource{
+					URI:         "orchestrate://host/status",
+					Name:        "Host Status",
+					Description: "Point-in-time host CPU cores, load averages, memory, and volume capacities.",
+					MIMEType:    "application/json",
+				},
+			}
+			let runs = KnownRuns(store) catch {
+			case orchestrate.StoreFailed:
+				[]RunRef{}
+			}
+			for r in runs {
+				items = items.Append(mcp.Resource{
+					URI:         RunSummaryURIFor(r.Repo, r.Run),
+					Name:        "\(r.Repo)/\(r.Run) summary",
+					Description: "Compact run overview including unit counts, main head, and recent landings.",
+					MIMEType:    "application/json",
+				})
+				items = items.Append(mcp.Resource{
+					URI:         RunEventsURIFor(r.Repo, r.Run),
+					Name:        "\(r.Repo)/\(r.Run) events",
+					Description: "Cursor-ordered ledger and transition events for \(r.Repo)/\(r.Run).",
+					MIMEType:    "application/json",
+				})
+			}
+			items
+		},
+		Read: func(uri string) []mcp.ResourceContents fails mcp.ResourceNotFound | mcp.ResourceError {
+			let at = clock.Now().Format(time.RFC3339)
+			match ParseResourceURI(uri) {
+			case HostReadinessURI:
+				let (_, _, report) = ProbeReadiness(sys, tracker.Get(), at)
+				let text = json.Encode(json.Codec[orchestrate.HostReadinessReport]{MaxBytes: 0, MaxDepth: 0}, report)
+				[]mcp.ResourceContents{mcp.TextContents(uri, "application/json", text)}
+			case HostStatusURI:
+				let policy = tracker.Get().Policy
+				let rep = service.HostStatus(orchestrate.HostStatusInput{Volumes: []string{policy.Volume}}) catch {
+				case orchestrate.InvalidInput as e:
+					return mcp.ResourceError{Message: "\(e.Field): \(e.Why)"}
+				case host.Unavailable as e:
+					return mcp.ResourceError{Message: "host unavailable (\(e.Target)): \(e.Reason)"}
+				case host.Malformed as e:
+					return mcp.ResourceError{Message: "host malformed (\(e.Source)): \(e.Reason)"}
+				}
+				let text = json.Encode(json.Codec[orchestrate.HostStatusReport]{MaxBytes: 0, MaxDepth: 0}, rep)
+				[]mcp.ResourceContents{mcp.TextContents(uri, "application/json", text)}
+			case RunSummaryURI as u:
+				let sum = service.RunSummary(orchestrate.RunSummaryInput{Repo: u.Repo, Run: u.Run, LandingsLimit: json.Present[int]{Value: 10}}) catch {
+				case orchestrate.InvalidInput as e:
+					return mcp.ResourceError{Message: "\(e.Field): \(e.Why)"}
+				case orchestrate.StoreFailed as e:
+					return mcp.ResourceError{Message: "store failed: \(e.Reason)"}
+				}
+				let text = json.Encode(json.Codec[orchestrate.RunOverview]{MaxBytes: 0, MaxDepth: 0}, sum)
+				[]mcp.ResourceContents{mcp.TextContents(uri, "application/json", text)}
+			case RunEventsURI as u:
+				let page = service.EventsSince(orchestrate.EventsSinceInput{
+					Repo:   json.Present[string]{Value: u.Repo},
+					Run:    json.Present[string]{Value: u.Run},
+					Kind:   json.Absent,
+					UnitID: json.Absent,
+					Since:  json.Present[int]{Value: 0},
+					Limit:  json.Present[int]{Value: 200},
+					Source: json.Present[string]{Value: "all"},
+				}) catch {
+				case orchestrate.InvalidInput as e:
+					return mcp.ResourceError{Message: "\(e.Field): \(e.Why)"}
+				case orchestrate.StoreFailed as e:
+					return mcp.ResourceError{Message: "store failed: \(e.Reason)"}
+				}
+				let text = json.Encode(json.Codec[orchestrate.EventStreamPage]{MaxBytes: 0, MaxDepth: 0}, page)
+				[]mcp.ResourceContents{mcp.TextContents(uri, "application/json", text)}
+			case UnknownResourceURI:
+				mcp.ResourceNotFound{URI: uri}
+			}
+		},
+	}
+}

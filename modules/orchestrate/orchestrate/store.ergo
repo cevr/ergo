@@ -72,6 +72,9 @@ type Store {
 	// ListEventLog returns filtered, ordered, and paginated operational ledger events.
 	ListEventLog(filter EventLogFilter) EventPage fails StoreFailed,
 
+	// ListEventLogSince returns operational ledger events with ID strictly greater than filter.SinceID in ascending order.
+	ListEventLogSince(filter EventLogSinceFilter) EventPage fails StoreFailed,
+
 	// StoreReplayMatchesSnapshot verifies that folding all persisted events reproduces Snapshot identically and sequence numbers are dense 1..N.
 	law StoreReplayMatchesSnapshot(steps []int) {
 		for i, code in steps {
@@ -207,6 +210,7 @@ type Store {
 			Envelope{ID: CommandID("sq9-\(tag)"), Actor: "owner", At: "2026-11-24T09:08:00Z", Command: RecordDecision{Repo: "repo", Run: "store", ID: "sq-d-\(tag)", Category: "ruling", Scope: "run", UnitID: option.Some[string]{Value: key.ID}, Title: "Rule", Body: "Body", Status: DecisionOpen, Supersedes: option.None, CreatedAt: option.None}},
 			Envelope{ID: CommandID("sq10-\(tag)"), Actor: "root", At: "2026-11-24T09:09:00Z", Command: RecordLanding{Repo: "repo", Run: "store", LandingNumber: 1, GroupID: "grp-1", Head: "head-99", Tips: []string{key.ID}, Summary: "Landed", LogPath: option.None, LandedAt: option.None}},
 			Envelope{ID: CommandID("sq11-\(tag)"), Actor: "w1", At: "2026-11-24T09:10:00Z", Command: RecordLedgerEvent{Repo: "repo", Run: "store", Kind: "hand-back", UnitID: option.Some[string]{Value: key.ID}, Summary: "Done", SourceKey: option.Some[string]{Value: "sk-\(tag)"}, CreatedAt: option.None}},
+			Envelope{ID: CommandID("sq12-\(tag)"), Actor: "w1", At: "2026-11-24T09:11:00Z", Command: RecordLedgerEvent{Repo: "repo", Run: "store", Kind: "accepted", UnitID: option.Some[string]{Value: key.ID}, Summary: "Accepted", SourceKey: option.Some[string]{Value: "sk2-\(tag)"}, CreatedAt: option.None}},
 		}
 		for env in cmds {
 			let _ = Execute(env) catch {
@@ -284,8 +288,23 @@ type Store {
 		case StoreFailed:
 			return true
 		}
+		let esf0 = EventLogSinceFilter{Repo: option.Some[string]{Value: "repo"}, Run: option.Some[string]{Value: "store"}, Kind: option.None, UnitID: option.None, Actor: option.None, SinceID: 0, Limit: 10}
+		let espage0 = ListEventLogSince(esf0) catch {
+		case StoreFailed:
+			return true
+		}
+		let cursorID = if espage0.Items.Len() > 0 { espage0.Items[0].ID } else { 0 }
+		let esf1 = EventLogSinceFilter{Repo: option.Some[string]{Value: "repo"}, Run: option.Some[string]{Value: "store"}, Kind: option.None, UnitID: option.None, Actor: option.None, SinceID: cursorID, Limit: 10}
+		let espage1 = ListEventLogSince(esf1) catch {
+		case StoreFailed:
+			return true
+		}
 			queriesMatchSnapshot(snap, key, cid, u, recs, cm, cms, qs, q1, qlist) &&
 			ledgerQueriesMatchSnapshot(snap, "repo", "store", "sq-d-\(tag)", uf, df, lf, ef, rm, rsum, upage, dec, dpage, land, lpage, epage) &&
+			espage0 == QueryEventLogSince(snap, esf0) &&
+			espage1 == QueryEventLogSince(snap, esf1) &&
+			espage0.Items.Len() >= 2 &&
+			espage1.Items.Len() == espage0.Items.Len()-1 &&
 			recs.Len() == 1
 	},
 }
