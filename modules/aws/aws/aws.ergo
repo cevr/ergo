@@ -153,10 +153,10 @@ func TextIn(h []http.Field, name string) option.Option[string] { http.Header(h, 
 // IntIn reads the header name as a number.
 func IntIn(h []http.Field, name string) option.Option[int] fails Malformed {
 	match http.Header(h, name) {
-	case option.Some as v:
-		let n = strconv.Atoi(v.Value) catch {
+	case option.Some{v}:
+		let n = strconv.Atoi(v) catch {
 		case _:
-			return Malformed{Reason: "header \(name) is not a number: \(v.Value)"}
+			return Malformed{Reason: "header \(name) is not a number: \(v)"}
 		}
 		option.Some{n}
 	case option.None:
@@ -167,10 +167,10 @@ func IntIn(h []http.Field, name string) option.Option[int] fails Malformed {
 // BoolIn reads the header name as a flag.
 func BoolIn(h []http.Field, name string) option.Option[bool] fails Malformed {
 	match http.Header(h, name) {
-	case option.Some as v:
-		let b = strconv.ParseBool(v.Value) catch {
+	case option.Some{v}:
+		let b = strconv.ParseBool(v) catch {
 		case _:
-			return Malformed{Reason: "header \(name) is not a flag: \(v.Value)"}
+			return Malformed{Reason: "header \(name) is not a flag: \(v)"}
 		}
 		option.Some{b}
 	case option.None:
@@ -181,8 +181,8 @@ func BoolIn(h []http.Field, name string) option.Option[bool] fails Malformed {
 // TimeIn reads the header name as a timestamp written in f.
 func TimeIn(h []http.Field, name string, f Format) option.Option[time.Time] fails Malformed {
 	match http.Header(h, name) {
-	case option.Some as v:
-		option.Some[time.Time]{try timeOf(v.Value, f, name)}
+	case option.Some{v}:
+		option.Some[time.Time]{try timeOf(v, f, name)}
 	case option.None:
 		option.None
 	}
@@ -223,18 +223,142 @@ func Prefixed(h []http.Field, prefix string) Map[string, string] {
 	out
 }
 
+// PutBy appends field name formatted with text when v is present.
+func PutBy[T](h []http.Field, name string, v option.Option[T], text func(T) string) []http.Field {
+	let mut out = h
+	match v {
+	case option.Some{x}:
+		out = out.Append(http.Field{Name: name, Value: text(x)})
+	case option.None:
+	}
+	out
+}
+
+// PutText appends field name with v's text when v is present.
+func PutText(h []http.Field, name string, v option.Option[string]) []http.Field {
+	let mut out = h
+	match v {
+	case option.Some{x}:
+		out = out.Append(http.Field{Name: name, Value: x})
+	case option.None:
+	}
+	out
+}
+
+// PutInt appends field name with v's decimal text when v is present.
+func PutInt(h []http.Field, name string, v option.Option[int]) []http.Field {
+	PutBy(h, name, v, IntText)
+}
+
+// PutBool appends field name with v's flag text when v is present.
+func PutBool(h []http.Field, name string, v option.Option[bool]) []http.Field {
+	PutBy(h, name, v, BoolText)
+}
+
+// PutTime appends field name with v formatted in f when v is present.
+func PutTime(h []http.Field, name string, v option.Option[time.Time], f Format) []http.Field {
+	let mut out = h
+	match v {
+	case option.Some{t}:
+		out = out.Append(http.Field{Name: name, Value: TimeText(t, f)})
+	case option.None:
+	}
+	out
+}
+
 // PutPrefixed adds a header prefix+name for each entry of m, in the
 // order of the names.
 func PutPrefixed(h []http.Field, prefix string, m Map[string, string]) []http.Field {
 	let mut out = h
 	for k in slices.Sorted(maps.Keys(m)) {
 		match m.Get(k) {
-		case option.Some as v:
-			out = out.Append(http.Field{Name: prefix + k, Value: v.Value})
+		case option.Some{v}:
+			out = out.Append(http.Field{Name: prefix + k, Value: v})
 		case option.None:
 		}
 	}
 	out
+}
+
+// SameOutcome reports whether two runs of call yield equal success values
+// (by sameOut) or equal failures (by sameErr).
+func SameOutcome[T, E, R](call func() T fails E needs R, sameOut func(T, T) bool, sameErr func(E, E) bool) bool needs R {
+	let first = call() catch {
+	case e:
+		let _ = call() catch {
+		case again:
+			return sameErr(again, e)
+		}
+		return false
+	}
+	let second = call() catch {
+	case _:
+		return false
+	}
+	sameOut(second, first)
+}
+
+// PutRoundTrips: PutText, PutInt, PutBool, PutTime and PutBy keep prior
+// fields in order, append nothing on None, and round-trip through *In.
+law PutRoundTrips(n int, b bool, s string, rawSec int64, present bool) {
+	let base = []http.Field{http.Field{Name: "X-Keep", Value: "1"}}
+	let tv option.Option[string] = if present { option.Some{s} } else { option.None }
+	let iv option.Option[int] = if present { option.Some{n} } else { option.None }
+	let bv option.Option[bool] = if present { option.Some{b} } else { option.None }
+	let sec = (rawSec%2000000000 + 2000000000) % 2000000000
+	let tm = time.Unix(sec, 0)
+	let dtv option.Option[time.Time] = if present { option.Some{tm} } else { option.None }
+	let ht = PutText(base, "X-Text", tv)
+	let hi = PutInt(base, "X-Int", iv)
+	let hb = PutBool(base, "X-Bool", bv)
+	let hd = PutTime(base, "X-HttpDate", dtv, HTTPDate)
+	let hr = PutTime(base, "X-DateTime", dtv, DateTime)
+	let he = PutTime(base, "X-Epoch", dtv, EpochSeconds)
+	let hp = PutBy(base, "X-By", tv, func(x string) string { "v:" + x })
+	let wantLen = if present { 2 } else { 1 }
+	let wantBy option.Option[string] = if present { option.Some{"v:" + s} } else { option.None }
+	let ok = ht.Len() == wantLen &&
+		hi.Len() == wantLen &&
+		hb.Len() == wantLen &&
+		hd.Len() == wantLen &&
+		hr.Len() == wantLen &&
+		he.Len() == wantLen &&
+		hp.Len() == wantLen &&
+		TextIn(ht, "X-Keep") == option.Some{"1"} &&
+		TextIn(ht, "X-Text") == tv &&
+		TextIn(hp, "X-By") == wantBy &&
+		try IntIn(hi, "X-Int") == iv &&
+		try BoolIn(hb, "X-Bool") == bv &&
+		try TimeIn(hd, "X-HttpDate", HTTPDate) == dtv &&
+		try TimeIn(hr, "X-DateTime", DateTime) == dtv &&
+		try TimeIn(he, "X-Epoch", EpochSeconds) == dtv
+	ok
+}
+
+// SameOutcomeChecksEquality: SameOutcome returns true only when two runs
+// both succeed with equal values or both fail with equal failures.
+law SameOutcomeChecksEquality(a int, b int, failFirst bool, failSecond bool) {
+	let mut step = 0
+	let got = SameOutcome(
+		func() int {
+			step = step + 1
+			if step == 1 {
+				if failFirst {
+					return Malformed{Reason: "e-\(a)"}
+				}
+				a
+			} else {
+				if failSecond {
+					return Malformed{Reason: "e-\(b)"}
+				}
+				b
+			}
+		},
+		func(x, y) { x == y },
+		func(x, y) { x == y },
+	)
+	let want = failFirst == failSecond && a == b
+	got == want
 }
 
 // Label is a path label's escaped text: each segment escaped as Go's

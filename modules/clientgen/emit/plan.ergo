@@ -31,31 +31,16 @@ type Refused { Operation string, Reason string }
 
 // Ty is a member's Ergo type: a scalar, a model enum by name, a string
 // map (prefix headers), or a blob payload.
-type TString {}
-type TInt {}
-type TBool {}
-type TTime { Format string }
-type TEnum { Name string }
-type TMap {}
-type TBlob { Streaming bool }
-type Ty = TString | TInt | TBool | TTime | TEnum | TMap | TBlob
+type Ty = TString{} | TInt{} | TBool{} | TTime{Format string} | TEnum{Name string} | TMap{} | TBlob{Streaming bool}
 
 // Where is a member's place on the wire (Smithy's HTTP bindings).
-type AtLabel { Greedy bool }
-type AtQuery { Name string }
-type AtHeader { Name string }
-type AtPrefix { Prefix string }
-type AtPayload {}
-type AtBody {}
-type Where = AtLabel | AtQuery | AtHeader | AtPrefix | AtPayload | AtBody
+type Where = AtLabel{Greedy bool} | AtQuery{Name string} | AtHeader{Name string} | AtPrefix{Prefix string} | AtPayload{} | AtBody{}
 
 // Field is one member of a request or an output.
 type Field { Name string, Ty Ty, Where Where, Required bool }
 
 // Seg is a piece of an operation's path: text, or a label.
-type SegText { Text string }
-type SegLabel { Member string, Greedy bool }
-type Seg = SegText | SegLabel
+type Seg = SegText{Text string} | SegLabel{Member string, Greedy bool}
 
 // Lit is a query pair the path template fixes (`?x-id=GetObject`).
 type Lit { Name string, Value string }
@@ -85,8 +70,8 @@ func PlanOf(m smithy.Model, p Provider) Plan fails Refused {
 		let op = try opOf(index, id)
 		for f in op.In.Concat(op.Out) {
 			match f.Ty {
-			case TEnum as e:
-				enums = once(enums, e.Name)
+			case TEnum{name}:
+				enums = once(enums, name)
 			case TString, TInt, TBool, TTime, TMap, TBlob:
 			}
 		}
@@ -100,8 +85,8 @@ func PlanOf(m smithy.Model, p Provider) Plan fails Refused {
 		let f = try failureOf(index, e)
 		for x in f.Fields {
 			match x.Ty {
-			case TEnum as en:
-				enums = once(enums, en.Name)
+			case TEnum{name}:
+				enums = once(enums, name)
 			case TString, TInt, TBool, TTime, TMap, TBlob:
 			}
 		}
@@ -147,8 +132,8 @@ func local(id string) string {
 
 func shapeAt(index Map[string, smithy.Shape], id string, op string) smithy.Shape fails Refused {
 	match index.Get(id) {
-	case option.Some as s:
-		s.Value
+	case option.Some{s}:
+		s
 	case option.None:
 		Refused{Operation: op, Reason: "\(id) is not in the slice"}
 	}
@@ -172,8 +157,8 @@ func traitOf(ts []smithy.Trait, id string) option.Option[json.Value] {
 
 func traitText(ts []smithy.Trait, id string) string {
 	match traitOf(ts, id) {
-	case option.Some as v:
-		textOf(v.Value)
+	case option.Some{v}:
+		textOf(v)
 	case option.None:
 		""
 	}
@@ -190,8 +175,8 @@ func has(ts []smithy.Trait, id string) bool {
 
 func textOf(v json.Value) string {
 	match v {
-	case json.Str as s:
-		s.Value
+	case json.Str{s}:
+		s
 	case json.Num as n:
 		n.Wire()
 	case json.Null, json.Boolean, json.Array, json.Object:
@@ -201,8 +186,8 @@ func textOf(v json.Value) string {
 
 func member(o json.Value, key string) json.Value {
 	match o {
-	case json.Object as obj:
-		for m in obj.Members {
+	case json.Object{ms}:
+		for m in ms {
 			if m.Key == key {
 				return m.Value
 			}
@@ -216,8 +201,8 @@ func member(o json.Value, key string) json.Value {
 // and entities removed, at most 200 bytes.
 func docOf(ts []smithy.Trait) string {
 	match traitOf(ts, "smithy.api#documentation") {
-	case option.Some as d:
-		sentence(plain(textOf(d.Value)))
+	case option.Some{d}:
+		sentence(plain(textOf(d)))
 	case option.None:
 		""
 	}
@@ -256,22 +241,22 @@ func opOf(index Map[string, smithy.Shape], id string) Op fails Refused {
 		return Refused{Operation: id, Reason: "not an operation"}
 	}
 	let http = match traitOf(s.Traits, "smithy.api#http") {
-	case option.Some as h:
-		h.Value
+	case option.Some{h}:
+		h
 	case option.None:
 		return Refused{Operation: id, Reason: "no smithy.api#http trait"}
 	}
 	let uri = textOf(member(http, "uri"))
 	let (path, query) = try templateOf(uri, id)
 	let input = match o.Input {
-	case option.Some as t:
-		t.Value
+	case option.Some{t}:
+		t
 	case option.None:
 		return Refused{Operation: id, Reason: "no input shape"}
 	}
 	let output = match o.Output {
-	case option.Some as t:
-		t.Value
+	case option.Some{t}:
+		t
 	case option.None:
 		return Refused{Operation: id, Reason: "no output shape"}
 	}
@@ -317,8 +302,8 @@ func templateOf(uri string, op string) ([]Seg, []Lit) fails Refused {
 func fieldsOf(index Map[string, smithy.Shape], id string, op string, input bool) []Field fails Refused {
 	let s = try shapeAt(index, id, op)
 	let members = match s.Kind {
-	case smithy.Structure as st:
-		st.Members
+	case smithy.Structure{ms}:
+		ms
 	case smithy.Simple, smithy.Enum, smithy.IntEnum, smithy.List, smithy.Mapping, smithy.Union, smithy.Operation, smithy.Service, smithy.Resource, smithy.Unsupported:
 		return Refused{Operation: op, Reason: "\(id) is not a structure"}
 	}
@@ -355,19 +340,19 @@ func fieldOf(index Map[string, smithy.Shape], m smithy.Member, op string, input 
 func tyOf(index Map[string, smithy.Shape], m smithy.Member, op string) Ty fails Refused {
 	let target = try shapeAt(index, m.Target, op)
 	let format = match traitOf(m.Traits, "smithy.api#timestampFormat") {
-	case option.Some as f:
-		textOf(f.Value)
+	case option.Some{f}:
+		textOf(f)
 	case option.None:
 		match traitOf(target.Traits, "smithy.api#timestampFormat") {
-		case option.Some as f:
-			textOf(f.Value)
+		case option.Some{f}:
+			textOf(f)
 		case option.None:
 			""
 		}
 	}
 	match target.Kind {
-	case smithy.Simple as sc:
-		match sc.Of {
+	case smithy.Simple{sc}:
+		match sc {
 		case smithy.StringType:
 			TString
 		case smithy.IntegerType, smithy.LongType, smithy.ShortType, smithy.ByteType:
@@ -396,10 +381,10 @@ func tyOf(index Map[string, smithy.Shape], m smithy.Member, op string) Ty fails 
 
 func isString(index Map[string, smithy.Shape], id string) bool {
 	match index.Get(id) {
-	case option.Some as s:
-		match s.Value.Kind {
-		case smithy.Simple as sc:
-			match sc.Of {
+	case option.Some{s}:
+		match s.Kind {
+		case smithy.Simple{sc}:
+			match sc {
 			case smithy.StringType:
 				true
 			case smithy.BlobType, smithy.BooleanType, smithy.ByteType, smithy.ShortType, smithy.IntegerType, smithy.LongType, smithy.FloatType, smithy.DoubleType, smithy.BigIntegerType, smithy.BigDecimalType, smithy.TimestampType, smithy.DocumentType:
@@ -417,12 +402,12 @@ func enumOf(index Map[string, smithy.Shape], name string) Enum fails Refused {
 	for _, s in index {
 		if local(s.Id) == name {
 			match s.Kind {
-			case smithy.Enum as e:
+			case smithy.Enum{ms}:
 				let mut vs = []Value{}
-				for m in e.Members {
+				for m in ms {
 					let wireText = match traitOf(m.Traits, "smithy.api#enumValue") {
-					case option.Some as v:
-						textOf(v.Value)
+					case option.Some{v}:
+						textOf(v)
 					case option.None:
 						m.Name
 					}
@@ -451,8 +436,8 @@ func pascal(name string) string {
 func failureOf(index Map[string, smithy.Shape], id string) Failure fails Refused {
 	let s = try shapeAt(index, id, id)
 	let status = match traitOf(s.Traits, "smithy.api#httpError") {
-	case option.Some as v:
-		let n = strconv.Atoi(textOf(v.Value)) catch {
+	case option.Some{v}:
+		let n = strconv.Atoi(textOf(v)) catch {
 		case _:
 			return Refused{Operation: id, Reason: "an httpError that is not a number"}
 		}

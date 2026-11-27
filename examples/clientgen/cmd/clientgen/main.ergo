@@ -113,8 +113,8 @@ func write(args []string) fails os.Exit needs io.Stdout | fs.Files | fs.Writes {
 		return os.Exit{Code: 2, Message: usage}
 	}
 	let p = match providers.Get(rest[0]) {
-	case option.Some as v:
-		v.Value
+	case option.Some{v}:
+		v
 	case option.None:
 		return os.Exit{Code: 2, Message: "clientgen: no provider \(rest[0]); this binary writes s3"}
 	}

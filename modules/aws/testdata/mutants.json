@@ -20,8 +20,8 @@
     {
       "name": "emit-error-code-swapped", "origin": "wf10 GEN-EMIT",
       "file": "modules/aws/s3/s3.ergo",
-      "from": "\tif e.Code == \"NoSuchKey\" {\n\t\treturn noSuchKey(e)\n",
-      "to": "\tif e.Code == \"InvalidObjectState\" {\n\t\treturn noSuchKey(e)\n",
+      "from": "\tcase \"NoSuchKey\":\n\t\treturn noSuchKey(e)\n",
+      "to": "\tcase \"NoSuchKey\":\n\t\treturn invalidObjectState(e)\n",
       "rule": "Each error code is read as its own failure: ApiIsTheFake (the fake fails GetObject with NoSuchKey for a missing key and InvalidObjectState for an archived one).",
       "anchor": {"tests": ["examples:modules/aws"]}, "killers": ["examples:modules/aws"]
     },
@@ -60,9 +60,57 @@
     {
       "name": "aws-wire-unknown-storage-class-dropped", "origin": "wf10 PROPERTY-TESTING P7",
       "file": "modules/aws/s3/s3.ergo",
-      "from": "\tStorageClassOther{Value: s}",
-      "to": "\tStorageClassStandard",
+      "from": "\t\tStorageClassOther{Value: s}",
+      "to": "\t\tStorageClassStandard",
       "rule": "An unknown x-amz-storage-class wire value is kept as StorageClassOther as declared; dropping it to StorageClassStandard fails S3ClientWireLaws.",
+      "anchor": {"tests": ["examples:modules/aws"]}, "killers": ["examples:modules/aws"]
+    },
+    {
+      "name": "aws-put-by-drops-value", "origin": "wf10 RSI-CLIENTGEN-S3-CLEANUP",
+      "file": "modules/aws/aws/aws.ergo",
+      "from": "\t\tout = out.Append(http.Field{Name: name, Value: text(x)})\n",
+      "to": "\t\tout = out.Append(http.Field{Name: name + \"-bad\", Value: text(x)})\n",
+      "rule": "PutBy writes under exact field name when present: PutRoundTrips and S3ClientOptionalWireMembers catch corrupting the field name.",
+      "anchor": {"tests": ["examples:modules/aws"]}, "killers": ["examples:modules/aws"]
+    },
+    {
+      "name": "aws-put-text-appends-on-none", "origin": "wf10 RSI-CLIENTGEN-S3-CLEANUP",
+      "file": "modules/aws/aws/aws.ergo",
+      "from": "\tcase option.Some{x}:\n\t\tout = out.Append(http.Field{Name: name, Value: x})\n\tcase option.None:\n\t}\n\tout\n}",
+      "to": "\tcase option.Some{x}:\n\t\tout = out.Append(http.Field{Name: name, Value: x})\n\tcase option.None:\n\t\tout = out.Append(http.Field{Name: name, Value: \"\"})\n\t}\n\tout\n}",
+      "rule": "PutText must append nothing when v is None: PutRoundTrips verifies field count stays unchanged on None.",
+      "anchor": {"tests": ["examples:modules/aws"]}, "killers": ["examples:modules/aws"]
+    },
+    {
+      "name": "aws-put-int-dropped", "origin": "wf10 RSI-CLIENTGEN-S3-CLEANUP",
+      "file": "modules/aws/aws/aws.ergo",
+      "from": "\tPutBy(h, name, v, IntText)\n",
+      "to": "\tlet _ = name\n\tlet _ = v\n\th\n",
+      "rule": "PutInt encodes integer header/query options via IntText: PutRoundTrips and S3ClientOptionalWireMembers catch dropping it.",
+      "anchor": {"tests": ["examples:modules/aws"]}, "killers": ["examples:modules/aws"]
+    },
+    {
+      "name": "aws-put-time-wrong-format", "origin": "wf10 RSI-CLIENTGEN-S3-CLEANUP",
+      "file": "modules/aws/aws/aws.ergo",
+      "from": "\t\tout = out.Append(http.Field{Name: name, Value: TimeText(t, f)})\n",
+      "to": "\t\tout = out.Append(http.Field{Name: name, Value: TimeText(t, HTTPDate)})\n",
+      "rule": "PutTime must respect the Format f (HTTPDate, DateTime, EpochSeconds): PutRoundTrips and S3ClientOptionalWireMembers fail if f is ignored.",
+      "anchor": {"tests": ["examples:modules/aws"]}, "killers": ["examples:modules/aws"]
+    },
+    {
+      "name": "aws-same-outcome-ignores-err-mismatch", "origin": "wf10 RSI-CLIENTGEN-S3-CLEANUP",
+      "file": "modules/aws/aws/aws.ergo",
+      "from": "\t\tcase again:\n\t\t\treturn sameErr(again, e)\n",
+      "to": "\t\tcase again:\n\t\t\treturn sameErr(again, e) || true\n",
+      "rule": "SameOutcome must compare failures with sameErr when both runs fail: SameOutcomeChecksEquality fails when unequal errors report true.",
+      "anchor": {"tests": ["examples:modules/aws"]}, "killers": ["examples:modules/aws"]
+    },
+    {
+      "name": "emit-put-int-header-dropped", "origin": "wf10 RSI-CLIENTGEN-S3-CLEANUP",
+      "file": "modules/aws/s3/s3.ergo",
+      "from": "\th = aws.PutInt(h, \"Content-Length\", r.ContentLength)\n",
+      "to": "",
+      "rule": "PutObject sends optional Content-Length via aws.PutInt: S3ClientOptionalWireMembers inspects the outgoing HTTP request headers.",
       "anchor": {"tests": ["examples:modules/aws"]}, "killers": ["examples:modules/aws"]
     }
   ]

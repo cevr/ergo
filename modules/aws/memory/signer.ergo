@@ -131,8 +131,8 @@ law SlashesStayInThePath(n int) {
 
 func holds(r http.Request, name string, value string) bool {
 	match http.Header(r.Header, name) {
-	case option.Some as v:
-		v.Value == value
+	case option.Some{v}:
+		v == value
 	case option.None:
 		false
 	}
@@ -188,8 +188,8 @@ law RecordingSitsAboveTheSigner(secret string, steps []int) {
 	}
 	for r in got.Get() {
 		match http.Header(r.Header, "Authorization") {
-		case option.Some as v:
-			if !strings.HasPrefix(v.Value, "TEST4-HMAC ") {
+		case option.Some{v}:
+			if !strings.HasPrefix(v, "TEST4-HMAC ") {
 				return false
 			}
 		case option.None:

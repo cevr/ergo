@@ -33,8 +33,12 @@ func Emit(m smithy.Model, p Provider) []File fails Refused {
 	b = b.Append("")
 	b = b.Append("import " + p.Runtime)
 	b = b.Append("import http")
-	b = b.Append("import option")
-	b = b.Append("import time")
+	if usesOption(plan, p.RuntimeName) {
+		b = b.Append("import option")
+	}
+	if usesTime(plan) {
+		b = b.Append("import time")
+	}
 	b = b.Append("")
 	b = b.Concat(service(plan, p))
 	b = b.Concat(api(plan, p))
@@ -42,12 +46,111 @@ func Emit(m smithy.Model, p Provider) []File fails Refused {
 		b = b.Concat(records(op, p))
 	}
 	for f in plan.Failures {
-		b = b.Concat(failure(f))
+		b = b.Concat(failure(f, p.RuntimeName))
 	}
 	for e in plan.Enums {
-		b = b.Concat(enum(e))
+		b = b.Concat(enum(e, enumEncoded(plan, e.Name), enumDecoded(plan, e.Name)))
 	}
 	[]File{File{Path: p.Package + ".ergo", Text: strings.Join(b, "\n")}}
+}
+
+func usesOption(plan Plan, rt string) bool {
+	for op in plan.Ops {
+		for f in op.In {
+			if strings.HasPrefix(ty(f, rt), optionName+"[") {
+				return true
+			}
+		}
+		for f in kept(op.Out) {
+			if strings.HasPrefix(ty(f, rt), optionName+"[") {
+				return true
+			}
+		}
+	}
+	for f in plan.Failures {
+		if f.Fields.Len() > 0 {
+			return true
+		}
+	}
+	false
+}
+
+func usesTime(plan Plan) bool {
+	for op in plan.Ops {
+		for f in op.In {
+			match f.Ty {
+			case TTime:
+				return true
+			case TString, TInt, TBool, TEnum, TMap, TBlob:
+			}
+		}
+		for f in kept(op.Out) {
+			match f.Ty {
+			case TTime:
+				return true
+			case TString, TInt, TBool, TEnum, TMap, TBlob:
+			}
+		}
+	}
+	for fail in plan.Failures {
+		for f in fail.Fields {
+			match f.Ty {
+			case TTime:
+				return true
+			case TString, TInt, TBool, TEnum, TMap, TBlob:
+			}
+		}
+	}
+	false
+}
+
+func enumEncoded(plan Plan, name string) bool {
+	for op in plan.Ops {
+		for f in op.In {
+			match f.Where {
+			case AtQuery, AtHeader:
+				match f.Ty {
+				case TEnum{en}:
+					if en == name {
+						return true
+					}
+				case TString, TInt, TBool, TTime, TMap, TBlob:
+				}
+			case AtLabel, AtPrefix, AtPayload, AtBody:
+			}
+		}
+	}
+	false
+}
+
+func enumDecoded(plan Plan, name string) bool {
+	for op in plan.Ops {
+		for f in kept(op.Out) {
+			match f.Where {
+			case AtHeader:
+				match f.Ty {
+				case TEnum{en}:
+					if en == name {
+						return true
+					}
+				case TString, TInt, TBool, TTime, TMap, TBlob:
+				}
+			case AtLabel, AtQuery, AtPrefix, AtPayload, AtBody:
+			}
+		}
+	}
+	for fail in plan.Failures {
+		for f in fail.Fields {
+			match f.Ty {
+			case TEnum{en}:
+				if en == name {
+					return true
+				}
+			case TString, TInt, TBool, TTime, TMap, TBlob:
+			}
+		}
+	}
+	false
 }
 
 func provenance(m smithy.Model) string {
@@ -108,8 +211,8 @@ func scalar(t Ty) string {
 		"bool"
 	case TTime:
 		"time.Time"
-	case TEnum as e:
-		e.Name
+	case TEnum{name}:
+		name
 	case TMap:
 		"Map[string, string]"
 	case TBlob:
@@ -166,6 +269,7 @@ func required(op Op) []Field {
 }
 
 func service(plan Plan, p Provider) []string {
+	let rt = p.RuntimeName
 	let mut b = comment("\(p.Service) is the service's operations. Api sends them over an http.Net; a memory provider (another package) answers them for tests. The laws come from each operation's HTTP method: a GET or HEAD is repeatable, a PUT or DELETE idempotent (RFC 9110 9.2).", "")
 	b = b.Append("type \(p.Service) {")
 	for op in plan.Ops {
@@ -173,12 +277,12 @@ func service(plan Plan, p Provider) []string {
 		b = b.Append("\t" + signature(op, p) + ",")
 	}
 	for op in plan.Ops {
-		b = b.Concat(lawOf(op))
+		b = b.Concat(lawOf(op, rt))
 	}
 	b.Append("}").Append("")
 }
 
-func lawOf(op Op) []string {
+func lawOf(op Op, rt string) []string {
 	let name = if op.Method == "GET" || op.Method == "HEAD" { op.Name + "IsRepeatable" } else if op.Method == "PUT" || op.Method == "DELETE" { op.Name + "IsIdempotent" } else { "" }
 	if name == "" {
 		return []string{}
@@ -197,15 +301,7 @@ func lawOf(op Op) []string {
 		"\t// \(name): \(what): the same output, or the same failure.",
 		"\tlaw \(name)(\(strings.Join(params, ", "))) {",
 		"\t\tlet r = New\(op.Input)(\(strings.Join(args, ", ")))",
-		"\t\tlet first = \(call) catch {",
-		"\t\tcase e:",
-		"\t\t\tlet _ = \(call) catch {",
-		"\t\t\tcase again:",
-		"\t\t\t\treturn again == e",
-		"\t\t\t}",
-		"\t\t\treturn false",
-		"\t\t}",
-		"\t\ttry \(call) == first",
+		"\t\t\(rt).SameOutcome(func() \(op.Output) { try \(call) }, func(a, b) { a == b }, func(a, b) { a == b })",
 		"\t},",
 	}
 }
@@ -236,12 +332,12 @@ func call(op Op, p Provider) []string {
 	let mut body = quote("")
 	for f in op.In {
 		match f.Where {
-		case AtQuery as at:
-			b = b.Concat(put("q", at.Name, f, false, rt))
-		case AtHeader as at:
-			b = b.Concat(put("h", at.Name, f, true, rt))
-		case AtPrefix as at:
-			b = b.Append("\th = \(rt).PutPrefixed(h, \(quote(at.Prefix)), r.\(f.Name))")
+		case AtQuery{name}:
+			b = b.Append(put("q", name, f, false, rt))
+		case AtHeader{name}:
+			b = b.Append(put("h", name, f, true, rt))
+		case AtPrefix{prefix}:
+			b = b.Append("\th = \(rt).PutPrefixed(h, \(quote(prefix)), r.\(f.Name))")
 		case AtPayload:
 			body = "r." + f.Name
 		case AtLabel, AtBody:
@@ -276,8 +372,8 @@ func pathText(op Op) string {
 	let mut s = ""
 	for seg in op.Path {
 		match seg {
-		case SegText as t:
-			s = s + t.Text
+		case SegText{t}:
+			s = s + t
 		case SegLabel as l:
 			s = s + "{" + l.Member + (if l.Greedy { "+" } else { "" }) + "}"
 		}
@@ -291,9 +387,9 @@ func paths(op Op, rt string) (string, string) {
 	let mut raw = []string{}
 	for seg in op.Path {
 		match seg {
-		case SegText as t:
-			path = path.Append(quote(t.Text))
-			raw = raw.Append(quote(t.Text))
+		case SegText{t}:
+			path = path.Append(quote(t))
+			raw = raw.Append(quote(t))
 		case SegLabel as l:
 			path = path.Append("r." + l.Member)
 			raw = raw.Append("\(rt).Label(r.\(l.Member), \(l.Greedy))")
@@ -302,28 +398,37 @@ func paths(op Op, rt string) (string, string) {
 	(strings.Join(path, " + "), strings.Join(raw, " + "))
 }
 
-// put is the statements that add f to list (q or h) when it is set.
-func put(list string, name string, f Field, header bool, rt string) []string {
+// put is the statement that adds f to list (q or h) when it is set.
+func put(list string, name string, f Field, header bool, rt string) string {
 	if f.Required {
-		return []string{"\t\(list) = \(list).Append(http.Field{Name: \(quote(name)), Value: \(text(f.Ty, "r."+f.Name, header, rt))})"}
+		return "\t\(list) = \(list).Append(http.Field{Name: \(quote(name)), Value: \(text(f.Ty, "r."+f.Name, header, rt))})"
 	}
-	[]string{
-		"\tmatch r.\(f.Name) {",
-		"\tcase \(someName) as v:",
-		"\t\t\(list) = \(list).Append(http.Field{Name: \(quote(name)), Value: \(text(f.Ty, "v.Value", header, rt))})",
-		"\tcase \(noneName):",
-		"\t}",
+	let v = "r." + f.Name
+	let k = quote(name)
+	match f.Ty {
+	case TString:
+		"\t\(list) = \(rt).PutText(\(list), \(k), \(v))"
+	case TInt:
+		"\t\(list) = \(rt).PutInt(\(list), \(k), \(v))"
+	case TBool:
+		"\t\(list) = \(rt).PutBool(\(list), \(k), \(v))"
+	case TTime{fmt}:
+		"\t\(list) = \(rt).PutTime(\(list), \(k), \(v), \(format(fmt, header, rt)))"
+	case TEnum{en}:
+		"\t\(list) = \(rt).PutBy(\(list), \(k), \(v), \(lowerFirst(en))Wire)"
+	case TBlob, TMap:
+		"\t\(list) = \(list).Append(http.Field{Name: \(k), Value: \(v)})"
 	}
 }
 
-func format(t TTime, header bool, rt string) string {
-	if t.Format == "http-date" {
+func format(f string, header bool, rt string) string {
+	if f == "http-date" {
 		return rt + ".HTTPDate"
 	}
-	if t.Format == "date-time" {
+	if f == "date-time" {
 		return rt + ".DateTime"
 	}
-	if t.Format == "epoch-seconds" {
+	if f == "epoch-seconds" {
 		return rt + ".EpochSeconds"
 	}
 	if header { rt + ".HTTPDate" } else { rt + ".DateTime" }
@@ -338,10 +443,10 @@ func text(t Ty, x string, header bool, rt string) string {
 		"\(rt).IntText(\(x))"
 	case TBool:
 		"\(rt).BoolText(\(x))"
-	case TTime as tt:
-		"\(rt).TimeText(\(x), \(format(tt, header, rt)))"
-	case TEnum as e:
-		"\(lowerFirst(e.Name))Wire(\(x))"
+	case TTime{fmt}:
+		"\(rt).TimeText(\(x), \(format(fmt, header, rt)))"
+	case TEnum{name}:
+		"\(lowerFirst(name))Wire(\(x))"
 	case TMap:
 		x
 	}
@@ -350,21 +455,21 @@ func text(t Ty, x string, header bool, rt string) string {
 // read is the expression that reads output member f from the headers h.
 func read(f Field, rt string) string {
 	match f.Where {
-	case AtHeader as at:
+	case AtHeader{name}:
 		match f.Ty {
 		case TString, TBlob, TMap:
-			"\(rt).TextIn(h, \(quote(at.Name)))"
+			"\(rt).TextIn(h, \(quote(name)))"
 		case TInt:
-			"try \(rt).IntIn(h, \(quote(at.Name)))"
+			"try \(rt).IntIn(h, \(quote(name)))"
 		case TBool:
-			"try \(rt).BoolIn(h, \(quote(at.Name)))"
-		case TTime as tt:
-			"try \(rt).TimeIn(h, \(quote(at.Name)), \(format(tt, true, rt)))"
-		case TEnum as e:
-			"\(lowerFirst(e.Name))In(\(rt).TextIn(h, \(quote(at.Name))))"
+			"try \(rt).BoolIn(h, \(quote(name)))"
+		case TTime{fmt}:
+			"try \(rt).TimeIn(h, \(quote(name)), \(format(fmt, true, rt)))"
+		case TEnum{en}:
+			"\(rt).TextIn(h, \(quote(name))).Map(\(lowerFirst(en))Of)"
 		}
-	case AtPrefix as at:
-		"\(rt).Prefixed(h, \(quote(at.Prefix)))"
+	case AtPrefix{prefix}:
+		"\(rt).Prefixed(h, \(quote(prefix)))"
 	case AtLabel, AtQuery, AtPayload, AtBody:
 		noneName
 	}
@@ -431,13 +536,16 @@ func failed(op Op, p Provider) []string {
 	}
 	row = row.Append(rt + ".Failed").Append(rt + ".Malformed")
 	let mut b = []string{"func \(lowerFirst(op.Name))Failed(status int, body string) \(op.Output) fails \(strings.Join(row, " | ")) {", "\tlet e = try \(rt).ErrorOf(status, body)"}
+	let fallback = "\(rt).Failed{Status: e.Status, Code: e.Code, Message: e.Message}"
+	if op.Errors.Len() == 0 {
+		return b.Append("\t" + fallback).Append("}").Append("")
+	}
+	b = b.Append("\tmatch e.Code {")
 	for e in op.Errors {
 		let n = local(e)
-		b = b.Append("\tif e.Code == \(quote(n)) {")
-		b = b.Append("\t\treturn \(lowerFirst(n))(e)")
-		b = b.Append("\t}")
+		b = b.Append("\tcase \(quote(n)):").Append("\t\treturn \(lowerFirst(n))(e)")
 	}
-	b.Append("\t\(rt).Failed{Status: e.Status, Code: e.Code, Message: e.Message}").Append("}").Append("")
+	b.Append("\tcase _:").Append("\t\t" + fallback).Append("\t}").Append("}").Append("")
 }
 
 func records(op Op, p Provider) []string {
@@ -458,10 +566,14 @@ func records(op Op, p Provider) []string {
 	}
 	b = b.Concat(literal(op.Input, keys, values, "\t")).Append("}").Append("")
 	b = b.Concat(comment("\(op.Output) is what \(op.Name) reads from the answer's headers"+(if streamed(op) { "; its body goes to the call's sink." } else { "." })+" New\(op.Output) makes one with every member None, for a provider of \(p.Service).", ""))
-	b = b.Concat(record(op.Output, kept(op.Out), rt))
+	let keptOut = kept(op.Out)
+	b = b.Concat(record(op.Output, keptOut, rt))
+	if keptOut.Len() == 0 {
+		return b.Append("func New\(op.Output)() \(op.Output) { \(op.Output){} }").Append("")
+	}
 	let mut outKeys = []string{}
 	let mut outValues = []string{}
-	for f in kept(op.Out) {
+	for f in keptOut {
 		outKeys = outKeys.Append(f.Name)
 		outValues = outValues.Append(initial(f, []Field{}))
 	}
@@ -497,8 +609,13 @@ func record(name string, fs []Field, rt string) []string {
 	[]string{"type \(name) {"}.Concat(aligned(keys, values, "\t", "", ",")).Append("}").Append("")
 }
 
-func failure(f Failure) []string {
+func failure(f Failure, rt string) []string {
 	let mut b = comment(f.Name+" is the service's error "+quote(f.Name)+(if f.Doc == "" { "." } else { ": " + f.Doc }), "")
+	let low = lowerFirst(f.Name)
+	if f.Fields.Len() == 0 {
+		b = b.Append("type \(f.Name) { Status int, Message string }").Append("")
+		return b.Append("func \(low)(e \(rt).ErrorBody) \(f.Name) { \(f.Name){Status: e.Status, Message: e.Message} }").Append("")
+	}
 	let mut keys = []string{"Status", "Message"}
 	let mut values = []string{"int", "string"}
 	for x in f.Fields {
@@ -510,43 +627,41 @@ func failure(f Failure) []string {
 	let mut vs = []string{"e.Status", "e.Message"}
 	for x in f.Fields {
 		match x.Ty {
-		case TEnum as en:
-			vs = vs.Append("\(lowerFirst(en.Name))In(e.Fields.Get(\(quote(x.Name))))")
+		case TEnum{en}:
+			vs = vs.Append("e.Fields.Get(\(quote(x.Name))).Map(\(lowerFirst(en))Of)")
 		case TString, TInt, TBool, TTime, TMap, TBlob:
 			vs = vs.Append("e.Fields.Get(\(quote(x.Name)))")
 		}
 	}
-	b = b.Append("func \(lowerFirst(f.Name))(e aws.ErrorBody) \(f.Name) {")
+	b = b.Append("func \(low)(e \(rt).ErrorBody) \(f.Name) {")
 	b = b.Concat(literal(f.Name, keys, vs, "\t"))
 	b.Append("}").Append("")
 }
 
-func enum(e Enum) []string {
+func enum(e Enum, wire bool, of bool) []string {
 	let low = lowerFirst(e.Name)
-	let mut names = []string{}
+	let mut variants = []string{}
 	for v in e.Values {
-		names = names.Append(v.Variant)
+		variants = variants.Append(v.Variant + "{}")
 	}
 	let other = e.Name + "Other"
+	variants = variants.Append("\(other){Value string}")
 	let mut b = comment(e.Name+(if e.Doc == "" { " is a value the service names." } else { ": " + e.Doc })+" \(other) holds a value this model does not name.", "")
-	b = b.Append("type \(e.Name) = \(strings.Join(names, " | ")) | \(other)")
-	for v in e.Values {
-		b = b.Append("type \(v.Variant) {}")
+	b = b.Append("type \(e.Name) = \(strings.Join(variants, " | "))").Append("")
+	if wire {
+		b = b.Append("func \(low)Wire(v \(e.Name)) string {").Append("\tmatch v {")
+		for v in e.Values {
+			b = b.Append("\tcase \(v.Variant):").Append("\t\t\(quote(v.Wire))")
+		}
+		b = b.Append("\tcase \(other){o}:").Append("\t\to").Append("\t}").Append("}").Append("")
 	}
-	b = b.Append("type \(other) { Value string }").Append("")
-	b = b.Append("func \(low)Wire(v \(e.Name)) string {").Append("\tmatch v {")
-	for v in e.Values {
-		b = b.Append("\tcase \(v.Variant):").Append("\t\t\(quote(v.Wire))")
+	if of {
+		b = b.Append("func \(low)Of(s string) \(e.Name) {").Append("\tmatch s {")
+		for v in e.Values {
+			b = b.Append("\tcase \(quote(v.Wire)):").Append("\t\t\(v.Variant)")
+		}
+		b = b.Append("\tcase _:").Append("\t\t\(other){Value: s}").Append("\t}").Append("}").Append("")
 	}
-	b = b.Append("\tcase \(other) as o:").Append("\t\to.Value").Append("\t}").Append("}").Append("")
-	b = b.Append("func \(low)Of(s string) \(e.Name) {")
-	for v in e.Values {
-		b = b.Append("\tif s == \(quote(v.Wire)) {").Append("\t\treturn \(v.Variant)").Append("\t}")
-	}
-	b = b.Append("\t\(other){Value: s}").Append("}").Append("")
-	b = b.Append("func \(low)In(s \(optionName)[string]) \(optionName)[\(e.Name)] {").Append("\tmatch s {")
-	b = b.Append("\tcase \(someName) as v:").Append("\t\t\(someName)[\(e.Name)]{\(low)Of(v.Value)}")
-	b = b.Append("\tcase \(noneName):").Append("\t\t\(noneName)").Append("\t}").Append("}").Append("")
 	b
 }
 
@@ -614,4 +729,59 @@ test RequiredIsPlain {
 	let files = try Emit(smithy.Model{..m, Shapes: shapes}, drawnProvider)
 	assert strings.Contains(files[0].Text, "type In {\n\tM0 string,\n}")
 	assert strings.Contains(files[0].Text, "func NewIn(m0 string) In {")
+}
+
+// CleanEmissionShapes: emitted code uses symmetric Put* helpers, SameOutcome
+// in laws, inline union enums with match-based Wire/Of only where needed, and
+// Option.Map for enum decoding.
+test CleanEmissionShapes {
+	let unit = smithy.Member{Name: "FAST", Target: "smithy.api#Unit", Traits: []smithy.Trait{trait("smithy.api#enumValue", json.Str{Value: "FAST"})}}
+	let tierIn = smithy.Shape{Id: "t#TierIn", Kind: smithy.Enum{Members: []smithy.Member{unit}}, Traits: []smithy.Trait{}, Keys: []smithy.Unread{}}
+	let tierOut = smithy.Shape{Id: "t#TierOut", Kind: smithy.Enum{Members: []smithy.Member{unit}}, Traits: []smithy.Trait{}, Keys: []smithy.Unread{}}
+	let intShape = smithy.Shape{Id: "smithy.api#Integer", Kind: smithy.Simple{Of: smithy.IntegerType}, Traits: []smithy.Trait{}, Keys: []smithy.Unread{}}
+	let boolShape = smithy.Shape{Id: "smithy.api#Boolean", Kind: smithy.Simple{Of: smithy.BooleanType}, Traits: []smithy.Trait{}, Keys: []smithy.Unread{}}
+	let timeShape = smithy.Shape{Id: "smithy.api#Timestamp", Kind: smithy.Simple{Of: smithy.TimestampType}, Traits: []smithy.Trait{}, Keys: []smithy.Unread{}}
+	let inShape = smithy.Shape{
+		Id:     "t#In",
+		Traits: []smithy.Trait{},
+		Keys:   []smithy.Unread{},
+		Kind:   smithy.Structure{Members: []smithy.Member{
+			smithy.Member{Name: "S", Target: "smithy.api#String", Traits: []smithy.Trait{trait("smithy.api#httpQuery", json.Str{Value: "s"})}},
+			smithy.Member{Name: "N", Target: "smithy.api#Integer", Traits: []smithy.Trait{trait("smithy.api#httpHeader", json.Str{Value: "x-n"})}},
+			smithy.Member{Name: "B", Target: "smithy.api#Boolean", Traits: []smithy.Trait{trait("smithy.api#httpHeader", json.Str{Value: "x-b"})}},
+			smithy.Member{Name: "T", Target: "smithy.api#Timestamp", Traits: []smithy.Trait{trait("smithy.api#httpHeader", json.Str{Value: "x-t"})}},
+			smithy.Member{Name: "Tier", Target: "t#TierIn", Traits: []smithy.Trait{trait("smithy.api#httpHeader", json.Str{Value: "x-tier"})}},
+		}},
+	}
+	let outShape = smithy.Shape{
+		Id:     "t#Out",
+		Traits: []smithy.Trait{},
+		Keys:   []smithy.Unread{},
+		Kind:   smithy.Structure{Members: []smithy.Member{
+			smithy.Member{Name: "Tier", Target: "t#TierOut", Traits: []smithy.Trait{trait("smithy.api#httpHeader", json.Str{Value: "x-tier-out"})}},
+		}},
+	}
+	let base = drawnModel([]int{}, []int{})
+	let mut shapes = []smithy.Shape{intShape, boolShape, timeShape, tierIn, tierOut, inShape, outShape}
+	for x in base.Shapes {
+		if x.Id != "t#In" && x.Id != "t#Out" {
+			shapes = shapes.Append(x)
+		}
+	}
+	let files = try Emit(smithy.Model{..base, Shapes: shapes}, drawnProvider)
+	let code = files[0].Text
+	assert strings.Contains(code, "\tq = rt.PutText(q, \"s\", r.S)\n")
+	assert strings.Contains(code, "\th = rt.PutInt(h, \"x-n\", r.N)\n")
+	assert strings.Contains(code, "\th = rt.PutBool(h, \"x-b\", r.B)\n")
+	assert strings.Contains(code, "\th = rt.PutTime(h, \"x-t\", r.T, rt.HTTPDate)\n")
+	assert strings.Contains(code, "\th = rt.PutBy(h, \"x-tier\", r.Tier, tierInWire)\n")
+	assert strings.Contains(code, "rt.TextIn(h, \"x-tier-out\").Map(tierOutOf)")
+	assert strings.Contains(code, "\t\trt.SameOutcome(func() Out { try Op(r) }, func(a, b) { a == b }, func(a, b) { a == b })\n")
+	assert strings.Contains(code, "type TierIn = TierInFast{} | TierInOther{Value string}\n")
+	assert strings.Contains(code, "func tierInWire(v TierIn) string {\n")
+	assert !strings.Contains(code, "func tierInOf(")
+	assert !strings.Contains(code, "func tierInIn(")
+	assert strings.Contains(code, "func tierOutOf(s string) TierOut {\n")
+	assert !strings.Contains(code, "func tierOutWire(")
+	assert !strings.Contains(code, "func tierOutIn(")
 }
