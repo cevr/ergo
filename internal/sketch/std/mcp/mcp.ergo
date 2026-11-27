@@ -1,25 +1,28 @@
-// Package mcp is a server of the Model Context Protocol (AP2): JSON-RPC
-// 2.0 messages, one per line, over a Transport. It answers initialize,
-// ping, tools/list and tools/call; a notification gets no answer. A
-// program gives its tools as values (a name, a description, the JSON
-// schema of the arguments, and Call) and binds the transport in its
-// cmd/<name>/main.ergo: mcp/stdio for a client that starts the program,
-// mcp/memory in tests. It moved from modules/mcp into std (wf10 MCP0).
+// Package mcp implements the Model Context Protocol (version 2025-06-18):
+// JSON-RPC 2.0 messages over a Transport, tools, resources, subscriptions,
+// and outbound server notifications. A program gives its tools (and optional
+// resources) as values and binds a transport in its cmd/<name>/main.ergo:
+// mcp/stdio for a client that starts the program, mcp/httpmcp for Streamable
+// HTTP with SSE push, or mcp/memory in tests.
 //
 // The protocol's two kinds of failure stay apart, as the specification
 // asks: a request the server cannot take (a malformed message, an unknown
-// method, an unknown tool) is a JSON-RPC error; a tool that ran and
-// failed (ToolError) is a result whose isError is true, which the model
-// reads.
+// method, an unknown tool, an unknown resource) is a JSON-RPC error; a tool
+// that ran and failed (ToolError) is a result whose isError is true, which
+// the model reads.
 
+import base64
 import core
 import json
 import jsonschema
 import option
+import queue
 import strings
+import sync
+import task
 
 // Transport carries the messages of a session: each message the client
-// sent, one at a time, and the answers the server sends.
+// sent, one at a time, and the messages the server sends.
 type Transport {
 	// Messages is the messages the client sends, in order, until the
 	// session ends. A break stops the read.
@@ -45,6 +48,13 @@ type ToolError { Message string }
 // UnknownTool is a call of a tool the server does not have.
 type UnknownTool { Name string }
 
+// ResourceNotFound is a read or subscription for a resource URI the server
+// does not expose.
+type ResourceNotFound { URI string }
+
+// ResourceError is a resource read or decoding operation that failed.
+type ResourceError { Message string }
+
 // Tool is one tool: its name, what it does (the model reads it), the
 // JSON schema of its arguments, and Call, which takes the arguments and
 // gives the result as JSON.
@@ -55,9 +65,86 @@ type Tool {
 	Call        func(arguments json.Value) json.Value fails ToolError,
 }
 
+// Resource is one resource exposed by an MCP server.
+type Resource {
+	URI         string,
+	Name        string,
+	Description string,
+	MIMEType    string,
+}
+
+// ResourceContents is the content returned by resources/read for one URI:
+// UTF-8 text (Text) and/or binary bytes (Blob, encoded as base64 on the wire).
+type ResourceContents {
+	URI      string,
+	MIMEType string,
+	Text     option.Option[string],
+	Blob     option.Option[[]byte],
+}
+
+// TextContents builds a text ResourceContents for uri.
+func TextContents(uri string, mimeType string, text string) ResourceContents {
+	ResourceContents{
+		URI:      uri,
+		MIMEType: mimeType,
+		Text:     option.Some[string]{Value: text},
+		Blob:     option.None,
+	}
+}
+
+// BlobContents builds a binary ResourceContents for uri.
+func BlobContents(uri string, mimeType string, blob []byte) ResourceContents {
+	ResourceContents{
+		URI:      uri,
+		MIMEType: mimeType,
+		Text:     option.None,
+		Blob:     option.Some[[]byte]{Value: blob},
+	}
+}
+
+// ResourceSet supplies resources and subscription capabilities for a server.
+type ResourceSet {
+	List        func() []Resource,
+	Read        func(uri string) []ResourceContents fails ResourceNotFound | ResourceError,
+	Subscribe   bool,
+	ListChanged bool,
+}
+
+// StaticResources builds a ResourceSet from a fixed slice of resources and
+// a read function, with subscriptions enabled.
+func StaticResources(items []Resource, read own func(uri string) []ResourceContents fails ResourceNotFound | ResourceError) ResourceSet {
+	ResourceSet{
+		List:        func() []Resource { items },
+		Read:        read,
+		Subscribe:   true,
+		ListChanged: false,
+	}
+}
+
+// Notification is an unsolicited JSON-RPC 2.0 notification sent from server
+// to client.
+type Notification { Method string, Params json.Value }
+
 // Server is a program's server: its name and version, which initialize
 // gives, and its tools, in the order tools/list lists them.
 type Server { Name string, Version string, Tools []Tool }
+
+// FullServer combines a Server with optional resource and subscription
+// capabilities.
+type FullServer {
+	Server    Server,
+	Resources option.Option[ResourceSet],
+}
+
+// Full wraps a tools-only Server as a FullServer with zero resources.
+func Full(s Server) FullServer {
+	FullServer{Server: s, Resources: option.None}
+}
+
+// WithResources attaches a ResourceSet to a Server.
+func WithResources(s Server, r ResourceSet) FullServer {
+	FullServer{Server: s, Resources: option.Some[ResourceSet]{Value: r}}
+}
 
 // Version is the protocol version this server speaks.
 let Version = "2025-06-18"
@@ -67,15 +154,125 @@ let Version = "2025-06-18"
 // (a notification).
 type Answer = Answered{ID json.Value, Result string} | Refused{ID json.Value, Code int, Message string} | Silent{}
 
-// The JSON-RPC 2.0 error codes the server gives.
+// The JSON-RPC 2.0 and MCP error codes the server gives.
 let ParseError = -32700
 let InvalidRequest = -32600
 let MethodNotFound = -32601
 let InvalidParams = -32602
+let InternalError = -32603
+let ResourceNotFoundCode = -32002
 
-// Conforms is whether v is an instance of schema, by std jsonschema (wf10
-// JS0); a schema that is no jsonschema.Schema (a read keyword of another
-// kind, a $ref out of the document) fits nothing.
+// Standard MCP server notification methods.
+let MethodResourcesUpdated = "notifications/resources/updated"
+let MethodResourcesListChanged = "notifications/resources/list_changed"
+let MethodToolsListChanged = "notifications/tools/list_changed"
+let MethodMessage = "notifications/message"
+let MethodProgress = "notifications/progress"
+
+// ResourceUpdated builds a notifications/resources/updated notification for uri.
+func ResourceUpdated(uri string) Notification {
+	Notification{
+		Method: MethodResourcesUpdated,
+		Params: json.Object{Members: []json.Member{json.Member{Key: "uri", Value: json.Str{Value: uri}}}},
+	}
+}
+
+// ResourcesListChanged builds a notifications/resources/list_changed notification.
+func ResourcesListChanged() Notification {
+	Notification{Method: MethodResourcesListChanged, Params: json.Null}
+}
+
+// ToolsListChanged builds a notifications/tools/list_changed notification.
+func ToolsListChanged() Notification {
+	Notification{Method: MethodToolsListChanged, Params: json.Null}
+}
+
+// LogMessage builds a notifications/message logging notification.
+func LogMessage(level string, logger string, data json.Value) Notification {
+	let mut members = []json.Member{
+		json.Member{Key: "level", Value: json.Str{Value: level}},
+	}
+	if logger != "" {
+		members = members.Append(json.Member{Key: "logger", Value: json.Str{Value: logger}})
+	}
+	members = members.Append(json.Member{Key: "data", Value: data})
+	Notification{Method: MethodMessage, Params: json.Object{Members: members}}
+}
+
+// Progress builds a notifications/progress notification.
+func Progress(token json.Value, progress json.Num, total option.Option[json.Num], message option.Option[string]) Notification {
+	let mut members = []json.Member{
+		json.Member{Key: "progressToken", Value: token},
+		json.Member{Key: "progress", Value: progress},
+	}
+	match total {
+	case option.Some[json.Num] as t:
+		members = members.Append(json.Member{Key: "total", Value: t.Value})
+	case option.None:
+	}
+	match message {
+	case option.Some[string] as m:
+		members = members.Append(json.Member{Key: "message", Value: json.Str{Value: m.Value}})
+	case option.None:
+	}
+	Notification{Method: MethodProgress, Params: json.Object{Members: members}}
+}
+
+type wireNotification {
+	JSONRPC string "jsonrpc",
+	Method  string,
+	Params  json.Optional[json.Value],
+}
+
+// NotificationLine encodes n as a JSON-RPC 2.0 notification line without an id.
+func NotificationLine(n Notification) string {
+	let params json.Optional[json.Value] = match n.Params {
+	case json.Null:
+		json.Absent
+	case json.Boolean, json.Num, json.Str, json.Array, json.Object:
+		json.Present{Value: n.Params}
+	}
+	json.Encode(json.Codec[wireNotification]{MaxBytes: 0, MaxDepth: 0}, wireNotification{JSONRPC: "2.0", Method: n.Method, Params: params})
+}
+
+// ParseNotification parses a JSON-RPC 2.0 notification line (no id, string method).
+func ParseNotification(line string) option.Option[Notification] {
+	let v = json.Decode(valueCodec(), line) catch {
+	case _:
+		return option.None
+	}
+	match Field(v, "id") {
+	case option.Some[json.Value]:
+		return option.None
+	case option.None:
+	}
+	let method = match text(Field(v, "method")) {
+	case option.Some[string] as m:
+		m.Value
+	case option.None:
+		return option.None
+	}
+	let params = match Field(v, "params") {
+	case option.Some[json.Value] as p:
+		p.Value
+	case option.None:
+		json.Null
+	}
+	option.Some[Notification]{Value: Notification{Method: method, Params: params}}
+}
+
+// NotificationURI returns the resource URI carried by a notifications/resources/updated
+// notification, or None otherwise.
+func NotificationURI(n Notification) option.Option[string] {
+	if n.Method != MethodResourcesUpdated {
+		return option.None
+	}
+	text(Field(n.Params, "uri"))
+}
+
+// Conforms is whether v is an instance of schema, by std jsonschema; a schema
+// that is no jsonschema.Schema (a read keyword of another kind, a $ref out of
+// the document) fits nothing.
 func Conforms(schema json.Value, v json.Value) bool {
 	let s = jsonschema.Of(schema) catch {
 	case jsonschema.Invalid:
@@ -130,8 +327,14 @@ func Call(s Server, name string, arguments json.Value) json.Value fails ToolErro
 // Info is the server's name and version, as initialize gives them.
 type Info { Name string, Version string }
 
-// Capabilities is what the server offers: tools, with no option.
-type Capabilities { Tools Empty }
+// ResourcesCapability describes resource capabilities offered by a server.
+type ResourcesCapability { Subscribe bool, ListChanged bool }
+
+// Capabilities is what the server offers: tools, and optional resources.
+type Capabilities {
+	Tools     Empty,
+	Resources json.Optional[ResourcesCapability],
+}
 
 // Empty is a JSON object with no member.
 type Empty {}
@@ -151,6 +354,423 @@ type Content { Type string, Text string }
 // Called is the result of tools/call.
 type Called { Content []Content, IsError bool }
 
+type wireResource {
+	URI         string,
+	Name        string,
+	Description json.Optional[string],
+	MIMEType    json.Optional[string],
+}
+
+type wireResourceListing { Resources []wireResource }
+
+type wireResourceContents {
+	URI      string,
+	MIMEType json.Optional[string],
+	Text     json.Optional[string],
+	Blob     json.Optional[string],
+}
+
+type wireReadResult { Contents []wireResourceContents }
+
+// EncodeResources encodes resources into the JSON body of a resources/list result.
+func EncodeResources(resources []Resource) string {
+	let mut out = []wireResource{}
+	for r in resources {
+		out = out.Append(wireResource{
+			URI:         r.URI,
+			Name:        r.Name,
+			Description: if r.Description == "" { json.Absent } else { json.Present{Value: r.Description} },
+			MIMEType:    if r.MIMEType == "" { json.Absent } else { json.Present{Value: r.MIMEType} },
+		})
+	}
+	json.Encode(json.Codec[wireResourceListing]{MaxBytes: 0, MaxDepth: 0}, wireResourceListing{Resources: out})
+}
+
+// DecodeResourceListing decodes the JSON result of resources/list into Resources.
+func DecodeResourceListing(result string) []Resource fails ResourceError {
+	let decoded = json.Decode(json.Codec[wireResourceListing]{MaxBytes: 0, MaxDepth: 0}, result) catch {
+	case _:
+		return ResourceError{Message: "invalid resources/list result"}
+	}
+	let mut out = []Resource{}
+	for w in decoded.Resources {
+		let desc = match w.Description {
+		case json.Present[string] as d:
+			d.Value
+		case json.Absent:
+			""
+		}
+		let mime = match w.MIMEType {
+		case json.Present[string] as m:
+			m.Value
+		case json.Absent:
+			""
+		}
+		out = out.Append(Resource{URI: w.URI, Name: w.Name, Description: desc, MIMEType: mime})
+	}
+	out
+}
+
+// EncodeResourceContents encodes contents into the JSON body of a resources/read result.
+func EncodeResourceContents(contents []ResourceContents) string {
+	let mut out = []wireResourceContents{}
+	for c in contents {
+		let mime json.Optional[string] = if c.MIMEType == "" { json.Absent } else { json.Present{Value: c.MIMEType} }
+		let txt json.Optional[string] = match c.Text {
+		case option.Some[string] as t:
+			json.Present{Value: t.Value}
+		case option.None:
+			json.Absent
+		}
+		let blob json.Optional[string] = match c.Blob {
+		case option.Some[[]byte] as b:
+			json.Present{Value: base64.Encode(base64.StdEncoding, strings.FromBytes(b.Value))}
+		case option.None:
+			json.Absent
+		}
+		out = out.Append(wireResourceContents{URI: c.URI, MIMEType: mime, Text: txt, Blob: blob})
+	}
+	json.Encode(json.Codec[wireReadResult]{MaxBytes: 0, MaxDepth: 0}, wireReadResult{Contents: out})
+}
+
+// DecodeResourceContents decodes the JSON result of resources/read into ResourceContents.
+func DecodeResourceContents(result string) []ResourceContents fails ResourceError {
+	let decoded = json.Decode(json.Codec[wireReadResult]{MaxBytes: 0, MaxDepth: 0}, result) catch {
+	case _:
+		return ResourceError{Message: "invalid resources/read result"}
+	}
+	let mut out = []ResourceContents{}
+	for w in decoded.Contents {
+		let mime = match w.MIMEType {
+		case json.Present[string] as m:
+			m.Value
+		case json.Absent:
+			""
+		}
+		let txt option.Option[string] = match w.Text {
+		case json.Present[string] as t:
+			option.Some[string]{Value: t.Value}
+		case json.Absent:
+			option.None
+		}
+		let blob option.Option[[]byte] = match w.Blob {
+		case json.Present[string] as b:
+			let raw = base64.Decode(base64.StdEncoding, b.Value) catch {
+			case base64.Malformed:
+				return ResourceError{Message: "invalid base64 blob in resources/read result"}
+			}
+			option.Some[[]byte]{Value: strings.Bytes(raw)}
+		case json.Absent:
+			option.None
+		}
+		out = out.Append(ResourceContents{URI: w.URI, MIMEType: mime, Text: txt, Blob: blob})
+	}
+	out
+}
+
+// Subscriptions tracks the resource URIs a client session has subscribed to.
+type Subscriptions { uris sync.Ref[Map[string, bool]] }
+
+// NewSubscriptions returns an empty Subscriptions set.
+func NewSubscriptions() Subscriptions {
+	Subscriptions{uris: sync.NewRef[Map[string, bool]](Map[string, bool]{})}
+}
+
+// SubscribeURI adds uri to s.
+func SubscribeURI(s Subscriptions, uri string) {
+	s.uris.Update(func(m Map[string, bool]) Map[string, bool] { m.Put(uri, true) })
+}
+
+// UnsubscribeURI removes uri from s.
+func UnsubscribeURI(s Subscriptions, uri string) {
+	s.uris.Update(func(m Map[string, bool]) Map[string, bool] { m.Delete(uri) })
+}
+
+// IsSubscribed reports whether s currently subscribes to uri.
+func IsSubscribed(s Subscriptions, uri string) bool {
+	match s.uris.Get().Get(uri) {
+	case option.Some[bool] as ok:
+		ok.Value
+	case option.None:
+		false
+	}
+}
+
+// SubscribedURIs returns all currently subscribed URIs in s.
+func SubscribedURIs(s Subscriptions) []string {
+	let m = s.uris.Get()
+	let mut out = []string{}
+	for k, ok in m {
+		if ok {
+			out = out.Append(k)
+		}
+	}
+	out
+}
+
+// MatchesNotification reports whether n should be delivered to a session holding s:
+// notifications/resources/updated matches only subscribed URIs, while broadcast
+// notifications (such as notifications/message, notifications/progress,
+// notifications/tools/list_changed, notifications/resources/list_changed) match all.
+func MatchesNotification(s Subscriptions, n Notification) bool {
+	if n.Method == MethodResourcesUpdated {
+		match NotificationURI(n) {
+		case option.Some[string] as u:
+			return IsSubscribed(s, u.Value)
+		case option.None:
+			return false
+		}
+	}
+	true
+}
+
+// SequencedNotification pairs an outbound Notification with its monotonic
+// sequence ID within a Notifier stream.
+type SequencedNotification { Seq int, Notification Notification }
+
+type pendingState {
+	items  []SequencedNotification,
+	closed bool,
+}
+
+type subEntry {
+	id      int,
+	subs    Subscriptions,
+	pending sync.Ref[pendingState],
+	wake    queue.Queue[int],
+}
+
+// Subscription receives outbound notifications matching its Subscriptions.
+type Subscription {
+	id      int,
+	subs    Subscriptions,
+	pending sync.Ref[pendingState],
+	wake    queue.Queue[int],
+	owner   sync.Ref[notifierState],
+}
+
+type notifierState {
+	nextSeq      int,
+	nextSubID    int,
+	dispatched   int,
+	historyLimit int,
+	history      []SequencedNotification,
+	subs         Map[int, subEntry],
+	streamWait   queue.Queue[int],
+	closed       bool,
+}
+
+// Notifier fans outbound MCP notifications out to active session
+// subscriptions with monotonic sequence IDs and bounded replay history.
+type Notifier { state sync.Ref[notifierState] }
+
+// NewNotifier creates a Notifier retaining up to historyLimit recent
+// notifications for cursor replay (0 disables retention).
+func NewNotifier(historyLimit int) Notifier {
+	let limit = if historyLimit < 0 { 0 } else { historyLimit }
+	Notifier{
+		state: sync.NewRef[notifierState](notifierState{
+			nextSeq:      0,
+			nextSubID:    0,
+			dispatched:   0,
+			historyLimit: limit,
+			history:      []SequencedNotification{},
+			subs:         Map[int, subEntry]{},
+			streamWait:   queue.New[int](64),
+			closed:       false,
+		}),
+	}
+}
+
+// CurrentSeq returns the sequence ID of the most recently published notification.
+func CurrentSeq(n Notifier) int { n.state.Get().nextSeq }
+
+// StreamCount returns the number of currently attached subscriptions on n.
+func StreamCount(n Notifier) int { n.state.Get().subs.Len() }
+
+// Notify assigns the next monotonic sequence ID to notif, retains it in
+// history, and delivers it in order to every active subscriber whose
+// Subscriptions match notif. It never blocks and returns the assigned sequence ID.
+func Notify(n Notifier, notif Notification) int {
+	sync.Modify(n.state, func(st notifierState) (int, notifierState) {
+		if st.closed {
+			return (0, st)
+		}
+		let seq = st.nextSeq + 1
+		let ev = SequencedNotification{Seq: seq, Notification: notif}
+		let mut hist = st.history
+		if st.historyLimit > 0 {
+			hist = hist.Append(ev)
+			if hist.Len() > st.historyLimit {
+				hist = hist[hist.Len()-st.historyLimit : hist.Len()]
+			}
+		}
+		let mut delivered = false
+		for _, entry in st.subs {
+			if MatchesNotification(entry.subs, notif) {
+				delivered = true
+				entry.pending.Update(func(p pendingState) pendingState {
+					if p.closed {
+						return p
+					}
+					pendingState{items: p.items.Append(ev), closed: false}
+				})
+				entry.wake.Offer(1) catch {
+				case queue.Full, queue.Closed:
+				}
+			}
+		}
+		let nextDispatched = if delivered { seq } else { st.dispatched }
+		(seq, notifierState{..st, nextSeq: seq, dispatched: nextDispatched, history: hist})
+	})
+}
+
+// NotifyResourceUpdated notifies subscribers of uri that the resource changed.
+func NotifyResourceUpdated(n Notifier, uri string) int {
+	Notify(n, ResourceUpdated(uri))
+}
+
+// SubscribeSince atomically replays retained notifications matching subs with
+// Seq strictly greater than cursor (or past the last live-dispatched sequence
+// when afterSeq is None) and attaches a live Subscription for subsequent ones.
+func SubscribeSince(n Notifier, subs Subscriptions, afterSeq option.Option[int]) (Subscription, []SequencedNotification) {
+	sync.Modify(n.state, func(st notifierState) ((Subscription, []SequencedNotification), notifierState) {
+		let cursor = match afterSeq {
+		case option.Some[int] as a:
+			if a.Value < 0 { st.nextSeq } else { a.Value }
+		case option.None:
+			st.dispatched
+		}
+		let mut replay = []SequencedNotification{}
+		let mut maxReplay = st.dispatched
+		for ev in st.history {
+			if ev.Seq > cursor && MatchesNotification(subs, ev.Notification) {
+				replay = replay.Append(ev)
+				if ev.Seq > maxReplay {
+					maxReplay = ev.Seq
+				}
+			}
+		}
+		let nextDispatched = match afterSeq {
+		case option.None:
+			if st.nextSeq > maxReplay { st.nextSeq } else { maxReplay }
+		case option.Some[int]:
+			if maxReplay > st.dispatched { maxReplay } else { st.dispatched }
+		}
+		let pending = sync.NewRef[pendingState](pendingState{items: []SequencedNotification{}, closed: st.closed})
+		let wake = queue.New[int](1)
+		if st.closed {
+			wake.End()
+			let closedSub = Subscription{id: -1, subs: subs, pending: pending, wake: wake, owner: n.state}
+			return ((closedSub, replay), notifierState{..st, dispatched: nextDispatched})
+		}
+		let id = st.nextSubID
+		let entry = subEntry{id: id, subs: subs, pending: pending, wake: wake}
+		let sub = Subscription{id: id, subs: subs, pending: pending, wake: wake, owner: n.state}
+		st.streamWait.Offer(1) catch {
+		case queue.Full, queue.Closed:
+		}
+		((sub, replay), notifierState{..st, nextSubID: id + 1, dispatched: nextDispatched, subs: st.subs.Put(id, entry)})
+	})
+}
+
+// SubscribeWith attaches a live Subscription to n using subs without replaying prior history.
+func SubscribeWith(n Notifier, subs Subscriptions) Subscription {
+	let sub, _ = SubscribeSince(n, subs, option.Some[int]{Value: -1})
+	sub
+}
+
+// Subscribe attaches a live Subscription with its own Subscriptions set to n.
+func Subscribe(n Notifier) Subscription {
+	SubscribeWith(n, NewSubscriptions())
+}
+
+// WaitStream blocks until at least one subscription is attached to n, or
+// returns false if n closes before one attaches.
+func WaitStream(n Notifier) bool {
+	for {
+		let st = n.state.Get()
+		if st.subs.Len() > 0 {
+			return true
+		}
+		if st.closed {
+			return false
+		}
+		let _ = st.streamWait.Pop() catch {
+		case queue.Closed:
+			return n.state.Get().subs.Len() > 0
+		}
+	}
+	false
+}
+
+func takePendingHead(pending sync.Ref[pendingState]) option.Option[SequencedNotification] {
+	sync.Modify(pending, func(p pendingState) (option.Option[SequencedNotification], pendingState) {
+		if p.items.Len() > 0 {
+			let head = p.items[0]
+			let rest = p.items[1:p.items.Len()]
+			return (option.Some[SequencedNotification]{Value: head}, pendingState{items: rest, closed: p.closed})
+		}
+		(option.None, p)
+	})
+}
+
+// Next waits for and returns the next notification on s, or None once s is
+// closed and all already-queued notifications have been read.
+func Next(s Subscription) option.Option[SequencedNotification] {
+	for {
+		match takePendingHead(s.pending) {
+		case option.Some[SequencedNotification] as ev:
+			return option.Some[SequencedNotification]{Value: ev.Value}
+		case option.None:
+			if s.pending.Get().closed {
+				return option.None
+			}
+			let _ = s.wake.Pop() catch {
+			case queue.Closed:
+				return takePendingHead(s.pending)
+			}
+		}
+	}
+	option.None
+}
+
+// CloseSubscription detaches s from its Notifier and closes s after any
+// already-queued notifications are drained.
+func CloseSubscription(s Subscription) {
+	if s.id >= 0 {
+		sync.Modify(s.owner, func(st notifierState) (bool, notifierState) {
+			(true, notifierState{..st, subs: st.subs.Delete(s.id)})
+		})
+	}
+	s.pending.Update(func(p pendingState) pendingState { pendingState{..p, closed: true} })
+	s.wake.End()
+}
+
+// CloseStreams detaches and closes all active subscriptions on n while keeping
+// n open for future subscriptions and replay.
+func CloseStreams(n Notifier) {
+	let detached = sync.Modify(n.state, func(st notifierState) (Map[int, subEntry], notifierState) {
+		(st.subs, notifierState{..st, subs: Map[int, subEntry]{}})
+	})
+	for _, entry in detached {
+		entry.pending.Update(func(p pendingState) pendingState { pendingState{..p, closed: true} })
+		entry.wake.End()
+	}
+}
+
+// Close closes n and all active subscriptions on n.
+func Close(n Notifier) {
+	let st = sync.Modify(n.state, func(st notifierState) (notifierState, notifierState) {
+		(st, notifierState{..st, subs: Map[int, subEntry]{}, closed: true})
+	})
+	st.streamWait.End()
+	for _, entry in st.subs {
+		entry.pending.Update(func(p pendingState) pendingState { pendingState{..p, closed: true} })
+		entry.wake.End()
+	}
+}
+
 // List is the tools of s as tools/list gives them, in order.
 func List(s Server) []Listed {
 	let mut out = []Listed{}
@@ -161,8 +781,37 @@ func List(s Server) []Listed {
 	out
 }
 
+func paramsOf(v json.Value) json.Value {
+	match Field(v, "params") {
+	case option.Some[json.Value] as p:
+		p.Value
+	case option.None:
+		json.Null
+	}
+}
+
+func requiredURIParam(v json.Value, method string) string fails Answer {
+	let params = paramsOf(v)
+	match text(Field(params, "uri")) {
+	case option.Some[string] as u:
+		if u.Value != "" {
+			return u.Value
+		}
+		""
+	case option.None:
+		""
+	}
+}
+
 // Handle is what s does with message.
 func Handle(s Server, message string) Answer {
+	HandleFull(Full(s), NewSubscriptions(), message)
+}
+
+// HandleFull dispatches one JSON-RPC 2.0 message against f, updating subs on
+// resources/subscribe and resources/unsubscribe.
+func HandleFull(f FullServer, subs Subscriptions, message string) Answer {
+	let s = f.Server
 	let v = json.Decode(valueCodec(), message) catch {
 	case _:
 		return Refused{ID: json.Null, Code: ParseError, Message: "parse error: the message is not JSON"}
@@ -189,18 +838,19 @@ func Handle(s Server, message string) Answer {
 	}
 	match method {
 	case "initialize":
-		Answered{ID: at, Result: json.Encode(json.Codec[Initialized]{MaxBytes: 0, MaxDepth: 0}, Initialized{ProtocolVersion: Version, Capabilities: Capabilities{Tools: Empty}, ServerInfo: Info{Name: s.Name, Version: s.Version}})}
+		let resCap json.Optional[ResourcesCapability] = match f.Resources {
+		case option.Some[ResourceSet] as rs:
+			json.Present{Value: ResourcesCapability{Subscribe: rs.Value.Subscribe, ListChanged: rs.Value.ListChanged}}
+		case option.None:
+			json.Absent
+		}
+		Answered{ID: at, Result: json.Encode(json.Codec[Initialized]{MaxBytes: 0, MaxDepth: 0}, Initialized{ProtocolVersion: Version, Capabilities: Capabilities{Tools: Empty, Resources: resCap}, ServerInfo: Info{Name: s.Name, Version: s.Version}})}
 	case "ping":
 		Answered{ID: at, Result: "{}"}
 	case "tools/list":
 		Answered{ID: at, Result: json.Encode(json.Codec[Listing]{MaxBytes: 0, MaxDepth: 0}, Listing{Tools: List(s)})}
 	case "tools/call":
-		let params = match Field(v, "params") {
-		case option.Some[json.Value] as p:
-			p.Value
-		case option.None:
-			json.Null
-		}
+		let params = paramsOf(v)
 		let name = match text(Field(params, "name")) {
 		case option.Some[string] as n:
 			n.Value
@@ -228,6 +878,79 @@ func Handle(s Server, message string) Answer {
 			return Answered{ID: at, Result: called(e.Message, true)}
 		}
 		Answered{ID: at, Result: called(json.Encode(valueCodec(), result), false)}
+	case "resources/list":
+		let rs = match f.Resources {
+		case option.Some[ResourceSet] as r:
+			r.Value
+		case option.None:
+			return Refused{ID: at, Code: MethodNotFound, Message: "method not found: \(method)"}
+		}
+		Answered{ID: at, Result: EncodeResources(rs.List())}
+	case "resources/read":
+		let rs = match f.Resources {
+		case option.Some[ResourceSet] as r:
+			r.Value
+		case option.None:
+			return Refused{ID: at, Code: MethodNotFound, Message: "method not found: \(method)"}
+		}
+		let uri = match text(Field(paramsOf(v), "uri")) {
+		case option.Some[string] as u:
+			u.Value
+		case option.None:
+			return Refused{ID: at, Code: InvalidParams, Message: "invalid params: resources/read needs a uri"}
+		}
+		if uri == "" {
+			return Refused{ID: at, Code: InvalidParams, Message: "invalid params: resources/read needs a uri"}
+		}
+		let contents = rs.Read(uri) catch {
+		case ResourceNotFound as nf:
+			return Refused{ID: at, Code: ResourceNotFoundCode, Message: "resource not found: \(nf.URI)"}
+		case ResourceError as e:
+			return Refused{ID: at, Code: InternalError, Message: e.Message}
+		}
+		Answered{ID: at, Result: EncodeResourceContents(contents)}
+	case "resources/subscribe":
+		let rs = match f.Resources {
+		case option.Some[ResourceSet] as r:
+			r.Value
+		case option.None:
+			return Refused{ID: at, Code: MethodNotFound, Message: "method not found: \(method)"}
+		}
+		if !rs.Subscribe {
+			return Refused{ID: at, Code: MethodNotFound, Message: "method not found: \(method)"}
+		}
+		let uri = match text(Field(paramsOf(v), "uri")) {
+		case option.Some[string] as u:
+			u.Value
+		case option.None:
+			return Refused{ID: at, Code: InvalidParams, Message: "invalid params: resources/subscribe needs a uri"}
+		}
+		if uri == "" {
+			return Refused{ID: at, Code: InvalidParams, Message: "invalid params: resources/subscribe needs a uri"}
+		}
+		SubscribeURI(subs, uri)
+		Answered{ID: at, Result: "{}"}
+	case "resources/unsubscribe":
+		let rs = match f.Resources {
+		case option.Some[ResourceSet] as r:
+			r.Value
+		case option.None:
+			return Refused{ID: at, Code: MethodNotFound, Message: "method not found: \(method)"}
+		}
+		if !rs.Subscribe {
+			return Refused{ID: at, Code: MethodNotFound, Message: "method not found: \(method)"}
+		}
+		let uri = match text(Field(paramsOf(v), "uri")) {
+		case option.Some[string] as u:
+			u.Value
+		case option.None:
+			return Refused{ID: at, Code: InvalidParams, Message: "invalid params: resources/unsubscribe needs a uri"}
+		}
+		if uri == "" {
+			return Refused{ID: at, Code: InvalidParams, Message: "invalid params: resources/unsubscribe needs a uri"}
+		}
+		UnsubscribeURI(subs, uri)
+		Answered{ID: at, Result: "{}"}
 	case _:
 		Refused{ID: at, Code: MethodNotFound, Message: "method not found: \(method)"}
 	}
@@ -317,6 +1040,171 @@ law ArgumentsOutsideTheSchemaAreRefused(key string, keys []string) {
 	}
 }
 
+// ResourcesCapabilityMatchesServer: initialize omits resources capability when
+// none is set and advertises subscribe/listChanged flags accurately when set.
+law ResourcesCapabilityMatchesServer(hasResources bool, subscribe bool, listChanged bool) {
+	let s = Server{Name: "res", Version: "1", Tools: []Tool{}}
+	let f = if hasResources {
+		WithResources(s, ResourceSet{
+			List:        func() []Resource { []Resource{} },
+			Read:        func(uri string) []ResourceContents fails ResourceNotFound | ResourceError { ResourceNotFound{URI: uri} },
+			Subscribe:   subscribe,
+			ListChanged: listChanged,
+		})
+	} else {
+		Full(s)
+	}
+	let ok = match HandleFull(f, NewSubscriptions(), "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{},\"clientInfo\":{\"name\":\"t\",\"version\":\"1\"}}}") {
+	case Answered as a:
+		let decoded = json.Decode(json.Codec[Initialized]{MaxBytes: 0, MaxDepth: 0}, a.Result) catch {
+		case _:
+			return false
+		}
+		if !hasResources {
+			decoded.Capabilities.Resources == json.Absent && !strings.Contains(a.Result, "\"resources\"")
+		} else {
+			decoded.Capabilities.Resources == json.Present{Value: ResourcesCapability{Subscribe: subscribe, ListChanged: listChanged}}
+		}
+	case Refused, Silent:
+		false
+	}
+	always ok
+	sometimes hasResources && ok
+	sometimes !hasResources && ok
+	ok
+}
+
+// ResourceListAndReadRoundTrip: resources/list lists every resource in order
+// and resources/read returns text or binary contents cleanly while refusing
+// unknown URIs with ResourceNotFoundCode (-32002).
+law ResourceListAndReadRoundTrip(names []string, body string, binary bool) {
+	let mut items = []Resource{}
+	let mut seen = Map[string, bool]{}
+	for n in names {
+		let uri = "mem://item/" + n
+		match seen.Get(uri) {
+		case option.Some[bool]:
+		case option.None:
+			seen = seen.Put(uri, true)
+			items = items.Append(Resource{
+				URI:         uri,
+				Name:        n,
+				Description: if n == "" { "" } else { "desc-" + n },
+				MIMEType:    if binary { "application/octet-stream" } else { "text/plain" },
+			})
+		}
+	}
+	let rs = StaticResources(items, func(uri string) []ResourceContents fails ResourceNotFound | ResourceError {
+		match seen.Get(uri) {
+		case option.Some[bool]:
+			if binary {
+				[]ResourceContents{BlobContents(uri, "application/octet-stream", strings.Bytes(body))}
+			} else {
+				[]ResourceContents{TextContents(uri, "text/plain", body)}
+			}
+		case option.None:
+			ResourceNotFound{URI: uri}
+		}
+	})
+	let f = WithResources(Server{Name: "res", Version: "1", Tools: []Tool{}}, rs)
+	let subs = NewSubscriptions()
+	let listedOK = match HandleFull(f, subs, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"resources/list\"}") {
+	case Answered as a:
+		let got = DecodeResourceListing(a.Result) catch {
+		case ResourceError:
+			return false
+		}
+		got == items
+	case Refused, Silent:
+		false
+	}
+	let mut readOK = true
+	for it in items {
+		let req = "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"resources/read\",\"params\":{\"uri\":" + quoted(it.URI) + "}}"
+		match HandleFull(f, subs, req) {
+		case Answered as a:
+			let got = DecodeResourceContents(a.Result) catch {
+			case ResourceError:
+				readOK = false
+				[]ResourceContents{}
+			}
+			let want = if binary {
+				[]ResourceContents{BlobContents(it.URI, "application/octet-stream", strings.Bytes(body))}
+			} else {
+				[]ResourceContents{TextContents(it.URI, "text/plain", body)}
+			}
+			readOK = readOK && got == want
+		case Refused, Silent:
+			readOK = false
+		}
+	}
+	let missingReq = "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"resources/read\",\"params\":{\"uri\":\"mem://missing/never\"}}"
+	let missingOK = match HandleFull(f, subs, missingReq) {
+	case Refused as r:
+		r.Code == ResourceNotFoundCode
+	case Answered, Silent:
+		false
+	}
+	let ok = listedOK && readOK && missingOK
+	always ok
+	sometimes binary && items.Len() > 0 && ok
+	sometimes !binary && items.Len() > 0 && ok
+	ok
+}
+
+// SubscriptionFiltersNotifications: resources/subscribe selects only matching
+// notifications/resources/updated deliveries, broadcast notifications always
+// match, and resources/unsubscribe stops subsequent resource update deliveries.
+law SubscriptionFiltersNotifications(subURI string, otherURI string, msg string) {
+	let target = "mem://sub/" + subURI
+	let other = "mem://other/" + otherURI
+	let rs = StaticResources([]Resource{}, func(uri string) []ResourceContents fails ResourceNotFound | ResourceError {
+		ResourceNotFound{URI: uri}
+	})
+	let f = WithResources(Server{Name: "sub", Version: "1", Tools: []Tool{}}, rs)
+	let subs = NewSubscriptions()
+	let n = NewNotifier(16)
+	let sub = SubscribeWith(n, subs)
+	let subReq = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"resources/subscribe\",\"params\":{\"uri\":" + quoted(target) + "}}"
+	let subOK = match HandleFull(f, subs, subReq) {
+	case Answered as a:
+		a.Result == "{}"
+	case Refused, Silent:
+		false
+	}
+	let s1 = NotifyResourceUpdated(n, target)
+	let _ = NotifyResourceUpdated(n, other)
+	let s2 = Notify(n, LogMessage("info", "mcp", json.Str{Value: msg}))
+	let unsubReq = "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"resources/unsubscribe\",\"params\":{\"uri\":" + quoted(target) + "}}"
+	let unsubOK = match HandleFull(f, subs, unsubReq) {
+	case Answered as a:
+		a.Result == "{}"
+	case Refused, Silent:
+		false
+	}
+	let _ = NotifyResourceUpdated(n, target)
+	let s3 = Notify(n, ToolsListChanged())
+	CloseSubscription(sub)
+	let mut got = []SequencedNotification{}
+	for {
+		match Next(sub) {
+		case option.Some[SequencedNotification] as ev:
+			got = got.Append(ev.Value)
+		case option.None:
+			break
+		}
+	}
+	let want = []SequencedNotification{
+		SequencedNotification{Seq: s1, Notification: ResourceUpdated(target)},
+		SequencedNotification{Seq: s2, Notification: LogMessage("info", "mcp", json.Str{Value: msg})},
+		SequencedNotification{Seq: s3, Notification: ToolsListChanged()},
+	}
+	let ok = subOK && unsubOK && got == want
+	always ok
+	sometimes target != other && ok
+	ok
+}
+
 // parsed is the JSON value text spells, or null.
 func parsed(text string) json.Value {
 	json.Decode(valueCodec(), text) catch {
@@ -358,4 +1246,48 @@ func Serve(s Server, t Transport) int {
 		}
 	}
 	n
+}
+
+// ServeFull answers each message of t against f while concurrently delivering
+// matching notifications emitted on n through t.Send without interleaving.
+func ServeFull(f FullServer, n Notifier, t Transport) int {
+	let subs = NewSubscriptions()
+	let sub = SubscribeWith(n, subs)
+	let outbox = queue.New[string](64)
+	let writer = task.Go() {
+		for line in outbox.Values() {
+			t.Send(line)
+		}
+		0
+	}
+	let pump = task.Go() {
+		for {
+			match Next(sub) {
+			case option.Some[SequencedNotification] as ev:
+				outbox.Push(NotificationLine(ev.Value.Notification)) catch {
+				case queue.Closed:
+					break
+				}
+			case option.None:
+				break
+			}
+		}
+		0
+	}
+	let mut count = 0
+	for message in t.Messages() {
+		count = count + 1
+		match Line(HandleFull(f, subs, message)) {
+		case option.Some[string] as l:
+			outbox.Push(l.Value) catch {
+			case queue.Closed:
+			}
+		case option.None:
+		}
+	}
+	CloseSubscription(sub)
+	let _ = pump.Wait()
+	outbox.End()
+	let _ = writer.Wait()
+	count
 }

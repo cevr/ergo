@@ -8,17 +8,19 @@
 //
 // `orchestrate mcp [--store PATH]` serves the operations as Model Context
 // Protocol tools on standard input and output (ergo gen mcp,
-// orchestrate/orchestratemcp): unit-open, receipt-record, unit-state,
-// unit-accept and unit-land. Any other argument list is the generated
-// command line of the same operations (orchestrate/orchestratecli), with
-// --json for JSON answers and [--store PATH] before the command.
+// orchestrate/orchestratemcp): unit, verdict, ledger query, commitment,
+// queue, question, host-status, and host-processes tools. Any other
+// argument list is the generated command line of the same operations
+// (orchestrate/orchestratecli), with --json for JSON answers and
+// [--store PATH] before the command.
 //
 // This binary is the only place that chooses the providers: the SQLite
 // store, one file per host, at --store PATH, or else
 // $XDG_STATE_HOME/orchestrate/ledger.db (by default
 // ~/.local/state/orchestrate/ledger.db); ":memory:" is a private store
 // that ends with the process. ORCHESTRATE_NOW, a Unix second, fixes the
-// clock so the cases print the same lines on every host.
+// clock and ORCHESTRATE_HOST_STATIC, a JSON snapshot, fixes os/host.Static
+// so the cases print the same lines on every host.
 
 import api
 import filepath
@@ -28,10 +30,12 @@ import github.com/cevr/ergo/modules/orchestrate/orchestrate/orchestratecli
 import github.com/cevr/ergo/modules/orchestrate/orchestrate/orchestratemcp
 import github.com/cevr/ergo/modules/orchestrate/sqlite
 import io
+import json
 import mcp
 import mcp/stdio
 import option
 import os
+import os/host
 import slices
 import strconv
 import strings
@@ -91,6 +95,30 @@ func clockOf(now option.Option[string]) time.Clock fails os.Exit needs os.Ambien
 	}
 }
 
+type hostFixture {
+	Status    host.Status,
+	Processes []host.Process,
+}
+
+func hostOf(spec option.Option[string]) host.System fails os.Exit needs os.Ambient {
+	match spec {
+	case option.Some[string] as raw:
+		if strings.TrimSpace(raw.Value) == "" {
+			return os.Exit{Code: 2, Message: "orchestrate: ORCHESTRATE_HOST_STATIC must not be empty"}
+		}
+		let fix = json.Decode(json.Codec[hostFixture]{MaxBytes: 1048576, MaxDepth: 32}, raw.Value) catch {
+		case _:
+			return os.Exit{Code: 2, Message: "orchestrate: invalid ORCHESTRATE_HOST_STATIC JSON"}
+		}
+		host.NewStatic(fix.Status, fix.Processes) catch {
+		case host.Malformed as err:
+			return os.Exit{Code: 2, Message: "orchestrate: invalid ORCHESTRATE_HOST_STATIC: \(err.Reason)"}
+		}
+	case option.None:
+		host.NewHost()
+	}
+}
+
 func defaultStore(process os.Process) string {
 	match process.Getenv("XDG_STATE_HOME") {
 	case option.Some[string] as x:
@@ -128,6 +156,7 @@ func openStore(path string) sqlite.Store fails os.Exit needs os.Ambient | go.For
 func main() fails os.Exit needs os.Ambient | io.Console | go.Foreign {
 	let process = os.NewHost()
 	let clock = try clockOf(process.Getenv("ORCHESTRATE_NOW"))
+	let sys = try hostOf(process.Getenv("ORCHESTRATE_HOST_STATIC"))
 	let (flagged, args) = try storeFlag(process.Args())
 	let path = match flagged {
 	case option.Some[string] as p:
@@ -136,7 +165,7 @@ func main() fails os.Exit needs os.Ambient | io.Console | go.Foreign {
 		defaultStore(process)
 	}
 	let store = try openStore(path)
-	let service = orchestrate.NewService(store, clock)
+	let service = orchestrate.NewServiceWithHost(store, clock, sys)
 	if args.Len() > 0 && args[0] == "mcp" {
 		if args.Len() > 1 {
 			return os.Exit{Code: 2, Message: "orchestrate mcp: unknown argument \(args[1])"}
