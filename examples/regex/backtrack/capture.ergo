@@ -5,7 +5,7 @@
 // repeat tries one more copy before it stops (greedy).
 
 import option
-import regex/syntax
+import regexengine/syntax
 
 // ended is where a path of the match ends and the history it has.
 type ended { End int, H syntax.History }

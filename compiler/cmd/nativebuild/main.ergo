@@ -29,10 +29,15 @@ import fs
 import io
 import option
 import os
+import slices
 import strconv
 import strings
 
 let intmathSource = embed.File[string]("testdata/intmath/intmath.ergo")
+let stop1DepTypesSource = embed.File[string]("testdata/stop1dep/types.ergo")
+let stop1DepOpsSource = embed.File[string]("testdata/stop1dep/ops.ergo")
+let stop1ASource = embed.File[string]("testdata/stop1/a.ergo")
+let stop1BSource = embed.File[string]("testdata/stop1/b.ergo")
 
 let basicNames = []string{"", "bool", "string", "int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16", "uint32", "uint64", "uintptr", "float32", "float64"}
 
@@ -74,14 +79,112 @@ func mkdir(path string) fails os.Exit needs fs.Writes {
 	}
 }
 
-func typeName(s store.Store, t dense.ID[store.TKey]) string {
-	if store.KindOfType(s, t) == store.KBasic {
+func exportedName(name string) bool {
+	name.Len() > 0 && name[0] >= 'A' && name[0] <= 'Z'
+}
+
+func isPlainStructDecl(d load.Typed, name string) bool {
+	let declID = match store.Lookup(d.S, name) {
+	case option.Some{Value: id}:
+		id
+	case option.None:
+		return false
+	}
+	let decl = store.DeclOf(d.S, declID)
+	let f = int(decl.File)
+	if f < 0 || f >= d.K.Parsed.Len() {
+		return false
+	}
+	let p = d.K.Parsed[f]
+	let n = syntax.NodeAt(p.Tree, int(decl.Node))
+	let pn = bind.PNodeOf(d.K.Ps, f, n)
+	let parent = match dense.Unpack(bind.ParentOf(d.K.Ps, pn)) {
+	case option.Some{Value: id}:
+		id
+	case option.None:
+		return false
+	}
+	let i = dense.Index(parent) - dense.Index(pn) + int(decl.Node)
+	match syntax.ViewOf(p.Tree, syntax.NodeAt(p.Tree, i)) {
+	case syntax.TypeDecl as td:
+		if td.Name != n || dense.Unpack(td.Extern) != option.None || dense.Unpack(td.TypeParams) != option.None || dense.Unpack(td.Where) != option.None || dense.Unpack(td.Derive) != option.None {
+			return false
+		}
+		match dense.Unpack(td.Spec) {
+		case option.Some{Value: sp}:
+			syntax.KindOf(p.Tree, sp) == syntax.KStructType
+		case option.None:
+			false
+		}
+	case _:
+		false
+	}
+}
+
+func typeName(ownerPath string, isRoot bool, s store.Store, k expr.Pkg, t dense.ID[store.TKey]) string {
+	let kind = store.KindOfType(s, t)
+	if kind == store.KBasic {
 		let n = store.ArgOf(s, t)
 		if n >= 1 && n < basicNames.Len() {
 			return basicNames[n]
 		}
 	}
-	"kind \(store.KindOfType(s, t))"
+	if kind == store.KSlice {
+		let ops = store.OperandsOf(s, t)
+		if ops.Len() > 0 {
+			return "[]" + typeName(ownerPath, isRoot, s, k, ops[0])
+		}
+	}
+	if kind == store.KPointer {
+		let ops = store.OperandsOf(s, t)
+		if ops.Len() > 0 {
+			return "*" + typeName(ownerPath, isRoot, s, k, ops[0])
+		}
+	}
+	if kind == store.KMap {
+		let ops = store.OperandsOf(s, t)
+		if ops.Len() == 2 {
+			return "map[" + typeName(ownerPath, isRoot, s, k, ops[0]) + "]" + typeName(ownerPath, isRoot, s, k, ops[1])
+		}
+	}
+	if kind == store.KNamed {
+		let name = store.TypeNameText(s, store.ArgOf(s, t))
+		if isRoot || ownerPath == "" {
+			return name
+		}
+		return ownerPath + "." + name
+	}
+	if kind == store.KForeign || kind == store.KInstance {
+		let (depPath, recName, targs) = expr.ImportedRec(s, k, t)
+		if recName != "" && depPath != "" && depPath != "-" && depPath != "prelude" && targs.Len() == 0 {
+			return depPath + "." + recName
+		}
+	}
+	"kind \(kind)"
+}
+
+func recordsOf(ownerPath string, isRoot bool, d load.Typed) []native.RecordDecl {
+	let mut out = []native.RecordDecl{}
+	for r in d.K.Recs {
+		if r.Op || r.Params.Len() > 0 || !isPlainStructDecl(d, r.Name) {
+			continue
+		}
+		let mut fields = slices.WithCapacity[native.FieldDecl](r.Fields.Len())
+		for f in r.Fields {
+			fields = fields.Append(native.FieldDecl{
+				Name:     f.Name,
+				Type:     typeName(ownerPath, isRoot, d.S, d.K, f.T),
+				Exported: exportedName(f.Name),
+			})
+		}
+		out = out.Append(native.RecordDecl{
+			Name:     r.Name,
+			PkgPath:  if isRoot { "" } else { ownerPath },
+			Exported: exportedName(r.Name),
+			Fields:   fields,
+		})
+	}
+	out
 }
 
 func isUnit(s store.Store, t dense.ID[store.TKey]) bool {
@@ -92,7 +195,7 @@ func emptyRow(s store.Store, t dense.ID[store.TKey]) bool {
 	store.KindOfType(s, t) == store.KRow && store.OperandsOf(s, t).Len() == 0
 }
 
-func sigOf(d load.Typed, site lower.Site) native.Sig fails os.Exit {
+func sigOf(ownerPath string, isRoot bool, d load.Typed, site lower.Site) native.Sig fails os.Exit {
 	for f in d.K.Fns {
 		if f.File != site.File || syntax.NodePos(d.K.Parsed[f.File], f.Decl) != site.At {
 			continue
@@ -107,12 +210,132 @@ func sigOf(d load.Typed, site lower.Site) native.Sig fails os.Exit {
 		}
 		let mut params = []string{}
 		for i in 0..n {
-			params = params.Append(typeName(d.S, ops[i]))
+			params = params.Append(typeName(ownerPath, isRoot, d.S, d.K, ops[i]))
 		}
-		let results = if isUnit(d.S, ops[n]) { []string{} } else { []string{typeName(d.S, ops[n])} }
+		let results = if isUnit(d.S, ops[n]) { []string{} } else { []string{typeName(ownerPath, isRoot, d.S, d.K, ops[n])} }
 		return native.Sig{Params: params, Results: results}
 	}
 	fail("function at \(site.At): no checked declaration")
+}
+
+type pkgSpec { Path string, Files []string, Sources []string }
+
+type compiledDep { Unit native.Unit, Built nativeobj.Built, Imp native.ImportUnit }
+
+func hasSources(dep expr.Dep) bool {
+	if dep.K.Parsed.Len() == 0 {
+		return false
+	}
+	for parsed in dep.K.Parsed {
+		if parsed.Failed {
+			return false
+		}
+	}
+	true
+}
+
+func rootImportsFor(p load.Program, unit int, available Map[string, int]) option.Option[[]expr.Dep] {
+	let first = p.Loaded[unit]
+	if !hasSources(first) {
+		return option.None
+	}
+	let mut paths = store.ImportPaths(first.S)
+	if paths.Len() == 0 {
+		return option.Some[[]expr.Dep]{Value: []expr.Dep{}}
+	}
+	let mut seen = Map[string, bool]{first.Path: true}
+	let mut deps = []expr.Dep{}
+	let mut i = 0
+	for i < paths.Len() {
+		let path = paths[i]
+		i = i + 1
+		if seen.Get(path) != option.None {
+			continue
+		}
+		seen = seen.Put(path, true)
+		let at = match available.Get(path) {
+		case option.Some[int] as loaded:
+			loaded.Value
+		case option.None:
+			return option.None
+		}
+		if at < 0 || !hasSources(p.Loaded[at]) {
+			return option.None
+		}
+		let dep = p.Loaded[at]
+		deps = deps.Append(dep)
+		for imported in store.ImportPaths(dep.S) {
+			paths = paths.Append(imported)
+		}
+	}
+	option.Some[[]expr.Dep]{Value: deps}
+}
+
+func shapeImportsFor(p load.Program, unit int, available Map[string, int]) Map[string, expr.Dep] {
+	let source = p.Loaded[unit]
+	let mut deps = Map[string, expr.Dep]{}
+	if !hasSources(source) {
+		return deps
+	}
+	let mut paths = store.ImportPaths(source.S)
+	let mut i = 0
+	for i < paths.Len() {
+		let path = paths[i]
+		i = i + 1
+		if path == source.Path || deps.Get(path) != option.None {
+			continue
+		}
+		let at = match available.Get(path) {
+		case option.Some[int] as loaded:
+			loaded.Value
+		case option.None:
+			-1
+		}
+		if at < 0 || !hasSources(p.Loaded[at]) {
+			continue
+		}
+		let dep = p.Loaded[at]
+		deps = deps.Put(dep.Path, dep)
+		for imported in store.ImportPaths(dep.S) {
+			paths = paths.Append(imported)
+		}
+	}
+	deps
+}
+
+func checkAndLowerWith(p load.Program, at int, available Map[string, int], compiled Map[string, compiledDep], direct []lower.ImportCallFacts, files []string, path string) (native.Unit, load.Typed, option.Option[lower.CallFacts], []native.Sig) fails os.Exit {
+	let d = load.TypeAt(p, at)
+	if d.T.Diags.Len() > 0 || d.T.SelfInference.Len() > 0 || d.T.BareSelfCalls.Len() > 0 || d.T.LookupDiags.Len() > 0 {
+		return fail("type error in \(path)")
+	}
+	let rootImports = if bind.Imports(d.K.Files).Len() == 0 { option.Some[[]expr.Dep]{Value: []expr.Dep{}} } else { rootImportsFor(p, at, available) }
+	let shapes = shapeImportsFor(p, at, available)
+	let plan = lower.PlanGeneratedBodies(d.K, lower.Production, true)
+	let out = lower.PackageWithPlan(d.S, d.K, d.T, files, path, true, rootImports, direct, shapes, plan)
+	if out.Stops.Len() > 0 {
+		let s = out.Stops[0]
+		return fail("refused: the lowering stops at \(files[s.File]) offset \(s.At): \(s.Cause) (\(out.Stops.Len()) stops)")
+	}
+	let mut sigs = slices.WithCapacity[native.Sig](out.Sites.Len())
+	let mut impSigs = slices.WithCapacity[native.Sig](out.Sites.Len())
+	for site in out.Sites {
+		sigs = sigs.Append(try sigOf(path, true, d, site))
+		impSigs = impSigs.Append(try sigOf(path, false, d, site))
+	}
+	let mut imps = []native.ImportUnit{}
+	for impPath in store.ImportPaths(d.S) {
+		if impPath == "prelude" {
+			continue
+		}
+		match compiled.Get(impPath) {
+		case option.Some as dep:
+			imps = imps.Append(dep.Value.Imp)
+		case option.None:
+		}
+	}
+	let recs = recordsOf(path, true, d)
+	let facts = if lower.HasCallFacts(out.CallFacts) { option.Some[lower.CallFacts]{Value: out.CallFacts} } else { option.None }
+	(native.Unit{Path: path, Name: base(path), File: base(files[0]), IR: out.File, Sigs: sigs, Records: recs, Imports: imps}, d, facts, impSigs)
 }
 
 func checkAndLower(units []load.Unit, files []string, path string, outside []types.Iface) native.Unit fails os.Exit {
@@ -126,27 +349,143 @@ func checkAndLower(units []load.Unit, files []string, path string, outside []typ
 	if at < 0 {
 		return fail("\(path) did not load")
 	}
-	let d = load.TypeAt(p, at)
-	if d.T.Diags.Len() > 0 || d.T.SelfInference.Len() > 0 || d.T.BareSelfCalls.Len() > 0 || d.T.LookupDiags.Len() > 0 {
-		return fail("type error in \(path)")
+	let available = Map[string, int]{path: at}
+	let (u, _, _, _) = try checkAndLowerWith(p, at, available, Map[string, compiledDep]{}, []lower.ImportCallFacts{}, files, path)
+	u
+}
+
+func buildUnitOf(spec pkgSpec) load.Unit fails os.Exit {
+	if spec.Files.Len() == 0 || spec.Files.Len() != spec.Sources.Len() {
+		return fail("bad file list for \(spec.Path)")
 	}
-	let rootImports = if bind.Imports(d.K.Files).Len() == 0 { option.Some[[]expr.Dep]{Value: []expr.Dep{}} } else { option.None }
-	let plan = lower.PlanGeneratedBodies(d.K, lower.Production, true)
-	let out = lower.PackageWithPlan(d.S, d.K, d.T, files, path, true, rootImports, []lower.ImportCallFacts{}, Map[string, expr.Dep]{}, plan)
-	if out.Stops.Len() > 0 {
-		let s = out.Stops[0]
-		return fail("refused: the lowering stops at \(files[s.File]) offset \(s.At): \(s.Cause) (\(out.Stops.Len()) stops)")
+	let tab = load.TablesOf("", "")
+	let mut parsed = slices.WithCapacity[bind.File](spec.Sources.Len())
+	for i, src in spec.Sources {
+		let pf = syntax.Parse(src)
+		if pf.Failed {
+			return fail("parse error in \(spec.Files[i])")
+		}
+		parsed = parsed.Append(bind.File{Name: base(spec.Files[i]), Parsed: pf})
 	}
-	let mut sigs = []native.Sig{}
-	for site in out.Sites {
-		sigs = sigs.Append(try sigOf(d, site))
+	let mut u = load.UnitOf(tab, parsed, spec.Files)
+	u.Path = spec.Path
+	u
+}
+
+func importUnitOf(spec pkgSpec, d load.Typed, u native.Unit, impSigs []native.Sig, built nativeobj.Built) native.ImportUnit fails os.Exit {
+	let exp = nativeobj.ReadStockExport(built.Archive) catch {
+	case nativeobj.Bad as b:
+		return fail("\(spec.Path) export: " + b.Why)
 	}
-	native.Unit{Path: path, Name: base(path), File: base(files[0]), IR: out.File, Sigs: sigs}
+	let mut funcs = slices.WithCapacity[native.ImportFunc](u.IR.Funcs.Len())
+	for fi, irFn in u.IR.Funcs {
+		let fname = u.IR.Strs[int(irFn.Name)]
+		funcs = funcs.Append(native.ImportFunc{Name: fname, Sig: impSigs[fi]})
+	}
+	native.ImportUnit{
+		Path:        spec.Path,
+		Name:        base(spec.Path),
+		Fingerprint: exp.Fingerprint,
+		HasInit:     exp.HasInit,
+		Records:     recordsOf(spec.Path, false, d),
+		Funcs:       funcs,
+	}
+}
+
+func compileProgram(specs []pkgSpec, header string, outside []types.Iface) []compiledDep fails os.Exit {
+	let mut units = slices.WithCapacity[load.Unit](specs.Len())
+	for sp in specs {
+		units = units.Append(try buildUnitOf(sp))
+	}
+	let p = load.LoadAll(units, outside, 4)
+	let mut available = Map[string, int]{}
+	for i, dep in p.Loaded {
+		available = available.Put(dep.Path, i)
+	}
+	let n = p.Loaded.Len()
+	let mut users = [][]int{}
+	let mut pending = []int{}
+	for _ in 0..n {
+		users = users.Append([]int{})
+		pending = pending.Append(0)
+	}
+	for i, dep in p.Loaded {
+		for impPath in store.ImportPaths(dep.S) {
+			if impPath == "prelude" {
+				continue
+			}
+			match available.Get(impPath) {
+			case option.Some as at:
+				users[at.Value] = users[at.Value].Append(i)
+				pending[i] = pending[i] + 1
+			case option.None:
+			}
+		}
+	}
+	let mut order = []int{}
+	for i, cnt in pending {
+		if cnt == 0 {
+			order = order.Append(i)
+		}
+	}
+	let mut j = 0
+	for j < order.Len() {
+		let cur = order[j]
+		j = j + 1
+		for user in users[cur] {
+			pending[user] = pending[user] - 1
+			if pending[user] == 0 {
+				order = order.Append(user)
+			}
+		}
+	}
+	for i, cnt in pending {
+		if cnt > 0 {
+			order = order.Append(i)
+		}
+	}
+	let mut summaries = slices.Repeat[option.Option[lower.CallFacts]]([]option.Option[lower.CallFacts]{option.None}, n)
+	let mut compiled = Map[string, compiledDep]{}
+	let mut byUnit = slices.Repeat[option.Option[compiledDep]]([]option.Option[compiledDep]{option.None}, specs.Len())
+	for i in order {
+		let ui = p.Units[i]
+		let sp = specs[ui]
+		let depLoaded = p.Loaded[i]
+		let mut direct = []lower.ImportCallFacts{}
+		for impPath in store.ImportPaths(depLoaded.S) {
+			match available.Get(impPath) {
+			case option.Some as di:
+				match summaries[di.Value] {
+				case option.Some as proven:
+					direct = direct.Append(lower.ImportCallFacts{Path: impPath, Facts: proven.Value})
+				case option.None:
+				}
+			case option.None:
+			}
+		}
+		let (u, typed, facts, impSigs) = try checkAndLowerWith(p, i, available, compiled, direct, sp.Files, sp.Path)
+		let built = try archive(u, header)
+		let imp = try importUnitOf(sp, typed, u, impSigs, built)
+		let cd = compiledDep{Unit: u, Built: built, Imp: imp}
+		compiled = compiled.Put(sp.Path, cd)
+		byUnit[ui] = option.Some[compiledDep]{Value: cd}
+		summaries[i] = facts
+	}
+	let mut out = slices.WithCapacity[compiledDep](specs.Len())
+	for item in byUnit {
+		match item {
+		case option.Some as cd:
+			out = out.Append(cd.Value)
+		case option.None:
+			return fail("incomplete package compilation")
+		}
+	}
+	out
 }
 
 func unitOf(std string, path string, files []string, sources []string) native.Unit fails os.Exit needs fs.Files {
-	if files.Len() != 1 || sources.Len() != 1 {
-		return fail("refused: multi-file package (\(files.Len()) files)")
+	if files.Len() == 0 || files.Len() != sources.Len() {
+		return fail("refused: empty or mismatched file list")
 	}
 	let tab = load.TablesOf("", "")
 	let mut parsed = []bind.File{}
@@ -308,16 +647,134 @@ func ergoDriver(ins []input) string {
 	b.String()
 }
 
+let stop1DepPath = "ergo.local/native/stop1dep"
+let stop1Path = "ergo.local/native/stop1"
+
+type stop1Input {
+	tag   int,
+	count int,
+	label string,
+	bias  int,
+	a     int,
+	b     int,
+	ix    int,
+	ok    bool,
+	delta int,
+}
+
+func stop1Inputs(seed int) []stop1Input {
+	let labels = []string{"go", "ergo", "m", ""}
+	let mut x = if seed < 0 { -(seed % 1000003) } else { seed % 1000003 }
+	let mut out = []stop1Input{}
+	for k in 0..8 {
+		x = (x*7919 + 104729) % 1000003
+		let tag = x % 251
+		x = (x*7919 + 104729) % 1000003
+		let count = (x % 5000) + 1
+		x = (x*7919 + 104729) % 1000003
+		let bias = (x % 101) - 50
+		x = (x*7919 + 104729) % 1000003
+		let a = (x % 300) + 2
+		x = (x*7919 + 104729) % 1000003
+		let b = (x % 300) + 1
+		let ix = x % 4
+		let ok = (k%2 == 0) || (x%3 == 0)
+		let label = labels[k%labels.Len()]
+		out = out.Append(stop1Input{tag: tag, count: count, label: label, bias: bias, a: a, b: b, ix: ix, ok: ok, delta: (k + 1) * 5})
+	}
+	out
+}
+
+func goDriverStop1(ins []stop1Input) string {
+	let mut b = strings.NewBuilder()
+	b.WriteString("package main\n\nimport (\n\t\"fmt\"\n\n\tstop1 \"\(stop1Path)\"\n\tstop1dep \"\(stop1DepPath)\"\n)\n\nfunc main() {\n")
+	for x in ins {
+		let alt = x.bias + 7
+		let salt = x.count*17 + x.a
+		b.WriteString("\t{\n")
+		b.WriteString("\t\tbx := stop1dep.MakeBox(byte(\(x.tag)), uint32(\(x.count)), \"\(x.label)\", uint64(\(salt)))\n")
+		b.WriteString("\t\tscore := bx.TagScore(uint64(\(x.a + 3)))\n")
+		b.WriteString("\t\tscaled := stop1dep.ScaleU64(score, uint64(\(x.b)), uint32(\(x.a)), byte(\(x.tag)))\n")
+		b.WriteString("\t\tsigned := stop1dep.SignedMix(int32(\(x.a)), int32(\(x.bias)))\n")
+		b.WriteString("\t\tm := stop1.MakeMeter(byte(\(x.tag)), uint32(\(x.count)), \"\(x.label)\", uint64(\(salt)), int32(\(x.bias)), int32(\(alt)), uint32(\(x.a)), uint32(\(x.b)))\n")
+		b.WriteString("\t\tans := m.Analyze(\(x.ix), \(x.ok), byte(\(x.tag)))\n")
+		b.WriteString("\t\tpmw := m.PickMeterWeight(\(x.ix))\n")
+		b.WriteString("\t\tws := stop1.PickWeights(uint32(\(x.a)), uint32(\(x.b)), true)\n")
+		b.WriteString("\t\twsVar := stop1.PickWeights(uint32(\(x.a)), uint32(\(x.b)), \(x.ok))\n")
+		b.WriteString("\t\tev := stop1.EvalSlice(ws, uint32(\(x.count)), \(x.ok))\n")
+		b.WriteString("\t\twl := stop1.SliceLen(wsVar)\n")
+		b.WriteString("\t\tsm := m.SumMeter()\n")
+		b.WriteString("\t\teven := stop1.PickEven(uint32(\(x.a)), \(x.ix))\n")
+		b.WriteString("\t\tlb := stop1.LocalBox{Flag: \(x.ok), Tag: byte(\(x.tag)), Count: uint32(\(x.count)), Note: \"\(x.label)\"}\n")
+		b.WriteString("\t\tnc := stop1.BumpBox(byte(\(x.tag)+1), &lb, uint32(\(x.delta)))\n")
+		b.WriteString("\t\tisz := lb.InspectBox()\n")
+		b.WriteString("\t\tfmt.Printf(\"%d %d %d %s %d %d %d %d %t %t %s %d %d %d\\n\", score, scaled, signed, ans, pmw, wl, ev, sm, even, lb.Flag, lb.Note, nc, isz, lb.Tag)\n")
+		b.WriteString("\t}\n")
+	}
+	b.WriteString("}\n")
+	b.String()
+}
+
+func ergoDriverStop1(ins []stop1Input) string {
+	let mut b = strings.NewBuilder()
+	b.WriteString("import io\nimport os\nimport \(stop1DepPath)\nimport \(stop1Path)\n\n")
+	for k, x in ins {
+		let alt = x.bias + 7
+		let salt = x.count*17 + x.a
+		b.WriteString("func step\(k)() needs io.Stdout {\n")
+		b.WriteString("\tlet bx = stop1dep.MakeBox(\(x.tag), \(x.count), \"\(x.label)\", \(salt))\n")
+		b.WriteString("\tlet score = bx.TagScore(\(x.a + 3))\n")
+		b.WriteString("\tlet scaled = stop1dep.ScaleU64(score, \(x.b), \(x.a), \(x.tag))\n")
+		b.WriteString("\tlet signed = stop1dep.SignedMix(\(x.a), \(x.bias))\n")
+		b.WriteString("\tlet m = stop1.MakeMeter(\(x.tag), \(x.count), \"\(x.label)\", \(salt), \(x.bias), \(alt), \(x.a), \(x.b))\n")
+		b.WriteString("\tlet ans = stop1.Analyze(m, \(x.ix), \(x.ok), \(x.tag))\n")
+		b.WriteString("\tlet pmw = stop1.PickMeterWeight(m, \(x.ix))\n")
+		b.WriteString("\tlet ws = stop1.PickWeights(\(x.a), \(x.b), true)\n")
+		b.WriteString("\tlet wsVar = stop1.PickWeights(\(x.a), \(x.b), \(x.ok))\n")
+		b.WriteString("\tlet ev = stop1.EvalSlice(ws, \(x.count), \(x.ok))\n")
+		b.WriteString("\tlet wl = stop1.SliceLen(wsVar)\n")
+		b.WriteString("\tlet sm = stop1.SumMeter(m)\n")
+		b.WriteString("\tlet even = stop1.PickEven(\(x.a), \(x.ix))\n")
+		b.WriteString("\tlet mut lb = stop1.LocalBox{Flag: \(x.ok), Tag: \(x.tag), Count: \(x.count), Note: \"\(x.label)\"}\n")
+		b.WriteString("\tlet nc = stop1.BumpBox(\(x.tag + 1), &lb, \(x.delta))\n")
+		b.WriteString("\tlet isz = lb.InspectBox()\n")
+		b.WriteString("\tio.Stdout.Println(\"\\(score) \\(scaled) \\(signed) \\(ans) \\(pmw) \\(wl) \\(ev) \\(sm) \\(even) \\(lb.Flag) \\(lb.Note) \\(nc) \\(isz) \\(lb.Tag)\")\n")
+		b.WriteString("}\n\n")
+	}
+	b.WriteString("func main() needs os.Ambient {\n\twith context { io.Stdout: io.NewHost() } {\n")
+	for k in 0..ins.Len() {
+		b.WriteString("\t\tstep\(k)()\n")
+	}
+	b.WriteString("\t}\n}\n")
+	b.String()
+}
+
+func stop1Specs(dir string) []pkgSpec {
+	[]pkgSpec{
+		pkgSpec{
+			Path:    stop1DepPath,
+			Files:   []string{dir + "/stop1dep/types.ergo", dir + "/stop1dep/ops.ergo"},
+			Sources: []string{stop1DepTypesSource, stop1DepOpsSource},
+		},
+		pkgSpec{
+			Path:    stop1Path,
+			Files:   []string{dir + "/stop1/a.ergo", dir + "/stop1/b.ergo"},
+			Sources: []string{stop1ASource, stop1BSource},
+		},
+	}
+}
+
 func verify(s stock, std string, seed int, keep bool) fails os.Exit needs exec.Runner | fs.Files | fs.Writes | io.Stdout {
 	let dir = strings.TrimSpace(try run(withEnv(s, exec.New("mktemp", []string{"-d"})), "mktemp"))
 	io.Stdout.Println("seed \(seed), work \(dir)")
 	let rawCfg = try run(withEnv(s, exec.New(s.root+"/bin/go", []string{"list", "-export", "-deps", "-f", "{{if .Export}}packagefile {{.ImportPath}}={{.Export}}{{end}}", "fmt"}).WithEnv("GOROOT", s.root)), "stock go list -export")
 	let stdCfg = if strings.HasSuffix(rawCfg, "\n") { rawCfg } else { rawCfg + "\n" }
 	let runtimeA = strings.TrimSpace(try run(withEnv(s, exec.New(s.root+"/bin/go", []string{"list", "-export", "-f", "{{.Export}}", "runtime"}).WithEnv("GOROOT", s.root)), "stock go list runtime"))
+	let hdr = try header(runtimeA)
 	let src = dir + "/intmath.ergo"
 	try write(src, intmathSource)
 	let u = try unitOf(std, intmathPath, []string{src}, []string{intmathSource})
-	let built = try archive(u, try header(runtimeA))
+	let built = try archive(u, hdr)
 	let lib = dir + "/intmath.a"
 	try write(lib, built.Archive)
 	io.Stdout.Println("native: \(u.IR.Funcs.Len()) functions, intmath.a \(built.Archive.Len()) bytes, no Go source, no go tool compile")
@@ -340,6 +797,53 @@ func verify(s stock, std string, seed int, keep bool) fails os.Exit needs exec.R
 	}
 	io.Stdout.Print(got)
 	io.Stdout.Println("agree: \(ins.Len()) lines equal to the Go-source path")
+
+	try mkdir(dir + "/stop1dep")
+	try mkdir(dir + "/stop1")
+	try write(dir+"/stop1dep/types.ergo", stop1DepTypesSource)
+	try write(dir+"/stop1dep/ops.ergo", stop1DepOpsSource)
+	try write(dir+"/stop1/a.ergo", stop1ASource)
+	try write(dir+"/stop1/b.ergo", stop1BSource)
+	let pkgs = try compileProgram(stop1Specs(dir), hdr, []types.Iface{})
+	let depBuilt = pkgs[0]
+	let appBuilt = pkgs[1]
+	let depErrs = try verifyBuiltErrors(depBuilt.Unit, hdr, depBuilt.Built.Archive)
+	if depErrs.Len() > 0 {
+		return fail("stop1dep verify: " + depErrs[0])
+	}
+	let appErrs = try verifyBuiltErrors(appBuilt.Unit, hdr, appBuilt.Built.Archive)
+	if appErrs.Len() > 0 {
+		return fail("stop1 verify: " + appErrs[0])
+	}
+	let depLib = dir + "/stop1dep.a"
+	let appLib = dir + "/stop1.a"
+	try write(depLib, depBuilt.Built.Archive)
+	try write(appLib, appBuilt.Built.Archive)
+	io.Stdout.Println("native: stop1dep \(depBuilt.Unit.IR.Funcs.Len()) functions (\(depBuilt.Unit.IR.Files.Len()) files), stop1dep.a \(depBuilt.Built.Archive.Len()) bytes; stop1 \(appBuilt.Unit.IR.Funcs.Len()) functions (\(appBuilt.Unit.IR.Files.Len()) files), stop1.a \(appBuilt.Built.Archive.Len()) bytes, no Go source, no go tool compile")
+	let ins1 = stop1Inputs(seed)
+	try write(dir+"/main_stop1.go", goDriverStop1(ins1))
+	let cfg1 = dir + "/stop1.importcfg"
+	try write(cfg1, stdCfg+"packagefile "+stop1DepPath+"="+depLib+"\npackagefile "+stop1Path+"="+appLib+"\n")
+	try run(goTool(s, []string{"compile", "-p", "main", "-importcfg", cfg1, "-pack", "-o", dir + "/main_stop1.a", dir + "/main_stop1.go"}), "stock compile of the Stop 1 Go driver")
+	try run(goTool(s, []string{"link", "-importcfg", cfg1, "-o", dir + "/native_stop1", dir + "/main_stop1.a"}), "stock link of Stop 1")
+	let got1 = try run(withEnv(s, exec.New("prlimit", []string{"--as=4294967296", "--", dir + "/native_stop1"})), "the natively linked Stop 1 program")
+	let ref1 = dir + "/ref1"
+	try mkdir(ref1 + "/stop1dep")
+	try mkdir(ref1 + "/stop1")
+	try write(ref1+"/ergo.mod", "module ergo.local/native\n")
+	try write(ref1+"/stop1dep/types.ergo", stop1DepTypesSource)
+	try write(ref1+"/stop1dep/ops.ergo", stop1DepOpsSource)
+	try write(ref1+"/stop1/a.ergo", stop1ASource)
+	try write(ref1+"/stop1/b.ergo", stop1BSource)
+	try write(ref1+"/main.ergo", ergoDriverStop1(ins1))
+	try run(withEnv(s, exec.New(s.ergo, []string{"build", "-o", dir + "/reference_stop1", ref1})), "ergo build of the Stop 1 reference")
+	let want1 = try run(withEnv(s, exec.New("prlimit", []string{"--as=4294967296", "--", dir + "/reference_stop1"})), "the Stop 1 Go-source reference")
+	if got1 != want1 {
+		return fail("the Stop 1 native program printed\n\(got1)but the Go-source path printed\n\(want1)(work kept in \(dir))")
+	}
+	io.Stdout.Print(got1)
+	io.Stdout.Println("agree: \(ins1.Len()) Stop 1 lines equal to the Go-source path")
+
 	if keep {
 		io.Stdout.Println("kept \(dir)")
 	} else {
@@ -407,6 +911,26 @@ func main() fails os.Exit needs os.Ambient {
 	}
 }
 
+func verifyBuiltErrors(u native.Unit, hdr string, ar string) []string fails os.Exit {
+	let (enc, want) = native.Handoff(u) catch {
+	case nativeobj.Refused as r:
+		return fail("refused: " + r.Why)
+	case nativeobj.Malformed as m:
+		return fail("malformed: " + m.Why)
+	case handoff.Malformed as m:
+		return fail("eir malformed: " + m.Why)
+	}
+	let rt = nativeobj.FromHandoff(enc, want) catch {
+	case handoff.UnknownVersion, handoff.Malformed, handoff.WrongTarget, handoff.StaleImport:
+		return fail("eir refused")
+	case nativeobj.Refused as r:
+		return fail("refused: " + r.Why)
+	case nativeobj.Malformed as m:
+		return fail("malformed: " + m.Why)
+	}
+	nativeobj.Verify(rt, hdr, ar)
+}
+
 func buildVerified(path string, file string, src string) int fails os.Exit {
 	let u = try compileStandalone(path, file, src)
 	let p = native.FromIR(u) catch {
@@ -450,12 +974,26 @@ law NativebuildBuildsWidenedControlAndUnary(k int) {
 	n == 2
 }
 
+// NativebuildBuildsStop1 verifies multi-file Stop 1 packages with cross-package
+// records, slices, field stores, and imports lower through EIR v1 and verify.
+test NativebuildBuildsStop1 {
+	let pkgs = try compileProgram(stop1Specs("testdata"), nativeobj.SampleHeader, []types.Iface{})
+	assert pkgs.Len() == 2
+	let dep = pkgs[0]
+	let app = pkgs[1]
+	assert dep.Unit.IR.Files.Len() == 2
+	assert app.Unit.IR.Files.Len() == 2
+	assert app.Unit.Imports.Len() == 1
+	assert (try verifyBuiltErrors(dep.Unit, nativeobj.SampleHeader, dep.Built.Archive)).Len() == 0
+	assert (try verifyBuiltErrors(app.Unit, nativeobj.SampleHeader, app.Built.Archive)).Len() == 0
+}
+
 law NativebuildRefusesFallibleAndUnsupportedSource(k int) {
 	let c = (k%4 + 4) % 4
 	if c == 0 {
 		rejectsWith("ergo.local/native/fail", "type E1 {}\ntype E2 {}\nfunc Bad(x int) int fails E1 | E2 {\n\tx + 1\n}\n", "effect or failure row")
 	} else if c == 1 {
-		rejectsWith("ergo.local/native/str", "func Bad(s string) string {\n\ts\n}\n", "type string")
+		rejectsWith("ergo.local/native/map", "func Bad(m Map[string, int]) int {\n\t0\n}\n", "type map[string]int")
 	} else if c == 2 {
 		rejectsWith("ergo.local/native/bad", "func Bad(x int) int {\n\tx + \"a\"\n}\n", "type error in")
 	} else {

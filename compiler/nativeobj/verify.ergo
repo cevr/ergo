@@ -1,28 +1,24 @@
 import option
+import slices
 import strings
 
-// The metadata checks: what the decoders (decode.ergo) read back from an
-// archive, held against the checked input it was made from. Each check
-// derives what the bytes must say from the input and the pin's contract
-// (the frame layout, ABIInternal's registers, the runtime's tables), not
-// from the writer's own records, and returns the broken relations, one
-// line each; none is a pass. Verify runs them all; one law per check holds
-// it at zero for the fixture over drawn constants, so each mutant of the
-// writers in testdata/mutants.json breaks the law of its contract.
+// Metadata verification checks over independent binary decoders for nativeobj archives.
 
-// FuncView is one function as the object holds it.
+// FuncView is one function as decoded from _go_.o.
 type FuncView {
 	Name     string,
 	Code     string,
 	Ins      []Ins,
 	Relocs   []DReloc,
 	Args     int,
+	File     int,
 	Line     int,
 	ArgMaps  [][]bool,
 	ArgBits  int,
 	Locals   [][]bool,
 	LocBits  int,
 	Sp       []PcVal,
+	Pcfile   []PcVal,
 	Unsafe   []PcVal,
 	Smi      []PcVal,
 	NPcdata  int,
@@ -62,6 +58,7 @@ func ViewOf(d Decoded, j int) FuncView fails Bad {
 	let mut pcd = []string{}
 	let mut info = ""
 	let mut sp = ""
+	let mut pcfile = ""
 	for a in o.Aux[j] {
 		if a.Def < 0 || a.Def >= o.Data.Len() {
 			return Bad{Why: "\(o.Defs[j].Name): aux names definition \(a.Def)"}
@@ -75,6 +72,8 @@ func ViewOf(d Decoded, j int) FuncView fails Bad {
 			pcd = pcd.Append(data)
 		} else if a.Type == AuxPcsp {
 			sp = data
+		} else if a.Type == AuxPcfile {
+			pcfile = data
 		}
 	}
 	if info == "" || fds.Len() != 2 || pcd.Len() != 2 || sp == "" {
@@ -82,26 +81,14 @@ func ViewOf(d Decoded, j int) FuncView fails Bad {
 	}
 	let (abits, amaps) = try readMaps(fds[FuncdataArgsPointerMaps])
 	let (lbits, lmaps) = try readMaps(fds[FuncdataLocalsPointerMaps])
-	FuncView{Name: o.Defs[j].Name, Code: o.Data[j], Ins: try Disasm(o.Data[j]), Relocs: o.Relocs[j], Args: try le(info, 0, 4), Line: try le(info, 12, 4),
-		ArgMaps: amaps, ArgBits: abits, Locals: lmaps, LocBits: lbits, Sp: try table(sp), Unsafe: try table(pcd[PcdataUnsafePoint]),
-		Smi:     try table(pcd[PcdataStackMapIndex]), NPcdata: pcd.Len(), NFuncdat: fds.Len()}
+	let fileIdx = if info.Len() >= 24 { try le(info, 20, 4) } else { 0 }
+	FuncView{Name: o.Defs[j].Name, Code: o.Data[j], Ins: try Disasm(o.Data[j]), Relocs: o.Relocs[j], Args: try le(info, 0, 4), File: fileIdx,
+		Line:    try le(info, 12, 4), ArgMaps: amaps, ArgBits: abits, Locals: lmaps, LocBits: lbits, Sp: try table(sp),
+		Pcfile:  try table(pcfile), Unsafe: try table(pcd[PcdataUnsafePoint]), Smi: try table(pcd[PcdataStackMapIndex]),
+		NPcdata: pcd.Len(), NFuncdat: fds.Len()}
 }
 
-// symOf is the linker name the checked input gives function i: the
-// package path and its name; the k-th init function is init.k.
-func symOf(p Package, i int) string {
-	if p.Funcs[i].Name != "init" {
-		return p.Path + "." + p.Funcs[i].Name
-	}
-	let mut k = 0
-	for j in p.Inits {
-		if j == i {
-			return p.Path + ".init.\(k)"
-		}
-		k = k + 1
-	}
-	p.Path + ".init"
-}
+func symOf(p Package, i int) string { FuncSym(p, i) }
 
 func defNamed(o DObj, name string) int {
 	for j, s in o.Defs {
@@ -121,7 +108,6 @@ func relocAt(rs []DReloc, off int) option.Option[DReloc] {
 	option.None
 }
 
-// frameOf is the frame size the code sets up: the pcsp value in the body.
 func frameOf(v FuncView) int {
 	let mut m = 0
 	for pv in v.Sp {
@@ -132,16 +118,30 @@ func frameOf(v FuncView) int {
 	m
 }
 
-// slotDisp is slot j's displacement from SP in a frame of size: the slots
-// sit below the saved BP (at SP+size-8), slot 0 first.
 func slotDisp(size int, j int) int { size - 8 - 8*(j+1) }
 
 func isMov(ins Ins, op int, reg int, base int, disp int) bool {
 	ins.Op == op && ins.Mem && !ins.Rip && ins.R == reg && ins.B == base && ins.Disp == disp
 }
 
-// goCall says whether ins is a call into Go code: a direct call to a
-// symbol outside the runtime, or an indirect one.
+func isStoreW(ins Ins, reg int, base int, disp int, w int) bool {
+	let wantOp = if w == 1 { 0x88 } else { 0x89 }
+	ins.Op == wantOp && ins.Mem && !ins.Rip && ins.R == reg && ins.B == base && ins.Disp == disp && ins.Width == w
+}
+
+func isLoadW(ins Ins, reg int, base int, disp int, w int, signed bool) bool {
+	let wantOp = if w == 8 { 0x8B } else if w == 4 { if signed { 0x63 } else { 0x8B } } else if w == 2 { if signed { 0x0FBF } else { 0x0FB7 } } else { if signed { 0x0FBE } else { 0x0FB6 } }
+	ins.Op == wantOp && ins.Mem && !ins.Rip && ins.R == reg && ins.B == base && ins.Disp == disp && ins.Width == w
+}
+
+func isRuntimeSafeCall(target string) bool {
+	target == RuntimeMakeslice || target == RuntimeConcatstring2 || target == RuntimeCmpstring || target == RuntimeMemequal
+}
+
+func isColdPanic(target string) bool {
+	target == RuntimePanicIndex || target == RuntimePanicIndexU || target == RuntimePanicDivide
+}
+
 func goCall(v FuncView, ins Ins) bool {
 	if ins.Op == 0xFF && ins.R == 2 {
 		return true
@@ -151,7 +151,7 @@ func goCall(v FuncView, ins Ins) bool {
 	}
 	match relocAt(v.Relocs, ins.Pc+1) {
 	case option.Some as r:
-		return !strings.HasPrefix(r.Value.Target, "runtime.")
+		return !strings.HasPrefix(r.Value.Target, "runtime.") || isRuntimeSafeCall(r.Value.Target)
 	case option.None:
 		return true
 	}
@@ -169,18 +169,54 @@ func callTo(v FuncView, ins Ins, target string) bool {
 	}
 }
 
-func callOps(f Func) []int {
+func safeCallOps(p Package, f Func) []int {
 	let mut out = []int{}
 	for i, op in f.Ops {
-		if IsCall(op) {
+		if IsCallOp(p, f, op) {
 			out = out.Append(i)
 		}
 	}
 	out
 }
 
-// funcViews pairs every function of p with its view, or names what is
-// missing.
+func coldOpsCount(f Func) int {
+	let mut n = 0
+	for op in f.Ops {
+		match op {
+		case Index:
+			n = n + 1
+		case Arith as a:
+			if a.Kind == ADiv || a.Kind == ARem {
+				n = n + 1
+			}
+		case _:
+		}
+	}
+	n
+}
+
+func copyChunkCount(size int) int {
+	let mut n = 0
+	let mut off = 0
+	for off+8 <= size {
+		n = n + 1
+		off = off + 8
+	}
+	for off+4 <= size {
+		n = n + 1
+		off = off + 4
+	}
+	for off+2 <= size {
+		n = n + 1
+		off = off + 2
+	}
+	for off < size {
+		n = n + 1
+		off = off + 1
+	}
+	n
+}
+
 func funcViews(p Package, d Decoded) []FuncView fails Bad {
 	let mut out = []FuncView{}
 	for i in 0..p.Funcs.Len() {
@@ -197,8 +233,8 @@ func funcViews(p Package, d Decoded) []FuncView fails Bad {
 }
 
 // CheckMembers: the archive is __.PKGDEF then _go_.o, each opening with
-// the stock header line.
-func CheckMembers(d Decoded, header string) []string {
+// the stock header line, and the object records p's source file list.
+func CheckMembers(pFiles []string, d Decoded, header string) []string {
 	let mut out = []string{}
 	if d.Members != []string{"__.PKGDEF", "_go_.o"} {
 		out = out.Append("members are not __.PKGDEF then _go_.o")
@@ -206,12 +242,13 @@ func CheckMembers(d Decoded, header string) []string {
 	if d.PkgHeader != header || d.ObjHeader != header {
 		out = out.Append("a member header is not the stock header line")
 	}
+	if d.Obj.Files != pFiles {
+		out = out.Append("object files do not match package files")
+	}
 	out
 }
 
-// CheckFingerprints: the export data ends with the first 8 bytes of its
-// own SHA-256, and the object's header carries the same 8 bytes, so a
-// stock importer's recorded fingerprint is the one the linker finds.
+// CheckFingerprints checks SHA-256 export digest and autolib metadata.
 func CheckFingerprints(p Package, d Decoded) []string {
 	let mut out = []string{}
 	if d.Export.Version != ExportVersion {
@@ -238,25 +275,29 @@ func CheckFingerprints(p Package, d Decoded) []string {
 	out
 }
 
-// CheckExports: every exported function of p, and nothing else, is in
-// the export data as a function whose extension names its definition by
-// index, with ABIInternal; and every function's code takes its parameters
-// from ABIInternal's registers in order, passes each call's arguments and
-// takes its results in them, returns its results in them, and spills and
-// reloads them around morestack at the caller's spill words.
+func hasNameDot(s string) bool {
+	for i in 0..s.Len() {
+		if s[i] == byte('.') {
+			return true
+		}
+	}
+	false
+}
+
+// CheckExports verifies exported functions, exported named types, and ABIInternal code alignment.
 func CheckExports(p Package, d Decoded) []string {
 	let mut out = []string{}
 	let mut n = 0
 	for i, f in p.Funcs {
-		if !Exported(f.Name) {
+		if hasNameDot(f.Name) || !Exported(f.Name) {
 			continue
 		}
 		n = n + 1
 		let mut found = false
 		for o in d.Export.Objs {
-			if o.Name == f.Name {
+			if o.Name == f.Name && o.Code == ObjFunc {
 				found = true
-				if o.Code != ObjFunc || !o.HasExt || o.ABI != ABIInternal {
+				if !o.HasExt || o.ABI != ABIInternal {
 					out = out.Append("\(f.Name): exported without an ABIInternal function extension")
 				} else if o.SymIdx < 0 || o.SymIdx >= d.Obj.Defs.Len() || d.Obj.Defs[o.SymIdx].Name != symOf(p, i) {
 					out = out.Append("\(f.Name): export index \(o.SymIdx) does not name \(symOf(p, i))")
@@ -267,27 +308,50 @@ func CheckExports(p Package, d Decoded) []string {
 			out = out.Append("\(f.Name): not exported")
 		}
 	}
+	for td in p.Types {
+		if td.Kind != KStruct || td.Name == "" || (td.PkgPath != "" && td.PkgPath != p.Path) || !td.Exported {
+			continue
+		}
+		n = n + 1
+		let mut found = false
+		let wantT = "type:" + p.Path + "." + td.Name
+		let wantP = "type:*" + p.Path + "." + td.Name
+		for o in d.Export.Objs {
+			if o.Name == td.Name && o.Code == ObjType {
+				found = true
+				if !o.HasExt || o.SymIdx < 0 || o.SymIdx >= d.Obj.Defs.Len() || d.Obj.Defs[o.SymIdx].Name != wantT ||
+					o.PtrSymIdx < 0 || o.PtrSymIdx >= d.Obj.Defs.Len() || d.Obj.Defs[o.PtrSymIdx].Name != wantP {
+					out = out.Append("\(td.Name): exported type indices do not match \(wantT) / \(wantP)")
+				}
+			}
+		}
+		if !found {
+			out = out.Append("\(td.Name): exported type missing")
+		}
+	}
 	if d.Export.Objs.Len() != n {
-		out = out.Append("export data holds \(d.Export.Objs.Len()) objects for \(n) exported functions")
+		out = out.Append("export data holds \(d.Export.Objs.Len()) objects for \(n) exported declarations")
 	}
 	let views = funcViews(p, d) catch {
 	case Bad as b:
 		return out.Append(b.Why)
 	}
+	let layouts = ComputeLayouts(p)
 	for i, f in p.Funcs {
-		out = out.Concat(abiOf(p, f, views[i]))
+		out = out.Concat(abiOf(p, layouts, f, views[i]))
 	}
 	out
 }
 
-func abiOf(p Package, f Func, v FuncView) []string {
+func abiOf(p Package, layouts LayoutTable, f Func, v FuncView) []string {
 	let mut out = []string{}
 	let size = frameOf(v)
 	if size == 0 {
 		return out
 	}
+	let plan = PlanSigABI(layouts, f.Params, f.Results, f.Slots)
+	let fr = Frame{Size: size, Slots: plan.TotalSlotWords, Out: 0}
 	let ins = v.Ins
-	// The parameter stores follow the SUBQ that sets up the frame.
 	let mut at = -1
 	for k, x in ins {
 		if at < 0 && x.Op == 0x81 && x.R == 5 && x.B == RSP && !x.Mem {
@@ -297,45 +361,46 @@ func abiOf(p Package, f Func, v FuncView) []string {
 	if at < 0 {
 		return out.Append("\(f.Name): no frame set-up")
 	}
-	for k in 0..f.Params.Len() {
-		if at+k >= ins.Len() || !isMov(ins[at+k], 0x89, IntRegs[k], RSP, slotDisp(size, k)) {
-			out = out.Append("\(f.Name): parameter \(k) not stored from \(IntRegs[k]) to its slot")
+	for k, pt in f.Params {
+		if plan.ParamIsReg[k] {
+			let dstOff = SlotBaseOff(fr, plan, k)
+			let plo = int(layouts.PieceLo[pt])
+			let phi = int(layouts.PieceHi[pt])
+			let r0 = plan.ParamRegStart[k]
+			for j in plo..phi {
+				let pc = layouts.Pieces[j]
+				if at >= ins.Len() || !isStoreW(ins[at], IntRegs[r0+(j-plo)], RSP, dstOff+int(pc.Off), int(pc.Size)) {
+					out = out.Append("\(f.Name): parameter \(k) piece not stored from \(IntRegs[r0+(j-plo)])")
+				}
+				at = at + 1
+			}
 		}
 	}
-	let calls = callOps(f)
+	for k, pt in f.Params {
+		if !plan.ParamIsReg[k] {
+			at = at + 2*copyChunkCount(int(layouts.Sizes[pt]))
+		}
+	}
+	let calls = safeCallOps(p, f)
 	let mut m = 0
 	for q, x in ins {
 		if goCall(v, x) {
 			if m >= calls.Len() {
 				return out.Append("\(f.Name): more calls in the code than in the input")
 			}
-			let (args, dsts, closure) = match f.Ops[calls[m]] {
+			match f.Ops[calls[m]] {
 			case Call as c:
-				(c.Args, c.Dsts, -1)
+				let ti = targetOfInPkg(p, c.Target)
+				let (pts, rts) = if ti >= 0 { (p.Funcs[ti].Params, p.Funcs[ti].Results) } else { (slotTypes(f, c.Args), slotTypes(f, c.Dsts)) }
+				out = out.Concat(checkCallSiteABI(f, layouts, fr, plan, ins, q, false, c.Args, c.Dsts, pts, rts, -1, m))
 			case CallClosure as c:
-				(c.Args, c.Dsts, c.Fn)
+				let ft = p.Types[f.Slots[c.Fn]]
+				out = out.Concat(checkCallSiteABI(f, layouts, fr, plan, ins, q, true, c.Args, c.Dsts, ft.Params, ft.Results, c.Fn, m))
 			case _:
-				([]int{}, []int{}, -1)
-			}
-			let pre = if closure >= 0 { 2 } else { 0 }
-			if closure >= 0 && (q < 2 || !isMov(ins[q-2], 0x8B, RDX, RSP, slotDisp(size, closure)) || !isMov(ins[q-1], 0x8B, R12, RDX, 0) || x.B != R12) {
-				out = out.Append("\(f.Name): closure call \(m) does not take its context in RDX and its code from 0(RDX)")
-			}
-			for k, s in args {
-				let at2 = q - pre - args.Len() + k
-				if at2 < 0 || !isMov(ins[at2], 0x8B, IntRegs[k], RSP, slotDisp(size, s)) {
-					out = out.Append("\(f.Name): call \(m) argument \(k) not loaded into \(IntRegs[k])")
-				}
-			}
-			for k, s in dsts {
-				if q+1+k >= ins.Len() || !isMov(ins[q+1+k], 0x89, IntRegs[k], RSP, slotDisp(size, s)) {
-					out = out.Append("\(f.Name): call \(m) result \(k) not taken from \(IntRegs[k])")
-				}
 			}
 			m = m + 1
 		}
 		if x.Op == 0xC3 {
-			// Results are loaded before ADDQ and POPQ BP.
 			let mut vals = []int{}
 			let mut seen = 0
 			for op in f.Ops {
@@ -348,18 +413,36 @@ func abiOf(p Package, f Func, v FuncView) []string {
 				case _:
 				}
 			}
+			let mut pieceTotal = 0
+			for k in 0..vals.Len() {
+				if plan.ResultIsReg[k] {
+					let rt = f.Results[k]
+					pieceTotal = pieceTotal + int(layouts.PieceHi[rt]-layouts.PieceLo[rt])
+				}
+			}
+			let mut cur = q - 2 - pieceTotal
 			for k, s in vals {
-				let at2 = q - 2 - vals.Len() + k
-				if at2 < 0 || !isMov(ins[at2], 0x8B, IntRegs[k], RSP, slotDisp(size, s)) {
-					out = out.Append("\(f.Name): result \(k) not returned in \(IntRegs[k])")
+				if plan.ResultIsReg[k] {
+					let rt = f.Results[k]
+					let rlo = int(layouts.PieceLo[rt])
+					let rhi = int(layouts.PieceHi[rt])
+					let r0 = plan.ResultRegStart[k]
+					let srcOff = SlotBaseOff(fr, plan, s)
+					for j in rlo..rhi {
+						let pc = layouts.Pieces[j]
+						if cur < 0 || !isLoadW(ins[cur], IntRegs[r0+(j-rlo)], RSP, srcOff+int(pc.Off), int(pc.Size), pc.Signed) {
+							out = out.Append("\(f.Name): result \(k) not returned in \(IntRegs[r0+(j-rlo)])")
+						}
+						cur = cur + 1
+					}
 				}
 			}
 		}
 		if callTo(v, x, MorestackNoctxt) {
-			for k in 0..f.Params.Len() {
-				let before = q - f.Params.Len() + k
-				if before < 0 || !isMov(ins[before], 0x89, IntRegs[k], RSP, 8+8*k) || q+1+k >= ins.Len() || !isMov(ins[q+1+k], 0x8B, IntRegs[k], RSP, 8+8*k) {
-					out = out.Append("\(f.Name): parameter \(k) not spilled and reloaded around morestack at its spill word")
+			for r in 0..plan.InRegCount {
+				let before = q - plan.InRegCount + r
+				if before < 0 || !isMov(ins[before], 0x89, IntRegs[r], RSP, 8+plan.StackEnd+8*r) || q+1+r >= ins.Len() || !isMov(ins[q+1+r], 0x8B, IntRegs[r], RSP, 8+plan.StackEnd+8*r) {
+					out = out.Append("\(f.Name): reg arg \(r) not spilled and reloaded around morestack")
 				}
 			}
 		}
@@ -370,7 +453,65 @@ func abiOf(p Package, f Func, v FuncView) []string {
 	out
 }
 
-// countRets is the number of RET instructions before instruction q.
+func targetOfInPkg(p Package, name string) int {
+	for i, f in p.Funcs {
+		if f.Name != "init" && SymName(p, f.Name) == name {
+			return i
+		}
+	}
+	-1
+}
+
+func checkCallSiteABI(f Func, layouts LayoutTable, fr Frame, plan FuncAbiPlan, ins []Ins, q int, closure bool, args []int, dsts []int, pts []int, rts []int, closureSlot int, m int) []string {
+	let mut out = []string{}
+	let cp = PlanSigABI(layouts, pts, rts, []int{})
+	let pre = if closure { 2 } else { 0 }
+	if closure && (q < 2 || !isMov(ins[q-2], 0x8B, RDX, RSP, SlotBaseOff(fr, plan, closureSlot)) || !isMov(ins[q-1], 0x8B, R12, RDX, 0) || ins[q].B != R12) {
+		out = out.Append("\(f.Name): closure call \(m) does not take its context in RDX and its code from 0(RDX)")
+	}
+	let mut argPieces = 0
+	for k in 0..args.Len() {
+		if cp.ParamIsReg[k] {
+			argPieces = argPieces + int(layouts.PieceHi[pts[k]]-layouts.PieceLo[pts[k]])
+		}
+	}
+	let mut cur = q - pre - argPieces
+	for k, s in args {
+		if cp.ParamIsReg[k] {
+			let pt = pts[k]
+			let plo = int(layouts.PieceLo[pt])
+			let phi = int(layouts.PieceHi[pt])
+			let r0 = cp.ParamRegStart[k]
+			let srcOff = SlotBaseOff(fr, plan, s)
+			for j in plo..phi {
+				let pc = layouts.Pieces[j]
+				if cur < 0 || !isLoadW(ins[cur], IntRegs[r0+(j-plo)], RSP, srcOff+int(pc.Off), int(pc.Size), pc.Signed) {
+					out = out.Append("\(f.Name): call \(m) argument \(k) not loaded into \(IntRegs[r0+(j-plo)])")
+				}
+				cur = cur + 1
+			}
+		}
+	}
+	let mut rx = q + 1
+	for k, d in dsts {
+		if cp.ResultIsReg[k] {
+			let rt = rts[k]
+			let rlo = int(layouts.PieceLo[rt])
+			let rhi = int(layouts.PieceHi[rt])
+			let r0 = cp.ResultRegStart[k]
+			let dstOff = SlotBaseOff(fr, plan, d)
+			for j in rlo..rhi {
+				let pc = layouts.Pieces[j]
+				if rx >= ins.Len() || !isStoreW(ins[rx], IntRegs[r0+(j-rlo)], RSP, dstOff+int(pc.Off), int(pc.Size)) {
+					out = out.Append("\(f.Name): call \(m) result \(k) not taken from \(IntRegs[r0+(j-rlo)])")
+				}
+				rx = rx + 1
+			}
+		}
+	}
+	out
+}
+
 func countRets(ins []Ins, q int) int {
 	let mut n = 0
 	for k in 0..q {
@@ -381,11 +522,7 @@ func countRets(ins []Ins, q int) int {
 	n
 }
 
-// CheckSafePoints: the stack-map index at each call's return address
-// minus one names that call's map (1, 2, ... in code order) and the call
-// is not an unsafe point; the morestack call and the stack check run at
-// index -1 (the runtime then reads map 0, the entry's) and are unsafe;
-// each function has one map per call plus the entry's, in both tables.
+// CheckSafePoints verifies GC safe points, call stack-map indices, and unsafe spans.
 func CheckSafePoints(p Package, d Decoded) []string {
 	let mut out = []string{}
 	let views = funcViews(p, d) catch {
@@ -394,9 +531,11 @@ func CheckSafePoints(p Package, d Decoded) []string {
 	}
 	for i, f in p.Funcs {
 		let v = views[i]
-		let calls = callOps(f)
-		if v.Locals.Len() != calls.Len()+1 || v.ArgMaps.Len() != calls.Len()+1 {
-			out = out.Append("\(f.Name): \(v.Locals.Len()) locals and \(v.ArgMaps.Len()) args maps for \(calls.Len()) calls")
+		let calls = safeCallOps(p, f)
+		let ncolds = coldOpsCount(f)
+		let wantMaps = calls.Len() + 1 + ncolds
+		if v.Locals.Len() != wantMaps || v.ArgMaps.Len() != wantMaps {
+			out = out.Append("\(f.Name): \(v.Locals.Len()) locals and \(v.ArgMaps.Len()) args maps for \(wantMaps)")
 		}
 		let mut m = 0
 		for x in v.Ins {
@@ -410,6 +549,20 @@ func CheckSafePoints(p Package, d Decoded) []string {
 					out = out.Append("\(f.Name): call \(m) is an unsafe point")
 				}
 			}
+			if x.Op == 0xE8 {
+				match relocAt(v.Relocs, x.Pc+1) {
+				case option.Some as r:
+					if isColdPanic(r.Value.Target) {
+						if ValueAt(v.Smi, ret-1) <= calls.Len() {
+							out = out.Append("\(f.Name): cold panic call uses call map \(ValueAt(v.Smi, ret-1))")
+						}
+						if ValueAt(v.Smi, ret) <= calls.Len() || (frameOf(v) > 0 && ValueAt(v.Sp, ret) != frameOf(v)) {
+							out = out.Append("\(f.Name): cold panic return pc \(ret) leaves frame or cold stack map")
+						}
+					}
+				case option.None:
+				}
+			}
 			if callTo(v, x, MorestackNoctxt) && (ValueAt(v.Smi, ret-1) != -1 || ValueAt(v.Unsafe, x.Pc) != UnsafeUnsafe) {
 				out = out.Append("\(f.Name): the morestack call is not at map -1 in an unsafe span")
 			}
@@ -421,51 +574,95 @@ func CheckSafePoints(p Package, d Decoded) []string {
 	out
 }
 
-// CheckLiveSlots: at each call, the locals map marks exactly the pointer
-// slots the path model (LiveByPaths, with the address-taken pointer
-// slots) finds live across it, each at its word below varp; the entry's
-// args map marks the pointer parameters, every other args map nothing;
-// the maps have a bit per slot and per parameter and result word.
+func wordHasPtr(layouts LayoutTable, t int, w int) bool {
+	let lo = int(layouts.PtrWordLo[t])
+	let hi = int(layouts.PtrWordHi[t])
+	for i in lo..hi {
+		if int(layouts.PtrWords[i]) == w {
+			return true
+		}
+	}
+	false
+}
+
+func wantEntryArgBits(layouts LayoutTable, plan FuncAbiPlan, params []int) []bool {
+	let mut bits = slices.Repeat[bool]([]bool{false}, plan.ArgBits)
+	for k, pt in params {
+		if plan.ParamIsReg[k] {
+			let r0 = plan.ParamRegStart[k]
+			let plo = int(layouts.PieceLo[pt])
+			let phi = int(layouts.PieceHi[pt])
+			for j in plo..phi {
+				if layouts.Pieces[j].IsPtr {
+					let b = plan.StackEnd/8 + r0 + (j - plo)
+					if b < bits.Len() {
+						bits[b] = true
+					}
+				}
+			}
+		} else {
+			let baseWord = plan.ParamStackOff[k] / 8
+			let wlo = int(layouts.PtrWordLo[pt])
+			let whi = int(layouts.PtrWordHi[pt])
+			for wi in wlo..whi {
+				let b = baseWord + int(layouts.PtrWords[wi])
+				if b < bits.Len() {
+					bits[b] = true
+				}
+			}
+		}
+	}
+	bits
+}
+
+// CheckLiveSlots verifies entry arg bitmaps and call-site locals pointer bitmaps.
 func CheckLiveSlots(p Package, d Decoded) []string {
 	let mut out = []string{}
 	let views = funcViews(p, d) catch {
 	case Bad as b:
 		return []string{b.Why}
 	}
+	let layouts = ComputeLayouts(p)
 	for i, f in p.Funcs {
 		let v = views[i]
 		let size = frameOf(v)
-		let calls = callOps(f)
-		let nargs = f.Params.Len() + f.Results.Len()
-		if v.Args != 8*nargs || v.ArgBits != nargs {
-			out = out.Append("\(f.Name): args size \(v.Args) and \(v.ArgBits) arg bits for \(nargs) words")
+		let calls = safeCallOps(p, f)
+		let ncolds = coldOpsCount(f)
+		let plan = PlanSigABI(layouts, f.Params, f.Results, f.Slots)
+		if v.Args != plan.ArgsBytes || v.ArgBits != plan.ArgBits {
+			out = out.Append("\(f.Name): args size \(v.Args) and \(v.ArgBits) arg bits for \(plan.ArgsBytes) bytes")
 		}
-		if size > 0 && v.LocBits != f.Slots.Len() {
-			out = out.Append("\(f.Name): \(v.LocBits) locals bits for \(f.Slots.Len()) slots")
+		if size > 0 && v.LocBits != plan.TotalSlotWords {
+			out = out.Append("\(f.Name): \(v.LocBits) locals bits for \(plan.TotalSlotWords) slot words")
 		}
-		if v.Locals.Len() != calls.Len()+1 || v.ArgMaps.Len() != calls.Len()+1 {
+		let wantMaps = calls.Len() + 1 + ncolds
+		if v.Locals.Len() != wantMaps || v.ArgMaps.Len() != wantMaps {
 			continue
 		}
-		for k, t in f.Params {
-			if v.ArgMaps[0][k] != IsPointer(p, t) {
+		let wantEntry = wantEntryArgBits(layouts, plan, f.Params)
+		for k in 0..plan.ArgBits {
+			if v.ArgMaps[0][k] != wantEntry[k] {
 				out = out.Append("\(f.Name): entry args bit \(k) wrong")
 			}
 		}
 		for m in 0..calls.Len()+1 {
 			let want = if m == 0 { []int{} } else { ModelAcross(p, f, calls[m-1]) }
 			for j in 0..f.Slots.Len() {
-				// Slot j's word is at varp-8*(nbit-b): b = nbit - (varp-off)/8.
-				let b = v.LocBits - (size-8-slotDisp(size, j))/8
-				if b < 0 || b >= v.Locals[m].Len() {
-					out = out.Append("\(f.Name): slot \(j) has no bit")
-				} else if v.Locals[m][b] != has(want, j) {
-					out = out.Append("\(f.Name): map \(m) slot \(j) is \(v.Locals[m][b]), the model says \(has(want, j))")
+				let st = f.Slots[j]
+				for w in 0..plan.SlotWordCount[j] {
+					let b = plan.TotalSlotWords - (plan.SlotWordStart[j] + plan.SlotWordCount[j]) + w
+					let wantBit = has(want, j) && wordHasPtr(layouts, st, w)
+					if b < 0 || b >= v.Locals[m].Len() {
+						out = out.Append("\(f.Name): slot \(j) word \(w) has no bit")
+					} else if v.Locals[m][b] != wantBit {
+						out = out.Append("\(f.Name): map \(m) slot \(j) word \(w) wrong")
+					}
 				}
 			}
 			if m > 0 {
 				for k in 0..v.ArgMaps[m].Len() {
 					if v.ArgMaps[m][k] {
-						out = out.Append("\(f.Name): map \(m) marks arg word \(k), which no code reads after entry")
+						out = out.Append("\(f.Name): map \(m) marks arg word \(k)")
 					}
 				}
 			}
@@ -474,29 +671,37 @@ func CheckLiveSlots(p Package, d Decoded) []string {
 	out
 }
 
-func storePtrs(f Func) int {
+func ptrWordCount(layouts LayoutTable, t int) int {
+	int(layouts.PtrWordHi[t] - layouts.PtrWordLo[t])
+}
+
+func expectedBarrierCount(p Package, layouts LayoutTable, f Func) int {
 	let mut n = 0
 	for op in f.Ops {
 		match op {
-		case StorePtr:
-			n = n + 1
+		case StorePtr as s:
+			n = n + ptrWordCount(layouts, p.Types[f.Slots[s.Ptr]].Elem)
+		case FieldSet as s:
+			let st = p.Types[f.Slots[s.Ptr]].Elem
+			let ft = p.Types[st].Fields[s.Field].Type
+			n = n + ptrWordCount(layouts, ft)
+		case SliceLit as sl:
+			let elem = p.Types[f.Slots[sl.Dst]].Elem
+			n = n + sl.Elems.Len()*ptrWordCount(layouts, elem)
 		case _:
 		}
 	}
 	n
 }
 
-// CheckBarriers: every pointer store of the input is preceded by the
-// write barrier: CMPL runtime.writeBarrier(SB), $0; JEQ to the store;
-// CALL runtime.gcWriteBarrier2; the new value and the old one into the
-// buffer at 0(R11) and 8(R11); and the whole sequence, store included, is
-// one unsafe span, so no GC phase change falls between test and store.
+// CheckBarriers checks write barriers on every heap pointer-word write.
 func CheckBarriers(p Package, d Decoded) []string {
 	let mut out = []string{}
 	let views = funcViews(p, d) catch {
 	case Bad as b:
 		return []string{b.Why}
 	}
+	let layouts = ComputeLayouts(p)
 	for i, f in p.Funcs {
 		let v = views[i]
 		let ins = v.Ins
@@ -521,8 +726,10 @@ func CheckBarriers(p Package, d Decoded) []string {
 			}
 			let store = ins[q+4]
 			let lands = jeq.Op == 0x0F84 && jeq.Pc+jeq.Size+jeq.Imm == store.Pc
-			let buf = isMov(ins[q+1], 0x89, RSI, R11, 0) && isMov(ins[q+2], 0x8B, R12, RDI, 0) && isMov(ins[q+3], 0x89, R12, R11, 8)
-			if !(ok && flag && lands && buf && isMov(store, 0x89, RSI, RDI, 0)) {
+			let oldLoad = ins[q+2]
+			let disp = oldLoad.Disp
+			let buf = isMov(ins[q+1], 0x89, RSI, R11, 0) && isMov(oldLoad, 0x8B, R12, RDI, disp) && disp >= 0 && isMov(ins[q+3], 0x89, R12, R11, 8)
+			if !(ok && flag && lands && buf && isMov(store, 0x89, RSI, RDI, disp)) {
 				out = out.Append("\(f.Name): barrier \(n) is not the flag test, the buffered pair and the store")
 			}
 			for k in q-2..q+5 {
@@ -531,8 +738,9 @@ func CheckBarriers(p Package, d Decoded) []string {
 				}
 			}
 		}
-		if n != storePtrs(f) {
-			out = out.Append("\(f.Name): \(n) barriers for \(storePtrs(f)) pointer stores")
+		let wantN = expectedBarrierCount(p, layouts, f)
+		if n != wantN {
+			out = out.Append("\(f.Name): \(n) barriers for \(wantN) pointer word writes")
 		}
 	}
 	out
@@ -547,34 +755,93 @@ func wantRef(o DObj, name string, abi int) bool {
 	true
 }
 
-// CheckRelocs: each call relocation patches the 4 bytes after its CALL
-// and names, in code order, what the input calls there (or the runtime's
-// barrier and morestack); each RIP-relative access names the variable
-// its op reads or writes, the barrier flag's test with addend -1; no
-// relocation is left over; and the runtime and foreign references carry
-// the ABI their definitions have.
+func internCheckStr(strs mut []string, s string) int {
+	for i, x in *strs {
+		if x == s {
+			return i
+		}
+	}
+	let i = (*strs).Len()
+	*strs = (*strs).Append(s)
+	i
+}
+
+func appendBarrierRelocs(want mut []string, count int) {
+	for _ in 0..count {
+		*want = (*want).Append(WriteBarrierFlag)
+		*want = (*want).Append(GCWriteBarrier2)
+	}
+}
+
+// CheckRelocs verifies all PC-relative, call, and external symbol ABIs plus file pc-table indices.
 func CheckRelocs(p Package, d Decoded) []string {
 	let mut out = []string{}
 	let views = funcViews(p, d) catch {
 	case Bad as b:
 		return []string{b.Why}
 	}
+	let layouts = ComputeLayouts(p)
+	let mut strs = CollectStrs(p)
 	for i, f in p.Funcs {
 		let v = views[i]
+		if v.File != f.File {
+			out = out.Append("\(f.Name): FuncInfo file \(v.File) != \(f.File)")
+		}
+		if v.Code.Len() > 0 && ValueAt(v.Pcfile, 0) != f.File {
+			out = out.Append("\(f.Name): Pcfile entry \(ValueAt(v.Pcfile, 0)) != \(f.File)")
+		}
 		let mut want = []string{}
+		let mut wantCold = []string{}
 		for op in f.Ops {
 			match op {
+			case ConstStr as c:
+				if c.V != "" {
+					let sid = internCheckStr(&strs, c.V)
+					want = want.Append(StrLiteralSym(p, sid))
+				}
+			case Arith as a:
+				if a.Kind == AAdd && p.Types[f.Slots[a.Dst]].Kind == KString {
+					want = want.Append(RuntimeConcatstring2)
+				} else if a.Kind == ADiv || a.Kind == ARem {
+					wantCold = wantCold.Append(RuntimePanicDivide)
+				}
 			case Call as c:
 				want = want.Append(c.Target)
-			case StorePtr:
-				want = want.Append(WriteBarrierFlag)
-				want = want.Append(GCWriteBarrier2)
+			case StorePtr as s:
+				appendBarrierRelocs(&want, ptrWordCount(layouts, p.Types[f.Slots[s.Ptr]].Elem))
+			case FieldSet as s:
+				let st = p.Types[f.Slots[s.Ptr]].Elem
+				let ft = p.Types[st].Fields[s.Field].Type
+				appendBarrierRelocs(&want, ptrWordCount(layouts, ft))
+			case Index as ix:
+				let idxSigned = KindIsSigned(p.Types[f.Slots[ix.Idx]].Kind)
+				wantCold = wantCold.Append(if idxSigned { RuntimePanicIndex } else { RuntimePanicIndexU })
+			case SliceLit as sl:
+				if sl.Elems.Len() == 0 {
+					want = want.Append(RuntimeZerobase)
+				} else {
+					let elem = p.Types[f.Slots[sl.Dst]].Elem
+					want = want.Append(TypeDescSym(p, elem))
+					want = want.Append(RuntimeMakeslice)
+					appendBarrierRelocs(&want, sl.Elems.Len()*ptrWordCount(layouts, elem))
+				}
+			case JumpIf as j:
+				if p.Types[f.Slots[j.A]].Kind == KString {
+					if j.Cond == CEq || j.Cond == CNe {
+						want = want.Append(RuntimeMemequal)
+					} else {
+						want = want.Append(RuntimeCmpstring)
+					}
+				}
 			case GetGlobal as g:
 				want = want.Append(p.Path + "." + p.Globals[g.Global].Name)
 			case SetGlobal as g:
 				want = want.Append(p.Path + "." + p.Globals[g.Global].Name)
 			case _:
 			}
+		}
+		for cs in wantCold {
+			want = want.Append(cs)
 		}
 		if frameOf(v) > 0 {
 			want = want.Append(MorestackNoctxt)
@@ -609,7 +876,11 @@ func CheckRelocs(p Package, d Decoded) []string {
 		}
 	}
 	let o = d.Obj
-	if !wantRef(o, MorestackNoctxt, ABI0) || !wantRef(o, WriteBarrierFlag, ABI0) || !wantRef(o, GCWriteBarrier2, ABIInternal) {
+	if !wantRef(o, MorestackNoctxt, ABI0) || !wantRef(o, WriteBarrierFlag, ABI0) || !wantRef(o, GCWriteBarrier2, ABIInternal) ||
+		!wantRef(o, RuntimeMakeslice, ABIInternal) || !wantRef(o, RuntimeConcatstring2, ABIInternal) ||
+		!wantRef(o, RuntimeCmpstring, ABIInternal) || !wantRef(o, RuntimeMemequal, ABIInternal) ||
+		!wantRef(o, RuntimePanicIndex, ABIInternal) || !wantRef(o, RuntimePanicIndexU, ABIInternal) ||
+		!wantRef(o, RuntimePanicDivide, ABIInternal) || !wantRef(o, RuntimeZerobase, ABI0) {
 		out = out.Append("a runtime reference carries the wrong ABI")
 	}
 	for f in p.Funcs {
@@ -626,11 +897,7 @@ func CheckRelocs(p Package, d Decoded) []string {
 	out
 }
 
-// CheckInitTask: the package's inittask exists exactly when it has init
-// functions, holds state 0, their count and one address per init function
-// (each a distinct init definition flagged as a package init), orders
-// every imported package with an init before it, and no other definition
-// is flagged as a package init.
+// CheckInitTask verifies package inittask data, relocations, and init ordering.
 func CheckInitTask(p Package, d Decoded) []string {
 	let mut out = []string{}
 	let o = d.Obj
@@ -695,17 +962,15 @@ func CheckInitTask(p Package, d Decoded) []string {
 	out
 }
 
-// Verify decodes ar and runs every check against p and the stock header
-// line, returning every broken relation.
+// Verify decodes ar and runs every check against p and header.
 func Verify(p Package, header string, ar string) []string {
 	let d = Decode(ar) catch {
 	case Bad as b:
 		return []string{"undecodable: " + b.Why}
 	}
-	CheckMembers(d, header).Concat(CheckFingerprints(p, d)).Concat(CheckExports(p, d)).Concat(CheckSafePoints(p, d)).Concat(CheckLiveSlots(p, d)).Concat(CheckBarriers(p, d)).Concat(CheckRelocs(p, d)).Concat(CheckInitTask(p, d))
+	CheckMembers(PkgFiles(p), d, header).Concat(CheckFingerprints(p, d)).Concat(CheckExports(p, d)).Concat(CheckSafePoints(p, d)).Concat(CheckLiveSlots(p, d)).Concat(CheckBarriers(p, d)).Concat(CheckRelocs(p, d)).Concat(CheckInitTask(p, d))
 }
 
-// sample builds the fixture for drawn constants and decodes its archive.
 func sample(k1 int, k2 int) (Package, Decoded) fails Bad {
 	let p = Tiny(k1%1000000, k2%1000000, SampleDep())
 	let b = Archive(p, SampleHeader) catch {
@@ -720,11 +985,11 @@ func sample(k1 int, k2 int) (Package, Decoded) fails Bad {
 }
 
 law ArchiveMembers(k1 int, k2 int) {
-	let (_, d) = sample(k1, k2) catch {
+	let (p, d) = sample(k1, k2) catch {
 	case Bad:
 		return false
 	}
-	CheckMembers(d, SampleHeader).Len() == 0
+	CheckMembers(PkgFiles(p), d, SampleHeader).Len() == 0
 }
 
 law FingerprintsAgree(k1 int, k2 int) {
@@ -781,4 +1046,15 @@ law InitTaskOnce(k1 int, k2 int) {
 		return false
 	}
 	CheckInitTask(p, d).Len() == 0
+}
+
+// VerifyStop1 proves that multi-file Stop 1 packages with scalars, strings,
+// named structs, slices, field stores, and stack arguments pass all checks.
+law VerifyStop1(k int) {
+	let p = Stop1Sample(k, SampleDep())
+	let b = Archive(p, SampleHeader) catch {
+	case Refused, Malformed, Undefined:
+		return false
+	}
+	Verify(p, SampleHeader, b.Archive).Len() == 0
 }

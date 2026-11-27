@@ -204,6 +204,17 @@ type EventLogFilter {
 	Offset    int,
 }
 
+// EventLogSinceFilter queries operational event_log entries with ID strictly greater than SinceID in ascending order.
+type EventLogSinceFilter {
+	Repo    option.Option[string],
+	Run     option.Option[string],
+	Kind    option.Option[string],
+	UnitID  option.Option[string],
+	Actor   option.Option[string],
+	SinceID int,
+	Limit   int,
+}
+
 // RunOverview is the compact progressive-disclosure overview of one orchestration run.
 type RunOverview {
 	Repo            string,

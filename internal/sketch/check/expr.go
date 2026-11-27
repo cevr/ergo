@@ -483,6 +483,9 @@ func (c *checker) ident(x *syntax.Ident) operand {
 			c.errorf(x, CodeUnknown, "unknown name %s; the prelude function %s is reached only by the dot form, %s", x.Name, x.Name, opForm(f))
 			return bad(x)
 		}
+		if c.derive != nil && isRefusedDerivedName(c.derive, x.Name) {
+			return bad(x)
+		}
 		c.errorf(x, CodeUnknown, "unknown name %s", x.Name)
 		return bad(x)
 	}

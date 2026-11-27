@@ -4183,61 +4183,6 @@
         "internal/sketch/lower:TestStdSlicesLawsRun"
       ]
     },
-    {
-      "name": "rc4b-adapter-wrong-variant",
-      "origin": "wf10 RC4b",
-      "file": "internal/sketch/derive/bundle.go",
-      "from": "fmt.Fprintf(&b, \"if %s >= 0 { %s }\", open(v.Tag), value)",
-      "to": "fmt.Fprintf(&b, \"if %s < 0 { %s }\", open(v.Tag), value)",
-      "rule": "A derived union's parse gives the variant whose capture took part (patterns.md, Capture shapes 7; The pattern bundle 1).",
-      "killers": [
-        "internal/sketch/lower:TestPatternLoweringAgrees"
-      ]
-    },
-    {
-      "name": "rc4b-forced-engine-ignored",
-      "origin": "wf10 RC4b round 2",
-      "file": "internal/sketch/lower/pattern.go",
-      "from": "\t\t\tengine = regexpplan.Engine(patternLowering)\n",
-      "to": "\t\t\tengine = regexpplan.Direct\n",
-      "rule": "A forced table lowering emits the table form of every deterministic plan, so the agreement runs each engine (patterns.md, Lowering 6).",
-      "killers": [
-        "internal/sketch/lower:TestPatternLoweringAgrees"
-      ]
-    },
-    {
-      "name": "rc4b-nested-scope-not-reset",
-      "origin": "wf10 RC4b round 2",
-      "file": "internal/sketch/derive/bundle.go",
-      "from": "\t\t\t\tfmt.Fprintf(b, \"\\t\\t\\tl%d = []%s{}\\n\", g.Tag, elemType(g))\n",
-      "to": "\t\t\t\tfmt.Fprintf(b, \"\\t\\t\\tl%d = l%d\\n\", g.Tag, g.Tag)\n",
-      "rule": "Each occurrence of a repeated record starts its repeated inner captures again (patterns.md, Capture shapes 2 and 5).",
-      "killers": [
-        "internal/sketch/lower:TestPatternLoweringAgrees"
-      ]
-    },
-    {
-      "name": "rc4b-table-wrong-slot",
-      "origin": "wf10 RC4b round 2",
-      "file": "internal/sketch/regexpplan/emit.go",
-      "from": " k := (q*257+b)*4\n",
-      "to": " k := (q*257+(b^1))*4\n",
-      "rule": "The table engine reads the edge of the byte it is at; forced on every deterministic plan, it gives the reference's values (patterns.md, Lowering 1 and 6). Also killed by regexpplan:TestEmittedDriversAgree.",
-      "killers": [
-        "internal/sketch/lower:TestPatternLoweringAgrees"
-      ]
-    },
-    {
-      "name": "rc4b-parse-allocates",
-      "origin": "wf10 RC4b round 2",
-      "file": "internal/sketch/regexpplan/slots.go",
-      "from": " q := 0\n for pos := 0; ; pos++ {\n",
-      "to": " q := 0\n for pos := 0; ; pos++ {\n  if len(make([]int, len(s)+64)) == 0 {return r}\n",
-      "rule": "A fixed plan's direct or table parse allocates nothing, counted at run time (patterns.md, Lowering 3). Also killed by the static scan of regexpplan:TestSlotDriverAgrees.",
-      "killers": [
-        "internal/sketch/lower:TestPatternLoweringAgrees"
-      ]
-    },
     {"name":"owgen-handoff-operands-unspilled","origin":"OWGEN round 3 (wide seed 1450)","file":"internal/sketch/lower/expr.go","from":"\tfor i := len(list) - 1; i >= 0; i-- {\n\t\tlater[i] = later[i+1] || fc.emits(list[i]) || fc.handsOff(list[i])\n\t}\n\tparts := fc.partsFrom(list)\n\tout := make([]string, len(list))\n\tfor i, x := range list {\n\t\tif convert {","to":"\tfor i := len(list) - 1; i >= 0; i-- {\n\t\tlater[i] = later[i+1] || fc.emits(list[i])\n\t}\n\tparts := fc.partsFrom(list)\n\tout := make([]string, len(list))\n\tfor i, x := range list {\n\t\tif convert {","rule":"R43, R9: an operand that may panic runs before a later operand's hand-off of a moved local, as Ergo's left-to-right order says.","killers":["internal/sketch/lower:TestOwnershipGrammarRun"]},
     {"name":"owgen-handoff-args-unspilled","origin":"OWGEN round 3 (wide seed 1450)","file":"internal/sketch/lower/calls.go","from":"(fc.emits(list[i]) || fc.handsOff(list[i]))","to":"fc.emits(list[i])","rule":"R43, R9: an argument that may panic runs before a later argument's hand-off of a moved local.","killers":["internal/sketch/lower:TestOwnershipGrammarRun"]},
     {"name":"b18-inline-taken-param","origin":"batch-18 integration (OPT4 inliner x OWGEN grammar, seed 10)","file":"internal/sketch/lower/inline.go","from":"frame := l.bodyNeedsFrame(d.Body.List) || l.ownsParams(vars)","to":"frame := l.bodyNeedsFrame(d.Body.List)","rule":"A function that takes a resource parameter keeps its owner frame (emitBody's needsFrame); an inlined body would name an owner the call site has not.","killers":["internal/sketch/lower:TestOwnershipGrammarRun"]},
@@ -6603,19 +6548,19 @@
     {"name":"late-take-in-loop","origin":"wf10 OWN1 OWN-BIND","file":"internal/sketch/lower/fieldflow.go","from":"vv.frame != w.root || len(o.loops) > 0 || !w.letValue(o) {","to":"vv.frame != w.root || !w.letValue(o) {","rule":"A take in a loop runs again before the update: loopTake's best is copied.","killers":["internal/sketch/lower:TestValueRuleElides"]},
     {"name":"ui-edge-no-frames","origin":"wf10 EDGE-SCROLL-MODEL","file":"internal/sketch/std/ui/testhost.ergo","from":"(Animating(&h.session.frame) || edgeMoves(h) || tracksMoving(h)) && left","to":"(Animating(&h.session.frame) || tracksMoving(h)) && left","rule":"Advance runs frames while a held pointer edge-scrolls a list (H5g)","killers":["internal/sketch/lower:TestUIHostModel"]},
     {"name":"ui-edge-stale-y","origin":"wf10 EDGE-SCROLL-MODEL","file":"internal/sketch/std/ui/testhost.ergo","from":"\th.heldY = p.Y\n","to":"\n","rule":"the edge scroll reads the held pointer's last y","killers":["internal/sketch/lower:TestUIHostModel"]},
-    {"name":"uc2-never-paints","origin":"wf10 UC2","file":"internal/sketch/std/ansi/ansi.ergo","from":"func On(_ Never) bool { false }","to":"func On(_ Never) bool { true }","rule":"with colour off nothing is painted (NO_COLOR, a pipe)","killers":["internal/sketch/lower:TestStdAnsiLawsRun"]},
-    {"name":"uc2-bright-offset","origin":"wf10 UC2","file":"internal/sketch/std/ansi/ansi.ergo","from":"base + 60 + n - 8","to":"base + 60 + n","rule":"bright basic colours 8-15 are SGR 90-97 and 100-107","killers":["internal/sketch/lower:TestStdAnsiLawsRun"]},
-    {"name":"uc2-indexed-unclamped","origin":"wf10 UC2","file":"internal/sketch/std/ansi/ansi.ergo","from":"writeInt(b, clamp(x.N, 255))","to":"writeInt(b, x.N)","rule":"an indexed colour is held to 0-255","killers":["internal/sketch/lower:TestStdAnsiLawsRun"]},
-    {"name":"uc2-rgb-blue-unclamped","origin":"wf10 UC2","file":"internal/sketch/std/ansi/ansi.ergo","from":"writeInt(b, clamp(x.B, 255))","to":"writeInt(b, x.B)","rule":"each RGB part is held to 0-255","killers":["internal/sketch/lower:TestStdAnsiLawsRun"]},
-    {"name":"uc2-reset-dropped","origin":"wf10 UC2","file":"internal/sketch/std/ansi/ansi.ergo","from":"\tb.WriteString(Reset)\n\tb.String()","to":"\tb.String()","rule":"a painted text ends with the reset, so its style does not run on","killers":["internal/sketch/lower:TestStdAnsiLawsRun"]},
-    {"name":"uc2-no-color-empty-off","origin":"wf10 UC2","file":"internal/sketch/std/ansi/ansi.ergo","from":"\t\tv.Value != \"\"","to":"\t\tv.Value != \"\" || v.Value == \"\"","rule":"an empty NO_COLOR leaves colour on (no-color.org)","killers":["internal/sketch/lower:TestStdAnsiLawsRun"]},
-    {"name":"uc2-dumb-ignored","origin":"wf10 UC2","file":"internal/sketch/std/ansi/ansi.ergo","from":"\t\tv.Value == \"dumb\"","to":"\t\tv.Value == \"dumb\" && false","rule":"TERM=dumb turns colour off","killers":["internal/sketch/lower:TestStdAnsiLawsRun"]},
-    {"name":"uc2-dim-code","origin":"wf10 UC2","file":"internal/sketch/std/ansi/ansi.ergo","from":"(s.Dim, 2)","to":"(s.Dim, 22)","rule":"dim is SGR 2","killers":["internal/sketch/lower:TestStdAnsiLawsRun"]},
-    {"name":"uc2-plain-sgr","origin":"wf10 UC2","file":"internal/sketch/std/ansi/ansi.ergo","from":"\tif s == Plain {\n\t\treturn \"\"","to":"\tif false {\n\t\treturn \"\"","rule":"Plain has no codes","killers":["internal/sketch/lower:TestStdAnsiLawsRun"]},
-    {"name":"uc2-strip-two-byte","origin":"wf10 UC2","file":"internal/sketch/std/ansi/ansi.ergo","from":"\t\treturn len(s)\n\t}\n\t2\n}","to":"\t\treturn len(s)\n\t}\n\t1\n}","rule":"Strip takes ESC and the byte after it","killers":["internal/sketch/lower:TestStdAnsiLawsRun"]},
-    {"name":"uc2-strip-osc-bel","origin":"wf10 UC2","file":"internal/sketch/std/ansi/ansi.ergo","from":"if s[i] == 0x07 {","to":"if false {","rule":"an OSC ends at BEL","killers":["internal/sketch/lower:TestStdAnsiLawsRun"]},
-    {"name":"uc2-strip-csi-final","origin":"wf10 UC2","file":"internal/sketch/std/ansi/ansi.ergo","from":"if s[i] >= 0x40 && s[i] <= 0x7e {","to":"if s[i] >= 0x41 && s[i] <= 0x7e {","rule":"a CSI ends at its first byte in 0x40-0x7e","killers":["internal/sketch/lower:TestStdAnsiLawsRun"]},
-    {"name":"uc2-write-int-digits","origin":"wf10 UC2","file":"internal/sketch/std/ansi/ansi.ergo","from":"\t\twriteInt(b, n/10)","to":"\t\tlet _ = n","rule":"SGR numbers are written in full decimal","killers":["internal/sketch/lower:TestStdAnsiLawsRun"]},
+    {"name":"uc2-never-paints","origin":"wf10 UC2","file":"internal/sketch/std/term/style.ergo","from":"func On(_ Never) bool { false }","to":"func On(_ Never) bool { true }","rule":"with colour off nothing is painted (NO_COLOR, a pipe)","killers":["internal/sketch/lower:TestTermLaws"]},
+    {"name":"uc2-bright-offset","origin":"wf10 UC2","file":"internal/sketch/std/term/style.ergo","from":"base + 60 + n - 8","to":"base + 60 + n","rule":"bright basic colours 8-15 are SGR 90-97 and 100-107","killers":["internal/sketch/lower:TestTermLaws"]},
+    {"name":"uc2-indexed-unclamped","origin":"wf10 UC2","file":"internal/sketch/std/term/style.ergo","from":"writeInt(b, clamp(x.N, 255))","to":"writeInt(b, x.N)","rule":"an indexed colour is held to 0-255","killers":["internal/sketch/lower:TestTermLaws"]},
+    {"name":"uc2-rgb-blue-unclamped","origin":"wf10 UC2","file":"internal/sketch/std/term/style.ergo","from":"writeInt(b, clamp(x.B, 255))","to":"writeInt(b, x.B)","rule":"each RGB part is held to 0-255","killers":["internal/sketch/lower:TestTermLaws"]},
+    {"name":"uc2-reset-dropped","origin":"wf10 UC2","file":"internal/sketch/std/term/style.ergo","from":"\tb.WriteString(Reset)\n\tb.String()","to":"\tb.String()","rule":"a painted text ends with the reset, so its style does not run on","killers":["internal/sketch/lower:TestTermLaws"]},
+    {"name":"uc2-no-color-empty-off","origin":"wf10 UC2","file":"internal/sketch/std/term/depth.ergo","from":"\t\ts.Value != \"\"","to":"\t\ts.Value != \"\" || s.Value == \"\"","rule":"an empty NO_COLOR leaves colour on (no-color.org)","killers":["internal/sketch/lower:TestTermLaws"]},
+    {"name":"uc2-dumb-ignored","origin":"wf10 UC2","file":"internal/sketch/std/term/depth.ergo","from":"\tif tm == \"\" || tm == \"dumb\" {","to":"\tif tm == \"\" {","rule":"TERM=dumb turns colour off","killers":["internal/sketch/lower:TestTermLaws"]},
+    {"name":"uc2-dim-code","origin":"wf10 UC2","file":"internal/sketch/std/term/style.ergo","from":"(s.Dim, 2)","to":"(s.Dim, 22)","rule":"dim is SGR 2","killers":["internal/sketch/lower:TestTermLaws"]},
+    {"name":"uc2-plain-sgr","origin":"wf10 UC2","file":"internal/sketch/std/term/style.ergo","from":"\tif s == Plain {\n\t\treturn \"\"","to":"\tif false {\n\t\treturn \"\"","rule":"Plain has no codes","killers":["internal/sketch/lower:TestTermLaws"]},
+    {"name":"uc2-strip-two-byte","origin":"wf10 UC2","file":"internal/sketch/std/term/style.ergo","from":"\t\treturn s.Len()\n\t}\n\t2\n}","to":"\t\treturn s.Len()\n\t}\n\t1\n}","rule":"Strip takes ESC and the byte after it","killers":["internal/sketch/lower:TestTermLaws"]},
+    {"name":"uc2-strip-osc-bel","origin":"wf10 UC2","file":"internal/sketch/std/term/style.ergo","from":"if s[i] == 0x07 {","to":"if false {","rule":"an OSC ends at BEL","killers":["internal/sketch/lower:TestTermLaws"]},
+    {"name":"uc2-strip-csi-final","origin":"wf10 UC2","file":"internal/sketch/std/term/style.ergo","from":"if s[i] >= 0x40 && s[i] <= 0x7e {","to":"if s[i] >= 0x41 && s[i] <= 0x7e {","rule":"a CSI ends at its first byte in 0x40-0x7e","killers":["internal/sketch/lower:TestTermLaws"]},
+    {"name":"uc2-write-int-digits","origin":"wf10 UC2","file":"internal/sketch/std/term/style.ergo","from":"\t\twriteInt(b, n/10)","to":"\t\tlet _ = n","rule":"SGR numbers are written in full decimal","killers":["internal/sketch/lower:TestTermLaws"]},
     {"name":"uc1-escape-alone-waits","origin":"wf10 UC1","file":"internal/sketch/std/term/keys.ergo","from":"\tif len(b) == 1 {\n\t\treturn 1\n\t}","to":"\tif len(b) == 1 {\n\t\treturn if end { 1 } else { -1 }\n\t}","rule":"an ESC that ends the bytes read is the Escape key (a terminal writes a key in one write)","killers":["internal/sketch/lower:TestTermLaws"]},
     {"name":"uc1-mods-alt-ctrl-swapped","origin":"wf10 UC1","file":"internal/sketch/std/term/keys.ergo","from":"Alt: b&2 != 0, Ctrl: b&4 != 0","to":"Alt: b&4 != 0, Ctrl: b&2 != 0","rule":"xterm's modifier parameter is 1 + Shift 1, Alt 2, Ctrl 4, Meta 8","killers":["internal/sketch/lower:TestTermLaws"]},
     {"name":"uc1-paste-cut-early","origin":"wf10 UC1","file":"internal/sketch/std/term/keys.ergo","from":"\t\t\treturn if end { len(b) } else { -1 }\n\t\t}\n\t\tfor i in 2","to":"\t\t\treturn len(b)\n\t\t}\n\t\tfor i in 2","rule":"a paste is one key, however many chunks it comes in","killers":["internal/sketch/lower:TestTermLaws"]},

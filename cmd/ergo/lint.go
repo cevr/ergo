@@ -19,7 +19,7 @@ import (
 	sourcefile "ergo.local/prototype/internal/source"
 )
 
-const lintHelp = "usage: ergo lint FILE|DIR|DIR/... [--preset P]... [--lint-config FILE] [--rules MANIFEST]... [--gate P] [--diff[=REV] [--purpose TEXT]] [--strict] [--json] [--target go]\n" +
+const lintHelp = "usage: ergo lint [PATH...] [--preset P]... [--lint-config FILE] [--rules MANIFEST]... [--gate P] [--diff[=REV] [--purpose TEXT]] [--strict] [--json]\n" +
 	"Runs the lint rules over checked source: the recommended preset, then the module's ergo.lint.json\n" +
 	"(beside ergo.mod: version, extends, rules), then each --preset in order. Presets: recommended (the rules\n" +
 	"with a published precision of at least 0.80), justifiers, strict, layout.\n" +

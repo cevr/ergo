@@ -1,4 +1,4 @@
-import ansi
+import term
 import slices
 import strings
 import text
@@ -18,16 +18,16 @@ func DefaultTheme() Theme { Theme{Columns: 80, Hyperlinks: false, Light: false} 
 
 let maxIndent = 128
 
-let sBold = "\x1b[1m"
-let sDim = "\x1b[2m"
-let sItalic = "\x1b[3m"
-let sUnder = "\x1b[4m"
-let sStrike = "\x1b[9m"
-let sReset = "\x1b[0m"
-let sBlue = "\x1b[34m"
-let sMagenta = "\x1b[35m"
-let sCyan = "\x1b[36m"
-let sGreen = "\x1b[32m"
+let sBold = term.SGR(term.Style{..term.Plain, Bold: true})
+let sDim = term.SGR(term.Style{..term.Plain, Dim: true})
+let sItalic = term.SGR(term.Style{..term.Plain, Italic: true})
+let sUnder = term.SGR(term.Style{..term.Plain, Underline: true})
+let sStrike = term.SGR(term.Style{..term.Plain, Strike: true})
+let sReset = term.Reset
+let sBlue = term.SGR(term.Style{..term.Plain, Fg: term.Blue})
+let sMagenta = term.SGR(term.Style{..term.Plain, Fg: term.Magenta})
+let sCyan = term.SGR(term.Style{..term.Plain, Fg: term.Cyan})
+let sGreen = term.SGR(term.Style{..term.Plain, Fg: term.Green})
 
 let spEm = 1
 let spStrong = 2
@@ -1110,11 +1110,11 @@ func exitANSI(w mut aw, i int) {
 // ToANSI is d drawn for a terminal of theme t, in Bun.markdown.ansi's
 // layout: styled headings with rules under the first two levels, bullets
 // and numbers, quote bars, boxed code and tables, and paragraphs wrapped
-// at t.Columns. With colour off (ansi.Colors) it is plain text with ASCII
+// at t.Columns. With colour off (term.Colors) it is plain text with ASCII
 // chrome and no escape byte. Escape and control bytes of the document
 // itself are never written.
-func ToANSI(d Doc, t Theme) string needs ansi.Colors {
-	let mut w = aw{d: d, colors: ansi.Colors.On(), light: t.Light, links: t.Hyperlinks, columns: if t.Columns < 0 { 0 } else { t.Columns }, out: MakeSlice[byte](d.text.Len() + d.text.Len()/2 + 16), hb: []byte{}, cb: []byte{}, ab: []byte{}, heading: 0, inCell: false, imageDepth: 0, col: 0, lastNL: true, blank: false, quotes: 0, listIndent: 0, sk: []int{}, sdata: []int{}, sindex: []int{}, sindent: []int{}, span: 0, linkDepth: 0, href: "", imgSrc: "", imgTitle: "", cells: []string{}, cellAlign: []int{}, rowStart: []int{}, rowHead: []bool{}, align: 0, tight: []bool{}}
+func ToANSI(d Doc, t Theme) string needs term.Colors {
+	let mut w = aw{d: d, colors: term.Colors.On(), light: t.Light, links: t.Hyperlinks, columns: if t.Columns < 0 { 0 } else { t.Columns }, out: MakeSlice[byte](d.text.Len() + d.text.Len()/2 + 16), hb: []byte{}, cb: []byte{}, ab: []byte{}, heading: 0, inCell: false, imageDepth: 0, col: 0, lastNL: true, blank: false, quotes: 0, listIndent: 0, sk: []int{}, sdata: []int{}, sindex: []int{}, sindent: []int{}, span: 0, linkDepth: 0, href: "", imgSrc: "", imgTitle: "", cells: []string{}, cellAlign: []int{}, rowStart: []int{}, rowHead: []bool{}, align: 0, tight: []bool{}}
 	let mut stack = []int{}
 	let n = d.kind.Len()
 	let mut i = 1
@@ -1162,9 +1162,9 @@ law ColoursOffHasNoEscape(seed int) {
 	let links = (seed/2)%2 == 0
 	let cols = if (seed/4)%2 == 0 { 80 } else { 0 }
 	let t = Theme{Columns: cols, Hyperlinks: links, Light: light}
-	let plain = with context { ansi.Colors: ansi.Never } { ToANSI(d, t) }
-	let styled = with context { ansi.Colors: ansi.Always } { ToANSI(d, t) }
-	let stripped = ansi.Strip(styled)
+	let plain = with context { term.Colors: term.Never } { ToANSI(d, t) }
+	let styled = with context { term.Colors: term.Always } { ToANSI(d, t) }
+	let stripped = term.Strip(styled)
 	let ok = strings.IndexByte(plain, 0x1b) < 0 &&
 		noControlBytes(plain) &&
 		strings.IndexByte(styled, 0x1b) >= 0 &&
@@ -1189,8 +1189,8 @@ law WrapFitsColumns(seed int, colsRaw int) {
 		return false
 	}
 	let t = Theme{Columns: cols, Hyperlinks: links, Light: seed%3 == 0}
-	let plain = with context { ansi.Colors: ansi.Never } { ToANSI(d, t) }
-	let styled = with context { ansi.Colors: ansi.Always } { ToANSI(d, t) }
+	let plain = with context { term.Colors: term.Never } { ToANSI(d, t) }
+	let styled = with context { term.Colors: term.Always } { ToANSI(d, t) }
 	let mut ok = true
 	for line in strings.Split(plain, "\n") {
 		if text.Cells(line) > cols {
@@ -1198,14 +1198,14 @@ law WrapFitsColumns(seed int, colsRaw int) {
 		}
 	}
 	for line in strings.Split(styled, "\n") {
-		if text.Cells(ansi.Strip(line)) > cols {
+		if text.Cells(term.Strip(line)) > cols {
 			ok = false
 		}
 	}
-	let unwrapped = with context { ansi.Colors: ansi.Never } {
+	let unwrapped = with context { term.Colors: term.Never } {
 		ToANSI(d, Theme{Columns: 0, Hyperlinks: false, Light: false})
 	}
-	let negCols = with context { ansi.Colors: ansi.Never } {
+	let negCols = with context { term.Colors: term.Never } {
 		ToANSI(d, Theme{Columns: -5, Hyperlinks: false, Light: false})
 	}
 	ok = ok && unwrapped == negCols

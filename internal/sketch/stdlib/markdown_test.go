@@ -197,11 +197,11 @@ func TestStdMarkdownSpec(t *testing.T) {
 	verifyMarkdownOutputs(t, exit.Stdout, all)
 }
 
-const markdownNativeTestSrc = `import ansi
-import html
+const markdownNativeTestSrc = `import html
 import markdown
 import option
 import strings
+import term
 import text
 
 test MarkdownNativeSuite {
@@ -233,7 +233,7 @@ test MarkdownNativeSuite {
 	assert strings.Contains(safeStr, "&lt;script&gt;")
 	assert strings.Contains(safeStr, "href=\"https://example.com\"")
 
-	let plain = with context { ansi.Colors: ansi.Never } {
+	let plain = with context { term.Colors: term.Never } {
 		markdown.ToANSI(d, markdown.DefaultTheme())
 	}
 	assert strings.IndexByte(plain, 0x1b) < 0
@@ -241,7 +241,7 @@ test MarkdownNativeSuite {
 	assert strings.Contains(plain, "===")
 	assert strings.Contains(plain, "[x]")
 
-	let styled = with context { ansi.Colors: ansi.Always } {
+	let styled = with context { term.Colors: term.Always } {
 		markdown.ToANSI(d, markdown.Theme{Columns: 40, Hyperlinks: true, Light: true})
 	}
 	assert strings.IndexByte(styled, 0x1b) >= 0
@@ -252,14 +252,14 @@ test MarkdownNativeSuite {
 
 	let hostile = "hello \x1b[31mworld\x01\x7f\n\n~~~\ncode\x1b]0;secret\x07\n~~~\n"
 	let hd = try markdown.Parse(hostile, markdown.CommonMark())
-	let hPlain = with context { ansi.Colors: ansi.Never } { markdown.ToANSI(hd, markdown.DefaultTheme()) }
-	let hStyled = with context { ansi.Colors: ansi.Always } { markdown.ToANSI(hd, markdown.DefaultTheme()) }
+	let hPlain = with context { term.Colors: term.Never } { markdown.ToANSI(hd, markdown.DefaultTheme()) }
+	let hStyled = with context { term.Colors: term.Always } { markdown.ToANSI(hd, markdown.DefaultTheme()) }
 	assert strings.IndexByte(hPlain, 0x1b) < 0 && strings.IndexByte(hPlain, 0x01) < 0 && strings.IndexByte(hPlain, 0x7f) < 0
 	assert !strings.Contains(hPlain, "secret")
-	assert !strings.Contains(ansi.Strip(hStyled), "secret")
+	assert !strings.Contains(term.Strip(hStyled), "secret")
 
-	let det = ansi.Decide(option.Some[string]{Value: "1"}, option.None, true)
-	let off = with context { ansi.Colors: det } { markdown.ToANSI(d, markdown.DefaultTheme()) }
+	let det = term.Decide(term.Env{NoColor: option.Some[string]{Value: "1"}, ForceColor: option.None, Term: option.Some[string]{Value: "xterm-256color"}, ColorTerm: option.None, Terminal: true})
+	let off = with context { term.Colors: det } { markdown.ToANSI(d, markdown.DefaultTheme()) }
 	assert off == plain
 
 	let cm = try markdown.HTML("| a | b |\n| - | - |\n| 1 | 2 |\n", markdown.CommonMark())

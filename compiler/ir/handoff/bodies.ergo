@@ -59,21 +59,198 @@ func call(p Image, b body, o op) bool {
 	true
 }
 
+func isIntBasic(p Image, t uint32) bool {
+	typeKind(p, t) == ir.HTBasic && BasicIsInt(word(p, ir.HTypes, int(t)-1, 1))
+}
+
+func isStringBasic(p Image, t uint32) bool {
+	typeKind(p, t) == ir.HTBasic && word(p, ir.HTypes, int(t)-1, 1) == HBasicString
+}
+
+func isBoolBasic(p Image, t uint32) bool {
+	typeKind(p, t) == ir.HTBasic && word(p, ir.HTypes, int(t)-1, 1) == HBasicBool
+}
+
+func unwrapNamedRecord(p Image, t uint32) uint32 {
+	let mut cur = t
+	if typeKind(p, cur) == ir.HTNamed {
+		cur = operand(p, word(p, ir.HTypes, int(cur)-1, 2), 0)
+	}
+	if typeKind(p, cur) == ir.HTRecord { cur } else { uint32(0) }
+}
+
+func unwrapRecordOrPtr(p Image, t uint32) uint32 {
+	if typeKind(p, t) == ir.HTPointer {
+		let elem = operand(p, word(p, ir.HTypes, int(t)-1, 2), 0)
+		return unwrapNamedRecord(p, elem)
+	}
+	unwrapNamedRecord(p, t)
+}
+
+func recordHasField(p Image, rec uint32, fsym uint32) bool {
+	if rec == 0 || !symKind(p, fsym, ir.HSField) {
+		return false
+	}
+	let i = int(rec) - 1
+	let lo = word(p, ir.HTypes, i, 2)
+	let n = word(p, ir.HTypes, i, 3)
+	for j in 0..int(n) {
+		if operand(p, lo, uint32(j)) == fsym {
+			return true
+		}
+	}
+	false
+}
+
+func validConst(p Image, t uint32, lo uint32, hi uint32) bool {
+	let k = typeKind(p, t)
+	if k != ir.HTBasic {
+		return lo == 0 && hi == 0
+	}
+	let aux = word(p, ir.HTypes, int(t)-1, 1)
+	if aux == HBasicBool {
+		return hi == 0 && lo <= 1
+	}
+	if aux == HBasicString {
+		return hi == 0 && (lo == 0 || ref(p, ir.HNames, lo))
+	}
+	if BasicIsInt(aux) {
+		return true
+	}
+	lo == 0 && hi == 0
+}
+
+func validConvert(p Image, dt uint32, st uint32) bool {
+	if dt == st && (isIntBasic(p, dt) || isBoolBasic(p, dt) || isStringBasic(p, dt)) {
+		return true
+	}
+	isIntBasic(p, dt) && isIntBasic(p, st)
+}
+
 // Checked refs first, then exact type identities for calls, results and
 // globals. These are shape checks, not a replacement for the source
 // checker or the backend's own capability and proof checks.
 func opValid(p Image, b body, o op) bool {
 	let k = o.k
 	if k == ir.HOConst {
-		return o.n == 3 && slot(b, arg(p, o, 0))
+		return o.n == 3 && slot(b, arg(p, o, 0)) && validConst(p, slotType(p, b, arg(p, o, 0)), arg(p, o, 1), arg(p, o, 2))
 	}
-	if k == ir.HOAdd || k == ir.HOSub || k == ir.HOMul || k == ir.HOXor {
-		return o.n == 3 && slot(b, arg(p, o, 0)) &&
-			matchesSlot(p, b, arg(p, o, 1), slotType(p, b, arg(p, o, 0))) &&
-			matchesSlot(p, b, arg(p, o, 2), slotType(p, b, arg(p, o, 0)))
+	if k == ir.HOAdd || k == ir.HOSub || k == ir.HOMul || k == ir.HOXor || k == HODiv || k == HORem || k == HOBitAnd || k == HOBitOr || k == HOBitAndNot {
+		if o.n != 3 || !slot(b, arg(p, o, 0)) {
+			return false
+		}
+		let t = slotType(p, b, arg(p, o, 0))
+		let okType = isIntBasic(p, t) || (k == ir.HOAdd && isStringBasic(p, t))
+		return okType && matchesSlot(p, b, arg(p, o, 1), t) && matchesSlot(p, b, arg(p, o, 2), t)
 	}
-	if k == ir.HOLoad || k == ir.HOStore || k == ir.HOAddrOf || k == ir.HOConvert {
-		return o.n == 2 && slot(b, arg(p, o, 0)) && slot(b, arg(p, o, 1))
+	if k == HOShl || k == HOShr {
+		if o.n != 3 || !slot(b, arg(p, o, 0)) || !slot(b, arg(p, o, 2)) {
+			return false
+		}
+		let t = slotType(p, b, arg(p, o, 0))
+		return isIntBasic(p, t) && matchesSlot(p, b, arg(p, o, 1), t) && isIntBasic(p, slotType(p, b, arg(p, o, 2)))
+	}
+	if k == ir.HOLoad {
+		if o.n != 2 || !slot(b, arg(p, o, 0)) || !slot(b, arg(p, o, 1)) {
+			return false
+		}
+		let pt = slotType(p, b, arg(p, o, 1))
+		return typeKind(p, pt) == ir.HTPointer && operand(p, word(p, ir.HTypes, int(pt)-1, 2), 0) == slotType(p, b, arg(p, o, 0))
+	}
+	if k == ir.HOStore {
+		if o.n != 2 || !slot(b, arg(p, o, 0)) || !slot(b, arg(p, o, 1)) {
+			return false
+		}
+		let pt = slotType(p, b, arg(p, o, 0))
+		return typeKind(p, pt) == ir.HTPointer && operand(p, word(p, ir.HTypes, int(pt)-1, 2), 0) == slotType(p, b, arg(p, o, 1))
+	}
+	if k == ir.HOAddrOf {
+		if o.n != 2 || !slot(b, arg(p, o, 0)) || !slot(b, arg(p, o, 1)) {
+			return false
+		}
+		let pt = slotType(p, b, arg(p, o, 0))
+		return typeKind(p, pt) == ir.HTPointer && operand(p, word(p, ir.HTypes, int(pt)-1, 2), 0) == slotType(p, b, arg(p, o, 1))
+	}
+	if k == ir.HOConvert {
+		return o.n == 2 && slot(b, arg(p, o, 0)) && slot(b, arg(p, o, 1)) &&
+			validConvert(p, slotType(p, b, arg(p, o, 0)), slotType(p, b, arg(p, o, 1)))
+	}
+	if k == HOLen {
+		if o.n != 2 || !slot(b, arg(p, o, 0)) || !slot(b, arg(p, o, 1)) {
+			return false
+		}
+		let dt = slotType(p, b, arg(p, o, 0))
+		let st = slotType(p, b, arg(p, o, 1))
+		return typeKind(p, dt) == ir.HTBasic && word(p, ir.HTypes, int(dt)-1, 1) == ir.HBasicInt &&
+			(isStringBasic(p, st) || typeKind(p, st) == ir.HTSlice)
+	}
+	if k == HOFieldGet {
+		if o.n != 3 || !slot(b, arg(p, o, 0)) || !slot(b, arg(p, o, 1)) {
+			return false
+		}
+		let rec = unwrapRecordOrPtr(p, slotType(p, b, arg(p, o, 1)))
+		let fsym = arg(p, o, 2)
+		return recordHasField(p, rec, fsym) && slotType(p, b, arg(p, o, 0)) == word(p, ir.HSymbols, int(fsym)-1, 3)
+	}
+	if k == HOFieldSet {
+		if o.n != 3 || !slot(b, arg(p, o, 0)) || !slot(b, arg(p, o, 2)) {
+			return false
+		}
+		let pt = slotType(p, b, arg(p, o, 0))
+		if typeKind(p, pt) != ir.HTPointer {
+			return false
+		}
+		let rec = unwrapNamedRecord(p, operand(p, word(p, ir.HTypes, int(pt)-1, 2), 0))
+		let fsym = arg(p, o, 1)
+		return recordHasField(p, rec, fsym) && slotType(p, b, arg(p, o, 2)) == word(p, ir.HSymbols, int(fsym)-1, 3)
+	}
+	if k == HORecordLit {
+		if o.n < 1 || !slot(b, arg(p, o, 0)) {
+			return false
+		}
+		let rec = unwrapNamedRecord(p, slotType(p, b, arg(p, o, 0)))
+		if rec == 0 {
+			return false
+		}
+		let lo = word(p, ir.HTypes, int(rec)-1, 2)
+		let nf = word(p, ir.HTypes, int(rec)-1, 3)
+		if o.n-1 != nf {
+			return false
+		}
+		for j in 0..int(nf) {
+			let fsym = operand(p, lo, uint32(j))
+			if !matchesSlot(p, b, arg(p, o, uint32(j+1)), word(p, ir.HSymbols, int(fsym)-1, 3)) {
+				return false
+			}
+		}
+		return true
+	}
+	if k == HOIndex {
+		if o.n != 3 || !slot(b, arg(p, o, 0)) || !slot(b, arg(p, o, 1)) || !slot(b, arg(p, o, 2)) {
+			return false
+		}
+		let st = slotType(p, b, arg(p, o, 1))
+		if typeKind(p, st) != ir.HTSlice {
+			return false
+		}
+		let elem = operand(p, word(p, ir.HTypes, int(st)-1, 2), 0)
+		return matchesSlot(p, b, arg(p, o, 0), elem) && isIntBasic(p, slotType(p, b, arg(p, o, 2)))
+	}
+	if k == HOSliceLit {
+		if o.n < 1 || !slot(b, arg(p, o, 0)) {
+			return false
+		}
+		let st = slotType(p, b, arg(p, o, 0))
+		if typeKind(p, st) != ir.HTSlice {
+			return false
+		}
+		let elem = operand(p, word(p, ir.HTypes, int(st)-1, 2), 0)
+		for j in 1..int(o.n) {
+			if !matchesSlot(p, b, arg(p, o, uint32(j)), elem) {
+				return false
+			}
+		}
+		return true
 	}
 	if k == ir.HOGetGlobal || k == ir.HOSetGlobal {
 		if o.n != 2 { return false }
@@ -89,9 +266,17 @@ func opValid(p Image, b body, o op) bool {
 		return o.n == 1 && arg(p, o, 0) > 0 && arg(p, o, 0) <= b.nops
 	}
 	if k == ir.HOBranch {
-		return o.n == 5 && arg(p, o, 0) >= ir.HCLess && arg(p, o, 0) <= ir.HCAtLeast &&
-			slot(b, arg(p, o, 1)) && matchesSlot(p, b, arg(p, o, 2), slotType(p, b, arg(p, o, 1))) &&
-			arg(p, o, 3) > 0 && arg(p, o, 3) <= b.nops && arg(p, o, 4) > 0 && arg(p, o, 4) <= b.nops
+		if o.n != 5 || arg(p, o, 0) < ir.HCLess || arg(p, o, 0) > ir.HCAtLeast ||
+			!slot(b, arg(p, o, 1)) || !matchesSlot(p, b, arg(p, o, 2), slotType(p, b, arg(p, o, 1))) ||
+			arg(p, o, 3) == 0 || arg(p, o, 3) > b.nops || arg(p, o, 4) == 0 || arg(p, o, 4) > b.nops {
+			return false
+		}
+		let c = arg(p, o, 0)
+		let t = slotType(p, b, arg(p, o, 1))
+		if isIntBasic(p, t) || isStringBasic(p, t) {
+			return true
+		}
+		return (c == ir.HCEqual || c == ir.HCNotEqual) && (isBoolBasic(p, t) || typeKind(p, t) == ir.HTPointer)
 	}
 	let (nparam, nresult) = signatureSize(p, b.sig)
 	if k != ir.HOReturn || o.n != nresult { return false }

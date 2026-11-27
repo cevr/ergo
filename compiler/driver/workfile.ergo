@@ -1,0 +1,378 @@
+import filepath
+import option
+import slices
+import strconv
+import strings
+
+// GenDecl describes a declared generator in ergo.work.
+type GenDecl {
+	Name    string,
+	Command []string,
+	Reads   []string,
+}
+
+// TaskDecl describes a declared task in ergo.work.
+type TaskDecl {
+	Name  string,
+	Steps []string,
+	After []string,
+	Env   []string,
+}
+
+// WorkFile describes a parsed ergo.work workspace manifest.
+type WorkFile {
+	Version int,
+	Skips   []string,
+	Gens    []GenDecl,
+	Tasks   []TaskDecl,
+}
+
+// ParseWorkFile parses and validates an ergo.work manifest.
+func ParseWorkFile(text string, file string) WorkFile fails ParseError {
+	let lines = strings.Split(text, "\n")
+	let mut version = 0
+	let mut hasVersion = false
+	let mut skips = []string{}
+	let mut gens = []GenDecl{}
+	let mut genIdx Map[string, uint32] = Map[string, uint32]{}
+	let mut genLines = []int{}
+	let mut tasks = []TaskDecl{}
+	let mut taskIdx Map[string, uint32] = Map[string, uint32]{}
+	let mut taskLines = []int{}
+
+	for idx in 0..lines.Len() {
+		let lineNo = idx + 1
+		let words = try lexWorkLine(lines[idx], file, lineNo)
+		if words.Len() == 0 {
+			continue
+		}
+		let head = words[0]
+		if !hasVersion {
+			if head != "version" || words.Len() != 2 {
+				return ParseError{File: file, Line: lineNo, Message: "first directive must be version 1, 2, or 3"}
+			}
+			let v = strconv.Atoi(words[1]) catch {
+			case strconv.Malformed, strconv.OutOfRange:
+				return ParseError{File: file, Line: lineNo, Message: "invalid version: " + words[1]}
+			}
+			if v < 1 || v > 3 {
+				return ParseError{File: file, Line: lineNo, Message: "unsupported ergo.work version: " + words[1]}
+			}
+			version = v
+			hasVersion = true
+			continue
+		}
+		if head == "version" {
+			return ParseError{File: file, Line: lineNo, Message: "duplicate version directive"}
+		} else if head == "skip" {
+			if words.Len() < 2 {
+				return ParseError{File: file, Line: lineNo, Message: "skip expects at least one path"}
+			}
+			for raw in words[1:words.Len()] {
+				let cleaned = filepath.Clean(raw)
+				if filepath.IsAbs(cleaned) || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+					return ParseError{File: file, Line: lineNo, Message: "skip path escapes workspace: " + raw}
+				}
+				if cleaned != "." {
+					skips = skips.Append(cleaned)
+				}
+			}
+		} else if head == "gen" {
+			if words.Len() < 3 {
+				return ParseError{File: file, Line: lineNo, Message: "gen expects name and command"}
+			}
+			let name = words[1]
+			if genIdx.Get(name) != option.None {
+				return ParseError{File: file, Line: lineNo, Message: "duplicate gen: " + name}
+			}
+			genIdx = genIdx.Put(name, uint32(gens.Len()))
+			gens = gens.Append(GenDecl{Name: name, Command: words[2:words.Len()], Reads: []string{}})
+			genLines = genLines.Append(lineNo)
+		} else if head == "reads" {
+			if words.Len() < 3 {
+				return ParseError{File: file, Line: lineNo, Message: "reads expects gen name and path"}
+			}
+			let name = words[1]
+			let gi = match genIdx.Get(name) {
+			case option.Some[uint32] as s:
+				int(s.Value)
+			case option.None:
+				return ParseError{File: file, Line: lineNo, Message: "reads names unknown gen: " + name}
+			}
+			let mut g = gens[gi]
+			for p in words[2:words.Len()] {
+				g.Reads = g.Reads.Append(filepath.Clean(p))
+			}
+			gens[gi] = g
+		} else if head == "task" {
+			if words.Len() < 3 {
+				return ParseError{File: file, Line: lineNo, Message: "task expects name and command"}
+			}
+			let name = words[1]
+			if taskIdx.Get(name) != option.None {
+				return ParseError{File: file, Line: lineNo, Message: "duplicate task: " + name}
+			}
+			taskIdx = taskIdx.Put(name, uint32(tasks.Len()))
+			tasks = tasks.Append(TaskDecl{Name: name, Steps: words[2:words.Len()], After: []string{}, Env: []string{}})
+			taskLines = taskLines.Append(lineNo)
+		} else if head == "after" {
+			if words.Len() < 3 {
+				return ParseError{File: file, Line: lineNo, Message: "after expects task name and dependencies"}
+			}
+			let name = words[1]
+			let ti = match taskIdx.Get(name) {
+			case option.Some[uint32] as s:
+				int(s.Value)
+			case option.None:
+				return ParseError{File: file, Line: lineNo, Message: "after names unknown task: " + name}
+			}
+			let mut t = tasks[ti]
+			for dep in words[2:words.Len()] {
+				t.After = t.After.Append(dep)
+			}
+			tasks[ti] = t
+		} else if head == "env" {
+			if words.Len() < 3 {
+				return ParseError{File: file, Line: lineNo, Message: "env expects task name and variables"}
+			}
+			let name = words[1]
+			let ti = match taskIdx.Get(name) {
+			case option.Some[uint32] as s:
+				int(s.Value)
+			case option.None:
+				return ParseError{File: file, Line: lineNo, Message: "env names unknown task: " + name}
+			}
+			let mut t = tasks[ti]
+			for ev in words[2:words.Len()] {
+				t.Env = t.Env.Append(ev)
+			}
+			tasks[ti] = t
+		} else {
+			return ParseError{File: file, Line: lineNo, Message: "unknown directive: " + head}
+		}
+	}
+	if !hasVersion {
+		return ParseError{File: file, Line: 1, Message: "missing version directive"}
+	}
+	try validateTaskEdges(tasks, taskIdx, taskLines, file)
+	WorkFile{Version: version, Skips: skips, Gens: gens, Tasks: tasks}
+}
+
+func validateTaskEdges(tasks []TaskDecl, taskIdx Map[string, uint32], taskLines []int, file string) fails ParseError {
+	let n = tasks.Len()
+	for i in 0..n {
+		for dep in tasks[i].After {
+			if taskIdx.Get(dep) == option.None {
+				return ParseError{File: file, Line: taskLines[i], Message: "after names unknown task: " + dep}
+			}
+		}
+	}
+	let mut color = []uint32{}
+	for _ in 0..n {
+		color = color.Append(uint32(0))
+	}
+	for i in 0..n {
+		if color[i] == uint32(0) {
+			try checkTaskDFS(i, tasks, taskIdx, taskLines, file, &color)
+		}
+	}
+}
+
+func checkTaskDFS(u int, tasks []TaskDecl, taskIdx Map[string, uint32], taskLines []int, file string, color mut []uint32) fails ParseError {
+	(*color)[u] = uint32(1)
+	for dep in tasks[u].After {
+		match taskIdx.Get(dep) {
+		case option.Some[uint32] as s:
+			let v = int(s.Value)
+			if (*color)[v] == uint32(1) {
+				return ParseError{File: file, Line: taskLines[u], Message: "task cycle through " + tasks[u].Name + " -> " + dep}
+			}
+			if (*color)[v] == uint32(0) {
+				try checkTaskDFS(v, tasks, taskIdx, taskLines, file, color)
+			}
+		case option.None:
+		}
+	}
+	(*color)[u] = uint32(2)
+}
+
+func lexWorkLine(line string, file string, lineNo int) []string fails ParseError {
+	let mut out = []string{}
+	let n = line.Len()
+	let mut i = 0
+	for i < n {
+		let c = line[i]
+		if c == 32 || c == 9 || c == 13 {
+			i = i + 1
+			continue
+		}
+		if i+1 < n && c == 47 && line[i+1] == 47 {
+			break
+		}
+		if c == 34 || c == 96 {
+			let quote = c
+			i = i + 1
+			let mut buf = ""
+			let mut closed = false
+			for i < n {
+				let ch = line[i]
+				if quote == 34 && ch == 92 && i+1 < n {
+					buf = buf + line.Slice(i+1, i+2)
+					i = i + 2
+					continue
+				}
+				if ch == quote {
+					closed = true
+					i = i + 1
+					break
+				}
+				buf = buf + line.Slice(i, i+1)
+				i = i + 1
+			}
+			if !closed {
+				return ParseError{File: file, Line: lineNo, Message: "unterminated string literal"}
+			}
+			out = out.Append(buf)
+			continue
+		}
+		let start = i
+		for i < n {
+			let ch = line[i]
+			if ch == 32 || ch == 9 || ch == 13 {
+				break
+			}
+			if i+1 < n && ch == 47 && line[i+1] == 47 {
+				break
+			}
+			i = i + 1
+		}
+		out = out.Append(line.Slice(start, i))
+	}
+	out
+}
+
+// FormatWorkFile renders wf in canonical ergo.work syntax.
+func FormatWorkFile(wf WorkFile) string {
+	let mut out = "version " + strconv.Itoa(wf.Version) + "\n"
+	for s in wf.Skips {
+		out = out + "skip " + s + "\n"
+	}
+	for g in wf.Gens {
+		out = out + "gen " + g.Name
+		for w in g.Command {
+			out = out + " " + w
+		}
+		out = out + "\n"
+		if g.Reads.Len() > 0 {
+			out = out + "reads " + g.Name
+			for r in g.Reads {
+				out = out + " " + r
+			}
+			out = out + "\n"
+		}
+	}
+	for t in wf.Tasks {
+		out = out + "task " + t.Name
+		for s in t.Steps {
+			out = out + " " + s
+		}
+		out = out + "\n"
+		if t.After.Len() > 0 {
+			out = out + "after " + t.Name
+			for a in t.After {
+				out = out + " " + a
+			}
+			out = out + "\n"
+		}
+		if t.Env.Len() > 0 {
+			out = out + "env " + t.Name
+			for ev in t.Env {
+				out = out + " " + ev
+			}
+			out = out + "\n"
+		}
+	}
+	out
+}
+
+// WorkSkipsPath reports whether relDir falls inside any directory listed in wf.Skips.
+func WorkSkipsPath(wf WorkFile, relDir string) bool {
+	let clean = filepath.Clean(relDir)
+	for s in wf.Skips {
+		if clean == s || strings.HasPrefix(clean, s+"/") {
+			return true
+		}
+	}
+	false
+}
+
+// WorkTaskNames lists declared task names, adding default gate if not overridden.
+func WorkTaskNames(wf WorkFile) []string {
+	let mut names = []string{}
+	let mut hasGate = false
+	for t in wf.Tasks {
+		names = names.Append(t.Name)
+		if t.Name == "gate" {
+			hasGate = true
+		}
+	}
+	if !hasGate {
+		names = names.Append("gate")
+	}
+	slices.Sort(names)
+}
+
+// WorkFileRoundtrip: any supported ergo.work version with safe skip paths roundtrips cleanly.
+law WorkFileRoundtrip(version int) {
+	let v = if version < 1 || version > 3 { 2 } else { version }
+	let wf = WorkFile{
+		Version: v,
+		Skips:   []string{"internal/sketch/std"},
+		Gens:    []GenDecl{
+			GenDecl{Name: "linked", Command: []string{"go", "run", "./scripts/linked"}, Reads: []string{"compiler"}},
+		},
+		Tasks: []TaskDecl{
+			TaskDecl{Name: "unit", Steps: []string{"ergo", "test", "./..."}, After: []string{}, Env: []string{"ERGO_FALLBACK"}},
+		},
+	}
+	let formatted = FormatWorkFile(wf)
+	let parsed = ParseWorkFile(formatted, "ergo.work") catch {
+	case ParseError:
+		return false
+	}
+	parsed.Version == v && parsed.Skips.Len() == 1 && parsed.Gens.Len() == 1 && parsed.Gens[0].Reads.Len() == 1 && parsed.Tasks.Len() == 1
+}
+
+test ParseWorkFileRepoAndCycleRejections {
+	let sample = "// workspace\nversion 2\nskip internal/sketch/std\ngen linked go run ./scripts/linked\nreads linked compiler internal/linked\ntask build ergo build ./...\ntask lint ergo lint ./...\nafter lint build\nenv lint CI\n"
+	let wf = ParseWorkFile(sample, "ergo.work") catch {
+	case ParseError:
+		assert false
+		return
+	}
+	assert wf.Version == 2
+	assert wf.Skips.Len() == 1 && wf.Skips[0] == "internal/sketch/std"
+	assert WorkSkipsPath(wf, "internal/sketch/std")
+	assert WorkSkipsPath(wf, "internal/sketch/std/io")
+	assert !WorkSkipsPath(wf, "internal/sketch/std2")
+	assert wf.Gens.Len() == 1 && wf.Gens[0].Reads.Len() == 2
+	assert wf.Tasks.Len() == 2 && wf.Tasks[1].After.Len() == 1
+
+	let cycle = ParseWorkFile("version 2\ntask a ergo fmt\ntask b ergo check\nafter a b\nafter b a\n", "ergo.work") catch {
+	case ParseError:
+		WorkFile{Version: 99, Skips: []string{}, Gens: []GenDecl{}, Tasks: []TaskDecl{}}
+	}
+	assert cycle.Version == 99
+
+	let badReads = ParseWorkFile("version 2\nreads ghost compiler\n", "ergo.work") catch {
+	case ParseError:
+		WorkFile{Version: 99, Skips: []string{}, Gens: []GenDecl{}, Tasks: []TaskDecl{}}
+	}
+	assert badReads.Version == 99
+
+	let escapeSkip = ParseWorkFile("version 2\nskip ../outside\n", "ergo.work") catch {
+	case ParseError:
+		WorkFile{Version: 99, Skips: []string{}, Gens: []GenDecl{}, Tasks: []TaskDecl{}}
+	}
+	assert escapeSkip.Version == 99
+}

@@ -1,16 +1,16 @@
 // Package screen draws the picker as ANSI text: a frame clears the screen,
 // writes a header, and writes each visible item, the one under the cursor
 // in reverse video. Lines end with CR LF, as a terminal in raw mode needs.
-// The codes are std ansi's; the cursor's line is reverse video whatever
+// The codes are std term's; the cursor's line is reverse video whatever
 // NO_COLOR says, since reverse is how the picker shows the cursor, not a
-// colour, so it writes ansi.SGR itself rather than ansi.Paint.
+// colour, so it writes term.SGR itself rather than term.Paint.
 
-import ansi
+import term
 import tui/picker
 import strings
 
-let clear = ansi.Home + ansi.ClearScreen
-let reverse = ansi.SGR(ansi.Style{..ansi.Plain, Reverse: true})
+let clear = term.CursorHome + term.ClearScreen
+let reverse = term.SGR(term.Style{..term.Plain, Reverse: true})
 
 // Frame is the screen of m.
 func Frame(m picker.Mode) string {
@@ -39,7 +39,7 @@ func Header(m picker.Mode) string {
 }
 
 // Marked is the line of the item under the cursor.
-func Marked(item string) string { reverse + "> " + item + ansi.Reset }
+func Marked(item string) string { reverse + "> " + item + term.Reset }
 
 // OneLineIsMarked: a frame marks exactly one line, the item under the
 // cursor, when an item is visible, and none otherwise; and it has one

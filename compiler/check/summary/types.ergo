@@ -1,0 +1,751 @@
+import compiler/check/store
+import compiler/check/types
+import dense
+import slices
+import strconv
+import strings
+
+// Canonical type node kinds stored in TypePool.
+let TypeNoValue = uint8(0)
+let TypeBasic = uint8(1)
+let TypeNamed = uint8(2)
+let TypeParam = uint8(3)
+let TypeSlice = uint8(4)
+let TypeArray = uint8(5)
+let TypeMap = uint8(6)
+let TypePointer = uint8(7)
+let TypeOwn = uint8(8)
+let TypeTuple = uint8(9)
+let TypeRow = uint8(10)
+let TypeRowValue = uint8(11)
+let TypeInstance = uint8(12)
+let TypeSig = uint8(13)
+let TypeEntry = uint8(14)
+let TypeWired = uint8(15)
+let TypeWiredNeeds = uint8(16)
+let TypeSelf = uint8(17)
+let TypeReapplied = uint8(18)
+
+// TypePool stores deduplicated canonical types across flat SoA uint32 columns.
+type TypePool {
+	// Kind holds one Type* discriminant per interned TypeID.
+	Kind []uint8,
+	// A and B hold kind-specific uint32 operands or Extra span bounds (start, length).
+	A []uint32,
+	B []uint32,
+	// Extra stores variable-length child IDs and scalar operands referenced by A..A+B.
+	Extra []uint32,
+	// Buckets stores an open-addressed hash table of TypeID+1 entries for structural interning.
+	Buckets []uint32,
+}
+
+// TypeOrigin resolves store.XRef values into canonical (ImportPath, NamePath) pairs.
+type TypeOrigin {
+	// SelfPath is the import path of the package owning the local Store.
+	SelfPath string,
+	// Deps holds frozen dependency stores indexed by Store import slots minus one.
+	Deps []store.Frozen,
+	// Ifaces holds dependency interfaces indexed by Store import slots minus one.
+	Ifaces []types.Iface,
+	// Foreign holds foreign type table entries referenced by ForeignBit origins.
+	Foreign []types.Foreign,
+}
+
+// NewTypePool creates an empty canonical TypePool.
+func NewTypePool() TypePool {
+	TypePool{
+		Kind:    []uint8{},
+		A:       []uint32{},
+		B:       []uint32{},
+		Extra:   []uint32{},
+		Buckets: makeTypeBuckets(32),
+	}
+}
+
+func makeTypeBuckets(n int) []uint32 {
+	let mut bs = slices.WithCapacity[uint32](n)
+	for i in 0..n {
+		let _ = i
+		bs = bs.Append(uint32(0))
+	}
+	bs
+}
+
+// TypeCount returns the number of interned canonical types in p.
+func TypeCount(p TypePool) int {
+	p.Kind.Len()
+}
+
+func typeSpanKindsExtra(k uint8) bool {
+	k == TypeTuple || k == TypeRow || k == TypeRowValue || k == TypeInstance || k == TypeSig || k == TypeSelf || k == TypeReapplied
+}
+
+func hashTypeKey(p TypePool, k uint8, a uint32, b uint32, ex []uint32) uint32 {
+	let mut h = (uint32(2166136261) ^ uint32(k)) * uint32(16777619)
+	if !typeSpanKindsExtra(k) {
+		h = (h ^ a) * uint32(16777619)
+		h = (h ^ b) * uint32(16777619)
+		return h
+	}
+	let _ = p
+	h = (h ^ uint32(ex.Len())) * uint32(16777619)
+	for i in 0..ex.Len() {
+		h = (h ^ ex[i]) * uint32(16777619)
+	}
+	h
+}
+
+func typeEntryEquals(p TypePool, id uint32, k uint8, a uint32, b uint32, ex []uint32) bool {
+	let i = int(id)
+	if p.Kind[i] != k {
+		return false
+	}
+	if !typeSpanKindsExtra(k) {
+		return p.A[i] == a && p.B[i] == b
+	}
+	let start = int(p.A[i])
+	let n = int(p.B[i])
+	if n != ex.Len() {
+		return false
+	}
+	for j in 0..n {
+		if p.Extra[start+j] != ex[j] {
+			return false
+		}
+	}
+	true
+}
+
+func internFixedType(p mut TypePool, k uint8, a uint32, b uint32) uint32 {
+	let empty = []uint32{}
+	if p.Buckets.Len() == 0 {
+		*p = NewTypePool()
+	}
+	if (p.Kind.Len()+1)*2 > p.Buckets.Len() {
+		rehashTypePool(p, p.Buckets.Len()*2)
+	}
+	let mask = uint32(p.Buckets.Len() - 1)
+	let mut slot = hashTypeKey(*p, k, a, b, empty) & mask
+	for {
+		let entry = p.Buckets[int(slot)]
+		if entry == uint32(0) {
+			let id = uint32(p.Kind.Len())
+			p.Kind = p.Kind.Append(k)
+			p.A = p.A.Append(a)
+			p.B = p.B.Append(b)
+			p.Buckets[int(slot)] = id + uint32(1)
+			return id
+		}
+		let id = entry - uint32(1)
+		if typeEntryEquals(*p, id, k, a, b, empty) {
+			return id
+		}
+		slot = (slot + uint32(1)) & mask
+	}
+}
+
+func internExtraType(p mut TypePool, k uint8, ex []uint32) uint32 {
+	if p.Buckets.Len() == 0 {
+		*p = NewTypePool()
+	}
+	if (p.Kind.Len()+1)*2 > p.Buckets.Len() {
+		rehashTypePool(p, p.Buckets.Len()*2)
+	}
+	let mask = uint32(p.Buckets.Len() - 1)
+	let mut slot = hashTypeKey(*p, k, uint32(0), uint32(0), ex) & mask
+	for {
+		let entry = p.Buckets[int(slot)]
+		if entry == uint32(0) {
+			let id = uint32(p.Kind.Len())
+			let start = uint32(p.Extra.Len())
+			let n = uint32(ex.Len())
+			for j in 0..ex.Len() {
+				p.Extra = p.Extra.Append(ex[j])
+			}
+			p.Kind = p.Kind.Append(k)
+			p.A = p.A.Append(start)
+			p.B = p.B.Append(n)
+			p.Buckets[int(slot)] = id + uint32(1)
+			return id
+		}
+		let id = entry - uint32(1)
+		if typeEntryEquals(*p, id, k, uint32(0), uint32(0), ex) {
+			return id
+		}
+		slot = (slot + uint32(1)) & mask
+	}
+}
+
+func rehashTypePool(p mut TypePool, capN int) {
+	let mut bs = makeTypeBuckets(capN)
+	let mask = uint32(capN - 1)
+	let n = p.Kind.Len()
+	for i in 0..n {
+		let k = p.Kind[i]
+		let a = p.A[i]
+		let b = p.B[i]
+		let ex = if typeSpanKindsExtra(k) { p.Extra[int(a) : int(a)+int(b)] } else { []uint32{} }
+		let mut slot = hashTypeKey(*p, k, a, b, ex) & mask
+		for bs[int(slot)] != uint32(0) {
+			slot = (slot + uint32(1)) & mask
+		}
+		bs[int(slot)] = uint32(i) + uint32(1)
+	}
+	p.Buckets = bs
+}
+
+// InternNoValue returns the canonical NoValue sentinel TypeID.
+func InternNoValue(p mut TypePool) uint32 {
+	internFixedType(p, TypeNoValue, uint32(0), uint32(0))
+}
+
+// InternBasic interns a basic built-in type code (matching store basic type indices).
+func InternBasic(p mut TypePool, basicCode uint32) uint32 {
+	internFixedType(p, TypeBasic, basicCode, uint32(0))
+}
+
+// InternNamed interns a named declared type identified canonically by (importPathSym, namePathSym).
+func InternNamed(p mut TypePool, importPathSym uint32, namePathSym uint32) uint32 {
+	internFixedType(p, TypeNamed, importPathSym, namePathSym)
+}
+
+// InternParam interns a positional type parameter index.
+func InternParam(p mut TypePool, paramIdx uint32, isRow bool) uint32 {
+	internFixedType(p, TypeParam, paramIdx, if isRow { uint32(1) } else { uint32(0) })
+}
+
+// InternSlice interns []elem.
+func InternSlice(p mut TypePool, elem uint32) uint32 {
+	internFixedType(p, TypeSlice, elem, uint32(0))
+}
+
+// InternArray interns [length]elem.
+func InternArray(p mut TypePool, elem uint32, length uint32) uint32 {
+	internFixedType(p, TypeArray, elem, length)
+}
+
+// InternMap interns Map[key, val].
+func InternMap(p mut TypePool, key uint32, val uint32) uint32 {
+	internFixedType(p, TypeMap, key, val)
+}
+
+// InternPointer interns *elem.
+func InternPointer(p mut TypePool, elem uint32) uint32 {
+	internFixedType(p, TypePointer, elem, uint32(0))
+}
+
+// InternOwn interns an owned wrapper around elem.
+func InternOwn(p mut TypePool, elem uint32) uint32 {
+	internFixedType(p, TypeOwn, elem, uint32(0))
+}
+
+// InternEntry interns an entry wrapper around sig.
+func InternEntry(p mut TypePool, sig uint32) uint32 {
+	internFixedType(p, TypeEntry, sig, uint32(0))
+}
+
+// InternWired interns wired[inner].
+func InternWired(p mut TypePool, inner uint32) uint32 {
+	internFixedType(p, TypeWired, inner, uint32(0))
+}
+
+// InternWiredNeeds interns a wired-needs wrapper around inner.
+func InternWiredNeeds(p mut TypePool, inner uint32) uint32 {
+	internFixedType(p, TypeWiredNeeds, inner, uint32(0))
+}
+
+// InternTuple interns (elts...) preserving tuple element order.
+func InternTuple(p mut TypePool, elts []uint32) uint32 {
+	internExtraType(p, TypeTuple, elts)
+}
+
+// InternRow interns a canonically sorted and deduplicated error or capability row.
+func InternRow(p mut TypePool, syms SymPool, elts []uint32) uint32 {
+	let sorted = sortAndDedupeTypes(*p, syms, elts)
+	internExtraType(p, TypeRow, sorted)
+}
+
+// InternRowValue interns a canonically sorted union/row value set.
+func InternRowValue(p mut TypePool, syms SymPool, elts []uint32) uint32 {
+	let sorted = sortAndDedupeTypes(*p, syms, elts)
+	internExtraType(p, TypeRowValue, sorted)
+}
+
+// InternInstance interns an instantiated generic declaration identified by (importPathSym, namePathSym) and args.
+func InternInstance(p mut TypePool, importPathSym uint32, namePathSym uint32, args []uint32) uint32 {
+	let mut ex = slices.WithCapacity[uint32](2 + args.Len())
+	ex = ex.Append(importPathSym)
+	ex = ex.Append(namePathSym)
+	for i in 0..args.Len() {
+		ex = ex.Append(args[i])
+	}
+	internExtraType(p, TypeInstance, ex)
+}
+
+// InternSig interns a function signature type from params, result, fails, needs, and defects flag.
+func InternSig(p mut TypePool, params []uint32, res uint32, failsType uint32, needsType uint32, defects bool) uint32 {
+	let np = uint32(params.Len())
+	let df = if defects { uint32(1) } else { uint32(0) }
+	let mut ex = slices.WithCapacity[uint32](5 + params.Len())
+	ex = ex.Append(np)
+	ex = ex.Append(df)
+	for i in 0..params.Len() {
+		ex = ex.Append(params[i])
+	}
+	ex = ex.Append(res)
+	ex = ex.Append(failsType)
+	ex = ex.Append(needsType)
+	internExtraType(p, TypeSig, ex)
+}
+
+// InternSelf interns a Self site reference with operands.
+func InternSelf(p mut TypePool, ops []uint32) uint32 {
+	internExtraType(p, TypeSelf, ops)
+}
+
+// InternReapplied interns a reapplied operation type with operands.
+func InternReapplied(p mut TypePool, ops []uint32) uint32 {
+	internExtraType(p, TypeReapplied, ops)
+}
+
+type keyedType { ID uint32, Key string }
+
+func copyCanonType(dst mut TypePool, dstSyms mut SymPool, src TypePool, srcSyms SymPool, id uint32) uint32 {
+	if id == NoIdx || int(id) >= TypeCount(src) {
+		return NoIdx
+	}
+	let i = int(id)
+	let k = src.Kind[i]
+	let a = src.A[i]
+	let b = src.B[i]
+	if k == TypeNoValue {
+		return InternNoValue(dst)
+	}
+	if k == TypeBasic {
+		return InternBasic(dst, a)
+	}
+	if k == TypeNamed {
+		return InternNamed(dst, InternSym(dstSyms, SymText(srcSyms, a)), InternSym(dstSyms, SymText(srcSyms, b)))
+	}
+	if k == TypeParam {
+		return InternParam(dst, a, b != uint32(0))
+	}
+	if k == TypeSlice {
+		return InternSlice(dst, copyCanonType(dst, dstSyms, src, srcSyms, a))
+	}
+	if k == TypeArray {
+		return InternArray(dst, copyCanonType(dst, dstSyms, src, srcSyms, a), b)
+	}
+	if k == TypeMap {
+		return InternMap(dst, copyCanonType(dst, dstSyms, src, srcSyms, a), copyCanonType(dst, dstSyms, src, srcSyms, b))
+	}
+	if k == TypePointer {
+		return InternPointer(dst, copyCanonType(dst, dstSyms, src, srcSyms, a))
+	}
+	if k == TypeOwn {
+		return InternOwn(dst, copyCanonType(dst, dstSyms, src, srcSyms, a))
+	}
+	if k == TypeEntry {
+		return InternEntry(dst, copyCanonType(dst, dstSyms, src, srcSyms, a))
+	}
+	if k == TypeWired {
+		return InternWired(dst, copyCanonType(dst, dstSyms, src, srcSyms, a))
+	}
+	if k == TypeWiredNeeds {
+		return InternWiredNeeds(dst, copyCanonType(dst, dstSyms, src, srcSyms, a))
+	}
+	copyCanonComposite(dst, dstSyms, src, srcSyms, k, id)
+}
+
+func copyCanonComposite(dst mut TypePool, dstSyms mut SymPool, src TypePool, srcSyms SymPool, k uint8, id uint32) uint32 {
+	let ops = TypeOperands(src, id)
+	if k == TypeInstance && ops.Len() >= 2 {
+		let ip = InternSym(dstSyms, SymText(srcSyms, ops[0]))
+		let np = InternSym(dstSyms, SymText(srcSyms, ops[1]))
+		let mut args = slices.WithCapacity[uint32](ops.Len() - 2)
+		for j in 2..ops.Len() {
+			args = args.Append(copyCanonType(dst, dstSyms, src, srcSyms, ops[j]))
+		}
+		return InternInstance(dst, ip, np, args)
+	}
+	if k == TypeSig && ops.Len() >= 5 {
+		let np = int(ops[0])
+		let mut params = slices.WithCapacity[uint32](np)
+		for j in 0..np {
+			params = params.Append(copyCanonType(dst, dstSyms, src, srcSyms, ops[2+j]))
+		}
+		let res = copyCanonType(dst, dstSyms, src, srcSyms, ops[2+np])
+		let failsT = copyCanonType(dst, dstSyms, src, srcSyms, ops[3+np])
+		let needsT = copyCanonType(dst, dstSyms, src, srcSyms, ops[4+np])
+		return InternSig(dst, params, res, failsT, needsT, ops[1] != uint32(0))
+	}
+	let mut cOps = slices.WithCapacity[uint32](ops.Len())
+	for j in 0..ops.Len() {
+		cOps = cOps.Append(copyCanonType(dst, dstSyms, src, srcSyms, ops[j]))
+	}
+	if k == TypeTuple {
+		return InternTuple(dst, cOps)
+	}
+	if k == TypeRow {
+		return InternRow(dst, *dstSyms, cOps)
+	}
+	if k == TypeRowValue {
+		return InternRowValue(dst, *dstSyms, cOps)
+	}
+	if k == TypeSelf {
+		return InternSelf(dst, cOps)
+	}
+	if k == TypeReapplied {
+		return InternReapplied(dst, cOps)
+	}
+	InternNoValue(dst)
+}
+
+func sortKeyedTypes(items []keyedType) []keyedType {
+	slices.SortFunc(items, func(a keyedType, b keyedType) int {
+		strings.Compare(a.Key, b.Key)
+	})
+}
+
+func sortAndDedupeTypes(p TypePool, syms SymPool, ts []uint32) []uint32 {
+	if ts.Len() <= 1 {
+		return slices.Clone(ts)
+	}
+	let mut items = slices.WithCapacity[keyedType](ts.Len())
+	for i in 0..ts.Len() {
+		items = items.Append(keyedType{ID: ts[i], Key: CanonicalTypeKey(p, syms, ts[i])})
+	}
+	let sorted = sortKeyedTypes(items)
+	let mut out = slices.WithCapacity[uint32](sorted.Len())
+	for i in 0..sorted.Len() {
+		if i == 0 || sorted[i].ID != sorted[i-1].ID {
+			if out.Len() == 0 || CanonicalTypeKey(p, syms, out[out.Len()-1]) != sorted[i].Key {
+				out = out.Append(sorted[i].ID)
+			}
+		}
+	}
+	out
+}
+
+// TypeOperands returns the slice of extra uint32 entries for a composite TypeID.
+func TypeOperands(p TypePool, id uint32) []uint32 {
+	if id == NoIdx || int(id) >= p.Kind.Len() {
+		return []uint32{}
+	}
+	let k = p.Kind[int(id)]
+	if !typeSpanKindsExtra(k) {
+		return []uint32{}
+	}
+	let a = int(p.A[int(id)])
+	let b = int(p.B[int(id)])
+	p.Extra[a : a+b]
+}
+
+// CanonicalTypeKey produces a position-free canonical identifier key string for id.
+func CanonicalTypeKey(p TypePool, syms SymPool, id uint32) string {
+	let mut sb = strings.NewBuilder()
+	writeCanonKey(&sb, p, syms, id)
+	strings.String(sb)
+}
+
+func writeCanonKey(sb mut strings.Builder, p TypePool, syms SymPool, id uint32) {
+	if id == NoIdx || int(id) >= p.Kind.Len() {
+		strings.WriteString(sb, "_")
+		return
+	}
+	let i = int(id)
+	let k = p.Kind[i]
+	let a = p.A[i]
+	let b = p.B[i]
+	if k == TypeNoValue {
+		strings.WriteString(sb, "NV")
+		return
+	}
+	if k == TypeBasic {
+		strings.WriteString(sb, "B(")
+		strings.WriteString(sb, strconv.Itoa(int(a)))
+		strings.WriteByte(sb, ')')
+		return
+	}
+	if k == TypeNamed {
+		strings.WriteString(sb, "N(")
+		strings.WriteString(sb, SymText(syms, a))
+		strings.WriteByte(sb, '.')
+		strings.WriteString(sb, SymText(syms, b))
+		strings.WriteByte(sb, ')')
+		return
+	}
+	if k == TypeParam {
+		strings.WriteString(sb, "P(")
+		strings.WriteString(sb, strconv.Itoa(int(a)))
+		strings.WriteByte(sb, ':')
+		strings.WriteString(sb, strconv.Itoa(int(b)))
+		strings.WriteByte(sb, ')')
+		return
+	}
+	if k == TypeSlice {
+		strings.WriteString(sb, "S(")
+		writeCanonKey(sb, p, syms, a)
+		strings.WriteByte(sb, ')')
+		return
+	}
+	if k == TypeArray {
+		strings.WriteString(sb, "A(")
+		strings.WriteString(sb, strconv.Itoa(int(b)))
+		strings.WriteByte(sb, ';')
+		writeCanonKey(sb, p, syms, a)
+		strings.WriteByte(sb, ')')
+		return
+	}
+	if k == TypeMap {
+		strings.WriteString(sb, "M(")
+		writeCanonKey(sb, p, syms, a)
+		strings.WriteByte(sb, ',')
+		writeCanonKey(sb, p, syms, b)
+		strings.WriteByte(sb, ')')
+		return
+	}
+	if k == TypePointer {
+		strings.WriteString(sb, "*(")
+		writeCanonKey(sb, p, syms, a)
+		strings.WriteByte(sb, ')')
+		return
+	}
+	if k == TypeOwn {
+		strings.WriteString(sb, "O(")
+		writeCanonKey(sb, p, syms, a)
+		strings.WriteByte(sb, ')')
+		return
+	}
+	if k == TypeEntry {
+		strings.WriteString(sb, "E(")
+		writeCanonKey(sb, p, syms, a)
+		strings.WriteByte(sb, ')')
+		return
+	}
+	if k == TypeWired {
+		strings.WriteString(sb, "W(")
+		writeCanonKey(sb, p, syms, a)
+		strings.WriteByte(sb, ')')
+		return
+	}
+	if k == TypeWiredNeeds {
+		strings.WriteString(sb, "WN(")
+		writeCanonKey(sb, p, syms, a)
+		strings.WriteByte(sb, ')')
+		return
+	}
+	let ops = TypeOperands(p, id)
+	if k == TypeTuple || k == TypeRow || k == TypeRowValue || k == TypeSelf || k == TypeReapplied {
+		let tag = if k == TypeTuple {
+			"T("
+		} else if k == TypeRow {
+			"R("
+		} else if k == TypeRowValue {
+			"RV("
+		} else if k == TypeSelf {
+			"SELF("
+		} else {
+			"RE("
+		}
+		strings.WriteString(sb, tag)
+		for j in 0..ops.Len() {
+			if j > 0 {
+				strings.WriteByte(sb, ',')
+			}
+			writeCanonKey(sb, p, syms, ops[j])
+		}
+		strings.WriteByte(sb, ')')
+		return
+	}
+	if k == TypeInstance && ops.Len() >= 2 {
+		strings.WriteString(sb, "I(")
+		strings.WriteString(sb, SymText(syms, ops[0]))
+		strings.WriteByte(sb, '.')
+		strings.WriteString(sb, SymText(syms, ops[1]))
+		for j in 2..ops.Len() {
+			strings.WriteByte(sb, ',')
+			writeCanonKey(sb, p, syms, ops[j])
+		}
+		strings.WriteByte(sb, ')')
+		return
+	}
+	if k == TypeSig && ops.Len() >= 5 {
+		let np = int(ops[0])
+		strings.WriteString(sb, "F(")
+		strings.WriteString(sb, strconv.Itoa(int(ops[1])))
+		strings.WriteByte(sb, ';')
+		for j in 0..np {
+			if j > 0 {
+				strings.WriteByte(sb, ',')
+			}
+			writeCanonKey(sb, p, syms, ops[2+j])
+		}
+		strings.WriteString(sb, "->")
+		writeCanonKey(sb, p, syms, ops[2+np])
+		strings.WriteByte(sb, '|')
+		writeCanonKey(sb, p, syms, ops[3+np])
+		strings.WriteByte(sb, '|')
+		writeCanonKey(sb, p, syms, ops[4+np])
+		strings.WriteByte(sb, ')')
+	}
+}
+
+// ResolveOriginPair maps a store.XRef from s into its canonical (ImportPath, NamePath) identity.
+func ResolveOriginPair(s store.Store, org TypeOrigin, xref store.XRef) (string, string) {
+	if int(xref.Import) == store.ForeignBit {
+		let fi = int(xref.Decl)
+		if fi >= 0 && fi < org.Foreign.Len() {
+			let f = org.Foreign[fi]
+			let p = if f.Path != "" { f.Path } else { "go:" + f.Qual }
+			return (p, f.Name)
+		}
+		return ("", "")
+	}
+	if xref.Import == uint32(0) {
+		let nDecls = store.NumDecls(s)
+		if int(xref.Decl) < nDecls {
+			let d = store.DeclAt(s, int(xref.Decl))
+			let row = store.DeclOf(s, d)
+			return (org.SelfPath, store.Text(s, row.Name))
+		}
+		return (org.SelfPath, "")
+	}
+	let imps = store.ImportPaths(s)
+	let slot = int(xref.Import) - 1
+	let mut pkgPath = ""
+	if slot >= 0 && slot < imps.Len() {
+		pkgPath = imps[slot]
+	}
+	if slot >= 0 && slot < org.Deps.Len() {
+		let ds = store.Of(org.Deps[slot])
+		if int(xref.Decl) < store.NumDecls(ds) {
+			let d = store.DeclAt(ds, int(xref.Decl))
+			let row = store.DeclOf(ds, d)
+			return (pkgPath, store.Text(ds, row.Name))
+		}
+	}
+	for i in 0..org.Ifaces.Len() {
+		let iface = org.Ifaces[i]
+		if iface.Path == pkgPath {
+			if int(xref.Decl) < iface.Decls.Len() {
+				return (pkgPath, iface.Decls[int(xref.Decl)].Name)
+			}
+			let ids = iface.Types
+			if int(xref.Decl) < store.NumDecls(ids) {
+				let d = store.DeclAt(ids, int(xref.Decl))
+				let row = store.DeclOf(ids, d)
+				return (pkgPath, store.Text(ids, row.Name))
+			}
+		}
+	}
+	(pkgPath, "")
+}
+
+// ImportStoreType translates a store.TKey tree into canonical TypePool IDs identified by (ImportPath, NamePath).
+func ImportStoreType(p mut TypePool, syms mut SymPool, s store.Store, org TypeOrigin, t dense.ID[store.TKey]) uint32 {
+	let k = store.KindOfType(s, t)
+	if k == store.KBasic {
+		let code = uint32(store.ArgOf(s, t))
+		if code == uint32(0) {
+			return InternNoValue(p)
+		}
+		return InternBasic(p, code)
+	}
+	if k == store.KNamed {
+		let xref = store.OriginOfType(s, t)
+		if xref.Import > uint32(0) {
+			let (ip, np) = ResolveOriginPair(s, org, xref)
+			return InternNamed(p, InternSym(syms, ip), InternSym(syms, np))
+		}
+		let tname = store.TypeNameText(s, store.ArgOf(s, t))
+		return InternNamed(p, InternSym(syms, org.SelfPath), InternSym(syms, tname))
+	}
+	if k == store.KForeign {
+		let fi = store.ArgOf(s, t)
+		if fi >= 0 && fi < org.Foreign.Len() {
+			let f = org.Foreign[fi]
+			let ip = if f.Path != "" { f.Path } else { "go:" + f.Qual }
+			return InternNamed(p, InternSym(syms, ip), InternSym(syms, f.Name))
+		}
+		return InternNamed(p, InternSym(syms, ""), InternSym(syms, ""))
+	}
+	if k == store.KParam {
+		return InternParam(p, uint32(store.ArgOf(s, t)), false)
+	}
+	let ops = store.OperandsOf(s, t)
+	if k == store.KSlice && ops.Len() >= 1 {
+		return InternSlice(p, ImportStoreType(p, syms, s, org, ops[0]))
+	}
+	if k == store.KArray && ops.Len() >= 2 {
+		let elem = ImportStoreType(p, syms, s, org, ops[1])
+		return InternArray(p, elem, uint32(store.ArrayLen(s, t)))
+	}
+	if k == store.KMap && ops.Len() >= 2 {
+		let kt = ImportStoreType(p, syms, s, org, ops[0])
+		let vt = ImportStoreType(p, syms, s, org, ops[1])
+		return InternMap(p, kt, vt)
+	}
+	if k == store.KPointer && ops.Len() >= 1 {
+		return InternPointer(p, ImportStoreType(p, syms, s, org, ops[0]))
+	}
+	if k == store.KOwn && ops.Len() >= 1 {
+		return InternOwn(p, ImportStoreType(p, syms, s, org, ops[0]))
+	}
+	if k == store.KEntry && ops.Len() >= 1 {
+		return InternEntry(p, ImportStoreType(p, syms, s, org, ops[0]))
+	}
+	if k == store.KWired && ops.Len() >= 1 {
+		return InternWired(p, ImportStoreType(p, syms, s, org, ops[0]))
+	}
+	if k == store.KWiredNeeds && ops.Len() >= 1 {
+		return InternWiredNeeds(p, ImportStoreType(p, syms, s, org, ops[0]))
+	}
+	if k == store.KRow || k == store.KRowValue {
+		let mut tmpP = NewTypePool()
+		let mut tmpS = NewSymPool()
+		let tmpNoVal = InternNoValue(&tmpP)
+		let mut items = slices.WithCapacity[keyedType](ops.Len())
+		for i in 0..ops.Len() {
+			let tid = ImportStoreType(&tmpP, &tmpS, s, org, ops[i])
+			if tid == tmpNoVal {
+				continue
+			}
+			items = items.Append(keyedType{ID: tid, Key: CanonicalTypeKey(tmpP, tmpS, tid)})
+		}
+		let sorted = sortKeyedTypes(items)
+		let mut cOps = slices.WithCapacity[uint32](sorted.Len())
+		for i in 0..sorted.Len() {
+			if i > 0 && sorted[i].Key == sorted[i-1].Key {
+				continue
+			}
+			cOps = cOps.Append(copyCanonType(p, syms, tmpP, tmpS, sorted[i].ID))
+		}
+		if k == store.KRow {
+			return InternRow(p, *syms, cOps)
+		}
+		return InternRowValue(p, *syms, cOps)
+	}
+	let mut cOps = slices.WithCapacity[uint32](ops.Len())
+	for i in 0..ops.Len() {
+		cOps = cOps.Append(ImportStoreType(p, syms, s, org, ops[i]))
+	}
+	if k == store.KTuple {
+		return InternTuple(p, cOps)
+	}
+	if k == store.KInstance {
+		let (ip, np) = ResolveOriginPair(s, org, store.OriginOfType(s, t))
+		return InternInstance(p, InternSym(syms, ip), InternSym(syms, np), cOps)
+	}
+	if k == store.KSig && cOps.Len() >= 3 {
+		let np = cOps.Len() - 3
+		return InternSig(p, cOps[0:np], cOps[np], cOps[np+1], cOps[np+2], store.SigDefects(s, t))
+	}
+	if k == store.KSelf {
+		return InternSelf(p, cOps)
+	}
+	if k == store.KReapplied {
+		return InternReapplied(p, cOps)
+	}
+	InternNoValue(p)
+}

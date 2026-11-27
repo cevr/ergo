@@ -419,6 +419,16 @@ func ListEventLog(w WALStore, filter orchestrate.EventLogFilter) orchestrate.Eve
 	try readOn(w.db, w.err, func() orchestrate.EventPage fails orchestrate.StoreFailed needs sql.Tx { try queryEventLogTx(filter) })
 }
 
+// ListEventLogSince returns operational ledger events with ID strictly greater than filter.SinceID in ascending order.
+func ListEventLogSince(s Store, filter orchestrate.EventLogSinceFilter) orchestrate.EventPage fails orchestrate.StoreFailed needs go.Foreign {
+	try readOn(s.db, s.err, func() orchestrate.EventPage fails orchestrate.StoreFailed needs sql.Tx { try queryEventLogSinceTx(filter) })
+}
+
+// ListEventLogSince returns operational ledger events with ID strictly greater than filter.SinceID in ascending order on WALStore.
+func ListEventLogSince(w WALStore, filter orchestrate.EventLogSinceFilter) orchestrate.EventPage fails orchestrate.StoreFailed needs go.Foreign {
+	try readOn(w.db, w.err, func() orchestrate.EventPage fails orchestrate.StoreFailed needs sql.Tx { try queryEventLogSinceTx(filter) })
+}
+
 let prevLawDB = sync.NewRef[option.Option[Store]](option.None)
 
 let lawWALDir = sync.NewRef("")

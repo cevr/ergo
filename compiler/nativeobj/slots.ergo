@@ -134,7 +134,7 @@ func LiveAcross(p Package, f Func, after [][]bool, i int) []int {
 	let taken = AddressTaken(f)
 	let mut out = []int{}
 	for j in 0..f.Slots.Len() {
-		if IsPointer(p, f.Slots[j]) && ((after[i][j] && !has(defs, j)) || has(taken, j)) {
+		if HasPointers(p, f.Slots[j]) && ((after[i][j] && !has(defs, j)) || has(taken, j)) {
 			out = out.Append(j)
 		}
 	}
@@ -178,7 +178,7 @@ func ModelAcross(p Package, f Func, i int) []int {
 	let taken = AddressTaken(f)
 	let mut out = []int{}
 	for j in 0..f.Slots.Len() {
-		if IsPointer(p, f.Slots[j]) && (LiveByPaths(f, i, j) || has(taken, j)) {
+		if HasPointers(p, f.Slots[j]) && (LiveByPaths(f, i, j) || has(taken, j)) {
 			out = out.Append(j)
 		}
 	}
@@ -220,8 +220,8 @@ func drawnOp(kind int, i int, a int, b int, l int) Op {
 // codes: each code picks an op over slots and labels 0..3, so loops and
 // branches over the same slots come up.
 func drawn(codes []int) (Package, Func) {
-	let p = Package{Path: "p", Name: "p", File: "p.ergo",
-		Types:   []TypeDef{TypeDef{Kind: KInt, Elem: 0, Params: []int{}, Results: []int{}}, TypeDef{Kind: KPtr, Elem: 0, Params: []int{}, Results: []int{}}},
+	let p = Package{Path: "p", Name: "p", File: "p.ergo", Files: []string{"p.ergo"},
+		Types:   []TypeDef{IntType(), PtrType(0)},
 		Imports: []Import{}, Globals: []Global{}, Funcs: []Func{}, Inits: []int{}}
 	let k = 6
 	let mut slots = []int{}
@@ -240,7 +240,7 @@ func drawn(codes []int) (Package, Func) {
 	for _ in ops {
 		lines = lines.Append(1)
 	}
-	(p, Func{Name: "F", Params: []int{}, Results: []int{}, Slots: slots, Ops: ops, Lines: lines, Line: 1, Col: 1})
+	(p, Func{Name: "F", Params: []int{}, Results: []int{}, Slots: slots, Ops: ops, Lines: lines, Line: 1, Col: 1, File: 0})
 }
 
 // LivenessAgrees: at every call of any drawn function, the dataflow's

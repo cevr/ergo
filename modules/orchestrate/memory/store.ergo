@@ -1,5 +1,7 @@
 import github.com/cevr/ergo/modules/orchestrate/orchestrate
+import json
 import option
+import os/host
 import sync
 import time
 
@@ -161,6 +163,94 @@ func ListEventLog(s Store, filter orchestrate.EventLogFilter) orchestrate.EventP
 	orchestrate.QueryEventLog(s.cell.Get().state, filter)
 }
 
+// ListEventLogSince returns operational ledger events with ID strictly greater than filter.SinceID in ascending order.
+func ListEventLogSince(s Store, filter orchestrate.EventLogSinceFilter) orchestrate.EventPage fails orchestrate.StoreFailed {
+	orchestrate.QueryEventLogSince(s.cell.Get().state, filter)
+}
+
 let overMemoryStore = context { orchestrate.Store: New() }
 
-let overMemoryApi = context { orchestrate.Api: orchestrate.NewService(New(), time.NewManual(0)) }
+func sampleHost() host.Static fails host.Malformed {
+	try host.NewStatic(
+		host.Status{
+			Cores:  8,
+			Load:   host.LoadAvg{One: 1.5, Five: 1.25, Fifteen: 0.75, Running: 2, Entities: 120},
+			Memory: host.Memory{
+				TotalBytes:     int64(17179869184),
+				AvailableBytes: int64(10737418240),
+				FreeBytes:      int64(4294967296),
+				UsedBytes:      int64(6442450944),
+			},
+			Volumes: []host.Volume{
+				host.Volume{
+					Path:           "/",
+					TotalBytes:     int64(107374182400),
+					FreeBytes:      int64(53687091200),
+					AvailableBytes: int64(42949672960),
+					UsedBytes:      int64(53687091200),
+				},
+				host.Volume{
+					Path:           "/workspaces",
+					TotalBytes:     int64(214748364800),
+					FreeBytes:      int64(107374182400),
+					AvailableBytes: int64(85899345920),
+					UsedBytes:      int64(107374182400),
+				},
+			},
+		},
+		[]host.Process{
+			host.Process{PID: 1, PPID: 0, State: "S", Comm: "ergo", Cmdline: []string{"ergo", "serve"}, UserTicks: int64(10), SysTicks: int64(5), StartTicks: int64(1), RSSBytes: int64(4194304), VSizeBytes: int64(16777216), Threads: 1},
+			host.Process{PID: 10, PPID: 1, State: "R", Comm: "ergo", Cmdline: []string{"ergo", "test"}, UserTicks: int64(100), SysTicks: int64(25), StartTicks: int64(20), RSSBytes: int64(8388608), VSizeBytes: int64(33554432), Threads: 4},
+			host.Process{PID: 42, PPID: 1, State: "S", Comm: "worker (io) pool", Cmdline: []string{"worker", "--id", "42"}, UserTicks: int64(200), SysTicks: int64(50), StartTicks: int64(99), RSSBytes: int64(16777216), VSizeBytes: int64(67108864), Threads: 2},
+		},
+	)
+}
+
+let overMemoryApi = context fails host.Malformed {
+	orchestrate.Api: orchestrate.NewServiceWithHost(New(), time.NewManual(0), try sampleHost()),
+}
+
+test ServiceHostTelemetryWiring {
+	let bare = orchestrate.NewService(New(), time.NewManual(0))
+	let mut bareStatusUnavail = false
+	let _ = bare.HostStatus(orchestrate.HostStatusInput{Volumes: []string{}}) catch {
+	case host.Unavailable:
+		bareStatusUnavail = true
+		orchestrate.HostStatusReport{Cores: 0, Load: host.LoadAvg{One: 0.0, Five: 0.0, Fifteen: 0.0, Running: 0, Entities: 0}, Memory: orchestrate.HostMemory{TotalBytes: 0, AvailableBytes: 0, FreeBytes: 0, UsedBytes: 0, TotalGiB: 0.0, AvailableGiB: 0.0, FreeGiB: 0.0, UsedGiB: 0.0}, Volumes: []orchestrate.HostVolume{}}
+	case _:
+		assert false
+		return
+	}
+	assert bareStatusUnavail
+
+	let mut bareProcsUnavail = false
+	let _ = bare.HostProcesses(orchestrate.HostProcessesInput{Comm: json.Absent, PID: json.Absent, Limit: json.Absent}) catch {
+	case host.Unavailable:
+		bareProcsUnavail = true
+		orchestrate.HostProcessList{Items: []orchestrate.HostProcess{}, Total: 0, Limit: 0, Truncated: false}
+	case _:
+		assert false
+		return
+	}
+	assert bareProcsUnavail
+
+	let h = sampleHost() catch {
+	case host.Malformed:
+		assert false
+		return
+	}
+	let svc = orchestrate.NewServiceWithHost(New(), time.NewManual(0), h)
+	let st = svc.HostStatus(orchestrate.HostStatusInput{Volumes: []string{"/", "/workspaces"}}) catch {
+	case _:
+		assert false
+		return
+	}
+	assert st.Cores == 8 && st.Memory.TotalGiB == 16.0 && st.Volumes.Len() == 2 && st.Volumes[1].Path == "/workspaces"
+
+	let ps = svc.HostProcesses(orchestrate.HostProcessesInput{Comm: json.Present[string]{Value: "ergo"}, PID: json.Absent, Limit: json.Present[int]{Value: 1}}) catch {
+	case _:
+		assert false
+		return
+	}
+	assert ps.Total == 2 && ps.Items.Len() == 1 && ps.Items[0].PID == 1 && ps.Truncated
+}

@@ -20,14 +20,10 @@ func (a Analysis) Evaluate(b eval.Budget) (eval.Report, error) {
 	if len(pkgs) == 0 || len(a.Diagnostics) > 0 {
 		return eval.Report{}, errors.New("sketchfront: evaluation needs a program that checks")
 	}
-	// The root is named main while it runs, as a load of it alone names
-	// it: a shared load (CheckPackages) checks a package that another
-	// imports once, under its import path, and a reason that prints one of
-	// its types (a failure escaped: main.Bad) must not change with it.
+	// Do not mutate shared *check.Package Name while multiple packages evaluate
+	// concurrently; eval formats values owned by root as "main" without writing
+	// to root.Name.
 	root := pkgs[len(pkgs)-1]
-	name := root.Name
-	root.Name = "main"
-	defer func() { root.Name = name }()
 	rep, err := eval.Run(root, b)
 	for _, res := range rep.Results {
 		if res.Status != eval.Skipped && res.Status != eval.NotRun && res.Status != eval.Native {

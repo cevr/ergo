@@ -4,7 +4,7 @@
 // chooses one in its context.
 
 import core
-import regex/syntax
+import regexengine/syntax
 import slices
 
 // Engine compiles a pattern into a Matcher, once, as Go's regexp.Compile

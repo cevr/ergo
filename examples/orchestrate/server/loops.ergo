@@ -1,0 +1,264 @@
+import github.com/cevr/ergo/modules/orchestrate/orchestrate
+import io
+import json
+import mcp
+import option
+import os/host
+import queue
+import task
+import time
+import timeout
+
+// WaitResult captures the outcome of a blocking RunWait readiness wait.
+type WaitResult {
+	Ready       bool,
+	TimedOut    bool,
+	Polls       int,
+	Report      orchestrate.HostReadinessReport,
+	Transitions []orchestrate.ReadinessChanged,
+}
+
+// RunWait polls sys with hysteresis until readiness reaches Ready or timeoutDur elapses on clock/scheduler.
+func RunWait(sys host.System, policy orchestrate.ReadinessPolicy, timeoutDur duration) WaitResult fails orchestrate.InvalidInput needs time.Clock | time.Scheduler {
+	try RunWaitAt(sys, policy, timeoutDur, func() string needs time.Clock {
+		time.Clock.Now().Format(time.RFC3339)
+	})
+}
+
+// RunWaitAt polls sys with hysteresis using time.Clock/time.Scheduler for deadline timing and stampAt for CheckedAt timestamps.
+func RunWaitAt[R](sys host.System, policy orchestrate.ReadinessPolicy, timeoutDur duration, stampAt func() string needs R) WaitResult fails orchestrate.InvalidInput needs R | time.Clock | time.Scheduler {
+	if timeoutDur < 0ns {
+		return orchestrate.InvalidInput{Field: "timeout", Why: "must be >= 0"}
+	}
+	let start = time.Clock.Now()
+	let mut tracker = orchestrate.NewReadinessTracker(policy)
+	let mut edges = []orchestrate.ReadinessChanged{}
+	let mut polls = 0
+	for {
+		let at = stampAt()
+		let (next, edge, report) = ProbeReadiness(sys, tracker, at)
+		tracker = next
+		polls = polls + 1
+		match edge {
+		case option.Some[orchestrate.ReadinessChanged] as e:
+			edges = edges.Append(e.Value)
+		case option.None:
+		}
+		if report.Ready {
+			return WaitResult{Ready: true, TimedOut: false, Polls: polls, Report: report, Transitions: edges}
+		}
+		let elapsed = time.Since(start)
+		if elapsed >= timeoutDur {
+			return WaitResult{Ready: false, TimedOut: true, Polls: polls, Report: report, Transitions: edges}
+		}
+		let remaining = timeoutDur - elapsed
+		let delayMs = orchestrate.NextPollDelayMs(policy, tracker.State, tracker.ConsecutiveNonReady)
+		let step = duration(int64(delayMs) * int64(1ms))
+		let sleepDur = if step > remaining { remaining } else { step }
+		if sleepDur <= 0ns {
+			return WaitResult{Ready: false, TimedOut: true, Polls: polls, Report: report, Transitions: edges}
+		}
+		time.Scheduler.Sleep(sleepDur)
+	}
+}
+
+// FormatEventLine returns a compact single-line summary or NDJSON representation of entry.
+func FormatEventLine(entry orchestrate.EventStreamEntry, jsonMode bool) string {
+	if jsonMode {
+		return json.Encode(json.Codec[orchestrate.EventStreamEntry]{MaxBytes: 0, MaxDepth: 0}, entry)
+	}
+	let unitTag = match entry.UnitID {
+	case option.Some[string] as u:
+		" unit=" + u.Value
+	case option.None:
+		""
+	}
+	"#\(entry.Cursor) \(entry.CreatedAt) [\(entry.Repo)/\(entry.Run)] \(entry.Kind)\(unitTag) \(entry.Summary)"
+}
+
+// FormatReadinessEdgeLine returns a compact single-line summary or NDJSON representation of edge.
+func FormatReadinessEdgeLine(edge orchestrate.ReadinessChanged, jsonMode bool) string {
+	if jsonMode {
+		return json.Encode(json.Codec[orchestrate.ReadinessChanged]{MaxBytes: 0, MaxDepth: 0}, edge)
+	}
+	"readiness \(edge.At) \(orchestrate.ReadinessStateName(edge.From))->\(orchestrate.ReadinessStateName(edge.To)): \(edge.Reason)"
+}
+
+// RunEventsFollow streams historical events from since and tails live ledger and readiness edge updates cleanly until maxCycles or task cancellation.
+func RunEventsFollow(
+	service orchestrate.Service,
+	sys option.Option[host.System],
+	policy orchestrate.ReadinessPolicy,
+	req orchestrate.EventsSinceInput,
+	interval duration,
+	jsonMode bool,
+	maxFollowPolls int,
+) int fails orchestrate.InvalidInput | orchestrate.StoreFailed needs io.Stdout | time.Clock | time.Scheduler {
+	let effectiveInterval = if interval > 0ns { interval } else { 1s }
+	let mut cursor = match req.Since {
+	case json.Present[int] as s:
+		if s.Value < 0 {
+			return orchestrate.InvalidInput{Field: "since", Why: "must be >= 0"}
+		}
+		s.Value
+	case json.Absent:
+		0
+	}
+	let mut seen = Map[string, bool]{}
+	let mut tracker = orchestrate.NewReadinessTracker(policy)
+	let mut emitted = 0
+	let mut cycles = 0
+	for {
+		let mut pageCursor = cursor
+		for {
+			let page = try service.EventsSince(orchestrate.EventsSinceInput{
+				Repo:   req.Repo,
+				Run:    req.Run,
+				Kind:   req.Kind,
+				UnitID: req.UnitID,
+				Since:  json.Present[int]{Value: pageCursor},
+				Limit:  req.Limit,
+				Source: req.Source,
+			})
+			let mut candidates = []orchestrate.UnifiedEvent{}
+			for item in page.Items {
+				candidates = candidates.Append(orchestrate.LedgerStreamItem{Entry: item})
+			}
+			let (fresh, nextSeen) = orchestrate.DeduplicateUnifiedEvents(seen, candidates)
+			seen = nextSeen
+			for item in fresh {
+				match item {
+				case orchestrate.LedgerStreamItem as l:
+					io.Stdout.Println(FormatEventLine(l.Entry, jsonMode))
+					emitted = emitted + 1
+				case orchestrate.ReadinessEdgeItem:
+				}
+			}
+			pageCursor = page.NextCursor
+			if !page.HasMore || page.Items.Len() == 0 {
+				break
+			}
+		}
+		cursor = pageCursor
+		match sys {
+		case option.Some[host.System] as h:
+			let at = time.Clock.Now().Format(time.RFC3339)
+			let (nextTracker, edgeOpt, _) = ProbeReadiness(h.Value, tracker, at)
+			tracker = nextTracker
+			match edgeOpt {
+			case option.Some[orchestrate.ReadinessChanged] as e:
+				let (freshEdges, nextSeen) = orchestrate.DeduplicateUnifiedEvents(seen, []orchestrate.UnifiedEvent{orchestrate.ReadinessEdgeItem{Edge: e.Value}})
+				seen = nextSeen
+				for item in freshEdges {
+					match item {
+					case orchestrate.ReadinessEdgeItem as r:
+						io.Stdout.Println(FormatReadinessEdgeLine(r.Edge, jsonMode))
+						emitted = emitted + 1
+					case orchestrate.LedgerStreamItem:
+					}
+				}
+			case option.None:
+			}
+		case option.None:
+		}
+		cycles = cycles + 1
+		if maxFollowPolls > 0 && cycles >= maxFollowPolls {
+			return emitted
+		}
+		time.Scheduler.Sleep(effectiveInterval)
+	}
+}
+
+// RunStdioMCP serves hub.Full over tr, delivering synchronous subscribed updates deterministically after tool mutations and concurrent async notifications from n.
+func RunStdioMCP(hub ControlHub, n mcp.Notifier, tr mcp.Transport) int {
+	let subs = mcp.NewSubscriptions()
+	let sub = mcp.SubscribeWith(n, subs)
+	let outbox = queue.New[string](64)
+	let writer = task.Go() {
+		for line in outbox.Values() {
+			tr.Send(line)
+		}
+		0
+	}
+	let pump = task.Go() {
+		for {
+			match mcp.Next(sub) {
+			case option.Some[mcp.SequencedNotification] as ev:
+				outbox.Push(mcp.NotificationLine(ev.Value.Notification)) catch {
+				case queue.Closed:
+					break
+				}
+			case option.None:
+				break
+			}
+		}
+		0
+	}
+	let mut count = 0
+	for message in tr.Messages() {
+		count = count + 1
+		match mcp.Line(mcp.HandleFull(hub.Full, subs, message)) {
+		case option.Some[string] as l:
+			outbox.Push(l.Value) catch {
+			case queue.Closed:
+			}
+		case option.None:
+		}
+		let (entries, uris, logs) = DrainNewLedgerTransitions(hub)
+		if entries.Len() > 0 {
+			for uri in uris {
+				let notif = mcp.ResourceUpdated(uri)
+				if mcp.MatchesNotification(subs, notif) {
+					outbox.Push(mcp.NotificationLine(notif)) catch {
+					case queue.Closed:
+					}
+				}
+			}
+			if mcp.SubscribedURIs(subs).Len() > 0 {
+				for lg in logs {
+					outbox.Push(mcp.NotificationLine(lg)) catch {
+					case queue.Closed:
+					}
+				}
+			}
+			BroadcastLedgerTransitions(hub, entries, uris, logs)
+		}
+	}
+	mcp.CloseSubscription(sub)
+	let _ = pump.Wait()
+	outbox.End()
+	let _ = writer.Wait()
+	count
+}
+
+// RunMonitorLoop periodically polls hub for ledger changes and readiness hysteresis edges until stopQueue ends.
+func RunMonitorLoop(hub ControlHub, stopQueue queue.Queue[int], interval duration, pollImmediately bool) needs time.Clock | time.Scheduler {
+	let baseDur = if interval > 0ns { interval } else { 2s }
+	let mut first = true
+	for {
+		if !first || pollImmediately {
+			let _ = PollAndPublish(hub)
+		}
+		first = false
+		let t = hub.Tracker.Get()
+		let stepDur = if orchestrate.IsReady(t.State) {
+			baseDur
+		} else {
+			let ms = orchestrate.NextPollDelayMs(t.Policy, t.State, t.ConsecutiveNonReady)
+			duration(int64(ms) * int64(1ms))
+		}
+		let stopped = timeout.After(stepDur) {
+			let _ = stopQueue.Pop() catch {
+			case queue.Closed:
+				0
+			}
+			true
+		} catch {
+		case timeout.Expired:
+			false
+		}
+		if stopped {
+			return
+		}
+	}
+}

@@ -35,7 +35,6 @@ import (
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/lower"
-	"ergo.local/prototype/internal/sketch/regexpplan"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -205,27 +204,18 @@ func CopyReport(a Analysis, source string) (*lower.CopyReport, error) {
 	return report, nil
 }
 
-// GoDerived is one `type T derive E`: what it produced and, for a pattern,
-// the parse matcher's engine, why that engine, and its counts.
+// GoDerived is one `type T derive E` or mapped content asset: what it produced,
+// its mapper identity, media kind, evaluation step budget, and cache hit status.
 type GoDerived struct {
-	Package string   `json:"package"`
-	Type    string   `json:"type"`
-	Plan    string   `json:"plan"`
-	Decls   []string `json:"decls"`
-	Steps   int      `json:"steps"`
-	Pattern string   `json:"pattern,omitempty"`
-	// Engine is the parse engine: direct, table or nfa.
-	Engine string `json:"engine,omitempty"`
-	// Reason says why the construction check selected the engine.
-	Reason       string `json:"reason,omitempty"`
-	Nodes        int    `json:"nodes,omitempty"`
-	Instructions int    `json:"instructions,omitempty"`
-	States       int    `json:"states,omitempty"`
-	// Allocates is true when the parse matcher allocates: a capture repeats
-	// (it keeps events), or the engine is the NFA (its thread lists). A
-	// fixed plan under the direct or table engine allocates nothing
-	// (patterns.md, Lowering 3; TestPatternLoweringAgrees counts it).
-	Allocates bool `json:"allocates,omitempty"`
+	Package   string   `json:"package"`
+	Type      string   `json:"type"`
+	Plan      string   `json:"plan"`
+	Decls     []string `json:"decls"`
+	Steps     int      `json:"steps"`
+	Kind      string   `json:"kind,omitempty"`
+	MediaKind string   `json:"mediaKind,omitempty"`
+	CacheHit  bool     `json:"cacheHit,omitempty"`
+	CacheKey  string   `json:"cacheKey,omitempty"`
 }
 
 // GoImport is one Go package the program imports.
@@ -343,13 +333,23 @@ func InspectGo(pkgs []*check.Package) GoReport {
 		if p == nil || p.Std() || p.Host() || p.Derive == nil {
 			continue
 		}
-		for _, d := range p.Derive.Derived {
-			g := GoDerived{Package: p.Path, Type: d.Type, Plan: d.Plan, Decls: append([]string{}, d.Decls...), Steps: d.Steps, Pattern: d.Pattern}
-			if d.Parse != nil {
-				in := d.Parse.Inspect()
-				g.Engine, g.Reason = string(in.Engine), in.Reason
-				g.Nodes, g.Instructions, g.States = in.Nodes, in.Instructions, in.States
-				g.Allocates = !d.Parse.Fixed() || in.Engine == regexpplan.NFA
+		for _, rec := range p.Derive.Records {
+			planName := rec.MediaKind
+			if rec.MapperPkg != "" && rec.MapperFunc != "" {
+				planName = rec.MapperPkg + "." + rec.MapperFunc
+			} else if rec.MapperPkg != "" {
+				planName = rec.MapperPkg
+			}
+			g := GoDerived{
+				Package:   p.Path,
+				Type:      rec.Target,
+				Plan:      planName,
+				Decls:     append([]string{}, rec.Decls...),
+				Steps:     int(rec.Steps),
+				Kind:      rec.Kind,
+				MediaKind: rec.MediaKind,
+				CacheHit:  rec.CacheHit,
+				CacheKey:  rec.CacheKey,
 			}
 			r.Derived = append(r.Derived, g)
 		}

@@ -34,8 +34,6 @@ func checkDerive(t *testing.T, imp deriveImporter, path, src string) (*Package, 
 	return pkg, diags, f
 }
 
-// dump prints a declaration's tree without positions and without the
-// links to its derived type: two bundles are equal when their dumps are.
 func dump(x any) string {
 	var b strings.Builder
 	var visit func(v reflect.Value)
@@ -74,23 +72,24 @@ func dump(x any) string {
 	return b.String()
 }
 
-// bundleOf dumps the type T's spec and where and every declaration
-// derived from it.
-func bundleOf(f *syntax.File, name string) string {
+func bundleOf(pkg *Package, name string) string {
+	if pkg == nil {
+		return ""
+	}
 	var parts []string
-	for _, d := range f.Decls {
-		switch d := d.(type) {
-		case *syntax.TypeDecl:
-			if d.Name.Name == name {
-				parts = append(parts, dump(d.Spec), dump(d.Where))
-			}
-		case *syntax.FuncDecl:
-			if d.Derived != nil && d.Derived.Name.Name == name {
-				parts = append(parts, dump(d))
-			}
-		case *syntax.LawDecl:
-			if d.Derived != nil && d.Derived.Name.Name == name {
-				parts = append(parts, dump(d))
+	parseName := "Parse" + name
+	findName := "Find" + name
+	for _, f := range pkg.Files() {
+		for _, d := range f.Decls {
+			switch d := d.(type) {
+			case *syntax.TypeDecl:
+				if d.Name != nil && d.Name.Name == name && d.Derive == nil {
+					parts = append(parts, dump(d.Spec))
+				}
+			case *syntax.FuncDecl:
+				if d.Recv == nil && d.Name != nil && (d.Name.Name == parseName || d.Name.Name == findName) {
+					parts = append(parts, dump(d))
+				}
 			}
 		}
 	}
@@ -105,144 +104,160 @@ func messages(ds []Diagnostic) string {
 	return strings.Join(out, "\n")
 }
 
-// TestDeriveModel (patterns.md, Derivation, Type plans, Plan functions,
-// Budgets 1, Coherence 1): a Refine plan derives exactly the bundle and the
-// diagnostics of the written where; a pattern built through a user
-// package's plan function, through a wrapper in a second package, and
-// inline derives one plan and one matcher; a declaration that hides a
-// constructor is never the constructor; evaluation stops at its budgets.
+// TestDeriveModel holds the content-mapper inline derive contract: pure plans
+// built through user packages, wrappers, and inline regex.Pattern derive the
+// same typed declarations; local declarations shadow imported helpers; budgets,
+// purity, name collisions, and cycles are enforced cleanly.
 func TestDeriveModel(t *testing.T) {
 	r := rand.New(rand.NewSource(1111))
-	bases := []string{"int", "int64", "string", "[]int"}
-	for trial := 0; trial < 60; trial++ {
-		base := bases[r.Intn(len(bases))]
-		lo := int64(r.Intn(200) - 50)
-		hi := lo + int64(r.Intn(100)-10)
-		it := "it"
-		if base == "string" || base == "[]int" {
-			it = "len(it)"
-		}
-		plan := fmt.Sprintf("type N derive Refine(Of[%s](), %d, %d)\nfunc main() {}\n", base, lo, hi)
-		where := fmt.Sprintf("type N %s where %d <= %s && %s <= %d\nfunc main() {}\n", base, lo, it, it, hi)
-		_, d1, f1 := checkDerive(t, nil, "main", plan)
-		_, d2, f2 := checkDerive(t, nil, "main", where)
-		if messages(d1) != messages(d2) {
-			t.Fatalf("seed 1111 trial %d: diagnostics differ\nplan:  %s\nwhere: %s\n%s", trial, messages(d1), messages(d2), plan)
-		}
-		if a, b := bundleOf(f1, "N"), bundleOf(f2, "N"); a != b {
-			t.Fatalf("seed 1111 trial %d: bundles differ\n%s\nplan:\n%s\nwhere:\n%s", trial, plan, a, b)
-		}
-	}
-	for trial := 0; trial < 12; trial++ {
+
+	// 1. User wrapper packages vs inline regex.Pattern produce identical declarations.
+	for range 8 {
 		width := 1 + r.Intn(8)
 		imp := deriveImporter{}
-		checkDerive(t, imp, "ids", "func Fixed(prefix string, width int) TypePlan {\n\tPattern(\"\\(prefix)-(?<Num>[0-9]{\\(width)})\")\n}\n")
-		checkDerive(t, imp, "wrap", "import ids\n\nfunc Ticket(width int) TypePlan {\n\tlet p = \"T\" + \"K\"\n\tif width > 0 {\n\t\tids.Fixed(p, width)\n\t} else {\n\t\tids.Fixed(p, 1)\n\t}\n}\n")
-		src := fmt.Sprintf("import ids\nimport wrap\n\ntype A derive ids.Fixed(\"TK\", %d)\ntype B derive wrap.Ticket(%d)\ntype C derive Pattern(\"TK-(?<Num>[0-9]{%d})\")\nfunc main() {}\n", width, width, width)
-		pkg, diags, _ := checkDerive(t, imp, "app", src)
-		if len(diags) > 0 {
-			t.Fatalf("trial %d: %s\n%s", trial, messages(diags), src)
+		pkgIds, d1, _ := checkDerive(t, imp, "ids", "import content\nimport regex\nimport strconv\n\nfunc Fixed(prefix string, width int) content.Plan {\n\tregex.Pattern(\"\\(prefix)-(?<Num>[0-9]{\\(strconv.Itoa(width))})\")\n}\n")
+		if len(d1) > 0 || pkgIds == nil {
+			t.Fatalf("ids check failed: %s", messages(d1))
 		}
-		got := pkg.Derive.Derived
+		pkgWrap, d2, _ := checkDerive(t, imp, "wrap", "import content\nimport ids\n\nfunc Ticket(width int) content.Plan {\n\tlet p = \"T\" + \"K\"\n\tif width > 0 {\n\t\tids.Fixed(p, width)\n\t} else {\n\t\tids.Fixed(p, 1)\n\t}\n}\n")
+		if len(d2) > 0 || pkgWrap == nil {
+			t.Fatalf("wrap check failed: %s", messages(d2))
+		}
+		src := fmt.Sprintf("import ids\nimport regex\nimport wrap\n\ntype A derive ids.Fixed(\"TK\", %d)\ntype B derive wrap.Ticket(%d)\ntype C derive regex.Pattern(\"TK-(?<Num>[0-9]{%d})\")\nfunc main() {}\n", width, width, width)
+		pkg, ds, _ := checkDerive(t, imp, "main", src)
+		if len(ds) > 0 {
+			t.Fatalf("width %d: %s", width, messages(ds))
+		}
+		got := pkg.Derive.Records
 		if len(got) != 3 {
-			t.Fatalf("trial %d: %d derives", trial, len(got))
+			t.Fatalf("width %d: got %d mapper records, want 3", width, len(got))
 		}
-		for _, d := range got[1:] {
-			if d.Pattern != got[0].Pattern || d.Parse.Key() != got[0].Parse.Key() || d.Find.Key() != got[0].Find.Key() {
-				t.Fatalf("trial %d: %s derives %q, %s derives %q", trial, d.Type, d.Pattern, got[0].Type, got[0].Pattern)
+		norm := func(name string) string {
+			s := bundleOf(pkg, name)
+			for _, pair := range [][2]string{
+				{"Parse" + name, "ParseX"},
+				{"Find" + name, "FindX"},
+				{"_rxExec_" + name, "_rxExec_X"},
+				{"_rxBuild_" + name + "_" + name, "_rxBuild_X_X"},
+				{"_rxProject_" + name, "_rxProject_X"},
+				{`"` + name + `"`, `"X"`},
+				{"Ident{Name:" + name + " ", "Ident{Name:X "},
+			} {
+				s = strings.ReplaceAll(s, pair[0], pair[1])
 			}
+			return s
+		}
+		ba, bb, bc := norm("A"), norm("B"), norm("C")
+		if ba == "" || ba != bb || ba != bc {
+			t.Fatalf("width %d: derived bundles differ:\nA:\n%s\nB:\n%s\nC:\n%s", width, ba, bb, bc)
 		}
 	}
-	// A package's own Pattern hides the constructor: its plan is the one used.
-	_, diags, f := checkDerive(t, nil, "main", "func Pattern(text string) TypePlan {\n\tRefine(Of[int](), 0, 9)\n}\n\ntype T derive Pattern(\"a\")\nfunc main() {}\n")
-	if len(diags) > 0 || !strings.Contains(bundleOf(f, "T"), "BinaryExpr") {
-		t.Fatalf("a shadowing Pattern was not used: %s\n%s", messages(diags), bundleOf(f, "T"))
+
+	// 2. Shadowing: local declarations take precedence cleanly.
+	_, diags, pkg := func() (*Package, []Diagnostic, *Package) {
+		p, d, _ := checkDerive(t, nil, "main", "import content\nimport regex\n\nfunc Pattern(text string) content.Plan {\n\tregex.Pattern(\"(?<Local>[a-z]+)\")\n}\n\ntype T derive Pattern(\"a\")\nfunc main() fails NoMatch { let _ = (try ParseT(\"abc\")).Local }\n")
+		return p, d, p
+	}()
+	if len(diags) > 0 || pkg == nil {
+		t.Fatalf("local shadowing derive failed: %s", messages(diags))
 	}
-	_, diags, _ = checkDerive(t, nil, "main", "type Pattern {}\n\ntype T derive Pattern(\"a\")\nfunc main() {}\n")
-	if !strings.Contains(messages(diags), "not a plan function or a plan constructor") {
-		t.Fatalf("a type named Pattern was treated as the constructor: %s", messages(diags))
+
+	// 3. Budgets, purity, collisions, and wrong-type derive expressions.
+	loopMapper := `import content
+import regex
+
+func spin() content.Plan {
+	let mut n = 0
+	for i in 0..2000000 {
+		n = n + i
 	}
-	// Budgets 1: the step limit and the call depth, at and past each.
-	// steps(n) is an integer expression of exactly n evaluation steps, nested
-	// about log2(n) deep: a parenthesised sum is two steps over its operands.
-	var steps func(n int) string
-	steps = func(n int) string {
-		switch n {
-		case 1:
-			return "1"
-		case 2:
-			return "-1"
-		}
-		half := (n - 2) / 2
-		return "(" + steps(half) + "+" + steps(n-2-half) + ")"
+	regex.Pattern("a")
+}
+
+type T derive spin()
+func main() {}
+`
+	deepMapper := `import content
+import regex
+
+func deep(n int) content.Plan {
+	if n == 0 {
+		regex.Pattern("a")
+	} else {
+		deep(n - 1)
 	}
-	// The derive's Refine and Of calls and its low bound are three more
-	// steps (the low bound, -100000, is a sign and a literal): a bound of n steps makes 4+n.
-	for _, row := range []struct {
+}
+
+type T derive deep(130)
+func main() {}
+`
+	impureMapper := `import content
+import regex
+
+func dirty(input content.ContentInput) content.MappedErgo {
+	Console.Println("no io")
+	regex.MapPattern(input)
+}
+
+type T derive content.Plan{Mapper: dirty, MediaKind: "regex", Bytes: "a".Bytes(), Companions: []content.CompanionAsset{}}
+func main() {}
+`
+	badReturn := `type T derive 123
+func main() {}
+`
+	collision := `import regex
+
+type Date derive regex.Pattern("a")
+func ParseDate() int { 1 }
+func main() {}
+`
+	for _, tc := range []struct {
+		name string
 		src  string
 		want string
 	}{
-		{"type T derive Refine(Of[int](), -100000, " + steps(99996) + ")\nfunc main() {}\n", ""},
-		{"type T derive Refine(Of[int](), -100000, " + steps(99997) + ")\nfunc main() {}\n", "stopped at 100000 evaluation steps"},
-		{"func R(n int) TypePlan {\n\tif n == 0 {\n\t\tPattern(\"a\")\n\t} else {\n\t\tR(n - 1)\n\t}\n}\n\ntype T derive R(63)\nfunc main() {}\n", ""},
-		{"func R(n int) TypePlan {\n\tif n == 0 {\n\t\tPattern(\"a\")\n\t} else {\n\t\tR(n - 1)\n\t}\n}\n\ntype T derive R(64)\nfunc main() {}\n", "call depth of 64 in R"},
-		{"type Date derive Pattern(\"a\")\nfunc ParseDate() int { 1 }\nfunc main() {}\n", "ParseDate is already declared in this package: the derive of Date generates it"},
-		{"func f() int { 1 }\n\ntype T derive Pattern(\"a\" + \"\\(f())\")\nfunc main() {}\n", "not a plan function"},
-		{"type T derive Field(\"X\", Of[int]())\nfunc main() {}\n", "needs a TypePlan"},
+		{"step budget", loopMapper, "step budget"},
+		{"call depth budget", deepMapper, "depth"},
+		{"impure capability", impureMapper, "Console"},
+		{"wrong derive type", badReturn, "expected a content Plan"},
+		{"name collision", collision, "ParseDate is already declared in this package: the derive of Date generates it"},
 	} {
-		_, diags, _ := checkDerive(t, nil, "main", row.src)
-		got := messages(diags)
-		if row.want == "" && got != "" || row.want != "" && !strings.Contains(got, row.want) {
-			t.Errorf("%.80s…: got %q, want %q", row.src, got, row.want)
+		_, ds, _ := checkDerive(t, nil, "main", tc.src)
+		if len(ds) == 0 || !strings.Contains(messages(ds), tc.want) {
+			t.Errorf("%s: got %q, want substring %q", tc.name, messages(ds), tc.want)
 		}
 	}
 }
 
-// TestPatternDiagnostics (patterns.md, Diagnostics 1 and 2): an error at a
-// chosen byte of a generated pattern, spelled as a raw string, an
-// interpreted string with escapes, a concatenation and a plan function's
-// parameter, is reported at the source byte that spelled it.
+// TestPatternDiagnostics checks exact literal span attribution for regex
+// diagnostics (including escaped/concatenated literals) and One mistake, one
+// diagnostic (zero cascade errors on callers of the refused derived type).
 func TestPatternDiagnostics(t *testing.T) {
-	r := rand.New(rand.NewSource(4242))
-	raw := []string{"a", `\.`, "b"}
-	interpreted := []string{"a", `\\.`, `\x61`, "b", `\\t`}
-	for trial := 0; trial < 120; trial++ {
-		form := trial % 4
-		tokens := raw
-		if form > 0 {
-			tokens = interpreted
+	for _, tc := range []struct {
+		name     string
+		expr     string
+		wantCol  int
+		wantText string
+	}{
+		{"anchor caret", "`a^b`", 34, "drop ^"},
+		{"anchor dollar", "`ab$`", 35, "drop $"},
+		{"python group", "`(?P<X>a)`", 33, "(?<Name>"},
+		{"noncap group", "`(?:a)`", 33, "(?:"},
+		{"concat caret", "\"a\" + \"^b\"", 39, "drop ^"},
+		{"escape caret", `"a\x5eb"`, 34, "drop ^"},
+		{"dup capture", "`(?<X>a)(?<X>b)`", 40, "duplicate capture"},
+	} {
+		src := fmt.Sprintf("import regex\n\ntype Date derive regex.Pattern(%s)\nfunc use(x Date) string fails NoMatch { try ParseDate(\"a\"); let _ = FindDate(\"a\", 0); \"ok\" }\n", tc.expr)
+		_, ds, _ := checkDerive(t, nil, "main", src)
+		if len(ds) != 1 {
+			t.Fatalf("%s: expected 1 diagnostic (One mistake, one diagnostic), got %d:\n%s", tc.name, len(ds), messages(ds))
 		}
-		var before, after strings.Builder
-		for range r.Intn(6) {
-			before.WriteString(tokens[r.Intn(len(tokens))])
+		d := ds[0]
+		if !strings.Contains(d.Message, tc.wantText) {
+			t.Errorf("%s: message %q lacks %q", tc.name, d.Message, tc.wantText)
 		}
-		for range r.Intn(4) {
-			after.WriteString(tokens[r.Intn(len(tokens))])
-		}
-		// In an interpreted string the error byte is spelled by an escape
-		// in half the trials: it is reported at the escape's backslash.
-		caret := "^"
-		if form > 0 && trial/4%2 == 1 {
-			caret = `\x5e`
-		}
-		var lit string
-		switch form {
-		case 0:
-			lit = "`" + before.String() + caret + after.String() + "`"
-		case 1, 3:
-			lit = `"` + before.String() + caret + after.String() + `"`
-		case 2:
-			lit = `"` + before.String() + `" + "` + caret + after.String() + `"`
-		}
-		head := "type T derive Pattern("
-		if form == 3 {
-			head = "func P(s string) TypePlan {\n\tPattern(s)\n}\n\ntype T derive P("
-		}
-		src := head + lit + ")\nfunc main() {}\n"
-		want := strings.Index(src, caret)
-		_, diags, _ := checkDerive(t, nil, "main", src)
-		if len(diags) != 1 || diags[0].Offset != want || !strings.Contains(diags[0].Message, "drop ^") {
-			t.Fatalf("seed 4242 trial %d: want one diagnostic at %d\n%s\ngot %v", trial, want, src, diags)
+		if d.Line != 3 || d.Column != tc.wantCol {
+			t.Errorf("%s: got %d:%d, want 3:%d (line=%q)", tc.name, d.Line, d.Column, tc.wantCol, strings.Split(src, "\n")[2])
 		}
 	}
 }

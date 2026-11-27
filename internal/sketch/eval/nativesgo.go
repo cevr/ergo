@@ -243,6 +243,17 @@ func goText(f func([]Value) string) native {
 	}
 }
 
+// stdPureGoNativeOf reports whether fn is a deterministic pure Go stdlib
+// operation implemented by the evaluator's built-in goLib table (never
+// arbitrary host reflection goReflectNative).
+func stdPureGoNativeOf(fn *check.Func) native {
+	if fn == nil || fn.Decl == nil || fn.Decl.Extern == nil || fn.Decl.Extern.Target == nil {
+		return nil
+	}
+	path, name := fn.Decl.Extern.Split()
+	return loadedNatives().goLib[path+"."+name]
+}
+
 // goNativeOf is the native of fn when it is a listed Go function: a
 // program's extern of one, or a function of an import go package. A std
 // extern binds runtime/v1, not Go's library, so it has none here.

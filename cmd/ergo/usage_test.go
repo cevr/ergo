@@ -20,7 +20,15 @@ func TestUnknownOptionIsUsageForEveryCommand(t *testing.T) {
 			invocations = append(invocations, strings.Fields(c.name))
 		}
 	}
-	invocations = append(invocations, []string{"inspect", "api"}, []string{"inspect", "machine"})
+	invocations = append(invocations,
+		[]string{"inspect", "api"},
+		[]string{"inspect", "machine"},
+		[]string{"inspect", "graph"},
+		[]string{"verify", "mutants"},
+		[]string{"verify", "explore"},
+		[]string{"verify", "conform"},
+		[]string{"verify", "cases"},
+	)
 	for _, words := range invocations {
 		args := append(append([]string{}, words...), "--no-such-option", "/nonexistent/usage-probe.ergo")
 		err := command(args)
@@ -46,7 +54,6 @@ func TestFileCommandUsageIsExitTwo(t *testing.T) {
 			args []string
 			want string
 		}{
-			{nil, "source file required"},
 			{append(other, probe), "--receipt is only supported by test"},
 			{[]string{"--target", "js", probe}, "EF110: unsupported target js"},
 		} {
@@ -54,6 +61,9 @@ func TestFileCommandUsageIsExitTwo(t *testing.T) {
 			if code := exitCode(err); code != 2 || err == nil || !strings.Contains(err.Error(), c.want) {
 				t.Errorf("ergo %s %v: exit %d (%v), want 2 and %q", word, c.args, code, err, c.want)
 			}
+		}
+		if opts, err := fileOptionsOf(word, nil); err != nil || opts.file == "" {
+			t.Errorf("ergo %s with omitted target: %+v %v, want default target", word, opts, err)
 		}
 	}
 	for _, args := range [][]string{{"bind", "go", "-x", "fmt"}, {"gen", "rpc", "-x", "limits.Limiter"}} {

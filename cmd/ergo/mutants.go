@@ -256,11 +256,21 @@ type loadedPkgInfo struct {
 }
 
 func mutantsTestCommand(opts fileOptions, stdout, stderr io.Writer) error {
-	var nameRe *regexp.Regexp
-	if opts.run != "" {
+	var nameRe, skipRe *regexp.Regexp
+	filterPat := opts.filter
+	if filterPat == "" {
+		filterPat = opts.run
+	}
+	if filterPat != "" {
 		var err error
-		if nameRe, err = regexp.Compile(opts.run); err != nil {
-			return invalidInvocation(fmt.Errorf("ergo test --mutants: --run: %w", err))
+		if nameRe, err = regexp.Compile(filterPat); err != nil {
+			return invalidInvocation(fmt.Errorf("ergo test --mutants: --filter: %w", err))
+		}
+	}
+	if opts.skip != "" {
+		var err error
+		if skipRe, err = regexp.Compile(opts.skip); err != nil {
+			return invalidInvocation(fmt.Errorf("ergo test --mutants: --skip: %w", err))
 		}
 	}
 	targets := append([]string{opts.file}, opts.more...)
@@ -298,6 +308,9 @@ func mutantsTestCommand(opts fileOptions, stdout, stderr io.Writer) error {
 	for _, j := range jobs {
 		for _, row := range j.ledger.Mutants {
 			if nameRe != nil && !nameRe.MatchString(row.Name) {
+				continue
+			}
+			if skipRe != nil && skipRe.MatchString(row.Name) {
 				continue
 			}
 			absFile, baseRoot, resolveErr := resolveMutantFile(j, row.File)

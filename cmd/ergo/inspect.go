@@ -99,12 +99,22 @@ func inspectCommand(args []string) error {
 	if len(args) > 0 && args[0] == "copies" {
 		return inspectCopiesCommand(args[1:])
 	}
+	if len(args) > 0 && (args[0] == "mappers" || args[0] == "mapped") {
+		return inspectMappersCommand(args[1:])
+	}
 	if len(args) > 0 && args[0] == "forms" {
 		if len(args) == 2 && (args[1] == "--help" || args[1] == "-h") {
 			_, err := os.Stdout.WriteString(inspectFormsHelp)
 			return err
 		}
 		return inspectFormsCommand(args[1:])
+	}
+	if len(args) > 0 && args[0] == "graph" {
+		if len(args) == 2 && (args[1] == "--help" || args[1] == "-h") {
+			_, err := os.Stdout.WriteString(graphHelp)
+			return err
+		}
+		return graphCommand(args[1:])
 	}
 	if len(args) == 0 || args[0] != "machine" {
 		return inspectGoCommand(args)
@@ -131,6 +141,9 @@ func inspectAPICommand(args []string) error {
 			}
 			paths = append(paths, arg)
 		}
+	}
+	if !diff && len(paths) == 0 {
+		paths = []string{"."}
 	}
 	if (!diff && len(paths) != 1) || (diff && len(paths) != 2) {
 		return invalidInvocation(fmt.Errorf("inspect api: supply FILE|DIR, or --diff OLD NEW"))

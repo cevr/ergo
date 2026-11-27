@@ -239,6 +239,19 @@ extern go ergo.local/prototype/runtime/v1/exec.Running type Running {
 	// deadline; Stop in its Expired catch observes the status after
 	// termination. Close is the scope-release form.
 	own Stop() int,
+	// Pid returns the started process's OS identifier, or 0 for an ended
+	// replay or already detached Running.
+	Pid() int,
+	// WriteStdin writes data to an interactive child's stdin pipe, failing
+	// Failed when the Running has no interactive stdin pipe or has closed.
+	WriteStdin(data string) fails Failed,
+	// CloseStdin closes an interactive child's stdin pipe to signal EOF.
+	CloseStdin() fails Failed,
+	// Detach promotes a live supervised Running into a durable DetachedRun,
+	// extracting live stdio pipe descriptors and buffered unread output
+	// without terminating the child or closing transferred descriptors on
+	// parent release.
+	own Detach() DetachedRun fails Failed,
 }
 
 // WaitFor waits at most d for p's end and gives its status, as Wait
@@ -584,7 +597,7 @@ extern go ergo.local/prototype/runtime/v1/exec.ExecDetached type Detached { Pid 
 // Spawner starts programs that outlive the caller's scope, and finds and
 // ends them later. It is a capability apart from Runner, so a detached
 // start shows in the row of the code that does it; a Running stays owned
-// by its scope, and no Running becomes a Detached.
+// by its scope unless explicitly promoted to Detached via Running.Detach.
 type Spawner {
 	// Spawn starts c in a new session and process group, with its streams
 	// going to s, and returns once it has started. A sink of s that is
@@ -790,7 +803,7 @@ law ScriptReplaysRecorded(name string, arg string, status int, out string) {
 // (NewHost), and the case's folder for a test's (NewTestHost,
 // confined.ergo). base is the environment each Command it runs gets under
 // its own entries (InheritEnv): empty for NewHost and NewTestHost.
-type Host { root string, base Map[string, string] } implements Runner, Spawner
+type Host { root string, base Map[string, string] } implements Runner, Spawner, Sessions, confinedSessions
 
 // NewHost is the host's Runner. It needs Ambient: only code whose row
 // holds the authority to choose the host makes one. A program it runs

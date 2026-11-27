@@ -253,16 +253,23 @@ func execHostStart(cmd *exec.Cmd) (*execChild, error) {
 // reap waits for the program, which has ended or been killed, and returns
 // its status (execStatus).
 func (c *execChild) reap() int {
+	status, _ := c.reapState()
+	return status
+}
+
+// reapState waits for the program, which has ended or been killed, and
+// returns its status (execStatus) and terminating signal (0 if normal exit).
+func (c *execChild) reapState() (int, int) {
 	if c.cmd != nil {
 		_ = c.cmd.Wait() // the status is in cmd.ProcessState, and an ExitError carries nothing more
-		return execStatus(c.cmd.ProcessState)
+		return execStatusSignal(c.cmd.ProcessState)
 	}
 	state, err := c.proc.Wait()
 	c.closeStdin() // as os/exec's WaitDelay does for a stdin no one reads
 	if err != nil {
 		panic("exec: reaping the sandboxed program " + strconv.Itoa(c.pid) + ": " + err.Error())
 	}
-	return execStatus(state)
+	return execStatusSignal(state)
 }
 
 func (c *execChild) closeStdin() {
@@ -325,10 +332,21 @@ func execAwaitGroupEnd(group int) {
 // execStatus is the exit status of a program that ended: its exit code, or
 // 128 plus the signal that ended it.
 func execStatus(ps *os.ProcessState) int {
-	if ws, ok := ps.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
-		return 128 + int(ws.Signal())
+	status, _ := execStatusSignal(ps)
+	return status
+}
+
+// execStatusSignal is the exit status (exit code, or 128 + signal) and
+// terminating signal number (0 for normal exit) of ps.
+func execStatusSignal(ps *os.ProcessState) (int, int) {
+	if ps == nil {
+		return -1, 0
 	}
-	return ps.ExitCode()
+	if ws, ok := ps.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+		sig := int(ws.Signal())
+		return 128 + sig, sig
+	}
+	return ps.ExitCode(), 0
 }
 
 // ExecCommand is the command of name with args for Run, Start and Spawn:

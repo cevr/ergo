@@ -1,8 +1,11 @@
 import http
+import json
 import mcp
 import option
+import rand
 import strings
 import sync
+import task
 
 // UnexpectedStatus is an HTTP transport rejection such as 401, 403, 404, 405, 406, 413, or 415.
 type UnexpectedStatus { Status int, Body string }
@@ -10,13 +13,23 @@ type UnexpectedStatus { Status int, Body string }
 // BadResponse is an HTTP response whose body or media type violates the MCP Streamable HTTP framing.
 type BadResponse { Reason string }
 
-// Client sends MCP JSON-RPC messages over an http.Net and tracks Mcp-Session-Id.
+// RPCError is a JSON-RPC 2.0 error returned inside an MCP response.
+type RPCError { Code int, Message string }
+
+// NotificationEvent is one server-pushed MCP notification received on an SSE
+// stream together with its SSE event ID.
+type NotificationEvent { ID string, Notification mcp.Notification }
+
+// Client sends MCP JSON-RPC messages over an http.Net, tracks Mcp-Session-Id,
+// and streams server notifications over GET /mcp SSE with Last-Event-ID resumption.
 type Client {
-	transport http.Net,
-	path      string,
-	headers   []http.Field,
-	accept    string,
-	session   sync.Ref[string],
+	transport   http.Net,
+	path        string,
+	headers     []http.Field,
+	accept      string,
+	session     sync.Ref[string],
+	lastEventID sync.Ref[string],
+	nextReq     sync.Ref[int],
 }
 
 // NewClient creates an MCP Streamable HTTP client posting to path over transport.
@@ -27,27 +40,215 @@ func NewClient(transport http.Net, path string) Client {
 // NewClientWithHeaders creates an MCP Streamable HTTP client that includes headers on each request.
 func NewClientWithHeaders(transport http.Net, path string, headers []http.Field) Client {
 	Client{
-		transport: transport,
-		path:      path,
-		headers:   headers,
-		accept:    "application/json, text/event-stream",
-		session:   sync.NewRef[string](""),
+		transport:   transport,
+		path:        path,
+		headers:     headers,
+		accept:      "application/json, text/event-stream",
+		session:     sync.NewRef[string](""),
+		lastEventID: sync.NewRef[string](""),
+		nextReq:     sync.NewRef[int](1),
 	}
 }
 
 // NewSSEClient creates an MCP Streamable HTTP client requesting text/event-stream responses.
 func NewSSEClient(transport http.Net, path string) Client {
 	Client{
-		transport: transport,
-		path:      path,
-		headers:   []http.Field{},
-		accept:    "text/event-stream",
-		session:   sync.NewRef[string](""),
+		transport:   transport,
+		path:        path,
+		headers:     []http.Field{},
+		accept:      "text/event-stream",
+		session:     sync.NewRef[string](""),
+		lastEventID: sync.NewRef[string](""),
+		nextReq:     sync.NewRef[int](1),
 	}
 }
 
 // SessionID returns the current Mcp-Session-Id tracked by c, or "" when none is active.
 func SessionID(c Client) string { c.session.Get() }
+
+// LastEventID returns the most recent SSE event ID seen by ReadEvents or ReadEventsSince.
+func LastEventID(c Client) string { c.lastEventID.Get() }
+
+// SetLastEventID updates the SSE resume cursor stored on c.
+func SetLastEventID(c Client, id string) { c.lastEventID.Set(id) }
+
+func nextID(c Client) int {
+	sync.Modify(c.nextReq, func(n int) (int, int) { (n, n + 1) })
+}
+
+func clientCallResult(c Client, method string, params json.Value) string fails http.RequestFailed | UnexpectedStatus | BadResponse | RPCError {
+	let id = nextID(c)
+	let reqObj = json.Object{Members: []json.Member{
+		json.Member{Key: "jsonrpc", Value: json.Str{Value: "2.0"}},
+		json.Member{Key: "id", Value: json.IntNumber(int64(id))},
+		json.Member{Key: "method", Value: json.Str{Value: method}},
+		json.Member{Key: "params", Value: params},
+	}}
+	let line = match try Call(c, json.Encode(valueCodec(), reqObj)) {
+	case option.Some[string] as s:
+		s.Value
+	case option.None:
+		return BadResponse{Reason: "expected JSON-RPC response for " + method}
+	}
+	let v = json.Decode(valueCodec(), line) catch {
+	case _:
+		return BadResponse{Reason: "malformed JSON-RPC response"}
+	}
+	match mcp.Field(v, "error") {
+	case option.Some[json.Value] as errVal:
+		let code = match mcp.Field(errVal.Value, "code") {
+		case option.Some[json.Value] as cv:
+			json.Decode(json.Codec[int]{MaxBytes: 0, MaxDepth: 0}, json.Encode(valueCodec(), cv.Value)) catch {
+			case _:
+				-32603
+			}
+		case option.None:
+			-32603
+		}
+		let msg = match mcp.Field(errVal.Value, "message") {
+		case option.Some[json.Value] as mv:
+			match mv.Value {
+			case json.Str as s:
+				s.Value
+			case _:
+				"rpc error"
+			}
+		case option.None:
+			"rpc error"
+		}
+		return RPCError{Code: code, Message: msg}
+	case option.None:
+	}
+	match mcp.Field(v, "result") {
+	case option.Some[json.Value] as res:
+		json.Encode(valueCodec(), res.Value)
+	case option.None:
+		BadResponse{Reason: "JSON-RPC response missing result"}
+	}
+}
+
+// Initialize performs the MCP initialize handshake, stores Mcp-Session-Id, and
+// sends notifications/initialized.
+func Initialize(c Client, clientName string, clientVersion string) mcp.Initialized fails http.RequestFailed | UnexpectedStatus | BadResponse | RPCError {
+	let params = json.Object{Members: []json.Member{
+		json.Member{Key: "protocolVersion", Value: json.Str{Value: mcp.Version}},
+		json.Member{Key: "capabilities", Value: json.Object{Members: []json.Member{}}},
+		json.Member{Key: "clientInfo", Value: json.Object{Members: []json.Member{
+			json.Member{Key: "name", Value: json.Str{Value: clientName}},
+			json.Member{Key: "version", Value: json.Str{Value: clientVersion}},
+		}}},
+	}}
+	let resultText = try clientCallResult(c, "initialize", params)
+	let init = json.Decode(json.Codec[mcp.Initialized]{MaxBytes: 0, MaxDepth: 0}, resultText) catch {
+	case _:
+		return BadResponse{Reason: "invalid initialize result"}
+	}
+	let _ = try Call(c, "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}")
+	init
+}
+
+// ListResources queries resources/list on the MCP endpoint.
+func ListResources(c Client) []mcp.Resource fails http.RequestFailed | UnexpectedStatus | BadResponse | RPCError {
+	let resultText = try clientCallResult(c, "resources/list", json.Object{Members: []json.Member{}})
+	mcp.DecodeResourceListing(resultText) catch {
+	case mcp.ResourceError as e:
+		return BadResponse{Reason: e.Message}
+	}
+}
+
+// ReadResource reads uri via resources/read on the MCP endpoint.
+func ReadResource(c Client, uri string) []mcp.ResourceContents fails http.RequestFailed | UnexpectedStatus | BadResponse | RPCError {
+	let params = json.Object{Members: []json.Member{json.Member{Key: "uri", Value: json.Str{Value: uri}}}}
+	let resultText = try clientCallResult(c, "resources/read", params)
+	mcp.DecodeResourceContents(resultText) catch {
+	case mcp.ResourceError as e:
+		return BadResponse{Reason: e.Message}
+	}
+}
+
+// Subscribe subscribes the active MCP session to notifications for uri via resources/subscribe.
+func Subscribe(c Client, uri string) fails http.RequestFailed | UnexpectedStatus | BadResponse | RPCError {
+	let params = json.Object{Members: []json.Member{json.Member{Key: "uri", Value: json.Str{Value: uri}}}}
+	let _ = try clientCallResult(c, "resources/subscribe", params)
+}
+
+// Unsubscribe removes uri from the active MCP session's subscriptions via resources/unsubscribe.
+func Unsubscribe(c Client, uri string) fails http.RequestFailed | UnexpectedStatus | BadResponse | RPCError {
+	let params = json.Object{Members: []json.Member{json.Member{Key: "uri", Value: json.Str{Value: uri}}}}
+	let _ = try clientCallResult(c, "resources/unsubscribe", params)
+}
+
+// ReadEvents opens a GET /mcp SSE notification stream resuming from c's
+// recorded LastEventID (or starting from undelivered events when empty) and
+// hands each parsed server notification to on as it arrives.
+func ReadEvents(c Client, on func(e NotificationEvent) fails http.SinkFailed) fails http.RequestFailed | UnexpectedStatus | BadResponse | http.Truncated | http.SinkFailed {
+	try ReadEventsSince(c, c.lastEventID.Get(), on)
+}
+
+// ReadEventsSince opens a GET /mcp SSE notification stream sending
+// Last-Event-ID: lastEventID when non-empty, updating c's cursor as events arrive.
+func ReadEventsSince(c Client, lastEventID string, on func(e NotificationEvent) fails http.SinkFailed) fails http.RequestFailed | UnexpectedStatus | BadResponse | http.Truncated | http.SinkFailed {
+	let mut hdr = []http.Field{
+		http.Field{Name: "Accept", Value: "text/event-stream"},
+		http.Field{Name: ProtocolVersionHeader, Value: mcp.Version},
+	}
+	let sid = c.session.Get()
+	if sid != "" {
+		hdr = hdr.Append(http.Field{Name: SessionHeader, Value: sid})
+	}
+	if lastEventID != "" {
+		hdr = hdr.Append(http.Field{Name: LastEventIDHeader, Value: lastEventID})
+	}
+	for f in c.headers {
+		hdr = hdr.Append(f)
+	}
+	let req = http.Request{
+		Method:  "GET",
+		Path:    c.path,
+		RawPath: c.path,
+		Query:   []http.Field{},
+		Header:  hdr,
+		Body:    http.Buffered{Text: ""},
+	}
+	let reader = sync.NewRef[http.EventReader](http.NewEventReader())
+	let bad = sync.NewRef[string]("")
+	let resp = c.transport.SendInto(req, http.Statuses{Values: []int{200}}, func(part string) fails http.SinkFailed {
+		let next, events = http.Feed(reader.Get(), part)
+		reader.Set(next)
+		for ev in events {
+			if ev.ID != "" {
+				c.lastEventID.Set(ev.ID)
+			}
+			match mcp.ParseNotification(ev.Data) {
+			case option.Some[mcp.Notification] as n:
+				try on(NotificationEvent{ID: ev.ID, Notification: n.Value})
+			case option.None:
+				bad.Set("invalid MCP notification event: " + ev.Data)
+				return http.SinkFailed{Reason: "invalid MCP notification event"}
+			}
+		}
+	}) catch {
+	case http.StatusRefused as sr:
+		return UnexpectedStatus{Status: sr.Status, Body: sr.Prefix}
+	case http.SinkFailed as sf:
+		let reason = bad.Get()
+		if reason != "" {
+			return BadResponse{Reason: reason}
+		}
+		return sf
+	case http.RequestFailed as rf:
+		return rf
+	}
+	let ct = mediaTypeOf(headerValue(resp.Header, "Content-Type"))
+	if ct != "text/event-stream" {
+		return BadResponse{Reason: "unexpected Content-Type: " + ct}
+	}
+	match reader.Get().End() {
+	case option.Some[http.Truncated] as tr:
+		return tr.Value
+	case option.None:
+	}
+}
 
 // Call posts one JSON-RPC message (or batch) to c's endpoint.
 // Notifications answered with 202 Accepted return None; JSON or SSE answers return Some.
@@ -131,7 +332,128 @@ func Terminate(c Client) fails http.RequestFailed | UnexpectedStatus | BadRespon
 	let resp = try c.transport.Send(req)
 	if resp.Status == 204 || resp.Status == 200 {
 		c.session.Set("")
+		c.lastEventID.Set("")
 		return
 	}
 	UnexpectedStatus{Status: resp.Status, Body: resp.Body}
+}
+
+// SubscriptionAndLastEventIDReplay: Client.Subscribe filters pushed SSE events,
+// Client.Unsubscribe stops matching updates, LastEventID advances on each event,
+// and reconnecting via ReadEvents/ReadEventsSince replays strictly missed events
+// with ID > cursor.
+law SubscriptionAndLastEventIDReplay(subKey string, otherKey string, count int) {
+	let subURI = "http://res/" + subKey
+	let otherURI = "http://other/" + otherKey
+	let n = 1 + ((count%5)+5)%5
+	let store = NewSessions(rand.NewSeededSecure(17))
+	let rs = mcp.StaticResources([]mcp.Resource{
+		mcp.Resource{URI: subURI, Name: "sub", Description: "", MIMEType: "text/plain"},
+	}, func(uri string) []mcp.ResourceContents fails mcp.ResourceNotFound | mcp.ResourceError {
+		if uri == subURI {
+			return []mcp.ResourceContents{mcp.TextContents(uri, "text/plain", "ok")}
+		}
+		mcp.ResourceNotFound{URI: uri}
+	})
+	let ep = NewWithResources(mcp.Server{Name: "sse", Version: "1", Tools: []mcp.Tool{}}, rs, Options{
+		AllowedOrigins: []string{},
+		MaxBodyBytes:   1048576,
+		Sessions:       Stateful{Store: store},
+	})
+	let net = http.InMemory(func(r http.Request) http.Response needs http.Streaming { Handle(ep, r) })
+	let c = NewClient(net, "/mcp")
+	let _ = c.Initialize("c", "1") catch {
+	case _:
+		return false
+	}
+	c.Subscribe(subURI) catch {
+	case _:
+		return false
+	}
+	let sid = c.SessionID()
+	let mut firstExpected = []mcp.Notification{}
+	for i in 0..n {
+		let ev = mcp.ResourceUpdated(subURI)
+		let _ = Notify(store, ev)
+		let _ = NotifyResourceUpdated(store, otherURI)
+		firstExpected = firstExpected.Append(ev)
+		let _ = i
+	}
+	let t1 = task.Go() {
+		let mut got = []NotificationEvent{}
+		c.ReadEvents(func(ev NotificationEvent) fails http.SinkFailed {
+			got = got.Append(ev)
+		}) catch {
+		case _:
+			got = []NotificationEvent{}
+		}
+		got
+	}
+	if !WaitStream(store, sid) {
+		return false
+	}
+	CloseStreams(store, sid)
+	let batch1 = t1.Wait()
+	let cursor1 = c.LastEventID()
+
+	let missed = mcp.LogMessage("notice", "replay", json.Str{Value: subKey})
+	let _ = Notify(store, missed)
+	c.Unsubscribe(subURI) catch {
+	case _:
+		return false
+	}
+	let _ = NotifyResourceUpdated(store, subURI)
+	let afterUnsub = mcp.ResourcesListChanged()
+	let _ = Notify(store, afterUnsub)
+
+	let t2 = task.Go() {
+		let mut got = []NotificationEvent{}
+		c.ReadEvents(func(ev NotificationEvent) fails http.SinkFailed {
+			got = got.Append(ev)
+		}) catch {
+		case _:
+			got = []NotificationEvent{}
+		}
+		got
+	}
+	if !WaitStream(store, sid) {
+		return false
+	}
+	CloseStreams(store, sid)
+	let batch2 = t2.Wait()
+
+	let mut batch1Notifs = []mcp.Notification{}
+	for e in batch1 {
+		batch1Notifs = batch1Notifs.Append(e.Notification)
+	}
+	let mut batch2Notifs = []mcp.Notification{}
+	for e in batch2 {
+		batch2Notifs = batch2Notifs.Append(e.Notification)
+	}
+	let tReplay = task.Go() {
+		let mut got = []NotificationEvent{}
+		c.ReadEventsSince(cursor1, func(ev NotificationEvent) fails http.SinkFailed {
+			got = got.Append(ev)
+		}) catch {
+		case _:
+			got = []NotificationEvent{}
+		}
+		got
+	}
+	if !WaitStream(store, sid) {
+		return false
+	}
+	CloseStreams(store, sid)
+	let replayBatch = tReplay.Wait()
+	let mut replayNotifs = []mcp.Notification{}
+	for e in replayBatch {
+		replayNotifs = replayNotifs.Append(e.Notification)
+	}
+
+	let wantBatch2 = []mcp.Notification{missed, afterUnsub}
+	let ok = batch1Notifs == firstExpected && cursor1 != "" && batch2Notifs == wantBatch2 && replayNotifs == wantBatch2 && c.LastEventID() != cursor1
+	always ok
+	sometimes n > 1 && ok
+	sometimes n == 1 && ok
+	ok
 }

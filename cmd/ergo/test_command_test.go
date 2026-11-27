@@ -135,10 +135,10 @@ func TestTestCommand(t *testing.T) {
 		{[]string{"test", replay, "--seed=-1"}, "--seed takes a decimal number"},
 		{[]string{"test", replay, "--seed"}, "--seed requires a value"},
 		{[]string{"test", replay, "-o", "out"}, "-o is only supported by build"},
-		{[]string{"test", replay, "--strict"}, "--strict is only supported by diagnostics"},
+		{[]string{"test", replay, "--strict"}, "--strict is only supported by check, lint"},
 		{[]string{"test", replay, replay}, "incorrect arguments for test"},
 		{[]string{"test", filepath.Join(root, "replay.txt")}, "source file must have .ergo extension"},
-		{[]string{"test"}, "source file required"},
+		{[]string{"test", "--filter", "["}, "--filter: invalid pattern"},
 	} {
 		stdout, stderr, code := run(c.args...)
 		if code != 2 || stdout != "" || !strings.Contains(stderr, c.want) {

@@ -1,0 +1,502 @@
+import compiler/check/bind
+import compiler/syntax
+import fs
+import fstest
+import option
+import filepath
+import slices
+import strings
+
+// CSRGraph represents package dependencies as a flat uint32 Compressed Sparse Row graph.
+type CSRGraph {
+	NodeCount uint32,
+	EdgeCount uint32,
+	PkgPaths  []string,
+	Head      []uint32,
+	Edges     []uint32,
+}
+
+// WaveSchedule holds deterministic topological wave levels for a CSRGraph.
+type WaveSchedule {
+	Order     []uint32,
+	WaveStart []uint32,
+	WaveCount uint32,
+	WaveOf    []uint32,
+}
+
+// CycleError reports a dependency cycle ordered along the import chain.
+type CycleError {
+	Chain []string,
+}
+
+// FormatCycle renders a human-readable import cycle diagnostic.
+func FormatCycle(c CycleError) string {
+	"import cycle: " + strings.Join(c.Chain, " -> ")
+}
+
+func makeUint32(n int, fill uint32) []uint32 {
+	if n <= 0 {
+		return []uint32{}
+	}
+	[]uint32{fill}.Repeat(n)
+}
+
+// BuildCSRFromEdges constructs a deduplicated deterministic CSRGraph from pkgPaths and raw dependency IDs.
+func BuildCSRFromEdges(pkgPaths []string, rawDeps [][]uint32) CSRGraph {
+	let n = pkgPaths.Len()
+	let mut head = makeUint32(n+1, uint32(0))
+	let mut seen = makeUint32(n, NoIndex())
+	let mut totalEdges = uint32(0)
+	let mut uniqueBuf = makeUint32(n, uint32(0))
+	let mut flatEdges = []uint32{}
+
+	for u in 0..n {
+		let uid = uint32(u)
+		head[u] = totalEdges
+		let mut count = 0
+		if u < rawDeps.Len() {
+			for v in rawDeps[u] {
+				if int(v) < n && seen[int(v)] != uid {
+					seen[int(v)] = uid
+					uniqueBuf[count] = v
+					count = count + 1
+				}
+			}
+		}
+		sortUint32Range(&uniqueBuf, 0, count)
+		for k in 0..count {
+			flatEdges = flatEdges.Append(uniqueBuf[k])
+		}
+		totalEdges = totalEdges + uint32(count)
+	}
+	head[n] = totalEdges
+	CSRGraph{
+		NodeCount: uint32(n),
+		EdgeCount: totalEdges,
+		PkgPaths:  slices.Clone(pkgPaths),
+		Head:      head,
+		Edges:     flatEdges,
+	}
+}
+
+func sortUint32Range(xs mut []uint32, lo int, hi int) {
+	for i in lo+1..hi {
+		let key = (*xs)[i]
+		let mut j = i
+		for j > lo && (*xs)[j-1] > key {
+			(*xs)[j] = (*xs)[j-1]
+			j = j - 1
+		}
+		(*xs)[j] = key
+	}
+}
+
+func sortWaveSlice(xs mut []uint32, lo int, hi int, paths []string) {
+	for i in lo+1..hi {
+		let key = (*xs)[i]
+		let keyPath = paths[int(key)]
+		let mut j = i
+		for j > lo {
+			let prev = (*xs)[j-1]
+			let prevPath = paths[int(prev)]
+			if prevPath < keyPath || (prevPath == keyPath && prev <= key) {
+				break
+			}
+			(*xs)[j] = prev
+			j = j - 1
+		}
+		(*xs)[j] = key
+	}
+}
+
+// ScheduleWaves computes deterministic bottom-up topological waves or returns CycleError.
+func ScheduleWaves(g CSRGraph) WaveSchedule fails CycleError {
+	let n = int(g.NodeCount)
+	if n == 0 {
+		return WaveSchedule{
+			Order:     []uint32{},
+			WaveStart: []uint32{uint32(0)},
+			WaveCount: uint32(0),
+			WaveOf:    []uint32{},
+		}
+	}
+	let e = int(g.EdgeCount)
+	let mut remDeps = makeUint32(n, uint32(0))
+	let mut revCounts = makeUint32(n, uint32(0))
+	for u in 0..n {
+		let start = int(g.Head[u])
+		let end = int(g.Head[u+1])
+		remDeps[u] = uint32(end - start)
+		for k in start..end {
+			let v = int(g.Edges[k])
+			revCounts[v] = revCounts[v] + uint32(1)
+		}
+	}
+	let mut revHead = makeUint32(n+1, uint32(0))
+	let mut acc = uint32(0)
+	for u in 0..n {
+		revHead[u] = acc
+		acc = acc + revCounts[u]
+	}
+	revHead[n] = acc
+	let mut revCursor = slices.Clone(revHead)
+	let mut revEdges = makeUint32(e, uint32(0))
+	for u in 0..n {
+		let start = int(g.Head[u])
+		let end = int(g.Head[u+1])
+		for k in start..end {
+			let v = int(g.Edges[k])
+			let pos = int(revCursor[v])
+			revEdges[pos] = uint32(u)
+			revCursor[v] = uint32(pos + 1)
+		}
+	}
+
+	let mut order = makeUint32(n, uint32(0))
+	let mut waveOf = makeUint32(n, uint32(0))
+	let mut waveStart = makeUint32(n+1, uint32(0))
+	let mut waveCount = uint32(0)
+	let mut qTail = 0
+	for u in 0..n {
+		if remDeps[u] == uint32(0) {
+			order[qTail] = uint32(u)
+			qTail = qTail + 1
+		}
+	}
+	sortWaveSlice(&order, 0, qTail, g.PkgPaths)
+
+	let mut qHead = 0
+	for qHead < qTail {
+		let wBegin = qHead
+		let wEnd = qTail
+		waveStart[int(waveCount)] = uint32(wBegin)
+		let w = waveCount
+		for idx in wBegin..wEnd {
+			let u = int(order[idx])
+			waveOf[u] = w
+			let rStart = int(revHead[u])
+			let rEnd = int(revHead[u+1])
+			for rk in rStart..rEnd {
+				let dep = int(revEdges[rk])
+				remDeps[dep] = remDeps[dep] - uint32(1)
+				if remDeps[dep] == uint32(0) {
+					order[qTail] = uint32(dep)
+					qTail = qTail + 1
+				}
+			}
+		}
+		if qTail > wEnd {
+			sortWaveSlice(&order, wEnd, qTail, g.PkgPaths)
+		}
+		waveCount = waveCount + uint32(1)
+		qHead = wEnd
+	}
+	waveStart[int(waveCount)] = uint32(qTail)
+
+	if qTail < n {
+		return CycleError{Chain: findCycleChain(g, remDeps)}
+	}
+	WaveSchedule{
+		Order:     order,
+		WaveStart: waveStart[0 : int(waveCount)+1],
+		WaveCount: waveCount,
+		WaveOf:    waveOf,
+	}
+}
+
+func findCycleChain(g CSRGraph, remDeps []uint32) []string {
+	let n = int(g.NodeCount)
+	let mut color = makeUint32(n, uint32(0))
+	let mut parent = makeUint32(n, NoIndex())
+	let mut stackNode = makeUint32(n, uint32(0))
+	let mut stackEdge = makeUint32(n, uint32(0))
+
+	for start in 0..n {
+		if remDeps[start] == uint32(0) || color[start] != uint32(0) {
+			continue
+		}
+		let mut top = 0
+		stackNode[0] = uint32(start)
+		stackEdge[0] = g.Head[start]
+		color[start] = uint32(1)
+		parent[start] = NoIndex()
+
+		for top >= 0 {
+			let u = int(stackNode[top])
+			let edgeIdx = int(stackEdge[top])
+			let edgeEnd = int(g.Head[u+1])
+			if edgeIdx >= edgeEnd {
+				color[u] = uint32(2)
+				top = top - 1
+				continue
+			}
+			stackEdge[top] = uint32(edgeIdx + 1)
+			let v = int(g.Edges[edgeIdx])
+			if remDeps[v] == uint32(0) {
+				continue
+			}
+			if color[v] == uint32(1) {
+				let mut rev = []string{g.PkgPaths[v]}
+				let mut cur = uint32(u)
+				for cur != NoIndex() {
+					rev = rev.Append(g.PkgPaths[int(cur)])
+					if cur == uint32(v) {
+						break
+					}
+					cur = parent[int(cur)]
+				}
+				let mut chain = []string{}
+				let m = rev.Len()
+				for k in 0..m {
+					chain = chain.Append(rev[m-1-k])
+				}
+				return chain
+			}
+			if color[v] == uint32(0) {
+				color[v] = uint32(1)
+				parent[v] = uint32(u)
+				top = top + 1
+				stackNode[top] = uint32(v)
+				stackEdge[top] = g.Head[v]
+			}
+		}
+	}
+	[]string{}
+}
+
+// CheckGraphMatchesTask verifies every dependency edge finishes strictly before its importer and wave boundaries are valid.
+func CheckGraphMatchesTask(g CSRGraph, ws WaveSchedule) bool {
+	let n = int(g.NodeCount)
+	if ws.Order.Len() != n || ws.WaveOf.Len() != n {
+		return false
+	}
+	let mut seen = makeUint32(n, uint32(0))
+	for w in 0..int(ws.WaveCount) {
+		let lo = int(ws.WaveStart[w])
+		let hi = int(ws.WaveStart[w+1])
+		if lo > hi || hi > n {
+			return false
+		}
+		for idx in lo..hi {
+			let u = int(ws.Order[idx])
+			if u >= n || seen[u] != uint32(0) || int(ws.WaveOf[u]) != w {
+				return false
+			}
+			seen[u] = uint32(1)
+			if idx > lo {
+				let prev = int(ws.Order[idx-1])
+				if g.PkgPaths[prev] > g.PkgPaths[u] {
+					return false
+				}
+			}
+		}
+	}
+	for u in 0..n {
+		if seen[u] != uint32(1) {
+			return false
+		}
+		let lo = int(g.Head[u])
+		let hi = int(g.Head[u+1])
+		for k in lo..hi {
+			let dep = int(g.Edges[k])
+			if ws.WaveOf[dep] >= ws.WaveOf[u] {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// ResolveImportToPackage resolves an import path from package pkgID to a uint32 package ID in store if internal.
+func ResolveImportToPackage(store PkgStore, pkgID uint32, imp string) option.Option[uint32] {
+	match store.PkgIndex.Get(imp) {
+	case option.Some[uint32] as found:
+		return found
+	case option.None:
+	}
+	let modID = store.PkgModID[int(pkgID)]
+	if modID == NoIndex() {
+		return option.None
+	}
+	let rStart = int(store.ModRepStart[int(modID)])
+	let rLen = int(store.ModRepLen[int(modID)])
+	for idx in rStart..rStart+rLen {
+		let rep = store.Replaces[idx]
+		if imp == rep.Module {
+			match store.PkgDirIndex.Get(rep.Dir) {
+			case option.Some[uint32] as found:
+				return found
+			case option.None:
+			}
+		} else if strings.HasPrefix(imp, rep.Module+"/") {
+			let suffix = strings.TrimPrefix(imp, rep.Module+"/")
+			let targetDir = filepath.Clean(filepath.Join([]string{rep.Dir, suffix}))
+			match store.PkgDirIndex.Get(targetDir) {
+			case option.Some[uint32] as found:
+				return found
+			case option.None:
+			}
+		}
+	}
+	option.None
+}
+
+// CollectImportGraph parses imports for every package in store and returns its dependency CSRGraph.
+func CollectImportGraph(store PkgStore) CSRGraph fails fs.NotFound | fs.Denied | fs.Failed needs fs.Files {
+	let n = int(store.PkgCount)
+	let mut rawDeps = [][]uint32{}
+	for u in 0..n {
+		let files = PackageFiles(store, uint32(u))
+		let mut bFiles = []bind.File{}
+		for f in files {
+			let src = try fs.Files.ReadFile(f)
+			let parsed = syntax.Parse(src)
+			bFiles = bFiles.Append(bind.File{Name: filepath.Base(f), Parsed: parsed})
+		}
+		let imps = bind.Imports(bFiles)
+		let mut deps = []uint32{}
+		for imp in imps {
+			match ResolveImportToPackage(store, uint32(u), imp) {
+			case option.Some[uint32] as target:
+				deps = deps.Append(target.Value)
+			case option.None:
+			}
+		}
+		rawDeps = rawDeps.Append(deps)
+	}
+	BuildCSRFromEdges(store.PkgPaths, rawDeps)
+}
+
+// ScheduleRespectsDepsAndDeterminism: DAG scheduling matches task levels and ignores input edge order.
+law ScheduleRespectsDepsAndDeterminism(edges []uint32) {
+	let n = 8
+	let paths = []string{"p0", "p1", "p2", "p3", "p4", "p5", "p6", "p7"}
+	let mut fwd = [][]uint32{}
+	let mut rev = [][]uint32{}
+	for _ in 0..n {
+		fwd = fwd.Append([]uint32{})
+		rev = rev.Append([]uint32{})
+	}
+	let mut k = 0
+	for k+1 < edges.Len() {
+		let a = int(edges[k] % uint32(n))
+		let b = int(edges[k+1] % uint32(n))
+		if a != b {
+			let hi = if a > b { a } else { b }
+			let lo = if a > b { b } else { a }
+			fwd[hi] = fwd[hi].Append(uint32(lo))
+		}
+		k = k + 2
+	}
+	for u in 0..n {
+		let row = fwd[u]
+		let m = row.Len()
+		for j in 0..m {
+			rev[u] = rev[u].Append(row[m-1-j])
+		}
+	}
+	let g1 = BuildCSRFromEdges(paths, fwd)
+	let g2 = BuildCSRFromEdges(paths, rev)
+	let ws1 = ScheduleWaves(g1) catch {
+	case CycleError:
+		return false
+	}
+	let ws2 = ScheduleWaves(g2) catch {
+	case CycleError:
+		return false
+	}
+	CheckGraphMatchesTask(g1, ws1) && CheckGraphMatchesTask(g2, ws2) && slices.Equal(ws1.Order, ws2.Order) && slices.Equal(ws1.WaveOf, ws2.WaveOf)
+}
+
+test GraphWaveLevelsAndCycle {
+	let paths = []string{"app", "leaf", "midA", "midB"}
+	let raw = [][]uint32{
+		[]uint32{uint32(2), uint32(3)},
+		[]uint32{},
+		[]uint32{uint32(1)},
+		[]uint32{uint32(1)},
+	}
+	let g = BuildCSRFromEdges(paths, raw)
+	let ws = ScheduleWaves(g) catch {
+	case CycleError:
+		assert false
+		return
+	}
+	assert CheckGraphMatchesTask(g, ws)
+	assert ws.WaveCount == uint32(3)
+	assert ws.WaveOf[1] == uint32(0)
+	assert ws.WaveOf[2] == uint32(1)
+	assert ws.WaveOf[3] == uint32(1)
+	assert ws.WaveOf[0] == uint32(2)
+	assert ws.Order.Len() == 4 && ws.Order[0] == uint32(1) && ws.Order[3] == uint32(0)
+
+	let cycPaths = []string{"a", "b", "c"}
+	let cycEdges = [][]uint32{
+		[]uint32{uint32(1)},
+		[]uint32{uint32(2)},
+		[]uint32{uint32(0)},
+	}
+	let cg = BuildCSRFromEdges(cycPaths, cycEdges)
+	let mut msg = ""
+	let _ = ScheduleWaves(cg) catch {
+	case CycleError as ce:
+		msg = FormatCycle(ce)
+		WaveSchedule{Order: []uint32{}, WaveStart: []uint32{}, WaveCount: uint32(0), WaveOf: []uint32{}}
+	}
+	assert strings.HasPrefix(msg, "import cycle: ")
+	assert strings.Contains(msg, "a -> b -> c -> a")
+}
+
+test CollectImportGraphWithReplace {
+	let mem = fstest.NewMemory()
+	mem.MkdirAll("/repo/app/cmd") catch {
+	case fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.MkdirAll("/repo/lib/core") catch {
+	case fs.Denied, fs.Failed:
+		assert false
+	}
+	let files = []string{
+		"/repo/app/ergo.mod",
+		"/repo/app/go.mod",
+		"/repo/app/cmd/main.ergo",
+		"/repo/lib/ergo.mod",
+		"/repo/lib/core/c.ergo",
+	}
+	let contents = []string{
+		"module app\n",
+		"module example.com/app\ngo 1.27\nreplace example.com/lib => ../lib\n",
+		"import example.com/lib/core\nimport strings\nfunc Main() int { 1 }\n",
+		"module lib\n",
+		"func Core() int { 42 }\n",
+	}
+	for i in 0..files.Len() {
+		mem.WriteFile(files[i], contents[i]) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			assert false
+		}
+	}
+	let store = with context { fs.Files: mem } {
+		DiscoverWorkspaceMembers("/repo") catch {
+		case DiscoverError, ParseError, fs.NotFound, fs.Denied, fs.Failed:
+			NewPkgStore("/repo", "/repo")
+		}
+	}
+	let graph = with context { fs.Files: mem } {
+		CollectImportGraph(store) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			BuildCSRFromEdges([]string{}, [][]uint32{})
+		}
+	}
+	assert graph.NodeCount == uint32(2)
+	assert graph.EdgeCount == uint32(1)
+	let ws = ScheduleWaves(graph) catch {
+	case CycleError:
+		assert false
+		return
+	}
+	assert ws.WaveCount == uint32(2)
+	assert graph.PkgPaths[int(ws.Order[0])] == "lib/core"
+	assert graph.PkgPaths[int(ws.Order[1])] == "app/cmd"
+}

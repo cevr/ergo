@@ -77,6 +77,9 @@ func checkSource(source string, imp check.Importer, opts check.Options) Analysis
 	}
 	analysis := Analysis{source: source, file: file}
 	prepareStd(nil)
+	if opts.MapperCache == nil {
+		opts.MapperCache, opts.MapperBuildID = defaultMapperCache()
+	}
 	pkg, diagnostics := check.CheckOptions("main", []*syntax.File{file}, imp, opts)
 	stage.Add(stage.PackagesChecked, 1)
 	stage.Add(stage.DeclsChecked, int64(len(file.Decls)))
@@ -368,11 +371,7 @@ func LibraryUnit(a Analysis, source string) (lower.Unit, error) {
 	if len(a.Diagnostics) > 0 || (a.file == nil && a.program == nil) || a.pkg == nil {
 		return lower.Unit{}, &BuildError{Diagnostics: a.Diagnostics}
 	}
-	unit := lower.Unit{Package: a.pkg, Files: []*syntax.File{a.file}, Sources: []lower.Source{{Path: source, Text: a.source}}, Root: filepath.Dir(source)}
-	if a.program != nil {
-		unit = a.program.unit()
-	}
-	return unit, nil
+	return singleOrProgramUnit(a, source), nil
 }
 
 // Build emits the checked analysis into the emission cache, or reuses its
@@ -510,11 +509,36 @@ const rawFlag = "go/format=off"
 
 // analysisUnit is the validated unit of a checked analysis; source
 // anchors a program of one source text.
-func analysisUnit(a Analysis, source string) (lower.Unit, error) {
-	unit := lower.Unit{Package: a.pkg, Files: []*syntax.File{a.file}, Sources: []lower.Source{{Path: source, Text: a.source}}, Root: filepath.Dir(source)}
+// CheckDirWithOptions checks the package in dir like CheckDir with explicit check.Options
+// (such as a caller-provided lawcache MapperCache or compiler build identity).
+func CheckDirWithOptions(dir string, opts check.Options) (Analysis, error) {
+	return checkDirWith(hostFS{}, dir, hostPlatform(), opts)
+}
+
+func singleOrProgramUnit(a Analysis, source string) lower.Unit {
 	if a.program != nil {
-		unit = a.program.unit()
+		return a.program.unit()
 	}
+	dir := filepath.Dir(source)
+	files := []*syntax.File{a.file}
+	sources := []lower.Source{{Path: source, Text: a.source}}
+	if a.pkg != nil && len(a.pkg.Files()) > 1 {
+		pkgFiles := a.pkg.Files()
+		files = pkgFiles
+		sources = make([]lower.Source, len(pkgFiles))
+		for i, gf := range pkgFiles {
+			if gf == a.file {
+				sources[i] = lower.Source{Path: source, Text: a.source}
+			} else {
+				sources[i] = lower.Source{Path: filepath.Join(dir, gf.Name), Text: gf.Src}
+			}
+		}
+	}
+	return lower.Unit{Package: a.pkg, Files: files, Sources: sources, Root: dir}
+}
+
+func analysisUnit(a Analysis, source string) (lower.Unit, error) {
+	unit := singleOrProgramUnit(a, source)
 	return unit, unit.Validate()
 }
 

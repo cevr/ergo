@@ -41,17 +41,17 @@ func fn(name string, params []int, results []int, slots []int, ops []Op, line in
 	for i in 0..ops.Len() {
 		lines = lines.Append(line + 1 + i)
 	}
-	Func{Name: name, Params: params, Results: results, Slots: slots, Ops: ops, Lines: lines, Line: line, Col: 1}
+	Func{Name: name, Params: params, Results: results, Slots: slots, Ops: ops, Lines: lines, Line: line, Col: 1, File: 0}
 }
 
 // Tiny is the fixture package for constants k1 and k2, importing the
 // stock dependency dep (its fingerprint and whether it has an init).
 func Tiny(k1 int, k2 int, dep Import) Package {
 	let ty = []TypeDef{
-		TypeDef{Kind: KInt, Elem: 0, Params: []int{}, Results: []int{}},
-		TypeDef{Kind: KPtr, Elem: TInt, Params: []int{}, Results: []int{}},
-		TypeDef{Kind: KFunc, Elem: 0, Params: []int{TInt}, Results: []int{TInt}},
-		TypeDef{Kind: KPtr, Elem: TPtrInt, Params: []int{}, Results: []int{}},
+		IntType(),
+		PtrType(TInt),
+		FuncType([]int{TInt}, []int{TInt}),
+		PtrType(TPtrInt),
 	}
 	let i = TInt
 	let funcs = []Func{
@@ -80,7 +80,7 @@ func Tiny(k1 int, k2 int, dep Import) Package {
 		fn("SpinStarted", []int{}, []int{i}, []int{i},
 			[]Op{GetGlobal{Dst: 0, Global: 2}, Return{Vals: []int{0}}}, 68),
 	}
-	Package{Path: TinyPath, Name: "tiny", File: "tiny.ergo", Types: ty, Imports: []Import{dep}, Globals: []Global{Global{Name: "initRuns"}, Global{Name: "stop"}, Global{Name: "started"}},
+	Package{Path: TinyPath, Name: "tiny", File: "tiny.ergo", Files: []string{"tiny.ergo"}, Types: ty, Imports: []Import{dep}, Globals: []Global{Global{Name: "initRuns"}, Global{Name: "stop"}, Global{Name: "started"}},
 		Funcs: funcs, Inits: []int{0}}
 }
 
@@ -99,4 +99,96 @@ func FuncNamed(p Package, name string) int {
 		}
 	}
 	-1
+}
+
+// Stop1Sample builds a multi-file Stop 1 fixture package exercising scalars,
+// strings, named value records, slices, field stores, and stack parameters.
+func Stop1Sample(k int, dep Import) Package {
+	let s = k % 10000
+	let ty = []TypeDef{
+		IntType(),
+		BasicType(KBool),
+		BasicType(KUint8),
+		BasicType(KInt32),
+		BasicType(KUint32),
+		BasicType(KUint64),
+		BasicType(KString),
+		StructType("Item", DepPath+"stop1", true, []FieldDef{
+			FieldDef{Name: "Tag", Type: 2, Exported: true},
+			FieldDef{Name: "Count", Type: 3, Exported: true},
+			FieldDef{Name: "Label", Type: 6, Exported: true},
+		}),
+		PtrType(7),
+		SliceType(7),
+		SliceType(4),
+	}
+	let fnInFile = func(file int, line int, name string, params []int, results []int, slots []int, ops []Op) Func {
+		let mut lines = []int{}
+		for i in 0..ops.Len() {
+			lines = lines.Append(line + 1 + i)
+		}
+		Func{Name: name, Params: params, Results: results, Slots: slots, Ops: ops, Lines: lines, Line: line, Col: 1, File: file}
+	}
+	let funcs = []Func{
+		fnInFile(0, 4, "ScalarOps", []int{3, 4, 5, 2, 1}, []int{5},
+			[]int{3, 4, 5, 2, 1, 3, 3, 5, 5, 5, 4, 4, 5},
+			[]Op{
+				Const{Dst: 5, V: s + 7},
+				Arith{Dst: 6, Kind: ADiv, A: 0, B: 5},
+				Convert{Dst: 7, Src: 6},
+				Convert{Dst: 8, Src: 3},
+				Convert{Dst: 9, Src: 1},
+				Const{Dst: 10, V: 2},
+				Arith{Dst: 11, Kind: AShl, A: 1, B: 10},
+				Convert{Dst: 12, Src: 11},
+				Arith{Dst: 7, Kind: AAdd, A: 7, B: 8},
+				Arith{Dst: 7, Kind: AAdd, A: 7, B: 2},
+				Arith{Dst: 7, Kind: AAdd, A: 7, B: 12},
+				JumpIf{Cond: CEq, A: 4, B: 4, To: 0},
+				Arith{Dst: 7, Kind: AAdd, A: 7, B: 9},
+				Label{Id: 0},
+				Return{Vals: []int{7}},
+			}),
+		fnInFile(0, 22, "MakeAndMut", []int{2, 3, 6, 8}, []int{9, 6},
+			[]int{2, 3, 6, 8, 7, 9, 0, 7, 6},
+			[]Op{
+				ConstStr{Dst: 2, V: "ok"},
+				RecordLit{Dst: 4, Vals: []int{0, 1, 2}},
+				FieldSet{Ptr: 3, Field: 1, Val: 1},
+				FieldSet{Ptr: 3, Field: 2, Val: 2},
+				SliceLit{Dst: 5, Elems: []int{4}},
+				Const{Dst: 6, V: 0},
+				Index{Dst: 7, Slice: 5, Idx: 6},
+				FieldGet{Dst: 8, Base: 7, Field: 2},
+				Arith{Dst: 8, Kind: AAdd, A: 8, B: 2},
+				Return{Vals: []int{5, 8}},
+			}),
+		fnInFile(1, 5, "StackWide", []int{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6}, []int{0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+			[]int{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6, 0, 6},
+			[]Op{
+				Len{Dst: 11, Src: 10},
+				ConstStr{Dst: 12, V: "z"},
+				Arith{Dst: 9, Kind: AAdd, A: 9, B: 11},
+				JumpIf{Cond: CLt, A: 10, B: 12, To: 0},
+				Arith{Dst: 0, Kind: AAdd, A: 0, B: 9},
+				Label{Id: 0},
+				Return{Vals: []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}},
+			}),
+		fnInFile(1, 18, "UseDep", []int{0}, []int{0}, []int{0, 0},
+			[]Op{
+				Call{Dsts: []int{1}, Target: DepPath + ".Double", Args: []int{0}},
+				Return{Vals: []int{1}},
+			}),
+	}
+	Package{
+		Path:    DepPath + "stop1",
+		Name:    "stop1",
+		File:    "a.ergo",
+		Files:   []string{"a.ergo", "b.ergo"},
+		Types:   ty,
+		Imports: []Import{dep},
+		Globals: []Global{},
+		Funcs:   funcs,
+		Inits:   []int{},
+	}
 }

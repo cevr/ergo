@@ -1,0 +1,174 @@
+{
+  "about": "Pure-Ergo mutant anchor, derived generator, planner, and verdict reporter (DoD floor).",
+  "mutants": [
+    {
+      "name": "selfhost-mutants-store-reset-ints",
+      "origin": "selfhost-mutants",
+      "file": "compiler/mutants/store.ergo",
+      "decl": "ResetScratch",
+      "from": "\tdense.Cut(&s.Ints, 0)\n",
+      "to": "\tdense.Cut(&s.Ints, dense.Mark(s.Ints))\n",
+      "rule": "ResetScratch must truncate scratch int stack cursor back to zero",
+      "killers": ["compiler/mutants:law:StoreScratchPreservesOrder"],
+      "anchor": {
+        "tests": ["compiler/mutants:law:StoreScratchPreservesOrder"]
+      }
+    },
+    {
+      "name": "selfhost-mutants-checktext-blank-gap",
+      "origin": "selfhost-mutants",
+      "file": "compiler/mutants/checktext.ergo",
+      "decl": "hasBlankLineBetween",
+      "from": "\t\t\tif nl >= 2 {\n\t\t\t\treturn true\n\t\t\t}\n",
+      "to": "\t\t\tif nl >= 1 {\n\t\t\t\treturn true\n\t\t\t}\n",
+      "rule": "Only two or more newlines create a blank-line gap separator in CheckText",
+      "killers": ["compiler/mutants:law:CheckTextSeparatesBlankLines"],
+      "anchor": {
+        "tests": ["compiler/mutants:law:CheckTextSeparatesBlankLines"]
+      }
+    },
+    {
+      "name": "selfhost-mutants-anchor-3way-parse",
+      "origin": "selfhost-mutants",
+      "file": "compiler/mutants/anchor.ergo",
+      "decl": "verifyAppliedOutcome",
+      "from": "\t\tif p.Failed {\n\t\t\treturn AnchorConflict{Reason: \"mutated .ergo syntax error: \\(p.Message)\"}\n\t\t}\n",
+      "to": "\t\tif !p.Failed {\n\t\t\treturn AnchorConflict{Reason: \"mutated .ergo syntax error: \\(p.Message)\"}\n\t\t}\n",
+      "rule": "3-way anchor verification must reject parse failures on mutated .ergo output",
+      "killers": ["compiler/mutants:TestGoAndErgoDeclExtractionAnd3Way"],
+      "anchor": {
+        "tests": ["compiler/mutants:TestGoAndErgoDeclExtractionAnd3Way"]
+      }
+    },
+    {
+      "name": "selfhost-mutants-anchor-go-recv",
+      "origin": "selfhost-mutants",
+      "file": "compiler/mutants/anchor.ergo",
+      "decl": "extractGoReceiverType",
+      "from": "\tlet brk = strings.IndexByte(recv, '[')\n",
+      "to": "\tlet brk = -1\n",
+      "rule": "Go receiver type extraction must strip generic type arguments before whitespace splitting",
+      "killers": ["compiler/mutants:TestGoAndErgoDeclExtractionAnd3Way"],
+      "anchor": {
+        "tests": ["compiler/mutants:TestGoAndErgoDeclExtractionAnd3Way"]
+      }
+    },
+    {
+      "name": "selfhost-mutants-ledger-unknown-field",
+      "origin": "selfhost-mutants",
+      "file": "compiler/mutants/ledger.ergo",
+      "decl": "ParseLedger",
+      "from": "\t\t} else {\n\t\t\treturn UnknownField{Path: \"$\", Field: k}\n\t\t}\n",
+      "to": "\t\t} else {\n\t\t\tlet _ = k\n\t\t}\n",
+      "rule": "Strict ledger parsing must refuse unrecognized JSON root keys",
+      "killers": ["compiler/mutants:law:LedgerRejectsUnknownField"],
+      "anchor": {
+        "tests": ["compiler/mutants:law:LedgerRejectsUnknownField"]
+      }
+    },
+    {
+      "name": "selfhost-mutants-ledger-duplicate-row",
+      "origin": "selfhost-mutants",
+      "file": "compiler/mutants/ledger.ergo",
+      "decl": "validateLedger",
+      "from": "\t\tif isSomeOpt(dense.FindText(seenRows, r.Name)) {\n\t\t\treturn DuplicateRow{Name: r.Name}\n\t\t}\n",
+      "to": "\t\tif false {\n\t\t\treturn DuplicateRow{Name: r.Name}\n\t\t}\n",
+      "rule": "Ledger validation must reject duplicate mutant row names",
+      "killers": ["compiler/mutants:TestParseAndValidateMutantsJSON"],
+      "anchor": {
+        "tests": ["compiler/mutants:TestParseAndValidateMutantsJSON"]
+      }
+    },
+    {
+      "name": "selfhost-mutants-derive-cmp-swap",
+      "origin": "selfhost-mutants",
+      "file": "compiler/mutants/derive.ergo",
+      "decl": "swapBinaryOp",
+      "from": "\tif tk == syntax.Lss {\n\t\treturn \"<=\"\n\t}\n",
+      "to": "\tif tk == syntax.Lss {\n\t\treturn \"\"\n\t}\n",
+      "rule": "cmp-swap derived operator must mutate less-than comparisons to <=",
+      "killers": ["compiler/mutants:TestDeriveOperatorsDuplicatesAndStrict"],
+      "anchor": {
+        "tests": ["compiler/mutants:TestDeriveOperatorsDuplicatesAndStrict"]
+      }
+    },
+    {
+      "name": "selfhost-mutants-derive-strict-law",
+      "origin": "selfhost-mutants",
+      "file": "compiler/mutants/derive.ergo",
+      "decl": "CheckDerivedStrict",
+      "from": "\t\tif strings.HasPrefix(d.Decl, \"law:\") && !isSomeStrID(dense.FindText(killed, d.ID)) {\n",
+      "to": "\t\tif false && strings.HasPrefix(d.Decl, \"law:\") && !isSomeStrID(dense.FindText(killed, d.ID)) {\n",
+      "rule": "Derived strict check must report surviving derived mutants inside law declarations",
+      "killers": ["compiler/mutants:law:StrictRefusesSurvivingLaw"],
+      "anchor": {
+        "tests": ["compiler/mutants:law:StrictRefusesSurvivingLaw"]
+      }
+    },
+    {
+      "name": "selfhost-mutants-plan-test-prefix",
+      "origin": "selfhost-mutants",
+      "file": "compiler/mutants/plan.ergo",
+      "decl": "ParseKillerSpec",
+      "from": "\tif strings.HasPrefix(rest, \"test:\") {\n\t\treturn KillerFormatError{Raw: raw, Reason: \"omit test: prefix; write DIR:TestName\"}\n\t}\n",
+      "to": "\tif false {\n\t\treturn KillerFormatError{Raw: raw, Reason: \"omit test: prefix; write DIR:TestName\"}\n\t}\n",
+      "rule": "Killer parser must reject explicit DIR:test:Name prefixes",
+      "killers": ["compiler/mutants:TestPlannerGroupingAndKillerResolution"],
+      "anchor": {
+        "tests": ["compiler/mutants:TestPlannerGroupingAndKillerResolution"]
+      }
+    },
+    {
+      "name": "selfhost-mutants-plan-test-before-law",
+      "origin": "selfhost-mutants",
+      "file": "compiler/mutants/plan.ergo",
+      "decl": "ReachingObligations",
+      "from": "\t\tif a.kind != b.kind {\n\t\t\treturn if a.kind < b.kind { -1 } else { 1 }\n\t\t}\n",
+      "to": "\t\tif a.kind != b.kind {\n\t\t\treturn if a.kind > b.kind { -1 } else { 1 }\n\t\t}\n",
+      "rule": "ReachingObligations must schedule tests before laws",
+      "killers": ["compiler/mutants:law:PlanOrderTestsBeforeLaws"],
+      "anchor": {
+        "tests": ["compiler/mutants:law:PlanOrderTestsBeforeLaws"]
+      }
+    },
+    {
+      "name": "selfhost-mutants-report-timeout-unjudged",
+      "origin": "selfhost-mutants",
+      "file": "compiler/mutants/report.ergo",
+      "decl": "JudgeEvaluation",
+      "from": "\t\tif a.TimedOut {\n\t\t\tanyTimeout = true\n\t\t\tcontinue\n\t\t}\n",
+      "to": "\t\tif a.TimedOut {\n\t\t\tanyTimeout = true\n\t\t}\n",
+      "rule": "Timed-out obligation attempts must never count as mutant kills",
+      "killers": ["compiler/mutants:law:TimeoutNeverCountsAsKill"],
+      "anchor": {
+        "tests": ["compiler/mutants:law:TimeoutNeverCountsAsKill"]
+      }
+    },
+    {
+      "name": "selfhost-mutants-report-unique-singleton",
+      "origin": "selfhost-mutants",
+      "file": "compiler/mutants/report.ergo",
+      "decl": "JudgeEvaluation",
+      "from": "\t\tlet uniq = if actual.Len() == 1 { actual[0] } else { \"\" }\n",
+      "to": "\t\tlet uniq = actual[0]\n",
+      "rule": "UniqueKiller must only be recorded when a single killer caught the mutant",
+      "killers": ["compiler/mutants:law:UniqueKillerCountsSingletonsOnly"],
+      "anchor": {
+        "tests": ["compiler/mutants:law:UniqueKillerCountsSingletonsOnly"]
+      }
+    },
+    {
+      "name": "selfhost-mutants-report-strict-ok",
+      "origin": "selfhost-mutants",
+      "file": "compiler/mutants/report.ergo",
+      "decl": "AggregateReport",
+      "from": "\t\thandSurvived == 0 && handInvalid == 0 && handUnjudged == 0 && dSurvived == 0 && dLawSurvived == 0 && dInvalid == 0 && dUnjudged == 0\n",
+      "to": "\t\thandSurvived == 0 && handInvalid == 0 && handUnjudged == 0 && dLawSurvived == 0 && dInvalid == 0 && dUnjudged == 0\n",
+      "rule": "Strict report mode must fail when any non-law derived mutant survives",
+      "killers": ["compiler/mutants:law:StrictRejectsAnyDerivedSurvivor"],
+      "anchor": {
+        "tests": ["compiler/mutants:law:StrictRejectsAnyDerivedSurvivor"]
+      }
+    }
+  ]
+}

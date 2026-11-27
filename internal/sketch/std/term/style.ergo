@@ -1,0 +1,368 @@
+import option
+import strings
+
+// Color is a terminal SGR colour: the terminal's default, a basic 16
+// colour (0 to 7 standard, 8 to 15 bright), a 256-palette index, or
+// 24-bit RGB. Numbers outside range are clamped when written.
+type Color = DefaultColor{} | Basic{N int} | Indexed{N int} | RGB{R int, G int, B int}
+
+// Black is basic ANSI colour 0.
+let Black = Basic{N: 0}
+
+// Red is basic ANSI colour 1.
+let Red = Basic{N: 1}
+
+// Green is basic ANSI colour 2.
+let Green = Basic{N: 2}
+
+// Yellow is basic ANSI colour 3.
+let Yellow = Basic{N: 3}
+
+// Blue is basic ANSI colour 4.
+let Blue = Basic{N: 4}
+
+// Magenta is basic ANSI colour 5.
+let Magenta = Basic{N: 5}
+
+// Cyan is basic ANSI colour 6.
+let Cyan = Basic{N: 6}
+
+// White is basic ANSI colour 7.
+let White = Basic{N: 7}
+
+// Style is the colours and text attributes painted onto a string.
+type Style { Fg Color, Bg Color, Bold bool, Dim bool, Italic bool, Underline bool, Reverse bool, Strike bool }
+
+// Plain is the unstyled default: no colours and no attributes.
+let Plain = Style{Fg: DefaultColor, Bg: DefaultColor, Bold: false, Dim: false, Italic: false, Underline: false, Reverse: false, Strike: false}
+
+// Colors is the capability that decides whether terminal output carries
+// ANSI styles. A program takes it from its context so piped output or
+// NO_COLOR produces plain text with no change to callers.
+type Colors {
+	On() bool,
+
+	// OnIsStable: two reads of On agree in the same context.
+	law OnIsStable() { Colors.On() == Colors.On() },
+}
+
+// Always is the Colors provider that always paints styles.
+type Always {} implements Colors
+
+// On reports true for Always.
+func On(_ Always) bool { true }
+
+// Never is the Colors provider that never paints styles.
+type Never {} implements Colors
+
+// On reports false for Never.
+func On(_ Never) bool { false }
+
+let onTerminal = context {
+	Colors: Decide(Env{NoColor: option.None, ForceColor: option.None, Term: option.Some[string]{Value: "xterm-256color"}, ColorTerm: option.None, Terminal: true}),
+	Depth:  Decide(Env{NoColor: option.None, ForceColor: option.None, Term: option.Some[string]{Value: "xterm-256color"}, ColorTerm: option.None, Terminal: true}),
+}
+
+let onDumbTerminal = context {
+	Colors: Decide(Env{NoColor: option.None, ForceColor: option.None, Term: option.Some[string]{Value: "dumb"}, ColorTerm: option.None, Terminal: true}),
+	Depth:  Decide(Env{NoColor: option.None, ForceColor: option.None, Term: option.Some[string]{Value: "dumb"}, ColorTerm: option.None, Terminal: true}),
+}
+
+// Paint is text wrapped in s's SGR sequence and Reset when Colors is on
+// and s is not Plain, otherwise text.
+func Paint(s Style, text string) string needs Colors {
+	if s == Plain || !Colors.On() {
+		return text
+	}
+	let mut b = strings.NewBuilder()
+	writeSGR(&b, s)
+	b.WriteString(text)
+	b.WriteString(Reset)
+	b.String()
+}
+
+// WritePaint appends Paint(s, text) to b.
+func WritePaint(b mut strings.Builder, s Style, text string) needs Colors {
+	if s == Plain || !Colors.On() {
+		b.WriteString(text)
+		return
+	}
+	writeSGR(b, s)
+	b.WriteString(text)
+	b.WriteString(Reset)
+}
+
+// SGR is s's Select Graphic Rendition escape sequence, or "" for Plain.
+// Callers that emit SGR directly manage colour gating themselves.
+func SGR(s Style) string {
+	if s == Plain {
+		return ""
+	}
+	let mut b = strings.NewBuilder()
+	writeSGR(&b, s)
+	b.String()
+}
+
+// Reset is the SGR sequence that resets all attributes and colours.
+let Reset = "\x1b[0m"
+
+func writeSGR(b mut strings.Builder, s Style) {
+	b.WriteString("\x1b[")
+	let mut first = true
+	let attrs = [](bool, int){(s.Bold, 1), (s.Dim, 2), (s.Italic, 3), (s.Underline, 4), (s.Reverse, 7), (s.Strike, 9)}
+	for a in attrs {
+		let (on, code) = a
+		if on {
+			first = sep(b, first)
+			writeInt(b, code)
+		}
+	}
+	first = writeColor(b, s.Fg, 30, first)
+	let _ = writeColor(b, s.Bg, 40, first)
+	b.WriteByte('m')
+}
+
+func sep(b mut strings.Builder, first bool) bool {
+	if !first {
+		b.WriteByte(';')
+	}
+	false
+}
+
+func writeColor(b mut strings.Builder, c Color, base int, first bool) bool {
+	match c {
+	case DefaultColor:
+		first
+	case Basic as x:
+		let n = clamp(x.N, 15)
+		let _ = sep(b, first)
+		writeInt(b, if n < 8 { base + n } else { base + 60 + n - 8 })
+		false
+	case Indexed as x:
+		let _ = sep(b, first)
+		writeInt(b, base+8)
+		b.WriteString(";5;")
+		writeInt(b, clamp(x.N, 255))
+		false
+	case RGB as x:
+		let _ = sep(b, first)
+		writeInt(b, base+8)
+		b.WriteString(";2;")
+		writeInt(b, clamp(x.R, 255))
+		b.WriteByte(';')
+		writeInt(b, clamp(x.G, 255))
+		b.WriteByte(';')
+		writeInt(b, clamp(x.B, 255))
+		false
+	}
+}
+
+func clamp(n int, most int) int { if n < 0 { 0 } else if n > most { most } else { n } }
+
+func writeInt(b mut strings.Builder, n int) {
+	if n >= 10 {
+		writeInt(b, n/10)
+	}
+	b.WriteByte(byte('0' + n%10))
+}
+
+// CursorUp moves the cursor up n cells (n under 1 becomes 1).
+func CursorUp(n int) string { move(n, 'A') }
+
+// CursorDown moves the cursor down n cells (n under 1 becomes 1).
+func CursorDown(n int) string { move(n, 'B') }
+
+// CursorForward moves the cursor right n cells (n under 1 becomes 1).
+func CursorForward(n int) string { move(n, 'C') }
+
+// CursorBack moves the cursor left n cells (n under 1 becomes 1).
+func CursorBack(n int) string { move(n, 'D') }
+
+func move(n int, final byte) string {
+	let mut b = strings.NewBuilder()
+	b.WriteString("\x1b[")
+	writeInt(&b, if n < 1 { 1 } else { n })
+	b.WriteByte(final)
+	b.String()
+}
+
+// MoveTo moves the cursor to row and col, 1-based from the top left
+// (values under 1 become 1).
+func MoveTo(row int, col int) string {
+	let mut b = strings.NewBuilder()
+	b.WriteString("\x1b[")
+	writeInt(&b, if row < 1 { 1 } else { row })
+	b.WriteByte(';')
+	writeInt(&b, if col < 1 { 1 } else { col })
+	b.WriteByte('H')
+	b.String()
+}
+
+// ClearScreen erases the entire screen.
+let ClearScreen = "\x1b[2J"
+
+// ClearLine erases the entire current line.
+let ClearLine = "\x1b[2K"
+
+// ClearToEnd erases from the cursor to the end of the screen.
+let ClearToEnd = "\x1b[0J"
+
+// CursorHome moves the cursor to row 1, column 1.
+let CursorHome = "\x1b[H"
+
+// HideCursor hides the terminal cursor.
+let HideCursor = "\x1b[?25l"
+
+// ShowCursor shows the terminal cursor.
+let ShowCursor = "\x1b[?25h"
+
+// AltScreen switches to the alternate screen buffer.
+let AltScreen = "\x1b[?1049h"
+
+// MainScreen returns to the main screen buffer.
+let MainScreen = "\x1b[?1049l"
+
+// Strip removes every escape sequence from s: CSI sequences (ESC [ up
+// to the first byte in 0x40..0x7e), OSC sequences (ESC ] up to BEL or
+// ESC \), and two-byte ESC sequences. Incomplete trailing sequences are
+// stripped to the end of s.
+func Strip(s string) string {
+	if strings.IndexByte(s, 0x1b) < 0 {
+		return s
+	}
+	let mut b = strings.NewBuilder()
+	let mut i = 0
+	for i < s.Len() {
+		if s[i] != 0x1b {
+			let j = strings.IndexByte(s[i:], 0x1b)
+			let end = if j < 0 { s.Len() } else { i + j }
+			b.WriteString(s[i:end])
+			i = end
+			continue
+		}
+		i = i + sequenceLen(s[i:])
+	}
+	b.String()
+}
+
+func sequenceLen(s string) int {
+	if s.Len() < 2 {
+		return s.Len()
+	}
+	if s[1] == '[' {
+		for i in 2..s.Len() {
+			if s[i] >= 0x40 && s[i] <= 0x7e {
+				return i + 1
+			}
+		}
+		return s.Len()
+	}
+	if s[1] == ']' {
+		for i in 2..s.Len() {
+			if s[i] == 0x07 {
+				return i + 1
+			}
+			if s[i] == 0x1b && i+1 < s.Len() && s[i+1] == '\\' {
+				return i + 2
+			}
+		}
+		return s.Len()
+	}
+	2
+}
+
+// StripUndoesPaint: with colour on, Strip of a text painted in any drawn
+// style is the stripped text, and Strip is idempotent.
+law StripUndoesPaint(seed int, text string) {
+	let t = Strip(text)
+	let s = drawStyle(seed)
+	let painted = with context { Colors: Always } { Paint(s, t) }
+	Strip(painted) == t && Strip(t) == t
+}
+
+// NeverPaints: with colour off, Paint and WritePaint leave text unchanged.
+law NeverPaints(seed int, text string) {
+	let s = drawStyle(seed)
+	with context { Colors: Never } {
+		let mut b = strings.NewBuilder()
+		WritePaint(&b, s, text)
+		Paint(s, text) == text && b.String() == text
+	}
+}
+
+// PaintIsSGRAndReset: with colour on, Paint wraps non-Plain text in SGR
+// and Reset; Plain writes text alone.
+law PaintIsSGRAndReset(seed int, text string) {
+	let s = drawStyle(seed)
+	with context { Colors: Always } {
+		let mut b = strings.NewBuilder()
+		WritePaint(&b, s, text)
+		let want = if s == Plain { text } else { SGR(s) + text + Reset }
+		Paint(s, text) == want && b.String() == want
+	}
+}
+
+// SGRIsTheTable: SGR encodes recorded attributes and colour forms while
+// clamping out-of-range colour numbers.
+law SGRIsTheTable() {
+	let p = Plain
+		SGR(p) == "" &&
+		SGR(Style{..p, Fg: Red}) == "\x1b[31m" &&
+		SGR(Style{..p, Fg: Basic{N: 9}}) == "\x1b[91m" &&
+		SGR(Style{..p, Bg: Blue}) == "\x1b[44m" &&
+		SGR(Style{..p, Bg: Basic{N: 15}}) == "\x1b[107m" &&
+		SGR(Style{..p, Fg: Indexed{N: 208}}) == "\x1b[38;5;208m" &&
+		SGR(Style{..p, Bg: Indexed{N: 300}}) == "\x1b[48;5;255m" &&
+		SGR(Style{..p, Fg: RGB{R: 255, G: 128, B: -4}}) == "\x1b[38;2;255;128;0m" &&
+		SGR(Style{..p, Bold: true}) == "\x1b[1m" &&
+		SGR(Style{..p, Bold: true, Underline: true, Fg: Green, Bg: Black}) == "\x1b[1;4;32;40m" &&
+		SGR(Style{..p, Dim: true, Italic: true, Reverse: true, Strike: true}) == "\x1b[2;3;7;9m"
+}
+
+// StripIsTheTable: Strip drops CSI, OSC, two-byte, and truncated escape
+// sequences while preserving surrounding UTF-8 text.
+law StripIsTheTable() {
+		Strip("a\x1b[1;31mb\x1b[0mc") == "abc" &&
+		Strip("\x1b[2J\x1b[Hx\x1b[10;4H") == "x" &&
+		Strip("\x1b[?25lhi\x1b[?1049h") == "hi" &&
+		Strip("\x1b]0;title\x07t") == "t" &&
+		Strip("\x1b]8;;https://e.org\x1b\\link\x1b]8;;\x1b\\") == "link" &&
+		Strip("\x1b7a\x1b8") == "a" &&
+		Strip("a\x1b[2@b") == "ab" &&
+		Strip("ok\x1b[38;5") == "ok" &&
+		Strip("界\x1b[4mé") == "界é" &&
+		Strip("plain") == "plain"
+}
+
+func drawStyle(seed int) Style {
+	let mut x = (seed%2147483648 + 2147483648) % 2147483648
+	let mut bits = []int{}
+	for _ in 0..16 {
+		x = (x*1103515245 + 12345) % 2147483648
+		bits = bits.Append(x / 65536)
+	}
+	Style{
+		Fg:        drawColor(bits[0], bits[1]),
+		Bg:        drawColor(bits[2], bits[3]),
+		Bold:      bits[4]%2 == 0,
+		Dim:       bits[5]%2 == 0,
+		Italic:    bits[6]%2 == 0,
+		Underline: bits[7]%2 == 0,
+		Reverse:   bits[8]%2 == 0,
+		Strike:    bits[9]%2 == 0,
+	}
+}
+
+func drawColor(k int, n int) Color {
+	let v = n%320 - 20
+	match k % 4 {
+	case 0:
+		DefaultColor
+	case 1:
+		Basic{N: v % 20}
+	case 2:
+		Indexed{N: v}
+	case _:
+		RGB{R: v, G: 255 - v, B: v / 2}
+	}
+}

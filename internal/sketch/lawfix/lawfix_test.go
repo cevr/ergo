@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"os"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strconv"
@@ -27,19 +28,20 @@ type genPackage struct {
 	helperAt map[string]string
 }
 
-// generate draws a package of 2 to 4 files: functions F (subjects), laws
-// L that call some of them directly and through helpers h, and tests that
-// use some helpers too, each declaration in a drawn file. A law or helper
-// may call strings.Count, so its file imports strings.
+// generate draws a package of 2 to 5 files: functions F (subjects), laws
+// L and tests T that call some of them directly and through helpers h, each
+// declaration in a drawn file. A law, test or helper may call strings.Count
+// or mention []time.Weekday, so its file imports strings or time.
 func generate(r *rand.Rand) genPackage {
-	nf := 2 + r.IntN(3)
-	names := []string{"a.ergo", "b.ergo", "c.ergo", "laws.ergo"}[:nf]
+	nf := 2 + r.IntN(4)
+	names := []string{"a.ergo", "b.ergo", "c.ergo", "laws.ergo", "tests.ergo"}[:nf]
 	decls := map[string][]string{}
 	imports, timeImports := map[string]bool{}, map[string]bool{}
 	nfun, nhelp, nlaw := 1+r.IntN(4), r.IntN(3), 1+r.IntN(4)
 	funFile := make([]string, nfun)
-	// A subject is never in laws.ergo: there an exported function only laws
-	// use is read as written for them (Package.LawHelpers).
+	// A subject is never in laws.ergo or tests.ergo: there an exported
+	// function only laws and tests use is read as written for them
+	// (Package.LawHelpers).
 	for i := range nfun {
 		funFile[i] = names[r.IntN(min(nf, 3))]
 		decls[funFile[i]] = append(decls[funFile[i]], fmt.Sprintf("func F%d(n int) int { n + %d }", i, i))
@@ -61,15 +63,15 @@ func generate(r *rand.Rand) genPackage {
 	}
 	g := genPackage{files: map[string]string{}, home: map[string]string{}, helperAt: map[string]string{}}
 	used := make([]bool, nhelp)
-	type lawInfo struct {
+	type checkItem struct {
 		name, file string
 		direct     []int
 		helps      []int
 		named      int // the subject the name names, or -1
 	}
-	var laws []lawInfo
+	var laws []checkItem
 	for k := range nlaw {
-		l := lawInfo{name: fmt.Sprintf("L%d", k), file: names[r.IntN(nf)], named: -1}
+		l := checkItem{name: fmt.Sprintf("L%d", k), file: names[r.IntN(nf)], named: -1}
 		var parts []string
 		for range r.IntN(3) {
 			i := r.IntN(nfun)
@@ -106,35 +108,77 @@ func generate(r *rand.Rand) genPackage {
 		decls[l.file] = append(decls[l.file], fmt.Sprintf("// %s holds.\nlaw %s(n int) { %s }", l.name, l.name, strings.Join(parts, " && ")))
 		laws = append(laws, l)
 	}
-	// Tests use helpers too: each helper no law uses, and others at times.
-	type testInfo struct {
-		name, file string
-		help       int
+	// Tests use helpers and subjects too: each helper no law uses, plus extra tests.
+	var tests []checkItem
+	addTest := func(k int, reqHelp int) {
+		tc := checkItem{name: fmt.Sprintf("T%d", k), file: names[r.IntN(nf)], named: -1}
+		var parts []string
+		for range r.IntN(3) {
+			i := r.IntN(nfun)
+			tc.direct = append(tc.direct, i)
+			parts = append(parts, fmt.Sprintf("F%d(1) == F%d(1)", i, i))
+		}
+		if reqHelp >= 0 {
+			tc.helps = append(tc.helps, reqHelp)
+			used[reqHelp] = true
+			parts = append(parts, fmt.Sprintf("h%d(1) == h%d(1)", reqHelp, reqHelp))
+		} else if nhelp > 0 && (len(tc.direct) == 0 || r.IntN(2) == 0) {
+			j := r.IntN(nhelp)
+			tc.helps = append(tc.helps, j)
+			used[j] = true
+			parts = append(parts, fmt.Sprintf("h%d(1) == h%d(1)", j, j))
+		}
+		if len(parts) == 0 {
+			i := r.IntN(nfun)
+			tc.direct = append(tc.direct, i)
+			parts = append(parts, fmt.Sprintf("F%d(1) == F%d(1)", i, i))
+		}
+		if r.IntN(3) == 0 {
+			parts = append(parts, "strings.Count(\"ab\", \"a\") == 1")
+			imports[tc.file] = true
+		}
+		if r.IntN(3) == 0 {
+			parts = append(parts, "len([]time.Weekday{}) == 0")
+			timeImports[tc.file] = true
+		}
+		if len(tc.direct) > 0 && r.IntN(2) == 0 {
+			tc.named = tc.direct[r.IntN(len(tc.direct))]
+			tc.name = fmt.Sprintf("F%dT%d", tc.named, k)
+		}
+		decls[tc.file] = append(decls[tc.file], fmt.Sprintf("test %s { assert %s }", tc.name, strings.Join(parts, " && ")))
+		tests = append(tests, tc)
 	}
-	var tests []testInfo
+	testIdx := 0
 	for j := range nhelp {
 		if !used[j] || r.IntN(2) == 0 {
-			tc := testInfo{fmt.Sprintf("T%d", j), names[r.IntN(nf)], j}
-			decls[tc.file] = append(decls[tc.file], fmt.Sprintf("test %s { assert h%d(1) == h%d(1) }", tc.name, j, j))
-			tests = append(tests, tc)
+			addTest(testIdx, j)
+			testIdx++
 		}
 	}
-	for _, l := range laws {
-		var subj []string
-		for _, i := range l.direct {
-			subj = append(subj, funFile[i])
-		}
-		for _, j := range l.helps {
-			subj = append(subj, funFile[helpCalls[j]])
-		}
-		g.home[l.name] = subj[0]
-		if l.named >= 0 {
-			g.home[l.name] = funFile[l.named]
-		}
-		if slices.Contains(subj, l.file) {
-			g.home[l.name] = l.file
+	for range r.IntN(3) {
+		addTest(testIdx, -1)
+		testIdx++
+	}
+	assignHomes := func(items []checkItem) {
+		for _, item := range items {
+			var subj []string
+			for _, i := range item.direct {
+				subj = append(subj, funFile[i])
+			}
+			for _, j := range item.helps {
+				subj = append(subj, funFile[helpCalls[j]])
+			}
+			g.home[item.name] = subj[0]
+			if item.named >= 0 {
+				g.home[item.name] = funFile[item.named]
+			}
+			if slices.Contains(subj, item.file) {
+				g.home[item.name] = item.file
+			}
 		}
 	}
+	assignHomes(laws)
+	assignHomes(tests)
 	// A helper's first user, in package order (by file name, then laws
 	// before tests in a file, each in the order drawn), keeps it beside
 	// itself.
@@ -151,7 +195,9 @@ func generate(r *rand.Rand) genPackage {
 		}
 	}
 	for k, tc := range tests {
-		uses = append(uses, use{tc.file, 1, k*16 + tc.help, tc.name})
+		for _, j := range tc.helps {
+			uses = append(uses, use{tc.file, 1, k*16 + j, tc.name})
+		}
 	}
 	sort.SliceStable(uses, func(a, b int) bool {
 		if uses[a].file != uses[b].file {
@@ -163,10 +209,7 @@ func generate(r *rand.Rand) genPackage {
 		return uses[a].at/16 < uses[b].at/16
 	})
 	end := func(u use) string {
-		if u.kind == 0 {
-			return g.home[u.name]
-		}
-		return u.file
+		return g.home[u.name]
 	}
 	for _, u := range uses {
 		h := fmt.Sprintf("h%d", u.at%16)
@@ -320,8 +363,13 @@ func TestPlanPlacesEveryLaw(t *testing.T) {
 				fail("helper %s is in %s, want %s", h, now[h], at)
 			}
 		}
+		for _, empty := range []string{"laws.ergo", "tests.ergo"} {
+			if _, ok := out[empty]; ok {
+				fail("%s was not deleted", empty)
+			}
+		}
 		// A second run moves nothing: the integrator reruns ergo fix on a
-		// merged head (LAWLOC r2).
+		// merged head.
 		pkg2, files2, _ := checkSources(t, out)
 		again, err := Plan(pkg2, files2)
 		if err != nil {
@@ -330,6 +378,215 @@ func TestPlanPlacesEveryLaw(t *testing.T) {
 		if len(again.Files) > 0 || len(again.Deleted) > 0 {
 			fail("a second run edits %d files and deletes %v", len(again.Files), again.Deleted)
 		}
+	}
+}
+
+// TestPlanImportSortClashAndUnalias exercises sorted import transfer, unused
+// import pruning when source declarations stay, import-alias clash resolution
+// avoiding local variable shadowing, unaliasing an alias that is no longer
+// needed in the destination, reusing an existing destination alias, and
+// preserving formatting/comments on unformatted source files.
+func TestPlanImportSortClashAndUnalias(t *testing.T) {
+	srcs := map[string]string{
+		// Unformatted spacing around = and body to ensure formatting/comments outside moved decls stay intact.
+		"alpha.ergo": "// Alpha package.\n\nimport mymath math\nimport time\n\nfunc math() int { 0 }\n\nfunc Alpha(n int) int {   n + int(time.Unix(0, 0).UnixSeconds()) + int(mymath.Abs(0.0))   }\n",
+		"beta.ergo":  "import kv/memory\n\nfunc Beta(n int) int {\n\tlet _ = []memory.Store{}\n\tn\n}\n",
+		"keep.ergo":  "import mathpkg math\nimport strings\n\n// KeepStays remains in keep.ergo.\nfunc KeepStays(x float64) float64 { mathpkg.Abs(x) }\n\ntest AlphaUsesStrings {\n\tassert Alpha(strings.Count(\"aa\", \"a\")) == 1\n}\n",
+		"tests.ergo": "import mathpkg math\nimport ratelimit/memory\nimport smem session/memory\nimport strconv\n\n// BetaClash moves to beta.ergo and aliases ratelimit/memory past memory and local memory2.\ntest BetaClash {\n\tlet memory2 = 1\n\tlet _ = memory2\n\tlet _ = []memory.Limiter{}\n\tassert Beta(strconv.Itoa(1).Len()) == 1 // keep inline comment\n}\n\n// AlphaReusesAndUnaliases moves to alpha.ergo, reuses mymath, and unaliases session/memory.\ntest AlphaReusesAndUnaliases {\n\tlet _ = []smem.Store{}\n\tassert Alpha(int(mathpkg.Abs(-2.0))) == 2\n} // keep trailing comment\n",
+	}
+	pkg, files, ds := checkSources(t, srcs)
+	for _, d := range ds {
+		if d.Code != check.CodeLawPlace {
+			t.Fatalf("the package does not check: %v\n%s", ds, dump(srcs))
+		}
+	}
+	res, err := Plan(pkg, files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := map[string]string{}
+	for n, s := range srcs {
+		out[n] = s
+	}
+	for _, n := range res.Deleted {
+		delete(out, n)
+	}
+	for n, s := range res.Files {
+		out[n] = s
+	}
+	if _, ok := out["tests.ergo"]; ok {
+		t.Fatalf("tests.ergo was not deleted:\n%s", dump(out))
+	}
+	_, after, ds := checkSources(t, out)
+	if len(ds) > 0 {
+		t.Fatalf("fixed package has diagnostics: %v\n%s", ds, dump(out))
+	}
+	now := declsByFile(after)
+	for decl, want := range map[string]string{
+		"KeepStays":               "keep.ergo",
+		"AlphaUsesStrings":        "alpha.ergo",
+		"BetaClash":               "beta.ergo",
+		"AlphaReusesAndUnaliases": "alpha.ergo",
+	} {
+		if now[decl] != want {
+			t.Errorf("%s is in %q, want %s\n%s", decl, now[decl], want, dump(out))
+		}
+	}
+	// Source file keep.ergo pruned unused `import strings` while keeping `import mathpkg math`.
+	if strings.Contains(out["keep.ergo"], "import strings") {
+		t.Errorf("keep.ergo still imports strings:\n%s", out["keep.ergo"])
+	}
+	// alpha.ergo received sorted imports (session/memory, strings) without duplicating math.
+	if wantSub := "import mymath math\nimport session/memory\nimport strings\nimport time\n"; !strings.Contains(out["alpha.ergo"], wantSub) {
+		t.Errorf("alpha.ergo imports not sorted/unaliased as expected:\n%s", out["alpha.ergo"])
+	}
+	if !strings.Contains(out["alpha.ergo"], "// Alpha package.") || !strings.Contains(out["alpha.ergo"], "   n + ") {
+		t.Errorf("alpha.ergo lost existing header comment or unformatted spacing:\n%s", out["alpha.ergo"])
+	}
+	if !strings.Contains(out["alpha.ergo"], "// AlphaReusesAndUnaliases moves to alpha.ergo") || !strings.Contains(out["alpha.ergo"], "// keep trailing comment") {
+		t.Errorf("alpha.ergo lost moved test doc/trailing comments:\n%s", out["alpha.ergo"])
+	}
+	// beta.ergo sorted imports and preserved inline comment.
+	if !strings.Contains(out["beta.ergo"], "import kv/memory\nimport memory3 ratelimit/memory\nimport strconv\n") {
+		t.Errorf("beta.ergo imports not sorted/clash-aliased as expected:\n%s", out["beta.ergo"])
+	}
+	if !strings.Contains(out["beta.ergo"], "// keep inline comment") {
+		t.Errorf("beta.ergo lost inline comment:\n%s", out["beta.ergo"])
+	}
+	// Idempotent on second run.
+	pkg2, files2, _ := checkSources(t, out)
+	if again, err := Plan(pkg2, files2); err != nil || len(again.Files) > 0 || len(again.Deleted) > 0 {
+		t.Errorf("second run not idempotent: files=%v deleted=%v err=%v", again.Files, again.Deleted, err)
+	}
+}
+
+// TestPlanMultiSubjectAndAmbiguityGuard covers multi-subject tests/laws:
+// already placed beside one of their subjects stay put, named subjects win
+// earliest occurrence, unnamed multi-subject tests go deterministically to the
+// first subject, and tests/laws naming nothing in the package stay unplaced.
+func TestPlanMultiSubjectAndAmbiguityGuard(t *testing.T) {
+	srcs := map[string]string{
+		"alpha.ergo": "func Alpha(n int) int { n + 1 }\n",
+		"beta.ergo":  "func Beta(n int) int { n + 2 }\n\ntest MultiStaysInBeta {\n\tassert Alpha(1) + Beta(1) == 5\n}\n",
+		"tests.ergo": "test BetaBeforeAlpha {\n\tassert Alpha(1) + Beta(1) == 5\n}\n\ntest NeutralMulti {\n\tassert Alpha(1) + Beta(1) == 5\n}\n\ntest Standalone {\n\tassert 1 + 1 == 2\n}\n",
+	}
+	pkg, files, ds := checkSources(t, srcs)
+	for _, d := range ds {
+		if d.Code != check.CodeLawPlace {
+			t.Fatalf("the package does not check: %v\n%s", ds, dump(srcs))
+		}
+	}
+	res, err := Plan(pkg, files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(res.Unplaced, "test Standalone") {
+		t.Errorf("res.Unplaced = %v, want test Standalone", res.Unplaced)
+	}
+	out := map[string]string{}
+	for n, s := range srcs {
+		out[n] = s
+	}
+	for _, n := range res.Deleted {
+		delete(out, n)
+	}
+	for n, s := range res.Files {
+		out[n] = s
+	}
+	if _, ok := out["tests.ergo"]; !ok {
+		t.Fatalf("tests.ergo was deleted even though unplaced Standalone remained:\n%s", dump(out))
+	}
+	_, after, ds := checkSources(t, out)
+	if len(ds) > 0 {
+		t.Fatalf("fixed package has diagnostics: %v\n%s", ds, dump(out))
+	}
+	now := declsByFile(after)
+	for decl, want := range map[string]string{
+		"MultiStaysInBeta": "beta.ergo",
+		"BetaBeforeAlpha":  "beta.ergo",
+		"NeutralMulti":     "alpha.ergo",
+		"Standalone":       "tests.ergo",
+	} {
+		if now[decl] != want {
+			t.Errorf("%s is in %q, want %s\n%s", decl, now[decl], want, dump(out))
+		}
+	}
+	// Second run makes zero moves/deletes (MultiStaysInBeta, BetaBeforeAlpha, NeutralMulti stay, Standalone stays unplaced).
+	pkg2, files2, _ := checkSources(t, out)
+	if again, err := Plan(pkg2, files2); err != nil || len(again.Files) > 0 || len(again.Deleted) > 0 {
+		t.Errorf("second run not idempotent: files=%v deleted=%v err=%v", again.Files, again.Deleted, err)
+	}
+}
+
+// TestRunRelocatesTestsUnexportsAndDeletes runs lawfix.Run on disk: relocates
+// tests, laws, and exclusive helpers (function, type with methods, context),
+// unexports an exported helper in tests.ergo, deletes empty tests.ergo and
+// *_test.ergo files, reports moves/deletes accurately, and is idempotent.
+func TestRunRelocatesTestsUnexportsAndDeletes(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, content string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("ergo.mod", "module example.com/pkg\n")
+	write("alpha.ergo", "type Reader {\n\tRead() int,\n}\n\nfunc Alpha(n int) int { n + 1 }\n")
+	write("beta.ergo", "func Beta(n int) int { n * 2 }\n")
+	write("tests.ergo", "import strings\n\ntype stubReader { val int } implements Reader\n\nfunc Read(s stubReader) int { s.val }\n\nfunc MakeInput() int { Alpha(strings.Count(\"aa\", \"a\")) }\n\nlet onStub = context { Reader: stubReader{val: 7} }\n\ntest AlphaWithHelper {\n\twith onStub {\n\t\tassert MakeInput() == 3 && Reader.Read() == 7\n\t}\n}\n\nlaw AlphaMonotone(n int) {\n\tAlpha(n) < Alpha(n+1)\n}\n")
+	write("beta_test.ergo", "test BetaDoubles {\n\tassert Beta(3) == 6\n}\n")
+
+	rep, err := Run(Options{Paths: []string{dir}, Write: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := rep.Text()
+	for _, want := range []string{
+		"unexported MakeInput -> makeInput",
+		"moved test AlphaWithHelper from",
+		"moved law AlphaMonotone from",
+		"moved test BetaDoubles from",
+		"deleted " + filepath.Join(dir, "tests.ergo") + ": no declaration is left in it",
+		"deleted " + filepath.Join(dir, "beta_test.ergo") + ": no declaration is left in it",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("report missing %q:\n%s", want, text)
+		}
+	}
+	for _, gone := range []string{"tests.ergo", "beta_test.ergo"} {
+		if _, err := os.Stat(filepath.Join(dir, gone)); !os.IsNotExist(err) {
+			t.Errorf("%s still exists on disk (err=%v)", gone, err)
+		}
+	}
+	// Reload and verify placement + zero diagnostics.
+	files, err := readDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, ds := check.CheckOptions("example.com/pkg", files, nil, check.Options{PlaceLaws: true})
+	if len(ds) > 0 {
+		t.Fatalf("after Run, package has diagnostics: %v", ds)
+	}
+	now := declsByFile(files)
+	for decl, want := range map[string]string{
+		"AlphaWithHelper": "alpha.ergo",
+		"AlphaMonotone":   "alpha.ergo",
+		"makeInput":       "alpha.ergo",
+		"onStub":          "alpha.ergo",
+		"stubReader":      "alpha.ergo",
+		"BetaDoubles":     "beta.ergo",
+	} {
+		if now[decl] != want {
+			t.Errorf("%s is in %q, want %s", decl, now[decl], want)
+		}
+	}
+	// Second run is a no-op.
+	rep2, err := Run(Options{Paths: []string{dir}, Write: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep2.Text() != "" {
+		t.Errorf("second Run was not idempotent:\n%s", rep2.Text())
 	}
 }
 

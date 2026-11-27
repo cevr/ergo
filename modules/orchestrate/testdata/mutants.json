@@ -449,6 +449,233 @@
           "examples:modules/orchestrate"
         ]
       }
+    },
+    {
+      "name": "orch-host-gib-divisor-si",
+      "origin": "orchestrate/host-tools",
+      "file": "modules/orchestrate/orchestrate/service_host.ergo",
+      "from": "\tfloat64(bytes) / bytesPerGiB\n",
+      "to": "\tfloat64(bytes) / 1000000000.0\n",
+      "rule": "bytesToGiB converts bytes using binary GiB (1073741824.0), not decimal GB (1000000000.0).",
+      "killers": [
+        "modules/orchestrate/orchestrate:law:HostStatusReportPreservesMeasurements"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      }
+    },
+    {
+      "name": "orch-host-status-blank-volume-unchecked",
+      "origin": "orchestrate/host-tools",
+      "file": "modules/orchestrate/orchestrate/service_host.ergo",
+      "from": "\tfor v in req.Volumes {\n\t\ttry requireText(\"volumes\", v)\n\t}\n",
+      "to": "\tfor v in req.Volumes {\n\t\tlet _ = v\n\t}\n",
+      "rule": "QueryHostStatus rejects blank volume paths with InvalidInput.",
+      "killers": [
+        "modules/orchestrate/memory:law:orchestrate.Api.ApiHostStatusAgreesWithSystem"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      }
+    },
+    {
+      "name": "orch-host-processes-comm-ignored",
+      "origin": "orchestrate/host-tools",
+      "file": "modules/orchestrate/orchestrate/service_host.ergo",
+      "from": "\t\tlet commOK = matchOptEq(comm, p.Comm)\n",
+      "to": "\t\tlet commOK = true\n",
+      "rule": "FilterHostProcesses enforces the optional comm filter when provided.",
+      "killers": [
+        "modules/orchestrate/orchestrate:law:HostProcessesFilterInvariants"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      }
+    },
+    {
+      "name": "orch-host-processes-pid-ignored",
+      "origin": "orchestrate/host-tools",
+      "file": "modules/orchestrate/orchestrate/service_host.ergo",
+      "from": "\t\tcase option.Some[int] as want:\n\t\t\tp.PID == want.Value\n",
+      "to": "\t\tcase option.Some[int]:\n\t\t\ttrue\n",
+      "rule": "FilterHostProcesses enforces the optional pid filter when provided.",
+      "killers": [
+        "modules/orchestrate/orchestrate:law:HostProcessesFilterInvariants"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      }
+    },
+    {
+      "name": "orch-host-processes-limit-ignored",
+      "origin": "orchestrate/host-tools",
+      "file": "modules/orchestrate/orchestrate/service_host.ergo",
+      "from": "\t\t\tif items.Len() < limit {\n",
+      "to": "\t\t\tif items.Len() >= 0 {\n",
+      "rule": "FilterHostProcesses bounds returned items to limit and reports Truncated when total exceeds limit.",
+      "killers": [
+        "modules/orchestrate/orchestrate:law:HostProcessesFilterInvariants"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      }
+    },
+    {
+      "name": "orch-host-processes-ticks-drops-sys",
+      "origin": "orchestrate/host-tools",
+      "file": "modules/orchestrate/orchestrate/service_host.ergo",
+      "from": "\t\t\t\t\tTicks:      host.CPUTicks(p),\n",
+      "to": "\t\t\t\t\tTicks:      p.UserTicks,\n",
+      "rule": "FilterHostProcesses computes Ticks as UserTicks + SysTicks via host.CPUTicks.",
+      "killers": [
+        "modules/orchestrate/orchestrate:law:HostProcessesFilterInvariants"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      }
+    },
+    {
+      "name": "orch-host-processes-rejects-nonpos-pid",
+      "origin": "orchestrate/host-tools",
+      "file": "modules/orchestrate/orchestrate/service_host.ergo",
+      "from": "\t\tif n.Value <= 0 {\n\t\t\treturn InvalidInput{Field: field, Why: \"must be > 0\"}\n\t\t}\n",
+      "to": "\t\tif false && n.Value <= 0 {\n\t\t\treturn InvalidInput{Field: field, Why: \"must be > 0\"}\n\t\t}\n",
+      "rule": "QueryHostProcesses rejects non-positive PID filters with InvalidInput.",
+      "killers": [
+        "modules/orchestrate/memory:law:orchestrate.Api.ApiHostProcessesAgreesWithSystem"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      }
+    },
+    {
+      "name": "orch-events-hysteresis-uses-enter-bound",
+      "origin": "orchestrate/events-push",
+      "file": "modules/orchestrate/orchestrate/readiness.ergo",
+      "from": "func recoveryGapReasons(p ReadinessPolicy, metrics HostMetrics) string {\n\tbreachReasons(metrics, p.RecoveryMaxLoad, p.RecoveryMinMemGiB, p.RecoveryMaxDiskPct)\n}\n",
+      "to": "func recoveryGapReasons(p ReadinessPolicy, metrics HostMetrics) string {\n\tbreachReasons(metrics, p.MaxLoad, p.MinMemGiB, p.MaxDiskPct)\n}\n",
+      "rule": "Exiting Backpressure requires clearing stricter recovery hysteresis thresholds rather than the entry thresholds.",
+      "killers": [
+        "modules/orchestrate/orchestrate:law:ReadinessHysteresisPreventsFlapping",
+        "modules/orchestrate/orchestrate:law:ReadinessBackpressureExitRequiresExitThreshold"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      }
+    },
+    {
+      "name": "orch-events-ready-ignores-load-trip",
+      "origin": "orchestrate/events-push",
+      "file": "modules/orchestrate/orchestrate/readiness.ergo",
+      "from": "\tif metrics.LoadOne > maxLoad {\n\t\treasons = reasons.Append(\"load \\(metrics.LoadOne) > \\(maxLoad)\")\n\t}\n",
+      "to": "\tif false && metrics.LoadOne > maxLoad {\n\t\treasons = reasons.Append(\"load \\(metrics.LoadOne) > \\(maxLoad)\")\n\t}\n",
+      "rule": "StepReadiness transitions Ready to Backpressure when 1-minute load exceeds MaxLoad.",
+      "killers": [
+        "modules/orchestrate/orchestrate:law:ReadinessBackpressureExitRequiresExitThreshold"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      }
+    },
+    {
+      "name": "orch-events-emit-on-steady-state",
+      "origin": "orchestrate/events-push",
+      "file": "modules/orchestrate/orchestrate/readiness.ergo",
+      "from": "\t\t\tif trip == \"\" {\n\t\t\t\treturn machines.Stay[ReadinessState]{Next: Ready}\n\t\t\t}\n",
+      "to": "\t\t\tif trip == \"\" {\n\t\t\t\treturn machines.Emit[ReadinessState, ReadinessChanged]{Next: Ready, Output: ReadinessChanged{At: s.At, From: Ready, To: Ready, Reason: \"steady\", Metrics: optMetrics}}\n\t\t\t}\n",
+      "rule": "StepReadiness emits ReadinessChanged strictly on transitions between distinct states, never on steady Ready polls.",
+      "killers": [
+        "modules/orchestrate/orchestrate:law:ReadinessHysteresisPreventsFlapping",
+        "modules/orchestrate/orchestrate:law:ReadinessReplayIsDeterministic"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      }
+    },
+    {
+      "name": "orch-events-backoff-stays-flat",
+      "origin": "orchestrate/events-push",
+      "file": "modules/orchestrate/orchestrate/readiness.ergo",
+      "from": "\t\tlet grown = delay * mult\n",
+      "to": "\t\tlet grown = delay\n",
+      "rule": "NextPollDelayMs multiplies PollIntervalMs by BackoffMultiplier on repeated non-ready polls up to MaxBackoffMs.",
+      "killers": [
+        "modules/orchestrate/orchestrate:law:ReadinessBackoffMonotonicAndBounded"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      }
+    },
+    {
+      "name": "orch-events-dedup-drops-seen-check",
+      "origin": "orchestrate/events-push",
+      "file": "modules/orchestrate/orchestrate/service_events.ergo",
+      "from": "\t\tif nextSeen.Get(k) == option.None {\n",
+      "to": "\t\tif true {\n",
+      "rule": "DeduplicateUnifiedEvents filters previously seen unified stream keys across polls.",
+      "killers": [
+        "modules/orchestrate/orchestrate:law:EventCursorMonotonicAndDeduplicated"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      }
+    },
+    {
+      "name": "orch-events-cursor-since-inclusive-query",
+      "origin": "orchestrate/events-push",
+      "file": "modules/orchestrate/orchestrate/query.ergo",
+      "from": "\t\tif ev.ID > filter.SinceID && eventFieldsMatch(ev, filter.Repo, filter.Run, filter.Kind, filter.UnitID, filter.Actor) {\n",
+      "to": "\t\tif ev.ID >= filter.SinceID && eventFieldsMatch(ev, filter.Repo, filter.Run, filter.Kind, filter.UnitID, filter.Actor) {\n",
+      "rule": "QueryEventLogSince returns entries strictly after SinceID.",
+      "killers": [
+        "modules/orchestrate/memory:law:orchestrate.Store.StoreQueriesMatchSnapshot",
+        "modules/orchestrate/memory:law:orchestrate.Api.ApiHostReadinessAndEventsSince"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      }
+    },
+    {
+      "name": "orch-events-cursor-since-inclusive-sqlite",
+      "origin": "orchestrate/events-push",
+      "file": "modules/orchestrate/sqlite/ledger_queries.ergo",
+      "from": "\tlet (conds, args) = appendEventLogConds(\n\t\t[]string{\"id > ?\"},\n",
+      "to": "\tlet (conds, args) = appendEventLogConds(\n\t\t[]string{\"id >= ?\"},\n",
+      "rule": "SQLite queryEventLogSinceTx returns rows with id strictly greater than SinceID.",
+      "killers": [
+        "modules/orchestrate/sqlite:law:orchestrate.Store.StoreQueriesMatchSnapshot"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      }
     }
   ]
 }

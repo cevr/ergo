@@ -138,7 +138,7 @@ func (in *interp) argument(fr *frame, t check.Type, v Value) (out string) {
 		r := v.(*record)
 		return in.argument(fr, r.t, v)
 	}
-	return describe(v)
+	return describeWithRoot(in.root, v)
 }
 
 // builtText is the text of a value of the operation type n: its builder's

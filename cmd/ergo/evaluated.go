@@ -20,7 +20,7 @@ import (
 // obligation of the package (sketchfront.EvaluateTests).
 func evaluatedTestRun(opts fileOptions, l loaded, stdout, stderr io.Writer, keep func([]byte)) (answered bool, err error) {
 	if opts.native || opts.work || opts.debug || opts.receipt != "" || opts.explore || opts.search.mode != "" ||
-		opts.law != "" || opts.skipLaw != "" || opts.run != "" {
+		opts.law != "" || opts.skipLaw != "" || opts.run != "" || opts.filter != "" || opts.skip != "" || opts.selectNames != "" {
 		return false, nil
 	}
 	seed, states := uint64(1), 0

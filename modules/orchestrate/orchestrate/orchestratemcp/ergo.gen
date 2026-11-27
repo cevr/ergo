@@ -1,5 +1,5 @@
 kind mcp
 generator ergo gen mcp
 subject github.com/cevr/ergo/modules/orchestrate/orchestrate.Api
-contract sha256:c5edb7e4bbe03ab62029c00a4433f7f2ff2106b78e0551577e7ae36c6bd8f0da
-digest sha256:17999a4b5a29ab6df102b0f982d51aefc535c3172017266975851a11567108d6
+contract sha256:697f2c8d3bddcee666388e62202dce66d554d10b37819522f69416fccb7fea1a
+digest sha256:493b304b22e0dd8524ef867475849090ea4717c5e9e807dd17be5b5ffe998204

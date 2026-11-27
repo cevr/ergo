@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -101,11 +102,26 @@ type Running struct {
 	// depends on the clock.
 	after func(time.Duration) <-chan time.Time
 
-	chunks chan ExecChunk // nil when no stream's sink is ToCaller
-	drop   chan struct{}  // closed by finish: the readers drop each chunk
-	ended  chan struct{}  // closed when every reader has read its stream to the end
-	pipes  []io.Closer    // the read ends of the ToCaller pipes
-	files  []*os.File     // the sinks' files, closed after the reap
+	name     string
+	pid      int
+	start    int64
+	confined bool
+
+	detachMu  sync.Mutex
+	detached  atomic.Bool
+	finished  bool
+	stdinMu   sync.Mutex
+	stdinPipe *os.File
+	readFiles [2]*os.File
+	readersWG sync.WaitGroup
+	mem       *memRunning
+
+	chunks     chan ExecChunk // nil when no stream's sink is ToCaller
+	drop       chan struct{}  // closed by finish or Detach
+	ended      chan struct{}  // closed when every reader has read its stream to the end
+	pipes      []io.Closer    // the read ends of the ToCaller pipes
+	files      []*os.File     // the sinks' files, closed after the reap
+	detachTail []ExecChunk
 
 	mu   sync.Mutex
 	back []ExecChunk // put back by Lines (unread); next gives them first
@@ -121,7 +137,35 @@ func (*Running) runtimeOnly() {}
 // (either may be nil) for p.
 func newRunning(p execProc, grace time.Duration, out, errs io.ReadCloser, files []*os.File) *Running {
 	r := &Running{proc: p, grace: grace, after: time.After, drop: make(chan struct{}), ended: make(chan struct{}), files: files}
-	var wg sync.WaitGroup
+	return r.initReaders(out, errs)
+}
+
+func newRunningHost(p execProc, name string, pid int, start int64, confined bool, grace time.Duration, out, errs, stdin *os.File, files []*os.File) *Running {
+	r := &Running{
+		proc:      p,
+		grace:     grace,
+		after:     time.After,
+		name:      name,
+		pid:       pid,
+		start:     start,
+		confined:  confined,
+		stdinPipe: stdin,
+		readFiles: [2]*os.File{out, errs},
+		drop:      make(chan struct{}),
+		ended:     make(chan struct{}),
+		files:     files,
+	}
+	var outRC, errsRC io.ReadCloser
+	if out != nil {
+		outRC = out
+	}
+	if errs != nil {
+		errsRC = errs
+	}
+	return r.initReaders(outRC, errsRC)
+}
+
+func (r *Running) initReaders(out, errs io.ReadCloser) *Running {
 	for _, s := range []struct {
 		rc     io.ReadCloser
 		stderr bool
@@ -133,14 +177,14 @@ func newRunning(p execProc, grace time.Duration, out, errs io.ReadCloser, files 
 			r.chunks = make(chan ExecChunk, execChunkBuffer)
 		}
 		r.pipes = append(r.pipes, s.rc)
-		wg.Add(1)
+		r.readersWG.Add(1)
 		go func() {
-			defer wg.Done()
+			defer r.readersWG.Done()
 			r.read(s.rc, s.stderr)
 		}()
 	}
 	go func() {
-		wg.Wait()
+		r.readersWG.Wait()
 		if r.chunks != nil {
 			close(r.chunks)
 		}
@@ -153,7 +197,7 @@ func newRunning(p execProc, grace time.Duration, out, errs io.ReadCloser, files 
 // soon as it is read, and then an empty chunk for the stream's end; once
 // finish has begun it drops them. It keeps no byte back: a last fragment
 // with no line feed is sent as it was read.
-func (r *Running) read(rc io.Reader, stderr bool) {
+func (r *Running) read(rc io.ReadCloser, stderr bool) {
 	buf := make([]byte, execChunkSize)
 	for {
 		n, err := rc.Read(buf)
@@ -161,7 +205,9 @@ func (r *Running) read(rc io.Reader, stderr bool) {
 			return
 		}
 		if err != nil {
-			r.send(ExecChunk{Stderr: stderr})
+			if !r.detached.Load() {
+				r.send(ExecChunk{Stderr: stderr})
+			}
 			return
 		}
 	}
@@ -173,6 +219,11 @@ func (r *Running) send(c ExecChunk) bool {
 	case r.chunks <- c:
 		return true
 	case <-r.drop:
+		if r.detached.Load() && c.Text != "" {
+			r.mu.Lock()
+			r.detachTail = append(r.detachTail, c)
+			r.mu.Unlock()
+		}
 		return false
 	}
 }
@@ -318,6 +369,9 @@ func (r *Running) unread(rest []ExecChunk) {
 //ergo:wait caller
 func (r *Running) Wait(t *rt.Task) int {
 	t.Check()
+	if r.detached.Load() {
+		return r.status
+	}
 	select {
 	case <-r.proc.exited():
 	case <-t.Done():
@@ -328,6 +382,64 @@ func (r *Running) Wait(t *rt.Task) int {
 	return r.status
 }
 
+// Pid returns the started program's process ID, or 0 for an ended replay or
+// already detached Running.
+//
+//ergo:wait none
+func (r *Running) Pid() int {
+	if r == nil {
+		return 0
+	}
+	r.detachMu.Lock()
+	defer r.detachMu.Unlock()
+	if r.detached.Load() {
+		return 0
+	}
+	return r.pid
+}
+
+// WriteStdin writes data to the interactive stdin pipe of r.
+//
+//ergo:host
+//ergo:wait none
+func (r *Running) WriteStdin(data string) error {
+	if r == nil {
+		return ExecFailed{Reason: "process has no stdin pipe"}
+	}
+	if r.mem != nil {
+		return r.mem.writeStdin(data)
+	}
+	r.stdinMu.Lock()
+	defer r.stdinMu.Unlock()
+	if r.detached.Load() || r.stdinPipe == nil {
+		return ExecFailed{Name: r.name, Reason: "process has no writable stdin pipe"}
+	}
+	return writeAllFile(r.stdinPipe, r.name, data)
+}
+
+// CloseStdin closes the interactive stdin pipe of r cleanly to signal EOF.
+//
+//ergo:wait none
+func (r *Running) CloseStdin() error {
+	if r == nil {
+		return ExecFailed{Reason: "process has no stdin pipe"}
+	}
+	if r.mem != nil {
+		return r.mem.closeStdin()
+	}
+	r.stdinMu.Lock()
+	defer r.stdinMu.Unlock()
+	if r.detached.Load() || r.stdinPipe == nil {
+		return ExecFailed{Name: r.name, Reason: "process has no open stdin pipe"}
+	}
+	err := r.stdinPipe.Close()
+	r.stdinPipe = nil
+	if err != nil {
+		return ExecFailed{Name: r.name, Reason: fsReason(err)}
+	}
+	return nil
+}
+
 // Close is the release of r (resources.md R5, R9): masked on ct, the task
 // that releases it, it ends the program when it still runs (SIGTERM, the
 // grace, SIGKILL; see the lifecycle above) and then finishes as Wait does.
@@ -335,7 +447,13 @@ func (r *Running) Wait(t *rt.Task) int {
 //ergo:wait none
 //ergo:release caller
 func (r *Running) Close(ct *rt.Task) {
+	if r.detached.Load() {
+		return
+	}
 	v1.Release(ct, func() {
+		if r.detached.Load() {
+			return
+		}
 		r.end()
 		r.finish()
 	})
@@ -348,6 +466,9 @@ func (r *Running) Close(ct *rt.Task) {
 //ergo:wait none
 //ergo:release caller
 func (r *Running) Stop(ct *rt.Task) int {
+	if r.detached.Load() {
+		return 0
+	}
 	r.Close(ct)
 	return r.status
 }
@@ -411,6 +532,19 @@ func (r *Running) end() {
 // reaped and the group waited for, and the sinks' files are closed.
 func (r *Running) finish() {
 	r.once.Do(func() {
+		r.detachMu.Lock()
+		if r.detached.Load() {
+			r.detachMu.Unlock()
+			return
+		}
+		r.finished = true
+		r.detachMu.Unlock()
+		r.stdinMu.Lock()
+		if r.stdinPipe != nil {
+			_ = r.stdinPipe.Close()
+			r.stdinPipe = nil
+		}
+		r.stdinMu.Unlock()
 		close(r.drop)
 		select {
 		case <-r.ended:
@@ -434,27 +568,63 @@ func (r *Running) finish() {
 
 // hostProc is a program of the host in a process group of its own.
 type hostProc struct {
-	child *execChild
-	group int
-	exit  execExit
-	done  chan struct{}
+	mu       sync.Mutex
+	child    *execChild
+	group    int
+	exit     execExit
+	done     chan struct{}
+	detached bool
 }
 
 func (p *hostProc) exited() <-chan struct{} { return p.done }
 
 func (p *hostProc) signal(sig syscall.Signal) {
-	if sig == syscall.SIGKILL {
-		execKillGroup(p.group)
+	p.mu.Lock()
+	detached := p.detached
+	group := p.group
+	p.mu.Unlock()
+	if detached {
 		return
 	}
-	execSignalGroup(p.group, sig)
+	if sig == syscall.SIGKILL {
+		execKillGroup(group)
+		return
+	}
+	execSignalGroup(group, sig)
 }
 
 func (p *hostProc) reap() int {
-	status := p.child.reap()
-	execAwaitGroupEnd(p.group)
-	p.exit.close()
+	p.mu.Lock()
+	if p.detached {
+		p.mu.Unlock()
+		return 0
+	}
+	child := p.child
+	group := p.group
+	exit := p.exit
+	p.mu.Unlock()
+	status := child.reap()
+	execAwaitGroupEnd(group)
+	exit.close()
 	return status
+}
+
+func (p *hostProc) detach() (*execChild, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.detached || p.child == nil {
+		return nil, false
+	}
+	p.detached = true
+	child := p.child
+	p.child = nil
+	return child, true
+}
+
+func (p *hostProc) isDetached() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.detached
 }
 
 // ExecStart is the body of exec.Host's Start on the caller's task t: it
@@ -466,7 +636,7 @@ func (p *hostProc) reap() int {
 //ergo:host
 //ergo:wait caller
 func ExecStart(t *rt.Task, name string, args []string, env map[string]string, dir string, stdin string, grace time.Duration, outKind int, outPath string, outAppend bool, errKind int, errPath string, errAppend bool) (*Running, error) {
-	return execStart(t, "", name, args, env, dir, stdin, grace, outKind, outPath, outAppend, errKind, errPath, errAppend)
+	return execStartCore(t, "", name, args, env, dir, stdin, false, grace, outKind, outPath, outAppend, errKind, errPath, errAppend)
 }
 
 // ExecStartIn is ExecStart for a command of exec.NewTestHost's folder root,
@@ -475,29 +645,56 @@ func ExecStart(t *rt.Task, name string, args []string, env map[string]string, di
 //ergo:host
 //ergo:wait caller
 func ExecStartIn(t *rt.Task, root string, name string, args []string, env map[string]string, dir string, stdin string, grace time.Duration, outKind int, outPath string, outAppend bool, errKind int, errPath string, errAppend bool) (*Running, error) {
-	return execStart(t, root, name, args, env, dir, stdin, grace, outKind, outPath, outAppend, errKind, errPath, errAppend)
+	return execStartCore(t, root, name, args, env, dir, stdin, false, grace, outKind, outPath, outAppend, errKind, errPath, errAppend)
 }
 
-// execStart is ExecStart's body, in the sandbox of the folder root when
-// root is not "".
-func execStart(t *rt.Task, root string, name string, args []string, env map[string]string, dir string, stdin string, grace time.Duration, outKind int, outPath string, outAppend bool, errKind int, errPath string, errAppend bool) (*Running, error) {
+// ExecStartInteractive starts name with a live writable stdin pipe and the
+// caller-selected stdout/stderr sinks.
+//
+//ergo:host
+//ergo:wait caller
+func ExecStartInteractive(t *rt.Task, name string, args []string, env map[string]string, dir string, stdin string, grace time.Duration, outKind int, outPath string, outAppend bool, errKind int, errPath string, errAppend bool) (*Running, error) {
+	return execStartCore(t, "", name, args, env, dir, stdin, true, grace, outKind, outPath, outAppend, errKind, errPath, errAppend)
+}
+
+// ExecStartInteractiveIn is ExecStartInteractive confined to root.
+//
+//ergo:host
+//ergo:wait caller
+func ExecStartInteractiveIn(t *rt.Task, root string, name string, args []string, env map[string]string, dir string, stdin string, grace time.Duration, outKind int, outPath string, outAppend bool, errKind int, errPath string, errAppend bool) (*Running, error) {
+	return execStartCore(t, root, name, args, env, dir, stdin, true, grace, outKind, outPath, outAppend, errKind, errPath, errAppend)
+}
+
+// execStartCore is ExecStart and ExecStartInteractive's shared body.
+func execStartCore(t *rt.Task, root string, name string, args []string, env map[string]string, dir string, stdin string, interactiveStdin bool, grace time.Duration, outKind int, outPath string, outAppend bool, errKind int, errPath string, errAppend bool) (*Running, error) {
 	t.Check()
+	if interactiveStdin && stdin != "" {
+		return nil, ExecFailed{Name: name, Reason: "interactive start cannot specify buffered Stdin; use WriteStdin"}
+	}
 	cmd, err := ExecCommand(name, args, env, dir, stdin)
 	if err != nil {
 		return nil, err
 	}
 	cmd.SysProcAttr = execGroupAttr()
+	var inR, inW *os.File
 	var files []*os.File  // the sinks' files, the parent's copies
 	var writes []*os.File // the write ends of the ToCaller pipes, the parent's copies
 	var reads [2]*os.File // the read ends: stdout's, stderr's
 	var outW *os.File     // what standard output goes to; nil for the null device
 	fail := func(err error) (*Running, error) {
-		for _, f := range slices.Concat(files, writes, reads[:]) {
+		for _, f := range slices.Concat([]*os.File{inR, inW}, files, writes, reads[:]) {
 			if f != nil {
 				_ = f.Close()
 			}
 		}
 		return nil, err
+	}
+	if interactiveStdin {
+		inR, inW, err = os.Pipe()
+		if err != nil {
+			return fail(execErr(name, err))
+		}
+		cmd.Stdin = inR
 	}
 	for i, s := range []struct {
 		kind   int
@@ -554,24 +751,29 @@ func execStart(t *rt.Task, root string, name string, args []string, env map[stri
 	cmd.WaitDelay = execWaitDelay
 	v1.FlushStdout() // the child starts after what was printed (stdlib.md io 11)
 	child, err := execBegin(cmd, root)
+	if inR != nil {
+		_ = inR.Close() // child holds its copy
+		inR = nil
+	}
 	for _, w := range writes {
 		_ = w.Close() // the program holds its own copies
 	}
 	writes = nil
 	if err != nil {
+		_ = inW.Close()
 		exit.close()
 		return fail(execStartErr(name, err))
 	}
+	start := execStartTime(child.pid)
 	p := &hostProc{child: child, group: child.pid, exit: exit, done: make(chan struct{})}
-	go func() { exit.await(p.group); close(p.done) }()
-	var out, errs io.ReadCloser
-	if reads[0] != nil {
-		out = reads[0]
-	}
-	if reads[1] != nil {
-		errs = reads[1]
-	}
-	return newRunning(p, grace, out, errs, files), nil
+	go func() {
+		exit.await(p.group)
+		close(p.done)
+		if p.isDetached() {
+			exit.close()
+		}
+	}()
+	return newRunningHost(p, name, child.pid, start, root != "", grace, reads[0], reads[1], inW, files), nil
 }
 
 // execSignalHook, when set, runs just before a signal other than SIGKILL

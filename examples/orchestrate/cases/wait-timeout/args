@@ -1,0 +1,16 @@
+--store
+:memory:
+wait
+--max-load
+2
+--min-mem-gib
+8
+--max-disk-pct
+93
+--volume
+/workspaces
+--timeout
+30ms
+--interval
+15ms
+--json

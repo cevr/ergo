@@ -428,7 +428,7 @@ func marker(r agent.Row) string {
 // Paint is the bytes that draw lines from the top left of the screen,
 // each line cleared to its end: what one frame writes.
 func Paint(lines []string) string {
-	"\x1b[H" + strings.Join(lines, "\x1b[K\r\n") + "\x1b[K"
+	term.CursorHome + strings.Join(lines, "\x1b[K\r\n") + "\x1b[K"
 }
 
 // Write is one line of the screen written: the row, from 0, and its text.
@@ -474,7 +474,7 @@ law ChangedLinesRedrawTheFrame(a []string, b []string) {
 func PaintChanges(ws []Write) string {
 	let mut out = ""
 	for w in ws {
-		out = out + "\x1b[\(w.Row + 1);1H" + w.Text + "\x1b[K"
+		out = out + term.MoveTo(w.Row+1, 1) + w.Text + "\x1b[K"
 	}
 	out
 }

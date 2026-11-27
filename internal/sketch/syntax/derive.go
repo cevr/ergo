@@ -7,8 +7,9 @@ package syntax
 // same line. Everywhere else it is a name, so `type T derive` at the end of
 // a line declares T over a type named derive, and `type T derive.X` over a
 // type of a package named derive. The parser stores E and derives nothing:
-// a plan may call plan functions of other packages, so the checker expands
-// it (internal/sketch/derive).
+// a plan may call functions of other packages, so the content-mapper pipeline
+// expands non-Provider derives (internal/sketch/contentmap) and the checker
+// expands Provider derives (script.go).
 
 // IsProviderPlan reports a derive expression that is a direct call of the
 // plan constructor Provider.

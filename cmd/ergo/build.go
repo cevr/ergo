@@ -29,25 +29,29 @@ import (
 	"ergo.local/prototype/internal/toolchain"
 )
 
-const runHelp = "usage: ergo run [--json] [--locked] [--go-trace] [--target go] FILE|DIR [--] [ARGS...]\n" +
-	"A source that does not check prints one file:line:col: error CODE: message line per finding on stderr\n" +
-	"(the check envelope on stdout with --json), builds nothing and exits 1.\n" +
-	"Builds the program into a private temporary directory and runs it with ARGS, as go run does:\n" +
-	"every word after FILE|DIR is the program's (a -- right after it is dropped), so ergo's options come first.\n" +
-	"The program's exit status passes through; SIGINT and SIGTERM are forwarded (130 and 143 when they end it).\n" +
-	"A rewrite law site whose ergo.laws entry is stale or missing keeps the reference lowering and prints one line;\n" +
-	"--locked refuses the build instead (runtime.md, Tests 10).\n" +
-	"--go-trace links Go's tracer: ERGO_GO_TRACE=FILE writes a Go execution trace of the run, and\n" +
-	"ERGO_GO_TRACE=flight:FILE writes the last seconds of it on a defect (runtime.md, Go's tools).\n"
+const runHelp = "usage: ergo run [PATH] [--locked] [--debug] [--json] [--] [ARGS...]\n\n" +
+	"Build and run the program in PATH (defaults to .) with ARGS.\n" +
+	"Every word after PATH is forwarded to the program (a -- right after PATH is dropped).\n\n" +
+	"Examples:\n" +
+	"  ergo run                        Build and run .\n" +
+	"  ergo run ./cmd/app -- --port 80 Build and run with arguments\n\n" +
+	"Options:\n" +
+	"  --locked     refuse build if ergo.laws rewrite entries are stale or missing\n" +
+	"  --debug      keep symbol table and DWARF debug info\n" +
+	"  --go-trace   link runtime/obs execution tracer support\n" +
+	"  --json       emit CheckEnvelope JSON on stdout when source fails to check\n\n" +
+	"A source that does not check prints errors on stderr, builds nothing, and exits 1.\n" +
+	"The program's exit status passes through; SIGINT and SIGTERM are forwarded (130/143).\n"
 
-// buildCommand builds a native executable and prints its path. With -work
-// it also prints WORK=DIR on stderr, DIR being the generated Go module in
-// the emission cache that the executable was linked from, and LINK= how it
-// was linked (build.Report: the direct path's counts, or go build and why).
+// buildCommand builds a native executable and prints its path, or writes a
+// Go-callable library module when --lib is given.
 func buildCommand(args []string) error {
 	opts, err := parseFileOptions("build", args)
 	if err != nil {
 		return err
+	}
+	if opts.lib {
+		return buildLibrary(opts)
 	}
 	if opts.emitted {
 		return printEmitted(opts, build.ModeBuild)

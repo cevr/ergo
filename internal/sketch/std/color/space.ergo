@@ -15,6 +15,22 @@ type OKLCH { L float64, C float64, H float64, Alpha float64 }
 
 type rgbf { r float64, g float64, b float64 }
 
+// Linear is a linear-light sRGB colour with straight alpha in [0, 1].
+type Linear { R float64, G float64, B float64, Alpha float64 }
+
+// ToLinear converts sRGB c to linear-light sRGB.
+func ToLinear(c RGBA) Linear {
+	Linear{R: toLinear(unit(c.R)), G: toLinear(unit(c.G)), B: toLinear(unit(c.B)), Alpha: unit(c.A)}
+}
+
+// FromLinear converts linear-light sRGB c to 8-bit sRGB RGBA.
+func FromLinear(c Linear) RGBA {
+	RGBA{R: toByte(toGamma(clamp01(finite(c.R)))), G: toByte(toGamma(clamp01(finite(c.G)))), B: toByte(toGamma(clamp01(finite(c.B)))), A: toByte(finite(c.Alpha))}
+}
+
+// LinearRoundTrips: FromLinear(ToLinear(c)) is c.
+law LinearRoundTrips(c RGBA) { FromLinear(ToLinear(c)) == c }
+
 // ToHSL is c in HSL, as CSS Color 4's sample code converts: an achromatic
 // colour has hue 0 and saturation 0.
 func ToHSL(c RGBA) HSL {
@@ -77,8 +93,9 @@ func alphaText(a float64) string {
 
 // ToOKLab is c in OKLab, through linear sRGB and Ottosson's matrices.
 func ToOKLab(c RGBA) OKLab {
-	let lab = labOf(rgbf{r: toLinear(unit(c.R)), g: toLinear(unit(c.G)), b: toLinear(unit(c.B))})
-	OKLab{..lab, Alpha: unit(c.A)}
+	let lin = ToLinear(c)
+	let lab = labOf(rgbf{r: lin.R, g: lin.G, b: lin.B})
+	OKLab{..lab, Alpha: lin.Alpha}
 }
 
 // FromOKLab is lab in sRGB, gamut mapped as FromOKLCH maps.

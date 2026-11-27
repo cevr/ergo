@@ -140,7 +140,7 @@ func OptionMatch(o option.Option[S4r1Circle]) int {
 		filepath.Join(stdDir(), "option"),
 		filepath.Join(stdDir(), "collections"),
 		filepath.Join(stdDir(), "core"),
-		filepath.Join(stdDir(), "color"),
+		filepath.Join(stdDir(), "term"),
 	}
 	lines := make([]string, len(bases))
 	eachGoPackage(bases, func(i int, pkg *check.Package) {
@@ -166,19 +166,19 @@ func OptionMatch(o option.Option[S4r1Circle]) int {
 	if err := indexGoIR(t, paths, goIdx, irGoProgram{u: u, tests: false, dir: dir, module: dir, reach: ownFuncs(u, map[string]bool{})}); err != nil {
 		t.Fatal(err)
 	}
-	colorPkg, err := check.Std.Import("color")
+	termPkg, err := check.Std.Import("term")
 	if err != nil {
 		t.Fatal(err)
 	}
-	var colorText *check.Func
-	for _, fn := range colorPkg.Funcs {
+	var termText *check.Func
+	for _, fn := range termPkg.Funcs {
 		if fn.Name == "text" {
-			colorText = fn
+			termText = fn
 			break
 		}
 	}
-	if colorText == nil {
-		t.Fatal("std color.text not found")
+	if termText == nil {
+		t.Fatal("std term.text not found")
 	}
 	const stdProgramDir = "/ergo-std-program"
 	a := sketchfront.Check("func main() {}\n")
@@ -187,7 +187,7 @@ func OptionMatch(o option.Option[S4r1Circle]) int {
 		t.Fatal(err)
 	}
 	su.Root = stdProgramDir
-	if err := indexGoIR(t, paths, goIdx, irGoProgram{u: su, module: stdProgramDir, reach: []*check.Func{colorText}}); err != nil {
+	if err := indexGoIR(t, paths, goIdx, irGoProgram{u: su, module: stdProgramDir, reach: []*check.Func{termText}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -228,7 +228,7 @@ func OptionMatch(o option.Option[S4r1Circle]) int {
 		}
 	}
 
-	for _, want := range []string{"MatchPair32", "MatchErr", "UseScalarTwice", "S4r1Circle.Area", "OptionMatch", "color__text"} {
+	for _, want := range []string{"MatchPair32", "MatchErr", "UseScalarTwice", "S4r1Circle.Area", "OptionMatch", "term__text"} {
 		got, ok := emitted[want]
 		if !ok {
 			t.Fatalf("s4r1 build did not emit %s (stops: %v)", want, stops)

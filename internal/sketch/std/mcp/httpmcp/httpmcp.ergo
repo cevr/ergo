@@ -1,18 +1,25 @@
 // Package httpmcp is the Streamable HTTP transport of the Model Context Protocol
-// (MCP 2025-06-18) over std http and std mcp. It reuses mcp.Handle and mcp.Line
-// for JSON-RPC 2.0 dispatch and adds HTTP framing, Origin validation, content
-// negotiation (application/json and text/event-stream), body limits, stateful
-// Mcp-Session-Id lifecycle, per-request server resolution, and a client over
-// http.Net.
+// (MCP 2025-06-18) over std http and std mcp. It reuses mcp.HandleFull and
+// mcp.Line for JSON-RPC 2.0 dispatch and adds HTTP framing, Origin validation,
+// content negotiation (application/json and text/event-stream), body limits,
+// stateful Mcp-Session-Id lifecycle, GET /mcp SSE notification streaming with
+// Last-Event-ID replay/resumption, per-request server resolution, and a client
+// over http.Net.
 
 import hex
 import http
 import json
 import mcp
+import mcp/memory
+import mcp/stdio
+import io
 import option
 import rand
+import scope
+import strconv
 import strings
 import sync
+import task
 
 // ProtocolVersionHeader is the HTTP header carrying the negotiated MCP protocol version.
 let ProtocolVersionHeader = "MCP-Protocol-Version"
@@ -20,55 +27,171 @@ let ProtocolVersionHeader = "MCP-Protocol-Version"
 // SessionHeader is the HTTP header carrying the opaque MCP session identifier.
 let SessionHeader = "Mcp-Session-Id"
 
-// Sessions tracks active MCP session identifiers for a stateful HTTP endpoint.
-type Sessions { active sync.Ref[Map[string, bool]], source rand.Secure }
+// LastEventIDHeader is the HTTP header carrying the last SSE event cursor for resumption.
+let LastEventIDHeader = "Last-Event-ID"
 
-// NewSessions returns an empty session store minting 128-bit hex session IDs from source.
+type sessionEntry {
+	subs     mcp.Subscriptions,
+	notifier mcp.Notifier,
+}
+
+// Sessions tracks active MCP sessions, per-session resource subscriptions,
+// and SSE notification streams for a stateful HTTP endpoint.
+type Sessions {
+	active       sync.Ref[Map[string, sessionEntry]],
+	source       rand.Secure,
+	historyLimit int,
+}
+
+// NewSessions returns an empty session store minting 128-bit hex session IDs
+// from source and retaining up to 256 events per session for Last-Event-ID replay.
 func NewSessions(source rand.Secure) Sessions {
-	Sessions{active: sync.NewRef[Map[string, bool]](Map[string, bool]{}), source: source}
+	NewSessionsWithHistory(source, 256)
+}
+
+// NewSessionsWithHistory returns an empty session store retaining up to
+// historyLimit events per session for Last-Event-ID replay.
+func NewSessionsWithHistory(source rand.Secure, historyLimit int) Sessions {
+	let limit = if historyLimit < 0 { 0 } else { historyLimit }
+	Sessions{
+		active:       sync.NewRef[Map[string, sessionEntry]](Map[string, sessionEntry]{}),
+		source:       source,
+		historyLimit: limit,
+	}
+}
+
+func createEntry(s Sessions) (string, sessionEntry) {
+	let id = hex.Encode(s.source.Bytes(16))
+	let entry = sessionEntry{
+		subs:     mcp.NewSubscriptions(),
+		notifier: mcp.NewNotifier(s.historyLimit),
+	}
+	s.active.Update(func(m Map[string, sessionEntry]) Map[string, sessionEntry] {
+		let mut next = m
+		next[id] = entry
+		next
+	})
+	(id, entry)
 }
 
 // Create mints a new opaque session identifier and records it as active.
 func Create(s Sessions) string {
-	let id = hex.Encode(s.source.Bytes(16))
-	s.active.Update(func(m Map[string, bool]) Map[string, bool] {
-		let mut next = m
-		next[id] = true
-		next
-	})
+	let id, _ = createEntry(s)
 	id
+}
+
+func sessionEntryOf(s Sessions, id string) option.Option[sessionEntry] {
+	if id == "" {
+		return option.None
+	}
+	s.active.Get().Get(id)
 }
 
 // Has reports whether id names an active session in s.
 func Has(s Sessions, id string) bool {
-	if id == "" {
-		return false
-	}
-	match s.active.Get().Get(id) {
-	case option.Some[bool] as ok:
-		ok.Value
+	match sessionEntryOf(s, id) {
+	case option.Some[sessionEntry]:
+		true
 	case option.None:
 		false
 	}
 }
 
-// Delete removes id from s and reports whether it was active.
+// Delete removes id from s, closes its notification streams, and reports
+// whether it was active.
 func Delete(s Sessions, id string) bool {
 	if id == "" {
 		return false
 	}
-	sync.Modify(s.active, func(m Map[string, bool]) (bool, Map[string, bool]) {
+	let removed = sync.Modify(s.active, func(m Map[string, sessionEntry]) (option.Option[sessionEntry], Map[string, sessionEntry]) {
 		match m.Get(id) {
-		case option.Some[bool]:
-			(true, m.Delete(id))
+		case option.Some[sessionEntry] as entry:
+			(option.Some[sessionEntry]{Value: entry.Value}, m.Delete(id))
 		case option.None:
-			(false, m)
+			(option.None, m)
 		}
 	})
+	match removed {
+	case option.Some[sessionEntry] as entry:
+		mcp.Close(entry.Value.notifier)
+		true
+	case option.None:
+		false
+	}
 }
 
 // Count returns the number of currently active sessions in s.
 func Count(s Sessions) int { s.active.Get().Len() }
+
+// Notify fans n out to every active session in s whose resource subscriptions
+// match n, returning how many sessions received it.
+func Notify(s Sessions, n mcp.Notification) int {
+	let mut delivered = 0
+	for _, entry in s.active.Get() {
+		if mcp.MatchesNotification(entry.subs, n) {
+			let _ = mcp.Notify(entry.notifier, n)
+			delivered = delivered + 1
+		}
+	}
+	delivered
+}
+
+// NotifySession delivers n to sessionID if active and matching its resource
+// subscriptions, reporting whether sessionID is active.
+func NotifySession(s Sessions, sessionID string, n mcp.Notification) bool {
+	match sessionEntryOf(s, sessionID) {
+	case option.Some[sessionEntry] as entry:
+		if mcp.MatchesNotification(entry.Value.subs, n) {
+			let _ = mcp.Notify(entry.Value.notifier, n)
+		}
+		true
+	case option.None:
+		false
+	}
+}
+
+// NotifyResourceUpdated notifies every session subscribed to uri.
+func NotifyResourceUpdated(s Sessions, uri string) int {
+	Notify(s, mcp.ResourceUpdated(uri))
+}
+
+// WaitStream blocks until at least one GET SSE stream is attached to sessionID,
+// returning false if sessionID does not exist or closes before a stream attaches.
+func WaitStream(s Sessions, sessionID string) bool {
+	match sessionEntryOf(s, sessionID) {
+	case option.Some[sessionEntry] as entry:
+		mcp.WaitStream(entry.Value.notifier)
+	case option.None:
+		false
+	}
+}
+
+// CloseStreams closes all active GET SSE streams for sessionID while keeping
+// the session active and preserving its replay buffer.
+func CloseStreams(s Sessions, sessionID string) {
+	match sessionEntryOf(s, sessionID) {
+	case option.Some[sessionEntry] as entry:
+		mcp.CloseStreams(entry.Value.notifier)
+	case option.None:
+	}
+}
+
+// CloseAllStreams closes all active GET SSE streams across every session in s.
+func CloseAllStreams(s Sessions) {
+	for _, entry in s.active.Get() {
+		mcp.CloseStreams(entry.notifier)
+	}
+}
+
+// StreamCount returns the number of currently open GET SSE streams on sessionID.
+func StreamCount(s Sessions, sessionID string) int {
+	match sessionEntryOf(s, sessionID) {
+	case option.Some[sessionEntry] as entry:
+		mcp.StreamCount(entry.Value.notifier)
+	case option.None:
+		0
+	}
+}
 
 // SessionMode selects stateless handling or stateful Mcp-Session-Id tracking.
 type SessionMode = Stateless{} | Stateful{Store Sessions}
@@ -86,8 +209,9 @@ func DefaultOptions() Options {
 }
 
 // Resolved is the outcome of resolving an HTTP request to an MCP server:
-// Use handles the request with Server; Reject answers immediately with Response.
-type Resolved = Use{Server mcp.Server} | Reject{Response http.Response}
+// Use handles the request with a tools-only Server; UseFull handles it with a
+// FullServer; Reject answers immediately with Response.
+type Resolved = Use{Server mcp.Server} | UseFull{Full mcp.FullServer} | Reject{Response http.Response}
 
 // Endpoint serves MCP Streamable HTTP requests using fixed options and a request resolver.
 type Endpoint { opts Options, resolve func(http.Request) Resolved }
@@ -97,30 +221,112 @@ func New(server mcp.Server, opts Options) Endpoint {
 	Endpoint{opts: opts, resolve: func(_ http.Request) Resolved { Use{Server: server} }}
 }
 
+// NewFull creates an Endpoint backed by a fixed mcp.FullServer and opts.
+func NewFull(full mcp.FullServer, opts Options) Endpoint {
+	Endpoint{opts: opts, resolve: func(_ http.Request) Resolved { UseFull{Full: full} }}
+}
+
+// NewWithResources creates an Endpoint backed by server, resources, and opts.
+func NewWithResources(server mcp.Server, resources mcp.ResourceSet, opts Options) Endpoint {
+	NewFull(mcp.WithResources(server, resources), opts)
+}
+
 // NewDynamic creates an Endpoint whose per-request resolver authenticates or narrows
-// the request and chooses either an mcp.Server or an HTTP rejection response.
+// the request and chooses either an mcp.Server/FullServer or an HTTP rejection response.
 func NewDynamic(opts Options, resolve own func(http.Request) Resolved) Endpoint {
 	Endpoint{opts: opts, resolve: resolve}
 }
 
 // Handler returns an HTTP handler function for server with DefaultOptions.
-func Handler(server mcp.Server) func(http.Request) http.Response {
+func Handler(server mcp.Server) func(http.Request) http.Response needs http.Streaming {
 	let e = New(server, DefaultOptions())
-	func(req http.Request) http.Response { Handle(e, req) }
+	func(req http.Request) http.Response needs http.Streaming { Handle(e, req) }
+}
+
+// HandlerFull returns an HTTP handler function for full with DefaultOptions.
+func HandlerFull(full mcp.FullServer) func(http.Request) http.Response needs http.Streaming {
+	let e = NewFull(full, DefaultOptions())
+	func(req http.Request) http.Response needs http.Streaming { Handle(e, req) }
 }
 
 // Handle answers one MCP Streamable HTTP request through e.
-func Handle(e Endpoint, req http.Request) http.Response {
+func Handle(e Endpoint, req http.Request) http.Response needs http.Streaming {
 	Dispatch(e.opts, req, e.resolve)
 }
 
+func resolveFull(r Resolved) option.Option[mcp.FullServer] {
+	match r {
+	case Use as u:
+		option.Some[mcp.FullServer]{Value: mcp.Full(u.Server)}
+	case UseFull as uf:
+		option.Some[mcp.FullServer]{Value: uf.Full}
+	case Reject:
+		option.None
+	}
+}
+
 // Dispatch answers one MCP Streamable HTTP request, calling resolve to select
-// or reject the mcp.Server for req with any caller capability row R.
-func Dispatch[R](opts Options, req http.Request, resolve func(http.Request) Resolved needs R) http.Response needs R {
+// or reject the MCP server for req with any caller capability row R.
+func Dispatch[R](opts Options, req http.Request, resolve func(http.Request) Resolved needs R) http.Response needs R | http.Streaming {
 	if !checkOrigin(opts.AllowedOrigins, req.Header) {
 		return textResponse(403, "origin not allowed", option.None, []http.Field{})
 	}
 	match req.Method {
+	case "GET":
+		match opts.Sessions {
+		case Stateless:
+			methodNotAllowed(false)
+		case Stateful as st:
+			match resolve(req) {
+			case Reject as rej:
+				return rej.Response
+			case Use, UseFull:
+			}
+			let (_, wantsSSE) = parseAccept(req.Header)
+			if !wantsSSE {
+				return textResponse(406, "Accept must allow text/event-stream", option.None, []http.Field{})
+			}
+			let version = headerValue(req.Header, ProtocolVersionHeader)
+			if version != "" && version != mcp.Version && version != "2025-03-26" {
+				return textResponse(400, "unsupported MCP-Protocol-Version", option.None, []http.Field{})
+			}
+			let id = headerValue(req.Header, SessionHeader)
+			if id == "" {
+				return textResponse(400, "missing Mcp-Session-Id header", option.None, []http.Field{})
+			}
+			let entry = match sessionEntryOf(st.Store, id) {
+			case option.Some[sessionEntry] as e:
+				e.Value
+			case option.None:
+				return textResponse(404, "unknown session", option.None, []http.Field{})
+			}
+			let afterSeq = parseLastEventID(headerValue(req.Header, LastEventIDHeader), entry.notifier)
+			let hdr = baseHeaders(option.Some[string]{Value: id}, []http.Field{
+				http.Field{Name: "Content-Type", Value: "text/event-stream"},
+				http.Field{Name: "Cache-Control", Value: "no-cache"},
+			})
+			let sub, replay = mcp.SubscribeSince(entry.notifier, entry.subs, afterSeq)
+			return http.Stream(200, hdr, func(w http.BodyWriter) fails http.WriteFailed {
+				scope.OnExit() { mcp.CloseSubscription(sub) }
+				for ev in replay {
+					let chunk = formatSSE(ev)
+					if chunk != "" {
+						try w.Write(chunk)
+					}
+				}
+				for {
+					match mcp.Next(sub) {
+					case option.Some[mcp.SequencedNotification] as ev:
+						let chunk = formatSSE(ev.Value)
+						if chunk != "" {
+							try w.Write(chunk)
+						}
+					case option.None:
+						break
+					}
+				}
+			})
+		}
 	case "DELETE":
 		match opts.Sessions {
 		case Stateless:
@@ -129,7 +335,7 @@ func Dispatch[R](opts Options, req http.Request, resolve func(http.Request) Reso
 			match resolve(req) {
 			case Reject as rej:
 				return rej.Response
-			case Use:
+			case Use, UseFull:
 			}
 			let id = headerValue(req.Header, SessionHeader)
 			if id == "" {
@@ -163,15 +369,17 @@ func Dispatch[R](opts Options, req http.Request, resolve func(http.Request) Reso
 			}
 			b.Text
 		}
-		let server = match resolve(req) {
+		let full = match resolve(req) {
 		case Reject as rej:
 			return rej.Response
 		case Use as u:
-			u.Server
+			mcp.Full(u.Server)
+		case UseFull as uf:
+			uf.Full
 		}
 		let decoded = json.Decode(valueCodec(), payload) catch {
 		case _:
-			let sid = match opts.Sessions {
+			let sid option.Option[string] = match opts.Sessions {
 			case Stateless:
 				option.None
 			case Stateful as st:
@@ -184,7 +392,7 @@ func Dispatch[R](opts Options, req http.Request, resolve func(http.Request) Reso
 				}
 				option.Some[string]{Value: id}
 			}
-			let ans = mcp.Handle(server, payload)
+			let ans = mcp.HandleFull(full, mcp.NewSubscriptions(), payload)
 			let line = match mcp.Line(ans) {
 			case option.Some[string] as l:
 				l.Value
@@ -194,21 +402,25 @@ func Dispatch[R](opts Options, req http.Request, resolve func(http.Request) Reso
 			return jsonOrSSEResponse(400, []string{line}, false, wantsJSON, sid)
 		}
 		let isInit = isInitializeRequest(decoded)
-		let sid option.Option[string] = match opts.Sessions {
+		let (sid, subs) = match opts.Sessions {
 		case Stateless:
-			option.None
+			let noneSid option.Option[string] = option.None
+			(noneSid, mcp.NewSubscriptions())
 		case Stateful as st:
 			if isInit {
-				option.Some[string]{Value: Create(st.Store)}
+				let id, entry = createEntry(st.Store)
+				(option.Some[string]{Value: id}, entry.subs)
 			} else {
 				let id = headerValue(req.Header, SessionHeader)
 				if id == "" {
 					return textResponse(400, "missing Mcp-Session-Id header", option.None, []http.Field{})
 				}
-				if !Has(st.Store, id) {
+				match sessionEntryOf(st.Store, id) {
+				case option.Some[sessionEntry] as entry:
+					(option.Some[string]{Value: id}, entry.Value.subs)
+				case option.None:
 					return textResponse(404, "unknown session", option.None, []http.Field{})
 				}
-				option.Some[string]{Value: id}
 			}
 		}
 		match decoded {
@@ -225,7 +437,7 @@ func Dispatch[R](opts Options, req http.Request, resolve func(http.Request) Reso
 			let mut lines = []string{}
 			for item in arr.Items {
 				let itemText = json.Encode(valueCodec(), item)
-				match mcp.Line(mcp.Handle(server, itemText)) {
+				match mcp.Line(mcp.HandleFull(full, subs, itemText)) {
 				case option.Some[string] as l:
 					lines = lines.Append(l.Value)
 				case option.None:
@@ -236,7 +448,7 @@ func Dispatch[R](opts Options, req http.Request, resolve func(http.Request) Reso
 			}
 			jsonOrSSEResponse(200, lines, true, wantsJSON, sid)
 		case json.Null, json.Boolean, json.Num, json.Str, json.Object:
-			let ans = mcp.Handle(server, payload)
+			let ans = mcp.HandleFull(full, subs, payload)
 			match mcp.Line(ans) {
 			case option.None:
 				acceptedResponse(sid)
@@ -252,6 +464,32 @@ func Dispatch[R](opts Options, req http.Request, resolve func(http.Request) Reso
 			true
 		}
 		methodNotAllowed(stateful)
+	}
+}
+
+func parseLastEventID(raw string, n mcp.Notifier) option.Option[int] {
+	if raw == "" {
+		return option.None
+	}
+	for i in 0..raw.Len() {
+		if raw[i] < '0' || raw[i] > '9' {
+			return option.Some[int]{Value: mcp.CurrentSeq(n)}
+		}
+	}
+	let v = strconv.Atoi(raw) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return option.Some[int]{Value: mcp.CurrentSeq(n)}
+	}
+	option.Some[int]{Value: v}
+}
+
+func formatSSE(ev mcp.SequencedNotification) string {
+	let line = strings.ReplaceAll(mcp.NotificationLine(ev.Notification), "\r", "")
+	http.WriteEvents([]http.ServerEvent{
+		http.ServerEvent{Event: "message", Data: line, ID: strconv.Itoa(ev.Seq)},
+	}) catch {
+	case http.Unwritable:
+		""
 	}
 }
 
@@ -381,7 +619,7 @@ func textResponse(status int, body string, sid option.Option[string], extra []ht
 }
 
 func methodNotAllowed(stateful bool) http.Response {
-	let allow = if stateful { "POST, DELETE" } else { "POST" }
+	let allow = if stateful { "GET, POST, DELETE" } else { "POST" }
 	textResponse(405, "method not allowed", option.None, []http.Field{http.Field{Name: "Allow", Value: allow}})
 }
 
@@ -403,4 +641,374 @@ func jsonOrSSEResponse(status int, lines []string, batch bool, wantsJSON bool, s
 		""
 	}
 	http.Response{Status: status, Header: baseHeaders(sid, []http.Field{http.Field{Name: "Content-Type", Value: "text/event-stream"}}), Body: body}
+}
+
+// GetStreamSecurityAndLifecycle enforces Origin checks (403), auth rejection,
+// Accept: text/event-stream negotiation (406), Mcp-Session-Id presence (400)
+// and active status (404 after DELETE), protocol version validation (400),
+// 405 on unsupported methods, and live GET SSE notification delivery.
+law GetStreamSecurityAndLifecycle(seed int) {
+	let store = NewSessions(rand.NewSeededSecure(uint64(seed) + 1))
+	let opts = Options{
+		AllowedOrigins: []string{"http://localhost:3000"},
+		MaxBodyBytes:   1048576,
+		Sessions:       Stateful{Store: store},
+	}
+	let srv = mcp.Server{Name: "get-sec", Version: "1", Tools: []mcp.Tool{}}
+	let ep = NewDynamic(opts, func(req http.Request) Resolved {
+		match http.Header(req.Header, "Authorization") {
+		case option.Some[string] as auth:
+			if auth.Value == "Bearer ok" {
+				return Use{Server: srv}
+			}
+			Reject{Response: http.Response{Status: 401, Header: []http.Field{}, Body: "unauthorized"}}
+		case option.None:
+			Reject{Response: http.Response{Status: 401, Header: []http.Field{}, Body: "unauthorized"}}
+		}
+	})
+	let net = http.InMemory(func(r http.Request) http.Response needs http.Streaming { Handle(ep, r) })
+	let c = NewClientWithHeaders(net, "/mcp", []http.Field{
+		http.Field{Name: "Origin", Value: "http://localhost:3000"},
+		http.Field{Name: "Authorization", Value: "Bearer ok"},
+	})
+	let _ = c.Initialize("c", "1") catch {
+	case _:
+		return false
+	}
+	let sid = c.SessionID()
+	let baseGet = http.Request{
+		Method:  "GET",
+		Path:    "/mcp",
+		RawPath: "/mcp",
+		Query:   []http.Field{},
+		Header:  []http.Field{
+			http.Field{Name: "Origin", Value: "http://localhost:3000"},
+			http.Field{Name: "Authorization", Value: "Bearer ok"},
+			http.Field{Name: "Accept", Value: "text/event-stream"},
+			http.Field{Name: SessionHeader, Value: sid},
+		},
+		Body: http.Buffered{Text: ""},
+	}
+	let (badOrigin, unauth, badAccept, badVer, missingSid, unknownSid, badMethod) = with context { http.Streaming: http.NewRecorder() } {
+		let rOrigin = Handle(ep, http.Request{..baseGet, Header: []http.Field{
+			http.Field{Name: "Origin", Value: "http://evil-\(seed).test"},
+			http.Field{Name: "Authorization", Value: "Bearer ok"},
+			http.Field{Name: "Accept", Value: "text/event-stream"},
+			http.Field{Name: SessionHeader, Value: "does-not-exist"},
+		}})
+		let rUnauth = Handle(ep, http.Request{..baseGet, Header: []http.Field{
+			http.Field{Name: "Origin", Value: "http://localhost:3000"},
+			http.Field{Name: "Accept", Value: "text/event-stream"},
+			http.Field{Name: SessionHeader, Value: "does-not-exist"},
+		}})
+		let rAccept = Handle(ep, http.Request{..baseGet, Header: []http.Field{
+			http.Field{Name: "Origin", Value: "http://localhost:3000"},
+			http.Field{Name: "Authorization", Value: "Bearer ok"},
+			http.Field{Name: "Accept", Value: "application/json"},
+			http.Field{Name: SessionHeader, Value: "does-not-exist"},
+		}})
+		let rVer = Handle(ep, http.Request{..baseGet, Header: []http.Field{
+			http.Field{Name: "Origin", Value: "http://localhost:3000"},
+			http.Field{Name: "Authorization", Value: "Bearer ok"},
+			http.Field{Name: "Accept", Value: "text/event-stream"},
+			http.Field{Name: ProtocolVersionHeader, Value: "1999-01-01"},
+			http.Field{Name: SessionHeader, Value: "does-not-exist"},
+		}})
+		let rNoSid = Handle(ep, http.Request{..baseGet, Header: []http.Field{
+			http.Field{Name: "Origin", Value: "http://localhost:3000"},
+			http.Field{Name: "Authorization", Value: "Bearer ok"},
+			http.Field{Name: "Accept", Value: "text/event-stream"},
+		}})
+		let rBadSid = Handle(ep, http.Request{..baseGet, Header: []http.Field{
+			http.Field{Name: "Origin", Value: "http://localhost:3000"},
+			http.Field{Name: "Authorization", Value: "Bearer ok"},
+			http.Field{Name: "Accept", Value: "text/event-stream"},
+			http.Field{Name: SessionHeader, Value: "does-not-exist"},
+		}})
+		let rPut = Handle(ep, http.Request{..baseGet, Method: "PUT"})
+		(rOrigin.Status == 403, rUnauth.Status == 401, rAccept.Status == 406, rVer.Status == 400, rNoSid.Status == 400, rBadSid.Status == 404, rPut.Status == 405)
+	}
+	let streamTask = task.Go() {
+		let mut got = []mcp.Notification{}
+		let mut streamReadOK = true
+		c.ReadEvents(func(ev NotificationEvent) fails http.SinkFailed {
+			got = got.Append(ev.Notification)
+		}) catch {
+		case _:
+			streamReadOK = false
+		}
+		streamReadOK && got.Len() == 1
+	}
+	if !WaitStream(store, sid) {
+		CloseStreams(store, sid)
+		return false
+	}
+	let _ = Notify(store, mcp.ToolsListChanged())
+	CloseStreams(store, sid)
+	let streamOK = streamTask.Wait()
+	c.Terminate() catch {
+	case _:
+		return false
+	}
+	let afterDel = with context { http.Streaming: http.NewRecorder() } { Handle(ep, baseGet) }
+	let ok = badOrigin && unauth && badAccept && badVer && missingSid && unknownSid && badMethod && streamOK && afterDel.Status == 404
+	always ok
+	sometimes streamOK && afterDel.Status == 404
+	ok
+}
+
+func parityQuoted(s string) string { json.Encode(json.Codec[string]{MaxBytes: 0, MaxDepth: 0}, s) }
+
+// TransportsParityForResourcesAndEvents: Memory, HTTP, and Stdio transports
+// agree on resources/list, resources/read (text, binary, and unknown URI error),
+// resources/subscribe filtering, resources/unsubscribe stopping deliveries,
+// broadcast notifications, and Last-Event-ID replay/resumption under HTTP.
+law TransportsParityForResourcesAndEvents(kinds []int, uriKey string, textBody string) {
+	let uriA = "res://a/" + uriKey
+	let uriB = "res://b/" + uriKey
+	let items = []mcp.Resource{
+		mcp.Resource{URI: uriA, Name: "doc-a", Description: "first", MIMEType: "text/plain"},
+		mcp.Resource{URI: uriB, Name: "doc-b", Description: "", MIMEType: "application/octet-stream"},
+	}
+	let bin = strings.Bytes("bin-" + textBody)
+	let rs = mcp.StaticResources(items, func(uri string) []mcp.ResourceContents fails mcp.ResourceNotFound | mcp.ResourceError {
+		if uri == uriA {
+			return []mcp.ResourceContents{mcp.TextContents(uriA, "text/plain", textBody)}
+		}
+		if uri == uriB {
+			return []mcp.ResourceContents{mcp.BlobContents(uriB, "application/octet-stream", bin)}
+		}
+		mcp.ResourceNotFound{URI: uri}
+	})
+	let srv = mcp.Server{Name: "parity", Version: "1", Tools: []mcp.Tool{}}
+	let full = mcp.WithResources(srv, rs)
+
+	let reqMsgs = []string{
+		"{\"jsonrpc\":\"2.0\",\"id\":\"l\",\"method\":\"resources/list\"}",
+		"{\"jsonrpc\":\"2.0\",\"id\":\"ra\",\"method\":\"resources/read\",\"params\":{\"uri\":" + parityQuoted(uriA) + "}}",
+		"{\"jsonrpc\":\"2.0\",\"id\":\"rb\",\"method\":\"resources/read\",\"params\":{\"uri\":" + parityQuoted(uriB) + "}}",
+		"{\"jsonrpc\":\"2.0\",\"id\":\"rm\",\"method\":\"resources/read\",\"params\":{\"uri\":\"res://missing/x\"}}",
+	}
+	let memTr = memory.New(reqMsgs)
+	let _ = mcp.ServeFull(full, mcp.NewNotifier(8), memTr)
+	let memLines = memTr.Sent()
+
+	let stdioRec = io.NewRecorder()
+	let stdioTr = stdio.NewFrom(io.NewInput(strings.Join(reqMsgs, "\n")+"\n"), stdioRec)
+	let _ = mcp.ServeFull(full, mcp.NewNotifier(8), stdioTr)
+	let stdioLines = strings.Split(strings.TrimSuffix(stdioRec.Text(), "\n"), "\n")
+
+	let store = NewSessions(rand.NewSeededSecure(9))
+	let opts = Options{AllowedOrigins: []string{}, MaxBodyBytes: 1048576, Sessions: Stateful{Store: store}}
+	let ep = NewFull(full, opts)
+	let net = http.InMemory(func(r http.Request) http.Response needs http.Streaming { Handle(ep, r) })
+	let client = NewClient(net, "/mcp")
+	let init = client.Initialize("parity", "1") catch {
+	case _:
+		return false
+	}
+	let listedHTTP = client.ListResources() catch {
+	case _:
+		return false
+	}
+	let readAHTTP = client.ReadResource(uriA) catch {
+	case _:
+		return false
+	}
+	let readBHTTP = client.ReadResource(uriB) catch {
+	case _:
+		return false
+	}
+	let mut missingCodeHTTP = 0
+	let _ = client.ReadResource("res://missing/x") catch {
+	case RPCError as re:
+		missingCodeHTTP = re.Code
+		[]mcp.ResourceContents{}
+	case _:
+		return false
+	}
+	let mut httpDirectLines = []string{}
+	for m in reqMsgs {
+		let ans = client.Call(m) catch {
+		case _:
+			return false
+		}
+		match ans {
+		case option.Some[string] as s:
+			httpDirectLines = httpDirectLines.Append(s.Value)
+		case option.None:
+			return false
+		}
+	}
+
+	client.Subscribe(uriA) catch {
+	case _:
+		return false
+	}
+	let memNotif = mcp.NewNotifier(128)
+	let memLive = memory.NewLive(128)
+	let memTask = task.Go() { memory.ServeLive(full, memNotif, memLive) }
+	if !memory.SendClient(memLive, "{\"jsonrpc\":\"2.0\",\"id\":\"sub\",\"method\":\"resources/subscribe\",\"params\":{\"uri\":"+parityQuoted(uriA)+"}}") {
+		return false
+	}
+	let _ = memory.NextServer(memLive)
+
+	let stdioScript = []string{"{\"jsonrpc\":\"2.0\",\"id\":\"sub\",\"method\":\"resources/subscribe\",\"params\":{\"uri\":" + parityQuoted(uriA) + "}}"}
+	let stdioNotif = mcp.NewNotifier(128)
+	let stdioSubs = mcp.NewSubscriptions()
+	let stdioSub = mcp.SubscribeWith(stdioNotif, stdioSubs)
+	let _ = mcp.HandleFull(full, stdioSubs, stdioScript[0])
+
+	let mut wantNotifs = []mcp.Notification{}
+	let mut phase1Count = 0
+	for i, k in kinds {
+		let mode = ((k % 3) + 3) % 3
+		let ev = if mode == 0 {
+			mcp.ResourceUpdated(uriA)
+		} else if mode == 1 {
+			mcp.ResourceUpdated(uriB)
+		} else {
+			mcp.LogMessage("info", "parity", json.IntNumber(int64(i)))
+		}
+		let _ = Notify(store, ev)
+		let _ = mcp.Notify(memNotif, ev)
+		let _ = mcp.Notify(stdioNotif, ev)
+		if mode != 1 {
+			wantNotifs = wantNotifs.Append(ev)
+			if i == kinds.Len()/2 {
+				phase1Count = wantNotifs.Len()
+			}
+		}
+	}
+
+	let sid = client.SessionID()
+	let reader1 = task.Go() {
+		let mut got = []mcp.Notification{}
+		client.ReadEvents(func(ev NotificationEvent) fails http.SinkFailed {
+			got = got.Append(ev.Notification)
+		}) catch {
+		case _:
+			got = []mcp.Notification{}
+		}
+		got
+	}
+	if !WaitStream(store, sid) {
+		return false
+	}
+	CloseStreams(store, sid)
+	let httpStream1 = reader1.Wait()
+	let replayCursor = client.LastEventID()
+
+	let readerReplay = task.Go() {
+		let mut got = []mcp.Notification{}
+		client.ReadEventsSince("0", func(ev NotificationEvent) fails http.SinkFailed {
+			got = got.Append(ev.Notification)
+		}) catch {
+		case _:
+			got = []mcp.Notification{}
+		}
+		got
+	}
+	if !WaitStream(store, sid) {
+		return false
+	}
+	CloseStreams(store, sid)
+	let httpReplay1 = readerReplay.Wait()
+
+	client.Unsubscribe(uriA) catch {
+	case _:
+		return false
+	}
+	let _ = memory.SendClient(memLive, "{\"jsonrpc\":\"2.0\",\"id\":\"unsub\",\"method\":\"resources/unsubscribe\",\"params\":{\"uri\":"+parityQuoted(uriA)+"}}")
+	let mut memNotifs = []mcp.Notification{}
+	for {
+		match memory.NextServer(memLive) {
+		case option.None:
+			return false
+		case option.Some[string] as ln:
+			match mcp.ParseNotification(ln.Value) {
+			case option.Some[mcp.Notification] as notif:
+				memNotifs = memNotifs.Append(notif.Value)
+			case option.None:
+				break
+			}
+		}
+	}
+	let _ = mcp.HandleFull(full, stdioSubs, "{\"jsonrpc\":\"2.0\",\"id\":\"unsub\",\"method\":\"resources/unsubscribe\",\"params\":{\"uri\":"+parityQuoted(uriA)+"}}")
+
+	let blockedAfter = mcp.ResourceUpdated(uriA)
+	let afterBroadcast = mcp.ToolsListChanged()
+	let _ = Notify(store, blockedAfter)
+	let _ = Notify(store, afterBroadcast)
+	let _ = mcp.Notify(memNotif, blockedAfter)
+	let _ = mcp.Notify(memNotif, afterBroadcast)
+	let _ = mcp.Notify(stdioNotif, blockedAfter)
+	let _ = mcp.Notify(stdioNotif, afterBroadcast)
+	wantNotifs = wantNotifs.Append(afterBroadcast)
+
+	let reader2 = task.Go() {
+		let mut got = []mcp.Notification{}
+		client.ReadEvents(func(ev NotificationEvent) fails http.SinkFailed {
+			got = got.Append(ev.Notification)
+		}) catch {
+		case _:
+			got = []mcp.Notification{}
+		}
+		got
+	}
+	if !WaitStream(store, sid) {
+		return false
+	}
+	CloseStreams(store, sid)
+	let httpStream2 = reader2.Wait()
+
+	let readerCursor = task.Go() {
+		let mut got = []mcp.Notification{}
+		client.ReadEventsSince(replayCursor, func(ev NotificationEvent) fails http.SinkFailed {
+			got = got.Append(ev.Notification)
+		}) catch {
+		case _:
+			got = []mcp.Notification{}
+		}
+		got
+	}
+	if !WaitStream(store, sid) {
+		return false
+	}
+	CloseStreams(store, sid)
+	let httpCursorTail = readerCursor.Wait()
+
+	memory.CloseClient(memLive)
+	for ln in memory.ServerMessages(memLive) {
+		match mcp.ParseNotification(ln) {
+		case option.Some[mcp.Notification] as n:
+			memNotifs = memNotifs.Append(n.Value)
+		case option.None:
+		}
+	}
+	let _ = memTask.Wait()
+
+	mcp.CloseSubscription(stdioSub)
+	let mut stdioNotifs = []mcp.Notification{}
+	for {
+		match mcp.Next(stdioSub) {
+		case option.Some[mcp.SequencedNotification] as ev:
+			stdioNotifs = stdioNotifs.Append(ev.Value.Notification)
+		case option.None:
+			break
+		}
+	}
+
+	let _ = phase1Count
+	let capOK = init.Capabilities.Resources == (json.Present{Value: mcp.ResourcesCapability{Subscribe: true, ListChanged: false}})
+	let reqParity = memLines == stdioLines && memLines == httpDirectLines
+	let resOK = listedHTTP == items && readAHTTP == []mcp.ResourceContents{mcp.TextContents(uriA, "text/plain", textBody)} && readBHTTP == []mcp.ResourceContents{mcp.BlobContents(uriB, "application/octet-stream", bin)} && missingCodeHTTP == mcp.ResourceNotFoundCode
+	let httpAll = httpStream1.Concat(httpStream2)
+	let cursorOK = if replayCursor == "" { httpCursorTail.Len() == 0 } else { httpCursorTail == httpStream2 }
+	let eventParity = memNotifs == wantNotifs && stdioNotifs == wantNotifs && httpAll == wantNotifs && httpReplay1 == httpStream1 && cursorOK
+	let ok = capOK && reqParity && resOK && eventParity
+	always ok
+	sometimes kinds.Len() > 0 && ok
+	sometimes kinds.Len() == 0 && ok
+	ok
 }

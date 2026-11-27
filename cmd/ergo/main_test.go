@@ -238,7 +238,6 @@ func TestDiagnosticsCLIProcessFormatsTextJSONAndUsage(t *testing.T) {
 		{[]string{"diagnostics", path, "--target", "llvm"}, "EF110: unsupported target llvm; the only target is go"},
 		{[]string{"diagnostics", path, "--target"}, "--target requires a value"},
 		{[]string{"diagnostics", path, clean}, "incorrect arguments for diagnostics"},
-		{[]string{"diagnostics", "--json"}, "source file required"},
 		{[]string{"diagnostics", filepath.Join(root, "main.go")}, "source file must have .ergo extension"},
 		{[]string{"diagnostics", path, "-o", "out"}, "-o is only supported by build"},
 	} {
@@ -267,8 +266,7 @@ func TestFileCommandsRefuseOptionsTheyDoNotTake(t *testing.T) {
 		args []string
 		want string
 	}{
-		{[]string{"check", path, "--json"}, "--json is only supported by diagnostics"},
-		{[]string{"build", path, "--strict"}, "--strict is only supported by diagnostics, lint and check"},
+		{[]string{"build", path, "--strict"}, "--strict is only supported by check, lint, diagnostics and test --mutants --derived"},
 		{[]string{"check", path, "--target", "js"}, "EF110: unsupported target js; the only target is go"},
 		{[]string{"run", "-o", "out", path}, "-o is only supported by build"},
 		{[]string{"build", path, "--receipt", "receipt.json"}, "--receipt is only supported by test"},
@@ -276,7 +274,6 @@ func TestFileCommandsRefuseOptionsTheyDoNotTake(t *testing.T) {
 		{[]string{"build", path, "--platform", "windows/amd64"}, "EF110: unsupported target go on windows/amd64; the platforms are darwin/amd64, darwin/arm64, linux/amd64, linux/arm64, ios/arm64, android/arm64, android/amd64"},
 		{[]string{"build", path, "--platform", "linux"}, `--platform takes OS/ARCH, such as linux/arm64, not "linux"`},
 		{[]string{"run", "--platform", "linux/arm64", path}, "--platform is only supported by build"},
-		{[]string{"check"}, "source file required"},
 		{[]string{"build", path, path}, "incorrect arguments for build"},
 		{[]string{"check", filepath.Join(root, "main.txt")}, "source file must have .ergo extension"},
 		{[]string{"build", path, "-o", root + string(filepath.Separator)}, "names a directory"},

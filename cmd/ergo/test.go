@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -107,7 +108,7 @@ func testCommand(args []string) error {
 		// line each, from one process (emittedjson.go, gate-speed GS31b).
 		return printEmittedJSON(opts)
 	}
-	if opts.sharding.active() {
+	if opts.sharding.active() || (!opts.trace && !opts.emitted && len(opts.more) > 0) {
 		return shardedTestCommand(opts, os.Stdout, os.Stderr)
 	}
 	if len(opts.more) > 0 {
@@ -147,7 +148,7 @@ func traceFlag(args []string) ([]string, bool) {
 // takesValue reports whether option a reads the next word as its value.
 func takesValue(a string) bool {
 	switch a {
-	case "--target", "-o", "--seed", "--states", "--receipt", "--law", "--skip-law", "--platform", "--eval-steps", "--eval-bytes", "--run", "--preempt", "--depth", "--schedules", "--schedule", "--count", "-j", "--jobs", "--shard", "--timings":
+	case "--target", "-o", "--seed", "--states", "--receipt", "--law", "--skip-law", "--run", "--filter", "-k", "--skip", "--platform", "--eval-steps", "--eval-bytes", "--preempt", "--depth", "--schedules", "--schedule", "--count", "-j", "--jobs", "--shard", "--timings":
 		return true
 	}
 	return false
@@ -200,11 +201,26 @@ func testLoadedPackageIO(opts fileOptions, l loaded, outW, errW io.Writer, keep 
 	if opts.pruneCases {
 		return pruneCasesForLoaded(opts, l, outW, errW)
 	}
+	selected, runPkg, matched, err := resolveTestSelection(opts, l)
+	if err != nil {
+		return invalidInvocation(err)
+	}
+	if selected.filter != "" && !matched {
+		return fmt.Errorf("no test or law matches --filter %q in %s", selected.filter, selected.file)
+	}
+	if !runPkg {
+		err := emptyTestRun(selected, l.result.Revision, outW, errW)
+		if err == nil {
+			keep(nil)
+		}
+		return err
+	}
+	opts = selected
 	// A package with nothing to test is neither built nor run, so its
 	// initializers never run (empty.go); a schedule search still builds it.
 	if opts.search.mode == "" && nothingToTest(l.analysis.Root().Package) {
 		err := emptyTestRun(opts, l.result.Revision, outW, errW)
-		if err == nil && opts.law == "" && opts.skipLaw == "" && opts.run == "" && !opts.explore {
+		if err == nil && opts.law == "" && opts.skipLaw == "" && opts.run == "" && opts.filter == "" && opts.skip == "" && opts.selectNames == "" && !opts.explore {
 			err = writeLedgerIO(opts, l, outW, errW)
 		}
 		if err == nil {
@@ -458,7 +474,7 @@ func runTestBinaryIO(opts fileOptions, l loaded, tc build.Toolchain, binary stri
 	if err != nil {
 		return err
 	}
-	if opts.law != "" || opts.skipLaw != "" || opts.run != "" || opts.explore {
+	if opts.law != "" || opts.skipLaw != "" || opts.run != "" || opts.filter != "" || opts.skip != "" || opts.selectNames != "" || opts.explore {
 		// A partial run checks only some laws: it leaves the ledger.
 		if store != nil {
 			store(result)
@@ -613,7 +629,73 @@ func testChildArgs(opts fileOptions, revision string) ([]string, error) {
 		// $Want), plain or explored: one name, one reading of it.
 		childArgs = append(childArgs, "--run", opts.run)
 	}
+	if opts.selectNames != "" {
+		childArgs = append(childArgs, "--select", opts.selectNames)
+	}
 	return childArgs, nil
+}
+
+type selectItem struct {
+	title string
+	full  string
+	isLaw bool
+}
+
+// resolveTestSelection translates --filter/-k and --skip into test binary flags.
+func resolveTestSelection(opts fileOptions, l loaded) (selected fileOptions, runPkg bool, matched bool, err error) {
+	selected = opts
+	if opts.filter == "" && opts.skip == "" {
+		return selected, true, true, nil
+	}
+	var filterRe, skipRe *regexp.Regexp
+	if opts.filter != "" {
+		if filterRe, err = regexp.Compile(opts.filter); err != nil {
+			return opts, false, false, err
+		}
+	}
+	if opts.skip != "" {
+		if skipRe, err = regexp.Compile(opts.skip); err != nil {
+			return opts, false, false, err
+		}
+	}
+	pkg := l.analysis.Root().Package
+	var all []selectItem
+	for _, t := range pkg.Tests {
+		all = append(all, selectItem{title: t.Name, full: "test " + t.Name})
+	}
+	for _, r := range pkg.LawRuns {
+		title := r.Law.Title(pkg)
+		all = append(all, selectItem{title: title, full: "law " + title, isLaw: true})
+	}
+	var kept, skipped []selectItem
+	for _, it := range all {
+		in := filterRe == nil || it.title == opts.filter || filterRe.MatchString(it.title) || filterRe.MatchString(it.full)
+		out := skipRe != nil && (it.title == opts.skip || skipRe.MatchString(it.title) || skipRe.MatchString(it.full))
+		if in && !out {
+			kept = append(kept, it)
+		} else if in && out {
+			skipped = append(skipped, it)
+		}
+	}
+	if len(kept) == 0 {
+		return selected, false, opts.filter == "", nil
+	}
+	if opts.filter != "" && len(kept) == 1 && opts.law == "" && opts.run == "" {
+		selected.run = kept[0].title
+		return selected, true, true, nil
+	}
+	if opts.filter == "" && opts.skip != "" && len(skipped) == 1 && skipped[0].isLaw && opts.skipLaw == "" {
+		selected.skipLaw = skipped[0].title
+		return selected, true, true, nil
+	}
+	if len(kept) < len(all) {
+		names := make([]string, len(kept))
+		for i, it := range kept {
+			names[i] = it.title
+		}
+		selected.selectNames = strings.Join(names, ",")
+	}
+	return selected, true, true, nil
 }
 
 // lawStore is the store of law verdicts under the emission cache's root

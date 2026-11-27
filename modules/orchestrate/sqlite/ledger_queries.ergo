@@ -232,16 +232,24 @@ func queryLandingsTx(filter orchestrate.LandingFilter) orchestrate.LandingPage f
 	orchestrate.LandingPage{Items: items, Total: total, Limit: filter.Limit, Offset: filter.Offset, HasMore: hasMore}
 }
 
+func appendEventLogConds(
+	conds []string,
+	args []sql.Value,
+	repo option.Option[string],
+	run option.Option[string],
+	kind option.Option[string],
+	unitID option.Option[string],
+	actor option.Option[string],
+) ([]string, []sql.Value) {
+	let (c1, a1) = appendCond(conds, args, repo, "repo = ?")
+	let (c2, a2) = appendCond(c1, a1, run, "run = ?")
+	let (c3, a3) = appendCond(c2, a2, kind, "kind = ?")
+	let (c4, a4) = appendCond(c3, a3, unitID, "unit_id = ?")
+	appendCond(c4, a4, actor, "actor = ?")
+}
+
 func queryEventLogTx(filter orchestrate.EventLogFilter) orchestrate.EventPage fails orchestrate.StoreFailed needs sql.Tx {
-	let mut conds = []string{}
-	let mut args = []sql.Value{}
-	let (c1, a1) = appendCond(conds, args, filter.Repo, "repo = ?")
-	let (c2, a2) = appendCond(c1, a1, filter.Run, "run = ?")
-	let (c3, a3) = appendCond(c2, a2, filter.Kind, "kind = ?")
-	let (c4, a4) = appendCond(c3, a3, filter.UnitID, "unit_id = ?")
-	let (c5, a5) = appendCond(c4, a4, filter.Actor, "actor = ?")
-	conds = c5
-	args = a5
+	let (conds, args) = appendEventLogConds([]string{}, []sql.Value{}, filter.Repo, filter.Run, filter.Kind, filter.UnitID, filter.Actor)
 	let where = buildWhere(conds)
 	let total = try queryCountTx("SELECT COUNT(*) FROM event_log"+where, args)
 	if filter.Limit <= 0 || filter.Offset < 0 || filter.Offset >= total {
@@ -260,6 +268,35 @@ func queryEventLogTx(filter orchestrate.EventLogFilter) orchestrate.EventPage fa
 	}
 	let hasMore = (filter.Offset + items.Len()) < total
 	orchestrate.EventPage{Items: items, Total: total, Limit: filter.Limit, Offset: filter.Offset, HasMore: hasMore}
+}
+
+func queryEventLogSinceTx(filter orchestrate.EventLogSinceFilter) orchestrate.EventPage fails orchestrate.StoreFailed needs sql.Tx {
+	let (conds, args) = appendEventLogConds(
+		[]string{"id > ?"},
+		[]sql.Value{sql.Int{N: int64(filter.SinceID)}},
+		filter.Repo,
+		filter.Run,
+		filter.Kind,
+		filter.UnitID,
+		filter.Actor,
+	)
+	let where = buildWhere(conds)
+	let total = try queryCountTx("SELECT COUNT(*) FROM event_log"+where, args)
+	if filter.Limit <= 0 || total == 0 {
+		return orchestrate.EventPage{Items: []orchestrate.LedgerEvent{}, Total: total, Limit: filter.Limit, Offset: 0, HasMore: false}
+	}
+	let queryArgs = args.Append(sql.Int{N: int64(filter.Limit)})
+	let rows = try queryTx(
+			"SELECT id, repo, run, kind, unit_id, summary, actor, created_at, source_key FROM event_log"+
+			where+" ORDER BY id ASC LIMIT ?",
+		queryArgs,
+	)
+	let mut items = []orchestrate.LedgerEvent{}
+	for row in rows {
+		items = items.Append(try scanLedgerEvent(row))
+	}
+	let hasMore = items.Len() < total
+	orchestrate.EventPage{Items: items, Total: total, Limit: filter.Limit, Offset: 0, HasMore: hasMore}
 }
 
 func scanRunMeta(row sql.Row) orchestrate.RunMeta fails orchestrate.StoreFailed {

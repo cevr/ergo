@@ -30,7 +30,7 @@ const (
 	CodeDuplicateCap = "S111" // two entries for one capability in a context
 	CodeEntry        = "S113" // the entry function and test functions
 	CodeAuthority    = "S114" // a record built outside the package that has its construction authority
-	CodeLawPlace     = "S115" // a top-level law outside the files of its subjects
+	CodeLawPlace     = "S115" // a top-level law or test outside the files of its subjects
 )
 
 // Codes is the S code table: every code the parser or the checker emits.
@@ -50,7 +50,7 @@ var Codes = []Code{
 	{"S112", "resource map key", "implemented", "s112-resource-map-key"},
 	{CodeEntry, "entry and test functions", "implemented", "s113-entry-and-test-functions"},
 	{CodeAuthority, "construction authority", "implemented", "s114-construction-authority"},
-	{CodeLawPlace, "law placement", "implemented", "s115-law-placement"},
+	{CodeLawPlace, "law and test placement", "implemented", "s115-law-and-test-placement"},
 }
 
 // Registered reports whether code is in the table.

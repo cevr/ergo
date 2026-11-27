@@ -1,0 +1,1305 @@
+import option
+import sha256
+import slices
+import strings
+
+type byteWriter { buf []byte }
+
+type byteReader { data []byte, pos int }
+
+func newByteWriter(capN int) byteWriter {
+	byteWriter{buf: slices.WithCapacity[byte](capN)}
+}
+
+func writeU8(w mut byteWriter, v uint8) {
+	w.buf = w.buf.Append(byte(v))
+}
+
+func writeBool(w mut byteWriter, v bool) {
+	writeU8(w, if v { uint8(1) } else { uint8(0) })
+}
+
+func writeU32(w mut byteWriter, v uint32) {
+	w.buf = w.buf.Append(byte(v & uint32(255)))
+	w.buf = w.buf.Append(byte((v >> uint32(8)) & uint32(255)))
+	w.buf = w.buf.Append(byte((v >> uint32(16)) & uint32(255)))
+	w.buf = w.buf.Append(byte((v >> uint32(24)) & uint32(255)))
+}
+
+func writeU64(w mut byteWriter, v uint64) {
+	w.buf = appendU64LE(w.buf, v)
+}
+
+func writeDigest(w mut byteWriter, d Digest) {
+	writeU64(w, d.W0)
+	writeU64(w, d.W1)
+	writeU64(w, d.W2)
+	writeU64(w, d.W3)
+}
+
+func writeRawBytes(w mut byteWriter, bs []byte) {
+	writeU32(w, uint32(bs.Len()))
+	w.buf = w.buf.AppendBytes(bs)
+}
+
+func writeU8Slice(w mut byteWriter, xs []uint8) {
+	writeU32(w, uint32(xs.Len()))
+	for i in 0..xs.Len() {
+		writeU8(w, xs[i])
+	}
+}
+
+func writeBoolSlice(w mut byteWriter, xs []bool) {
+	writeU32(w, uint32(xs.Len()))
+	for i in 0..xs.Len() {
+		writeBool(w, xs[i])
+	}
+}
+
+func writeU32Slice(w mut byteWriter, xs []uint32) {
+	writeU32(w, uint32(xs.Len()))
+	for i in 0..xs.Len() {
+		writeU32(w, xs[i])
+	}
+}
+
+func writeU64Slice(w mut byteWriter, xs []uint64) {
+	writeU32(w, uint32(xs.Len()))
+	for i in 0..xs.Len() {
+		writeU64(w, xs[i])
+	}
+}
+
+func writeDigestSlice(w mut byteWriter, xs []Digest) {
+	writeU32(w, uint32(xs.Len()))
+	for i in 0..xs.Len() {
+		writeDigest(w, xs[i])
+	}
+}
+
+func writeSymPool(w mut byteWriter, p SymPool) {
+	writeRawBytes(w, p.Bytes)
+	writeU32Slice(w, p.Offs)
+}
+
+func writeTypePool(w mut byteWriter, tp TypePool) {
+	writeU8Slice(w, tp.Kind)
+	writeU32Slice(w, tp.A)
+	writeU32Slice(w, tp.B)
+	writeU32Slice(w, tp.Extra)
+}
+
+func writeTokenPool(w mut byteWriter, tk TokenPool) {
+	writeU8Slice(w, tk.Kinds)
+	writeU32Slice(w, tk.Texts)
+}
+
+func encodeCheckFuncs(w mut byteWriter, c CheckSection) {
+	writeU32Slice(w, c.FnNames)
+	writeU32Slice(w, c.FnFlags)
+	writeU32Slice(w, c.FnTParamStarts)
+	writeU32Slice(w, c.FnParamStarts)
+	writeU32Slice(w, c.FnResults)
+	writeU32Slice(w, c.FnFailStarts)
+	writeU32Slice(w, c.FnNeedStarts)
+	writeU32Slice(w, c.FnDefectStarts)
+	writeU32Slice(w, c.FnRefineStarts)
+	writeU32Slice(w, c.FnSelfBoundStarts)
+	writeU32Slice(w, c.FnSelfArity)
+	writeU32Slice(w, c.FnSelfRole)
+	writeU32Slice(w, c.FnFactStarts)
+	writeU32Slice(w, c.FnBodyTokStarts)
+	writeU32Slice(w, c.FnBodyTokEnds)
+	writeU32Slice(w, c.FnTPNames)
+	writeU32Slice(w, c.FnTPCons)
+	writeU32Slice(w, c.FnTPConsText)
+	writeU32Slice(w, c.FnTPFlags)
+	writeU32Slice(w, c.FnParamNames)
+	writeU32Slice(w, c.FnParamTypes)
+	writeU8Slice(w, c.FnParamModes)
+	writeU32Slice(w, c.FnFailTypes)
+	writeU32Slice(w, c.FnNeedTypes)
+	writeU32Slice(w, c.FnDefectTypes)
+	writeU32Slice(w, c.FnRefParamIdx)
+	writeU32Slice(w, c.FnRefIdx)
+	writeU32Slice(w, c.FnSelfBoundOps)
+	writeU32Slice(w, c.FnSelfBoundArity)
+	writeU8Slice(w, c.FnFactKinds)
+	writeU32Slice(w, c.FnFactCondStarts)
+	writeU32Slice(w, c.FnFactCondEnds)
+	writeU32Slice(w, c.FnFactWhenStarts)
+	writeU32Slice(w, c.FnFactWhenEnds)
+}
+
+func encodeCheckTypes(w mut byteWriter, c CheckSection) {
+	writeU32Slice(w, c.TyNames)
+	writeU8Slice(w, c.TySubkinds)
+	writeU32Slice(w, c.TyFlags)
+	writeU32Slice(w, c.TyTParamStarts)
+	writeU32Slice(w, c.TyUnderlyings)
+	writeU32Slice(w, c.TyExternPaths)
+	writeU32Slice(w, c.TyRefineIdx)
+	writeU32Slice(w, c.TyFieldStarts)
+	writeU32Slice(w, c.TyVarStarts)
+	writeU32Slice(w, c.TyRoleIdx)
+	writeU32Slice(w, c.TyClaimStarts)
+	writeU32Slice(w, c.TyMachineStart)
+	writeU32Slice(w, c.TyTPNames)
+	writeU32Slice(w, c.TyTPCons)
+	writeU32Slice(w, c.TyTPFlags)
+	writeU32Slice(w, c.FieldNames)
+	writeU32Slice(w, c.FieldTypes)
+	writeU32Slice(w, c.FieldFlags)
+	writeU32Slice(w, c.UnionVarNames)
+	writeU32Slice(w, c.UnionVarTypes)
+	writeU32Slice(w, c.UnionVarFieldStarts)
+	writeU32Slice(w, c.UnionVarFieldEnds)
+	writeU32Slice(w, c.UnionVarFieldNames)
+	writeU32Slice(w, c.UnionVarFieldTypes)
+	writeU32Slice(w, c.UnionVarFieldFlags)
+	writeU8Slice(w, c.RoleSelfSites)
+	writeU32Slice(w, c.RoleHarness)
+	writeU32Slice(w, c.RoleIncludeStarts)
+	writeU32Slice(w, c.RoleMemberStarts)
+	writeU32Slice(w, c.RoleLawStarts)
+	writeU32Slice(w, c.RoleIncludes)
+	writeU32Slice(w, c.RoleMemNames)
+	writeU32Slice(w, c.RoleMemFlags)
+	writeU32Slice(w, c.RoleMemSigs)
+	writeU32Slice(w, c.RoleMemOwnStarts)
+	writeU32Slice(w, c.RoleMemPosStarts)
+	writeU32Slice(w, c.RoleMemOwnNames)
+	writeU32Slice(w, c.RoleMemOwnCons)
+	writeU32Slice(w, c.RoleMemPositions)
+	writeU32Slice(w, c.RoleLawNames)
+	writeU32Slice(w, c.RoleLawTokStarts)
+	writeU32Slice(w, c.RoleLawTokEnds)
+	writeU32Slice(w, c.ClaimRoleImp)
+	writeU32Slice(w, c.ClaimRoleName)
+	writeU32Slice(w, c.ClaimArgStarts)
+	writeU32Slice(w, c.ClaimLayStarts)
+	writeU32Slice(w, c.ClaimArgs)
+	writeU32Slice(w, c.ClaimLayoutSlots)
+	writeU8Slice(w, c.MachKinds)
+	writeU32Slice(w, c.MachNames)
+	writeU32Slice(w, c.MachStarts)
+	writeU32Slice(w, c.MachEnds)
+}
+
+func encodeCheckExtras(w mut byteWriter, c CheckSection) {
+	writeBoolSlice(w, c.RefIsLen)
+	writeU32Slice(w, c.RefParseNames)
+	writeU32Slice(w, c.RefSpanStarts)
+	writeU8Slice(w, c.SpanLoKind)
+	writeU8Slice(w, c.SpanLoNeg)
+	writeU64Slice(w, c.SpanLoMag)
+	writeU8Slice(w, c.SpanHiKind)
+	writeU8Slice(w, c.SpanHiNeg)
+	writeU64Slice(w, c.SpanHiMag)
+	writeU32Slice(w, c.TopVarNames)
+	writeU32Slice(w, c.TopVarTypes)
+	writeU32Slice(w, c.TopVarFlags)
+	writeU32Slice(w, c.ConstNames)
+	writeU32Slice(w, c.ConstTypes)
+	writeU32Slice(w, c.ConstValues)
+	writeU32Slice(w, c.ConstTokStarts)
+	writeU32Slice(w, c.ConstTokEnds)
+	writeU32Slice(w, c.CtxNames)
+	writeU32Slice(w, c.CtxProvides)
+	writeU32Slice(w, c.CtxFailStarts)
+	writeU32Slice(w, c.CtxNeedStarts)
+	writeU32Slice(w, c.CtxFailTypes)
+	writeU32Slice(w, c.CtxNeedTypes)
+	writeU32Slice(w, c.LawNames)
+	writeU32Slice(w, c.LawTParamStart)
+	writeU32Slice(w, c.LawParamStart)
+	writeU32Slice(w, c.LawFlags)
+	writeU32Slice(w, c.LawTokStarts)
+	writeU32Slice(w, c.LawTokEnds)
+	writeU32Slice(w, c.LawTPNames)
+	writeU32Slice(w, c.LawTPCons)
+	writeU32Slice(w, c.LawParamNames)
+	writeU32Slice(w, c.LawParamTypes)
+	writeU32Slice(w, c.ParseTypeNames)
+	writeU32Slice(w, c.ParseFnNames)
+	writeU32Slice(w, c.ParseSigs)
+	writeU32Slice(w, c.FClaimRoleImp)
+	writeU32Slice(w, c.FClaimRoleName)
+	writeU32Slice(w, c.FClaimReceiver)
+	writeU32Slice(w, c.FClaimBindStart)
+	writeU32Slice(w, c.FClaimPosStart)
+	writeU32Slice(w, c.FClaimMemStart)
+	writeU32Slice(w, c.FClaimBinds)
+	writeU32Slice(w, c.FClaimPositions)
+	writeU32Slice(w, c.FClaimMemNames)
+	writeU32Slice(w, c.FClaimMemTypes)
+}
+
+// EncodeCheckBytes serializes the canonical check header and CheckSection into deterministic bytes.
+func EncodeCheckBytes(s Summary) []byte {
+	let mut w = newByteWriter(1024)
+	w.buf = w.buf.AppendString("ERGC")
+	writeU32(&w, FormatVersion)
+	writeU32(&w, s.Header.Flags)
+	writeU32(&w, s.Header.PkgPath)
+	writeU32(&w, s.Header.PkgName)
+	writeU32Slice(&w, s.Check.ImportPaths)
+	writeDigestSlice(&w, s.Check.ImportCheck)
+	writeSymPool(&w, s.Check.Syms)
+	writeTypePool(&w, s.Check.Types)
+	writeTokenPool(&w, s.Check.Tokens)
+	writeU8Slice(&w, s.Check.DeclKinds)
+	writeU32Slice(&w, s.Check.DeclNames)
+	writeU32Slice(&w, s.Check.DeclSubs)
+	writeU32Slice(&w, s.Check.DeclDirectives)
+	encodeCheckFuncs(&w, s.Check)
+	encodeCheckTypes(&w, s.Check)
+	encodeCheckExtras(&w, s.Check)
+	w.buf
+}
+
+// EncodeLowerBytes serializes the canonical LowerSection into deterministic bytes.
+func EncodeLowerBytes(s Summary) []byte {
+	let mut w = newByteWriter(512)
+	w.buf = w.buf.AppendString("ERGL")
+	writeU32(&w, FormatVersion)
+	let pkgPath = PackagePath(s)
+	let pathBytes = strings.Bytes(pkgPath)
+	writeRawBytes(&w, pathBytes)
+	writeU32Slice(&w, s.Lower.ImportPaths)
+	writeDigestSlice(&w, s.Lower.ImportLower)
+	writeSymPool(&w, s.Lower.Syms)
+	writeTypePool(&w, s.Lower.Types)
+	writeTokenPool(&w, s.Lower.Tokens)
+	writeU32Slice(&w, s.Lower.FnNames)
+	writeU32Slice(&w, s.Lower.FnFlags)
+	writeU32Slice(&w, s.Lower.FnInlineCost)
+	writeU32Slice(&w, s.Lower.FnCapStarts)
+	writeU32Slice(&w, s.Lower.FnAbiStarts)
+	writeU32Slice(&w, s.Lower.FnTokStarts)
+	writeU32Slice(&w, s.Lower.FnTokEnds)
+	writeU32Slice(&w, s.Lower.FnCaps)
+	writeU8Slice(&w, s.Lower.FnParamAbis)
+	writeU32Slice(&w, s.Lower.TyNames)
+	writeU8Slice(&w, s.Lower.TyValueAbi)
+	writeU32Slice(&w, s.Lower.TyRuntimeGo)
+	writeU32Slice(&w, s.Lower.TyPhysFieldStarts)
+	writeU32Slice(&w, s.Lower.PhysFieldNames)
+	writeU32Slice(&w, s.Lower.PhysFieldTypes)
+	writeU32Slice(&w, s.Lower.PhysFieldFlags)
+	w.buf
+}
+
+func digestOfBytes(bs []byte) Digest {
+	let sum = sha256.Sum(bs.Text())
+	match DigestFromRaw(sum) {
+	case option.Some{Value: d}:
+		d
+	case option.None:
+		ZeroDigest()
+	}
+}
+
+// ComputeCheckDigest returns the SHA-256 checksum over s's canonical check bytes.
+func ComputeCheckDigest(s Summary) Digest {
+	digestOfBytes(EncodeCheckBytes(s))
+}
+
+// ComputeLowerDigest returns the SHA-256 checksum over s's canonical lower bytes.
+func ComputeLowerDigest(s Summary) Digest {
+	digestOfBytes(EncodeLowerBytes(s))
+}
+
+// RefreshDigests recomputes both CheckDigest and LowerDigest in s.Header from its sections.
+func RefreshDigests(s mut Summary) {
+	s.Header.Version = FormatVersion
+	s.Header.CheckDigest = ComputeCheckDigest(*s)
+	s.Header.LowerDigest = ComputeLowerDigest(*s)
+}
+
+// Encode serializes s with canonical header digests and check/lower section envelopes.
+func Encode(s Summary) []byte {
+	let checkBytes = EncodeCheckBytes(s)
+	let lowerBytes = EncodeLowerBytes(s)
+	let checkD = digestOfBytes(checkBytes)
+	let lowerD = digestOfBytes(lowerBytes)
+	let mut w = newByteWriter(80 + checkBytes.Len() + lowerBytes.Len())
+	w.buf = w.buf.AppendString("ERGS")
+	writeU32(&w, FormatVersion)
+	writeDigest(&w, checkD)
+	writeDigest(&w, lowerD)
+	writeRawBytes(&w, checkBytes)
+	writeRawBytes(&w, lowerBytes)
+	w.buf
+}
+
+func readU8(r mut byteReader) uint8 fails Malformed {
+	if r.pos >= r.data.Len() {
+		return Truncated
+	}
+	let v = uint8(r.data[r.pos])
+	r.pos = r.pos + 1
+	v
+}
+
+func readBool(r mut byteReader) bool fails Malformed {
+	try readU8(r) != uint8(0)
+}
+
+func readU32(r mut byteReader) uint32 fails Malformed {
+	if r.pos+4 > r.data.Len() {
+		return Truncated
+	}
+	let at = r.pos
+	r.pos = at + 4
+	let b0 = uint32(r.data[at])
+	let b1 = uint32(r.data[at+1]) << uint32(8)
+	let b2 = uint32(r.data[at+2]) << uint32(16)
+	let b3 = uint32(r.data[at+3]) << uint32(24)
+	b0 | b1 | b2 | b3
+}
+
+func readU64(r mut byteReader) uint64 fails Malformed {
+	if r.pos+8 > r.data.Len() {
+		return Truncated
+	}
+	let at = r.pos
+	r.pos = at + 8
+	readU64LE(r.data, at)
+}
+
+func readDigest(r mut byteReader) Digest fails Malformed {
+	let w0 = try readU64(r)
+	let w1 = try readU64(r)
+	let w2 = try readU64(r)
+	let w3 = try readU64(r)
+	Digest{W0: w0, W1: w1, W2: w2, W3: w3}
+}
+
+func readRawBytes(r mut byteReader) []byte fails Malformed {
+	let n = int(try readU32(r))
+	if r.pos+n > r.data.Len() {
+		return Truncated
+	}
+	let out = r.data.Slice(r.pos, r.pos+n)
+	r.pos = r.pos + n
+	out
+}
+
+func readU8Slice(r mut byteReader) []uint8 fails Malformed {
+	let n = int(try readU32(r))
+	if r.pos+n > r.data.Len() {
+		return Truncated
+	}
+	let mut out = slices.WithCapacity[uint8](n)
+	for i in 0..n {
+		let _ = i
+		out = out.Append(try readU8(r))
+	}
+	out
+}
+
+func readBoolSlice(r mut byteReader) []bool fails Malformed {
+	let n = int(try readU32(r))
+	if r.pos+n > r.data.Len() {
+		return Truncated
+	}
+	let mut out = slices.WithCapacity[bool](n)
+	for i in 0..n {
+		let _ = i
+		out = out.Append(try readBool(r))
+	}
+	out
+}
+
+func readU32Slice(r mut byteReader) []uint32 fails Malformed {
+	let n = int(try readU32(r))
+	if n > (r.data.Len()-r.pos)/4 {
+		return Truncated
+	}
+	let mut out = slices.WithCapacity[uint32](n)
+	for i in 0..n {
+		let _ = i
+		out = out.Append(try readU32(r))
+	}
+	out
+}
+
+func readU64Slice(r mut byteReader) []uint64 fails Malformed {
+	let n = int(try readU32(r))
+	if n > (r.data.Len()-r.pos)/8 {
+		return Truncated
+	}
+	let mut out = slices.WithCapacity[uint64](n)
+	for i in 0..n {
+		let _ = i
+		out = out.Append(try readU64(r))
+	}
+	out
+}
+
+func readDigestSlice(r mut byteReader) []Digest fails Malformed {
+	let n = int(try readU32(r))
+	if n > (r.data.Len()-r.pos)/32 {
+		return Truncated
+	}
+	let mut out = slices.WithCapacity[Digest](n)
+	for i in 0..n {
+		let _ = i
+		out = out.Append(try readDigest(r))
+	}
+	out
+}
+
+func nextBucketCap(need int) int {
+	let mut c = 16
+	for c < need*2 {
+		c = c * 2
+	}
+	c
+}
+
+func readSymPool(r mut byteReader, sec string) SymPool fails Malformed {
+	let bs = try readRawBytes(r)
+	let offs = try readU32Slice(r)
+	if offs.Len() == 0 || offs[0] != uint32(0) {
+		return OutOfBounds{Section: sec}
+	}
+	for i in 1..offs.Len() {
+		if offs[i] < offs[i-1] || int(offs[i]) > bs.Len() {
+			return OutOfBounds{Section: sec}
+		}
+	}
+	if int(offs[offs.Len()-1]) != bs.Len() {
+		return OutOfBounds{Section: sec}
+	}
+	let mut pool = SymPool{Bytes: bs, Offs: offs, Buckets: []uint32{}}
+	rehashSymPool(&pool, nextBucketCap(offs.Len()))
+	pool
+}
+
+func readTypePool(r mut byteReader, sec string) TypePool fails Malformed {
+	let ks = try readU8Slice(r)
+	let colA = try readU32Slice(r)
+	let colB = try readU32Slice(r)
+	let ex = try readU32Slice(r)
+	let n = ks.Len()
+	if colA.Len() != n || colB.Len() != n {
+		return OutOfBounds{Section: sec}
+	}
+	for i in 0..n {
+		if typeSpanKindsExtra(ks[i]) {
+			if int(colA[i])+int(colB[i]) > ex.Len() {
+				return OutOfBounds{Section: sec}
+			}
+		}
+	}
+	let mut tp = TypePool{Kind: ks, A: colA, B: colB, Extra: ex, Buckets: []uint32{}}
+	rehashTypePool(&tp, nextBucketCap(n+1))
+	tp
+}
+
+func readTokenPool(r mut byteReader, symCount int, sec string) TokenPool fails Malformed {
+	let ks = try readU8Slice(r)
+	let ts = try readU32Slice(r)
+	if ks.Len() != ts.Len() {
+		return OutOfBounds{Section: sec}
+	}
+	for i in 0..ts.Len() {
+		if ts[i] != NoIdx && int(ts[i]) >= symCount {
+			return OutOfBounds{Section: sec}
+		}
+	}
+	TokenPool{Kinds: ks, Texts: ts}
+}
+
+func checkStarts(starts []uint32, expectedRows int, childLen int, sec string) fails Malformed {
+	if starts.Len() != expectedRows+1 || starts[0] != uint32(0) {
+		return OutOfBounds{Section: sec}
+	}
+	for i in 1..starts.Len() {
+		if starts[i] < starts[i-1] {
+			return OutOfBounds{Section: sec}
+		}
+	}
+	if int(starts[expectedRows]) != childLen {
+		return OutOfBounds{Section: sec}
+	}
+}
+
+func checkSpanPairs(starts []uint32, ends []uint32, limit int, sec string) fails Malformed {
+	if starts.Len() != ends.Len() {
+		return OutOfBounds{Section: sec}
+	}
+	for i in 0..starts.Len() {
+		if ends[i] < starts[i] || int(ends[i]) > limit {
+			return OutOfBounds{Section: sec}
+		}
+	}
+}
+
+func checkSymsInRange(ids []uint32, limit int, allowMissing bool, sec string) fails Malformed {
+	for i in 0..ids.Len() {
+		if allowMissing && ids[i] == NoIdx {
+			continue
+		}
+		if int(ids[i]) >= limit {
+			return OutOfBounds{Section: sec}
+		}
+	}
+}
+
+func checkTypesInRange(ids []uint32, limit int, allowMissing bool, sec string) fails Malformed {
+	for i in 0..ids.Len() {
+		if allowMissing && ids[i] == NoIdx {
+			continue
+		}
+		if int(ids[i]) >= limit {
+			return OutOfBounds{Section: sec}
+		}
+	}
+}
+
+func decodeCheckFuncs(r mut byteReader, c mut CheckSection) fails Malformed {
+	c.FnNames = try readU32Slice(r)
+	c.FnFlags = try readU32Slice(r)
+	c.FnTParamStarts = try readU32Slice(r)
+	c.FnParamStarts = try readU32Slice(r)
+	c.FnResults = try readU32Slice(r)
+	c.FnFailStarts = try readU32Slice(r)
+	c.FnNeedStarts = try readU32Slice(r)
+	c.FnDefectStarts = try readU32Slice(r)
+	c.FnRefineStarts = try readU32Slice(r)
+	c.FnSelfBoundStarts = try readU32Slice(r)
+	c.FnSelfArity = try readU32Slice(r)
+	c.FnSelfRole = try readU32Slice(r)
+	c.FnFactStarts = try readU32Slice(r)
+	c.FnBodyTokStarts = try readU32Slice(r)
+	c.FnBodyTokEnds = try readU32Slice(r)
+	c.FnTPNames = try readU32Slice(r)
+	c.FnTPCons = try readU32Slice(r)
+	c.FnTPConsText = try readU32Slice(r)
+	c.FnTPFlags = try readU32Slice(r)
+	c.FnParamNames = try readU32Slice(r)
+	c.FnParamTypes = try readU32Slice(r)
+	c.FnParamModes = try readU8Slice(r)
+	c.FnFailTypes = try readU32Slice(r)
+	c.FnNeedTypes = try readU32Slice(r)
+	c.FnDefectTypes = try readU32Slice(r)
+	c.FnRefParamIdx = try readU32Slice(r)
+	c.FnRefIdx = try readU32Slice(r)
+	c.FnSelfBoundOps = try readU32Slice(r)
+	c.FnSelfBoundArity = try readU32Slice(r)
+	c.FnFactKinds = try readU8Slice(r)
+	c.FnFactCondStarts = try readU32Slice(r)
+	c.FnFactCondEnds = try readU32Slice(r)
+	c.FnFactWhenStarts = try readU32Slice(r)
+	c.FnFactWhenEnds = try readU32Slice(r)
+}
+
+func decodeCheckTypes(r mut byteReader, c mut CheckSection) fails Malformed {
+	c.TyNames = try readU32Slice(r)
+	c.TySubkinds = try readU8Slice(r)
+	c.TyFlags = try readU32Slice(r)
+	c.TyTParamStarts = try readU32Slice(r)
+	c.TyUnderlyings = try readU32Slice(r)
+	c.TyExternPaths = try readU32Slice(r)
+	c.TyRefineIdx = try readU32Slice(r)
+	c.TyFieldStarts = try readU32Slice(r)
+	c.TyVarStarts = try readU32Slice(r)
+	c.TyRoleIdx = try readU32Slice(r)
+	c.TyClaimStarts = try readU32Slice(r)
+	c.TyMachineStart = try readU32Slice(r)
+	c.TyTPNames = try readU32Slice(r)
+	c.TyTPCons = try readU32Slice(r)
+	c.TyTPFlags = try readU32Slice(r)
+	c.FieldNames = try readU32Slice(r)
+	c.FieldTypes = try readU32Slice(r)
+	c.FieldFlags = try readU32Slice(r)
+	c.UnionVarNames = try readU32Slice(r)
+	c.UnionVarTypes = try readU32Slice(r)
+	c.UnionVarFieldStarts = try readU32Slice(r)
+	c.UnionVarFieldEnds = try readU32Slice(r)
+	c.UnionVarFieldNames = try readU32Slice(r)
+	c.UnionVarFieldTypes = try readU32Slice(r)
+	c.UnionVarFieldFlags = try readU32Slice(r)
+	c.RoleSelfSites = try readU8Slice(r)
+	c.RoleHarness = try readU32Slice(r)
+	c.RoleIncludeStarts = try readU32Slice(r)
+	c.RoleMemberStarts = try readU32Slice(r)
+	c.RoleLawStarts = try readU32Slice(r)
+	c.RoleIncludes = try readU32Slice(r)
+	c.RoleMemNames = try readU32Slice(r)
+	c.RoleMemFlags = try readU32Slice(r)
+	c.RoleMemSigs = try readU32Slice(r)
+	c.RoleMemOwnStarts = try readU32Slice(r)
+	c.RoleMemPosStarts = try readU32Slice(r)
+	c.RoleMemOwnNames = try readU32Slice(r)
+	c.RoleMemOwnCons = try readU32Slice(r)
+	c.RoleMemPositions = try readU32Slice(r)
+	c.RoleLawNames = try readU32Slice(r)
+	c.RoleLawTokStarts = try readU32Slice(r)
+	c.RoleLawTokEnds = try readU32Slice(r)
+	c.ClaimRoleImp = try readU32Slice(r)
+	c.ClaimRoleName = try readU32Slice(r)
+	c.ClaimArgStarts = try readU32Slice(r)
+	c.ClaimLayStarts = try readU32Slice(r)
+	c.ClaimArgs = try readU32Slice(r)
+	c.ClaimLayoutSlots = try readU32Slice(r)
+	c.MachKinds = try readU8Slice(r)
+	c.MachNames = try readU32Slice(r)
+	c.MachStarts = try readU32Slice(r)
+	c.MachEnds = try readU32Slice(r)
+}
+
+func decodeCheckExtras(r mut byteReader, c mut CheckSection) fails Malformed {
+	c.RefIsLen = try readBoolSlice(r)
+	c.RefParseNames = try readU32Slice(r)
+	c.RefSpanStarts = try readU32Slice(r)
+	c.SpanLoKind = try readU8Slice(r)
+	c.SpanLoNeg = try readU8Slice(r)
+	c.SpanLoMag = try readU64Slice(r)
+	c.SpanHiKind = try readU8Slice(r)
+	c.SpanHiNeg = try readU8Slice(r)
+	c.SpanHiMag = try readU64Slice(r)
+	c.TopVarNames = try readU32Slice(r)
+	c.TopVarTypes = try readU32Slice(r)
+	c.TopVarFlags = try readU32Slice(r)
+	c.ConstNames = try readU32Slice(r)
+	c.ConstTypes = try readU32Slice(r)
+	c.ConstValues = try readU32Slice(r)
+	c.ConstTokStarts = try readU32Slice(r)
+	c.ConstTokEnds = try readU32Slice(r)
+	c.CtxNames = try readU32Slice(r)
+	c.CtxProvides = try readU32Slice(r)
+	c.CtxFailStarts = try readU32Slice(r)
+	c.CtxNeedStarts = try readU32Slice(r)
+	c.CtxFailTypes = try readU32Slice(r)
+	c.CtxNeedTypes = try readU32Slice(r)
+	c.LawNames = try readU32Slice(r)
+	c.LawTParamStart = try readU32Slice(r)
+	c.LawParamStart = try readU32Slice(r)
+	c.LawFlags = try readU32Slice(r)
+	c.LawTokStarts = try readU32Slice(r)
+	c.LawTokEnds = try readU32Slice(r)
+	c.LawTPNames = try readU32Slice(r)
+	c.LawTPCons = try readU32Slice(r)
+	c.LawParamNames = try readU32Slice(r)
+	c.LawParamTypes = try readU32Slice(r)
+	c.ParseTypeNames = try readU32Slice(r)
+	c.ParseFnNames = try readU32Slice(r)
+	c.ParseSigs = try readU32Slice(r)
+	c.FClaimRoleImp = try readU32Slice(r)
+	c.FClaimRoleName = try readU32Slice(r)
+	c.FClaimReceiver = try readU32Slice(r)
+	c.FClaimBindStart = try readU32Slice(r)
+	c.FClaimPosStart = try readU32Slice(r)
+	c.FClaimMemStart = try readU32Slice(r)
+	c.FClaimBinds = try readU32Slice(r)
+	c.FClaimPositions = try readU32Slice(r)
+	c.FClaimMemNames = try readU32Slice(r)
+	c.FClaimMemTypes = try readU32Slice(r)
+}
+
+func validateCheckFuncs(c CheckSection, symCount int, typeCount int, tokCount int) fails Malformed {
+	let nFn = c.FnNames.Len()
+	if c.FnFlags.Len() != nFn || c.FnResults.Len() != nFn || c.FnSelfArity.Len() != nFn || c.FnSelfRole.Len() != nFn || c.FnBodyTokStarts.Len() != nFn || c.FnBodyTokEnds.Len() != nFn {
+		return OutOfBounds{Section: "check.funcs"}
+	}
+	try checkSymsInRange(c.FnNames, symCount, false, "check.fnNames")
+	try checkTypesInRange(c.FnResults, typeCount, true, "check.fnResults")
+	try checkTypesInRange(c.FnSelfRole, typeCount, true, "check.fnSelfRole")
+	try checkSpanPairs(c.FnBodyTokStarts, c.FnBodyTokEnds, tokCount, "check.fnBodyToks")
+	if c.FnTPNames.Len() != c.FnTPCons.Len() || c.FnTPNames.Len() != c.FnTPConsText.Len() || c.FnTPNames.Len() != c.FnTPFlags.Len() {
+		return OutOfBounds{Section: "check.fnTParams"}
+	}
+	if c.FnParamNames.Len() != c.FnParamTypes.Len() || c.FnParamNames.Len() != c.FnParamModes.Len() {
+		return OutOfBounds{Section: "check.fnParams"}
+	}
+	if c.FnRefParamIdx.Len() != c.FnRefIdx.Len() || c.FnSelfBoundOps.Len() != c.FnSelfBoundArity.Len() {
+		return OutOfBounds{Section: "check.fnRefs"}
+	}
+	let nFacts = c.FnFactKinds.Len()
+	if c.FnFactCondStarts.Len() != nFacts || c.FnFactCondEnds.Len() != nFacts || c.FnFactWhenStarts.Len() != nFacts || c.FnFactWhenEnds.Len() != nFacts {
+		return OutOfBounds{Section: "check.fnFacts"}
+	}
+	try checkStarts(c.FnTParamStarts, nFn, c.FnTPNames.Len(), "check.fnTParamStarts")
+	try checkStarts(c.FnParamStarts, nFn, c.FnParamNames.Len(), "check.fnParamStarts")
+	try checkStarts(c.FnFailStarts, nFn, c.FnFailTypes.Len(), "check.fnFailStarts")
+	try checkStarts(c.FnNeedStarts, nFn, c.FnNeedTypes.Len(), "check.fnNeedStarts")
+	try checkStarts(c.FnDefectStarts, nFn, c.FnDefectTypes.Len(), "check.fnDefectStarts")
+	try checkStarts(c.FnRefineStarts, nFn, c.FnRefParamIdx.Len(), "check.fnRefineStarts")
+	try checkStarts(c.FnSelfBoundStarts, nFn, c.FnSelfBoundOps.Len(), "check.fnSelfBoundStarts")
+	try checkStarts(c.FnFactStarts, nFn, nFacts, "check.fnFactStarts")
+	try checkSymsInRange(c.FnTPNames, symCount, false, "check.fnTPNames")
+	try checkTypesInRange(c.FnTPCons, typeCount, true, "check.fnTPCons")
+	try checkSymsInRange(c.FnParamNames, symCount, false, "check.fnParamNames")
+	try checkTypesInRange(c.FnParamTypes, typeCount, false, "check.fnParamTypes")
+	try checkTypesInRange(c.FnFailTypes, typeCount, false, "check.fnFailTypes")
+	try checkTypesInRange(c.FnNeedTypes, typeCount, false, "check.fnNeedTypes")
+	try checkTypesInRange(c.FnDefectTypes, typeCount, false, "check.fnDefectTypes")
+	try checkTypesInRange(c.FnSelfBoundOps, typeCount, true, "check.fnSelfBoundOps")
+}
+
+func validateCheckTypes(c CheckSection, symCount int, typeCount int, tokCount int) fails Malformed {
+	let nTy = c.TyNames.Len()
+	if c.TySubkinds.Len() != nTy || c.TyFlags.Len() != nTy || c.TyUnderlyings.Len() != nTy || c.TyExternPaths.Len() != nTy || c.TyRefineIdx.Len() != nTy || c.TyRoleIdx.Len() != nTy {
+		return OutOfBounds{Section: "check.types"}
+	}
+	try checkSymsInRange(c.TyNames, symCount, false, "check.tyNames")
+	try checkTypesInRange(c.TyUnderlyings, typeCount, true, "check.tyUnderlyings")
+	try checkSymsInRange(c.TyExternPaths, symCount, true, "check.tyExternPaths")
+	if c.TyTPNames.Len() != c.TyTPCons.Len() || c.TyTPNames.Len() != c.TyTPFlags.Len() {
+		return OutOfBounds{Section: "check.tyTParams"}
+	}
+	if c.FieldNames.Len() != c.FieldTypes.Len() || c.FieldNames.Len() != c.FieldFlags.Len() {
+		return OutOfBounds{Section: "check.fields"}
+	}
+	let nVar = c.UnionVarNames.Len()
+	if c.UnionVarTypes.Len() != nVar || c.UnionVarFieldStarts.Len() != nVar || c.UnionVarFieldEnds.Len() != nVar {
+		return OutOfBounds{Section: "check.variants"}
+	}
+	if c.UnionVarFieldNames.Len() != c.UnionVarFieldTypes.Len() || c.UnionVarFieldNames.Len() != c.UnionVarFieldFlags.Len() {
+		return OutOfBounds{Section: "check.variantFields"}
+	}
+	try checkSpanPairs(c.UnionVarFieldStarts, c.UnionVarFieldEnds, c.UnionVarFieldNames.Len(), "check.variantFields")
+	let nRoles = c.RoleSelfSites.Len()
+	if c.RoleHarness.Len() != nRoles {
+		return OutOfBounds{Section: "check.roles"}
+	}
+	let nMem = c.RoleMemNames.Len()
+	if c.RoleMemFlags.Len() != nMem || c.RoleMemSigs.Len() != nMem || c.RoleMemOwnNames.Len() != c.RoleMemOwnCons.Len() {
+		return OutOfBounds{Section: "check.roleMembers"}
+	}
+	let nRLaws = c.RoleLawNames.Len()
+	if c.RoleLawTokStarts.Len() != nRLaws || c.RoleLawTokEnds.Len() != nRLaws {
+		return OutOfBounds{Section: "check.roleLaws"}
+	}
+	try checkSpanPairs(c.RoleLawTokStarts, c.RoleLawTokEnds, tokCount, "check.roleLawToks")
+	let nClaims = c.ClaimRoleImp.Len()
+	if c.ClaimRoleName.Len() != nClaims {
+		return OutOfBounds{Section: "check.claims"}
+	}
+	let nMach = c.MachKinds.Len()
+	if c.MachNames.Len() != nMach || c.MachStarts.Len() != nMach || c.MachEnds.Len() != nMach {
+		return OutOfBounds{Section: "check.machine"}
+	}
+	try checkStarts(c.TyTParamStarts, nTy, c.TyTPNames.Len(), "check.tyTParamStarts")
+	try checkStarts(c.TyFieldStarts, nTy, c.FieldNames.Len(), "check.tyFieldStarts")
+	try checkStarts(c.TyVarStarts, nTy, nVar, "check.tyVarStarts")
+	try checkStarts(c.TyClaimStarts, nTy, nClaims, "check.tyClaimStarts")
+	try checkStarts(c.TyMachineStart, nTy, nMach, "check.tyMachineStart")
+	try checkStarts(c.RoleIncludeStarts, nRoles, c.RoleIncludes.Len(), "check.roleIncludeStarts")
+	try checkStarts(c.RoleMemberStarts, nRoles, nMem, "check.roleMemberStarts")
+	try checkStarts(c.RoleLawStarts, nRoles, nRLaws, "check.roleLawStarts")
+	try checkStarts(c.RoleMemOwnStarts, nMem, c.RoleMemOwnNames.Len(), "check.roleMemOwnStarts")
+	try checkStarts(c.RoleMemPosStarts, nMem, c.RoleMemPositions.Len(), "check.roleMemPosStarts")
+	try checkStarts(c.ClaimArgStarts, nClaims, c.ClaimArgs.Len(), "check.claimArgStarts")
+	try checkStarts(c.ClaimLayStarts, nClaims, c.ClaimLayoutSlots.Len(), "check.claimLayStarts")
+	try checkSymsInRange(c.FieldNames, symCount, false, "check.fieldNames")
+	try checkTypesInRange(c.FieldTypes, typeCount, false, "check.fieldTypes")
+	try checkSymsInRange(c.UnionVarNames, symCount, false, "check.unionVarNames")
+	try checkTypesInRange(c.UnionVarTypes, typeCount, true, "check.unionVarTypes")
+	try checkSymsInRange(c.UnionVarFieldNames, symCount, false, "check.unionVarFieldNames")
+	try checkTypesInRange(c.UnionVarFieldTypes, typeCount, false, "check.unionVarFieldTypes")
+	try checkSymsInRange(c.RoleMemNames, symCount, false, "check.roleMemNames")
+	try checkTypesInRange(c.RoleMemSigs, typeCount, false, "check.roleMemSigs")
+	try checkSymsInRange(c.ClaimRoleImp, symCount, false, "check.claimRoleImp")
+	try checkSymsInRange(c.ClaimRoleName, symCount, false, "check.claimRoleName")
+	try checkTypesInRange(c.ClaimArgs, typeCount, false, "check.claimArgs")
+}
+
+func validateCheckExtras(c CheckSection, symCount int, typeCount int, tokCount int) fails Malformed {
+	let nRef = c.RefIsLen.Len()
+	if c.RefParseNames.Len() != nRef {
+		return OutOfBounds{Section: "check.refs"}
+	}
+	let nSpan = c.SpanLoKind.Len()
+	if c.SpanLoNeg.Len() != nSpan || c.SpanLoMag.Len() != nSpan || c.SpanHiKind.Len() != nSpan || c.SpanHiNeg.Len() != nSpan || c.SpanHiMag.Len() != nSpan {
+		return OutOfBounds{Section: "check.spans"}
+	}
+	try checkStarts(c.RefSpanStarts, nRef, nSpan, "check.refSpanStarts")
+	let nVar = c.TopVarNames.Len()
+	if c.TopVarTypes.Len() != nVar || c.TopVarFlags.Len() != nVar {
+		return OutOfBounds{Section: "check.vars"}
+	}
+	let nConst = c.ConstNames.Len()
+	if c.ConstTypes.Len() != nConst || c.ConstValues.Len() != nConst || c.ConstTokStarts.Len() != nConst || c.ConstTokEnds.Len() != nConst {
+		return OutOfBounds{Section: "check.consts"}
+	}
+	try checkSpanPairs(c.ConstTokStarts, c.ConstTokEnds, tokCount, "check.constToks")
+	let nCtx = c.CtxNames.Len()
+	if c.CtxProvides.Len() != nCtx {
+		return OutOfBounds{Section: "check.contexts"}
+	}
+	try checkStarts(c.CtxFailStarts, nCtx, c.CtxFailTypes.Len(), "check.ctxFailStarts")
+	try checkStarts(c.CtxNeedStarts, nCtx, c.CtxNeedTypes.Len(), "check.ctxNeedStarts")
+	let nLaw = c.LawNames.Len()
+	if c.LawFlags.Len() != nLaw || c.LawTokStarts.Len() != nLaw || c.LawTokEnds.Len() != nLaw || c.LawTPNames.Len() != c.LawTPCons.Len() || c.LawParamNames.Len() != c.LawParamTypes.Len() {
+		return OutOfBounds{Section: "check.laws"}
+	}
+	try checkSpanPairs(c.LawTokStarts, c.LawTokEnds, tokCount, "check.lawToks")
+	try checkStarts(c.LawTParamStart, nLaw, c.LawTPNames.Len(), "check.lawTPStarts")
+	try checkStarts(c.LawParamStart, nLaw, c.LawParamNames.Len(), "check.lawParamStarts")
+	let nParse = c.ParseTypeNames.Len()
+	if c.ParseFnNames.Len() != nParse || c.ParseSigs.Len() != nParse {
+		return OutOfBounds{Section: "check.parses"}
+	}
+	let nFC = c.FClaimRoleImp.Len()
+	if c.FClaimRoleName.Len() != nFC || c.FClaimReceiver.Len() != nFC || c.FClaimMemNames.Len() != c.FClaimMemTypes.Len() {
+		return OutOfBounds{Section: "check.fclaims"}
+	}
+	try checkStarts(c.FClaimBindStart, nFC, c.FClaimBinds.Len(), "check.fclaimBinds")
+	try checkStarts(c.FClaimPosStart, nFC, c.FClaimPositions.Len(), "check.fclaimPos")
+	try checkStarts(c.FClaimMemStart, nFC, c.FClaimMemNames.Len(), "check.fclaimMems")
+	try checkSymsInRange(c.TopVarNames, symCount, false, "check.varNames")
+	try checkTypesInRange(c.TopVarTypes, typeCount, false, "check.varTypes")
+	try checkSymsInRange(c.ConstNames, symCount, false, "check.constNames")
+	try checkTypesInRange(c.ConstTypes, typeCount, false, "check.constTypes")
+	try checkSymsInRange(c.LawNames, symCount, false, "check.lawNames")
+	try checkSymsInRange(c.ParseTypeNames, symCount, false, "check.parseTypeNames")
+	try checkSymsInRange(c.ParseFnNames, symCount, false, "check.parseFnNames")
+	try checkTypesInRange(c.ParseSigs, typeCount, false, "check.parseSigs")
+}
+
+func validateSortedOrders(c CheckSection) fails Malformed {
+	let nImp = c.ImportPaths.Len()
+	for i in 1..nImp {
+		if SymText(c.Syms, c.ImportPaths[i-1]) >= SymText(c.Syms, c.ImportPaths[i]) {
+			return UnsortedOrDuplicate{Section: "check.imports"}
+		}
+	}
+	let nDecl = c.DeclKinds.Len()
+	if c.DeclNames.Len() != nDecl || c.DeclSubs.Len() != nDecl || c.DeclDirectives.Len() != nDecl {
+		return OutOfBounds{Section: "check.decls"}
+	}
+	for i in 1..nDecl {
+		let pk = c.DeclKinds[i-1]
+		let ck = c.DeclKinds[i]
+		let pn = SymText(c.Syms, c.DeclNames[i-1])
+		let cn = SymText(c.Syms, c.DeclNames[i])
+		if ck < pk || (ck == pk && cn <= pn) {
+			return UnsortedOrDuplicate{Section: "check.decls"}
+		}
+	}
+}
+
+func decodeCheckSection(bytes []byte, wantDigest Digest) (Header, CheckSection) fails Malformed {
+	let gotDigest = digestOfBytes(bytes)
+	if gotDigest != wantDigest {
+		return CorruptDigest{Section: "check", Expected: wantDigest, Actual: gotDigest}
+	}
+	let mut r = byteReader{data: bytes, pos: 0}
+	if bytes.Len() < 8 || bytes[0] != 'E' || bytes[1] != 'R' || bytes[2] != 'G' || bytes[3] != 'C' {
+		return BadMagic
+	}
+	r.pos = 4
+	let ver = try readU32(&r)
+	if ver != FormatVersion {
+		return UnsupportedVersion{Got: ver}
+	}
+	let flags = try readU32(&r)
+	let pkgPath = try readU32(&r)
+	let pkgName = try readU32(&r)
+	let mut c = EmptyCheckSection()
+	c.ImportPaths = try readU32Slice(&r)
+	c.ImportCheck = try readDigestSlice(&r)
+	c.Syms = try readSymPool(&r, "check.syms")
+	let symCount = SymCount(c.Syms)
+	if int(pkgPath) >= symCount || int(pkgName) >= symCount {
+		return OutOfBounds{Section: "check.header"}
+	}
+	c.Types = try readTypePool(&r, "check.types")
+	let typeCount = TypeCount(c.Types)
+	c.Tokens = try readTokenPool(&r, symCount, "check.tokens")
+	let tokCount = c.Tokens.Kinds.Len()
+	c.DeclKinds = try readU8Slice(&r)
+	c.DeclNames = try readU32Slice(&r)
+	c.DeclSubs = try readU32Slice(&r)
+	c.DeclDirectives = try readU32Slice(&r)
+	try decodeCheckFuncs(&r, &c)
+	try decodeCheckTypes(&r, &c)
+	try decodeCheckExtras(&r, &c)
+	if r.pos != bytes.Len() {
+		return TrailingBytes
+	}
+	if c.ImportPaths.Len() != c.ImportCheck.Len() {
+		return OutOfBounds{Section: "check.imports"}
+	}
+	try checkSymsInRange(c.ImportPaths, symCount, false, "check.importPaths")
+	try validateSortedOrders(c)
+	try validateCheckFuncs(c, symCount, typeCount, tokCount)
+	try validateCheckTypes(c, symCount, typeCount, tokCount)
+	try validateCheckExtras(c, symCount, typeCount, tokCount)
+	let h = Header{
+		Version:     ver,
+		Flags:       flags,
+		PkgPath:     pkgPath,
+		PkgName:     pkgName,
+		CheckDigest: gotDigest,
+		LowerDigest: ZeroDigest(),
+	}
+	(h, c)
+}
+
+func decodeLowerSection(bytes []byte, wantDigest Digest, expectedPkgPath string) LowerSection fails Malformed {
+	let gotDigest = digestOfBytes(bytes)
+	if gotDigest != wantDigest {
+		return CorruptDigest{Section: "lower", Expected: wantDigest, Actual: gotDigest}
+	}
+	let mut r = byteReader{data: bytes, pos: 0}
+	if bytes.Len() < 8 || bytes[0] != 'E' || bytes[1] != 'R' || bytes[2] != 'G' || bytes[3] != 'L' {
+		return BadMagic
+	}
+	r.pos = 4
+	let ver = try readU32(&r)
+	if ver != FormatVersion {
+		return UnsupportedVersion{Got: ver}
+	}
+	let pathBytes = try readRawBytes(&r)
+	if pathBytes.Text() != expectedPkgPath {
+		return OutOfBounds{Section: "lower.pkgPath"}
+	}
+	let mut l = EmptyLowerSection()
+	l.ImportPaths = try readU32Slice(&r)
+	l.ImportLower = try readDigestSlice(&r)
+	l.Syms = try readSymPool(&r, "lower.syms")
+	let symCount = SymCount(l.Syms)
+	l.Types = try readTypePool(&r, "lower.types")
+	let typeCount = TypeCount(l.Types)
+	l.Tokens = try readTokenPool(&r, symCount, "lower.tokens")
+	let tokCount = l.Tokens.Kinds.Len()
+	l.FnNames = try readU32Slice(&r)
+	l.FnFlags = try readU32Slice(&r)
+	l.FnInlineCost = try readU32Slice(&r)
+	l.FnCapStarts = try readU32Slice(&r)
+	l.FnAbiStarts = try readU32Slice(&r)
+	l.FnTokStarts = try readU32Slice(&r)
+	l.FnTokEnds = try readU32Slice(&r)
+	l.FnCaps = try readU32Slice(&r)
+	l.FnParamAbis = try readU8Slice(&r)
+	l.TyNames = try readU32Slice(&r)
+	l.TyValueAbi = try readU8Slice(&r)
+	l.TyRuntimeGo = try readU32Slice(&r)
+	l.TyPhysFieldStarts = try readU32Slice(&r)
+	l.PhysFieldNames = try readU32Slice(&r)
+	l.PhysFieldTypes = try readU32Slice(&r)
+	l.PhysFieldFlags = try readU32Slice(&r)
+	if r.pos != bytes.Len() {
+		return TrailingBytes
+	}
+	if l.ImportPaths.Len() != l.ImportLower.Len() {
+		return OutOfBounds{Section: "lower.imports"}
+	}
+	try checkSymsInRange(l.ImportPaths, symCount, false, "lower.importPaths")
+	for i in 1..l.ImportPaths.Len() {
+		if SymText(l.Syms, l.ImportPaths[i-1]) >= SymText(l.Syms, l.ImportPaths[i]) {
+			return UnsortedOrDuplicate{Section: "lower.imports"}
+		}
+	}
+	let nFn = l.FnNames.Len()
+	if l.FnFlags.Len() != nFn || l.FnInlineCost.Len() != nFn || l.FnTokStarts.Len() != nFn || l.FnTokEnds.Len() != nFn {
+		return OutOfBounds{Section: "lower.funcs"}
+	}
+	try checkSymsInRange(l.FnNames, symCount, false, "lower.fnNames")
+	try checkSpanPairs(l.FnTokStarts, l.FnTokEnds, tokCount, "lower.fnToks")
+	try checkStarts(l.FnCapStarts, nFn, l.FnCaps.Len(), "lower.fnCapStarts")
+	try checkStarts(l.FnAbiStarts, nFn, l.FnParamAbis.Len(), "lower.fnAbiStarts")
+	try checkTypesInRange(l.FnCaps, typeCount, false, "lower.fnCaps")
+	let nTy = l.TyNames.Len()
+	if l.TyValueAbi.Len() != nTy || l.TyRuntimeGo.Len() != nTy || l.PhysFieldNames.Len() != l.PhysFieldTypes.Len() || l.PhysFieldNames.Len() != l.PhysFieldFlags.Len() {
+		return OutOfBounds{Section: "lower.types"}
+	}
+	try checkSymsInRange(l.TyNames, symCount, false, "lower.tyNames")
+	try checkSymsInRange(l.TyRuntimeGo, symCount, true, "lower.tyRuntimeGo")
+	try checkStarts(l.TyPhysFieldStarts, nTy, l.PhysFieldNames.Len(), "lower.tyPhysFieldStarts")
+	try checkSymsInRange(l.PhysFieldNames, symCount, false, "lower.physFieldNames")
+	try checkTypesInRange(l.PhysFieldTypes, typeCount, false, "lower.physFieldTypes")
+	l
+}
+
+// Decode parses raw bytes into a verified Summary, rejecting corrupt, truncated, or uncanonical payloads.
+func Decode(raw []byte) Summary fails Malformed {
+	if raw.Len() < 12 {
+		return Truncated
+	}
+	if raw[0] != 'E' || raw[1] != 'R' || raw[2] != 'G' || raw[3] != 'S' {
+		return BadMagic
+	}
+	let mut r = byteReader{data: raw, pos: 4}
+	let ver = try readU32(&r)
+	if ver != FormatVersion {
+		return UnsupportedVersion{Got: ver}
+	}
+	let wantCheck = try readDigest(&r)
+	let wantLower = try readDigest(&r)
+	let checkBytes = try readRawBytes(&r)
+	let lowerBytes = try readRawBytes(&r)
+	if r.pos != raw.Len() {
+		return TrailingBytes
+	}
+	let (hdr0, chk) = try decodeCheckSection(checkBytes, wantCheck)
+	let mut hdr = hdr0
+	let pkgPath = SymText(chk.Syms, hdr.PkgPath)
+	let low = try decodeLowerSection(lowerBytes, wantLower, pkgPath)
+	hdr.LowerDigest = wantLower
+	Summary{Header: hdr, Check: chk, Lower: low}
+}
+
+// DecodeVerified decodes raw bytes and verifies all header import assumptions against resolved.
+func DecodeVerified(raw []byte, resolved []ImportAssumption) Summary fails LoadError {
+	let s = Decode(raw) catch {
+	case e:
+		return FormatError{Detail: e}
+	}
+	VerifyAssumptions(s, resolved) catch {
+	case m:
+		return MismatchError{Detail: m}
+	}
+	s
+}
+
+// EqualSummary reports whether a and b serialize to identical canonical check and lower bytes.
+func EqualSummary(a Summary, b Summary) bool {
+	if a.Header.CheckDigest != b.Header.CheckDigest || a.Header.LowerDigest != b.Header.LowerDigest {
+		return false
+	}
+	let ba = Encode(a)
+	let bb = Encode(b)
+	if ba.Len() != bb.Len() {
+		return false
+	}
+	for i in 0..ba.Len() {
+		if ba[i] != bb[i] {
+			return false
+		}
+	}
+	true
+}
+
+func makeSampleSummary(seed int) Summary {
+	let mut c = EmptyCheckSection()
+	let pkgPath = InternSym(&c.Syms, "pkg/sample")
+	let pkgName = InternSym(&c.Syms, "sample")
+	let impA = InternSym(&c.Syms, "pkg/alpha")
+	let impB = InternSym(&c.Syms, "pkg/beta")
+	let nameA = InternSym(&c.Syms, "Item")
+	let fnName = InternSym(&c.Syms, "BuildItem")
+	let fnParam = InternSym(&c.Syms, "count")
+	let errSym = InternSym(&c.Syms, "Invalid")
+	let capSym = InternSym(&c.Syms, "Clock")
+
+	c.ImportPaths = []uint32{impA, impB}
+	let sSeed = int(uint64(seed) & uint64(0x7fffffff))
+	let dA = Digest{W0: uint64(1 + sSeed), W1: uint64(2), W2: uint64(3), W3: uint64(4)}
+	let dB = Digest{W0: uint64(5 + sSeed), W1: uint64(6), W2: uint64(7), W3: uint64(8)}
+	c.ImportCheck = []Digest{dA, dB}
+
+	let intT = InternBasic(&c.Types, uint32(3))
+	let itemT = InternNamed(&c.Types, impA, nameA)
+	let sliceItemT = InternSlice(&c.Types, itemT)
+	let errT = InternNamed(&c.Types, pkgPath, errSym)
+	let capT = InternNamed(&c.Types, impB, capSym)
+	let _ = InternRow(&c.Types, c.Syms, []uint32{errT})
+
+	c.DeclKinds = []uint8{DeclFunc, DeclType}
+	c.DeclNames = []uint32{fnName, errSym}
+	c.DeclSubs = []uint32{uint32(0), uint32(0)}
+	c.DeclDirectives = []uint32{NoIdx, NoIdx}
+
+	c.FnNames = []uint32{fnName}
+	c.FnFlags = []uint32{FnFlagPure}
+	c.FnTParamStarts = []uint32{uint32(0), uint32(0)}
+	c.FnParamStarts = []uint32{uint32(0), uint32(1)}
+	c.FnResults = []uint32{sliceItemT}
+	c.FnFailStarts = []uint32{uint32(0), uint32(1)}
+	c.FnNeedStarts = []uint32{uint32(0), uint32(1)}
+	c.FnDefectStarts = []uint32{uint32(0), uint32(0)}
+	c.FnRefineStarts = []uint32{uint32(0), uint32(0)}
+	c.FnSelfBoundStarts = []uint32{uint32(0), uint32(0)}
+	c.FnSelfArity = []uint32{uint32(0)}
+	c.FnSelfRole = []uint32{NoIdx}
+	c.FnFactStarts = []uint32{uint32(0), uint32(0)}
+	c.FnBodyTokStarts = []uint32{uint32(0)}
+	c.FnBodyTokEnds = []uint32{uint32(0)}
+	c.FnParamNames = []uint32{fnParam}
+	c.FnParamTypes = []uint32{intT}
+	c.FnParamModes = []uint8{ParamTakes}
+	c.FnFailTypes = []uint32{errT}
+	c.FnNeedTypes = []uint32{capT}
+
+	c.TyNames = []uint32{errSym}
+	c.TySubkinds = []uint8{TyStruct}
+	c.TyFlags = []uint32{TyFlagIsError}
+	c.TyTParamStarts = []uint32{uint32(0), uint32(0)}
+	c.TyUnderlyings = []uint32{NoIdx}
+	c.TyExternPaths = []uint32{NoIdx}
+	c.TyRefineIdx = []uint32{NoIdx}
+	c.TyFieldStarts = []uint32{uint32(0), uint32(1)}
+	c.TyVarStarts = []uint32{uint32(0), uint32(0)}
+	c.TyRoleIdx = []uint32{NoIdx}
+	c.TyClaimStarts = []uint32{uint32(0), uint32(0)}
+	c.TyMachineStart = []uint32{uint32(0), uint32(0)}
+	c.FieldNames = []uint32{fnParam}
+	c.FieldTypes = []uint32{intT}
+	c.FieldFlags = []uint32{uint32(0)}
+
+	let mut l = EmptyLowerSection()
+	let lImpA = InternSym(&l.Syms, "pkg/alpha")
+	let lImpB = InternSym(&l.Syms, "pkg/beta")
+	let lFn = InternSym(&l.Syms, "BuildItem")
+	let lCapPkg = InternSym(&l.Syms, "pkg/beta")
+	let lCapName = InternSym(&l.Syms, "Clock")
+	let lCapT = InternNamed(&l.Types, lCapPkg, lCapName)
+	l.ImportPaths = []uint32{lImpA, lImpB}
+	l.ImportLower = []Digest{dA, ZeroDigest()}
+	l.FnNames = []uint32{lFn}
+	l.FnFlags = []uint32{LowerPure | LowerInlineCandidate}
+	l.FnInlineCost = []uint32{uint32(4 + sSeed%7)}
+	l.FnCapStarts = []uint32{uint32(0), uint32(1)}
+	l.FnAbiStarts = []uint32{uint32(0), uint32(1)}
+	l.FnTokStarts = []uint32{uint32(0)}
+	l.FnTokEnds = []uint32{uint32(0)}
+	l.FnCaps = []uint32{lCapT}
+	l.FnParamAbis = []uint8{ParamAbiTakes}
+
+	let mut s = Summary{
+		Header: Header{
+			Version:     FormatVersion,
+			Flags:       uint32(0),
+			PkgPath:     pkgPath,
+			PkgName:     pkgName,
+			CheckDigest: ZeroDigest(),
+			LowerDigest: ZeroDigest(),
+		},
+		Check: c,
+		Lower: l,
+	}
+	RefreshDigests(&s)
+	s
+}
+
+law SummaryRoundTrips(seed int) {
+	let s = makeSampleSummary(seed)
+	let bytes = Encode(s)
+	let mut ok = true
+	let decoded = Decode(bytes) catch {
+	case _:
+		ok = false
+		EmptySummary("", "")
+	}
+	assert ok
+	let reencoded = Encode(decoded)
+	assert reencoded.Len() == bytes.Len()
+	for i in 0..bytes.Len() {
+		assert reencoded[i] == bytes[i]
+	}
+	assert decoded.Header.CheckDigest == s.Header.CheckDigest
+	assert decoded.Header.LowerDigest == s.Header.LowerDigest
+	assert PackagePath(decoded) == "pkg/sample"
+	assert LookupObject(decoded, ObjectRef{ImportPath: "pkg/sample", NamePath: "BuildItem"}) == option.Some{Value: ResolvedDecl{Kind: DeclFunc, Index: uint32(0)}}
+	assert LookupObject(decoded, ObjectRef{ImportPath: "pkg/other", NamePath: "BuildItem"}) == option.None
+	if bytes.Len() > 96 {
+		let mut flippedCheck = bytes.Clone()
+		flippedCheck[84] = flippedCheck[84] ^ byte(1)
+		let mut corruptedCheckRejected = false
+		let _ = Decode(flippedCheck) catch {
+		case CorruptDigest as cd:
+			corruptedCheckRejected = cd.Section == "check"
+			s
+		case _:
+			s
+		}
+		assert corruptedCheckRejected
+		let mut flippedLower = bytes.Clone()
+		flippedLower[bytes.Len()-1] = flippedLower[bytes.Len()-1] ^ byte(1)
+		let mut corruptedLowerRejected = false
+		let _ = Decode(flippedLower) catch {
+		case CorruptDigest as cd:
+			corruptedLowerRejected = cd.Section == "lower"
+			s
+		case _:
+			s
+		}
+		assert corruptedLowerRejected
+	}
+	let mut truncatedRejected = false
+	let _ = Decode(bytes[0:6]) catch {
+	case Truncated:
+		truncatedRejected = true
+		s
+	case _:
+		s
+	}
+	assert truncatedRejected
+	let mut badMagicBytes = bytes.Clone()
+	badMagicBytes[0] = byte('X')
+	let mut badMagicRejected = false
+	let _ = Decode(badMagicBytes) catch {
+	case BadMagic:
+		badMagicRejected = true
+		s
+	case _:
+		s
+	}
+	assert badMagicRejected
+	true
+}
+
+law HeaderDigestMismatchRefused(seed int) {
+	let s = makeSampleSummary(seed)
+	let raw = Encode(s)
+	let imps = HeaderImports(s)
+	let mut okLoaded = true
+	let _ = DecodeVerified(raw, imps) catch {
+	case _:
+		okLoaded = false
+		s
+	}
+	assert okLoaded
+	let mut badCheck = imps.Clone()
+	badCheck[0].CheckDigest.W0 = badCheck[0].CheckDigest.W0 ^ uint64(1)
+	let mut rejectedCheck = false
+	let _ = DecodeVerified(raw, badCheck) catch {
+	case MismatchError{Detail: m}:
+		match m {
+		case CheckDigestMismatch as cm:
+			rejectedCheck = cm.Path == "pkg/alpha" && cm.Expected == imps[0].CheckDigest
+		case _:
+		}
+		s
+	case _:
+		s
+	}
+	assert rejectedCheck
+	let mut badLower = imps.Clone()
+	badLower[0].LowerDigest.W1 = badLower[0].LowerDigest.W1 ^ uint64(1)
+	let mut rejectedLower = false
+	let _ = DecodeVerified(raw, badLower) catch {
+	case MismatchError{Detail: m}:
+		match m {
+		case LowerDigestMismatch as lm:
+			rejectedLower = lm.Path == "pkg/alpha" && lm.Expected == imps[0].LowerDigest
+		case _:
+		}
+		s
+	case _:
+		s
+	}
+	assert rejectedLower
+	let onlyAlpha = []ImportAssumption{imps[0]}
+	let mut rejectedMissingBeta = false
+	let _ = DecodeVerified(raw, onlyAlpha) catch {
+	case MismatchError{Detail: m}:
+		match m {
+		case MissingImport as mi:
+			rejectedMissingBeta = mi.Path == "pkg/beta"
+		case _:
+		}
+		s
+	case _:
+		s
+	}
+	assert rejectedMissingBeta
+	true
+}

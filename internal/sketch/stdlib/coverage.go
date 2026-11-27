@@ -36,6 +36,7 @@ var coverage = sync.OnceValue(func() map[string][]string {
 		"math":     {"math"},
 		"os":       {"os"},
 		"rand":     {"math/rand", "math/rand/v2"},
+		"regex":    {"regexp"},
 		"sha1":     {"crypto/sha1"},
 		"sha256":   {"crypto/sha256"},
 		"signal":   {"os/signal"},
@@ -59,7 +60,7 @@ var coverage = sync.OnceValue(func() map[string][]string {
 // counterpart outside the standard library (errgroup, x/term, x/mod's
 // semver).
 var coversNone = []string{
-	"actor", "ansi", "api", "arena", "bench", "build", "cache", "civil", "code", "color", "codec", "codegraph", "collections", "config", "core", "cron", "decimal", "dense", "explore", "fs/mapped", "gen", "glob", "graph", "io", "jobs", "jobs/file", "jobs/memory", "journal", "journal/file",
+	"actor", "api", "arena", "bench", "build", "cache", "civil", "code", "color", "codec", "codegraph", "collections", "config", "content", "core", "cron", "decimal", "dense", "explore", "fs/mapped", "gen", "glob", "graph", "io", "jobs", "jobs/file", "jobs/memory", "journal", "journal/file",
 	"journal/memory", "jsonschema", "kv", "kv/file", "kv/memory", "lint", "llm", "llm/memory", "llm/recorded", "machines", "markdown", "mcp", "mcp/httpmcp", "mcp/memory", "mcp/stdio", "metric", "nettest", "option", "os/host", "pace", "process", "prompt", "proof", "proof/file", "proof/memory", "pubsub", "queue", "ratelimit", "ratelimit/memory", "rpc", "schedule", "scope", "semver", "session", "session/file", "session/memory", "set", "sha1dc", "sqltest", "stream",
 	"task", "tasks", "temporal", "term", "text", "timeout", "toml", "totp", "trace", "tz", "tz/host", "tz/iana", "ui", "ui/layout", "uuid", "workflow", "workflow/file", "workflow/memory", "yaml",
 }

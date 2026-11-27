@@ -103,9 +103,9 @@ func talk(v flag.Values, limits agent.Limits, disk fs.Host) fails os.Exit needs 
 	}
 	let s = try openSession(disk, limits, sessionFlag.Get(v))
 	term.Raw() {
-		io.Stdout.Print("\x1b[?1049h")
+		io.Stdout.Print(term.AltScreen)
 		Chat(s)
-		io.Stdout.Print("\x1b[?1049l")
+		io.Stdout.Print(term.MainScreen)
 	} catch {
 	case term.NotTerminal:
 		s.Agent.Stop()

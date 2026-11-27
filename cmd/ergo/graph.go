@@ -19,9 +19,9 @@ import (
 	"ergo.local/prototype/internal/sketchfront"
 )
 
-const graphHelp = `usage: ergo graph [--in DIR|DIR/...] COMMAND [--json] [ARGS]
+const graphHelp = `usage: ergo inspect graph [--in DIR|DIR/...] COMMAND [--json] [ARGS]
 
-ergo graph reads the graph of the program in DIR (the current folder by
+ergo inspect graph reads the graph of the program in DIR (the current folder by
 default), or of every package below DIR with DIR/..., as the checker's
 rows (docs/spec/graph.md), and answers what depends on what. Each query
 is one std codegraph function over the rows; a project's own program can

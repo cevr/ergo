@@ -290,6 +290,7 @@ case examples/model-paths/probe/replay
 case examples/model-paths/probe/session
 case examples/model-paths/probe/userland
 case examples/orchestrate/cmd/orchestrate
+case examples/orchestrate/server
 case examples/pager/cmd/pager
 case examples/pager/screen
 case examples/pairing/cmd/pairing
@@ -1018,7 +1019,6 @@ case internal/sketch/check/testdata/v1/L8-C1-lends.neg.ergo
 case internal/sketch/check/testdata/v1/L8-captures.neg.ergo
 case internal/sketch/std
 case internal/sketch/std/actor
-case internal/sketch/std/ansi
 case internal/sketch/std/api
 case internal/sketch/std/archive
 case internal/sketch/std/arena
@@ -1036,6 +1036,7 @@ case internal/sketch/std/codegraph
 case internal/sketch/std/collections
 case internal/sketch/std/color
 case internal/sketch/std/config
+case internal/sketch/std/content
 case internal/sketch/std/core
 case internal/sketch/std/crc32
 case internal/sketch/std/cron
@@ -1099,6 +1100,7 @@ case internal/sketch/std/queue
 case internal/sketch/std/rand
 case internal/sketch/std/ratelimit
 case internal/sketch/std/ratelimit/memory
+case internal/sketch/std/regex
 case internal/sketch/std/rpc
 case internal/sketch/std/schedule
 case internal/sketch/std/scope
@@ -1316,7 +1318,6 @@ case unused internal/selfhostcheck/testdata/bind/port_shapes.ergo
 case unused internal/selfhostcheck/testdata/bind/port_union.ergo
 case unused internal/selfhostcheck/testdata/bind/port_unit.ergo
 case unused internal/selfhostcheck/testdata/bind/wired.ergo
-case unused internal/sketch/std/ansi/ansi.ergo
 case unused internal/sketch/std/api/api.ergo
 case unused internal/sketch/std/archive/archive.ergo
 case unused internal/sketch/std/bench/stats.ergo
@@ -1325,6 +1326,7 @@ case unused internal/sketch/std/codec/codec.ergo
 case unused internal/sketch/std/codegraph/codegraph.ergo
 case unused internal/sketch/std/collections/collections.ergo
 case unused internal/sketch/std/color/names.ergo
+case unused internal/sketch/std/content/content.ergo
 case unused internal/sketch/std/crc32/crc32.ergo
 case unused internal/sketch/std/cron/expr.ergo
 case unused internal/sketch/std/decimal/u128.ergo
@@ -1353,7 +1355,6 @@ case unused internal/sketch/std/llm/recorded/recorded.ergo
 case unused internal/sketch/std/log/level.ergo
 case unused internal/sketch/std/maps/maps.ergo
 case unused internal/sketch/std/markdown/doc.ergo
-case unused internal/sketch/std/mcp/httpmcp/httpmcp.ergo
 case unused internal/sketch/std/mcp/mcp.ergo
 case unused internal/sketch/std/mcp/memory/memory.ergo
 case unused internal/sketch/std/mcp/stdio/stdio.ergo
@@ -1369,6 +1370,7 @@ case unused internal/sketch/std/proof/proof.ergo
 case unused internal/sketch/std/pubsub/pubsub.ergo
 case unused internal/sketch/std/ratelimit/memory/memory.ergo
 case unused internal/sketch/std/ratelimit/ratelimit.ergo
+case unused internal/sketch/std/regex/ast.ergo
 case unused internal/sketch/std/schedule/schedule.ergo
 case unused internal/sketch/std/semver/semver.ergo
 case unused internal/sketch/std/session/file/file.ergo

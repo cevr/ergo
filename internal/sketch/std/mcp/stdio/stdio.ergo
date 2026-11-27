@@ -1,22 +1,141 @@
 // Package stdio is the mcp.Transport of a client that starts the server
-// as a process (AP2): the client's messages are the lines of standard
-// input, and each answer is a line of standard output. A program's
-// cmd/<name>/main.ergo makes it, since only main holds Ambient.
+// as a process: the client's messages are the lines of standard input, and
+// each answer or outbound notification is a line of standard output. A
+// program's cmd/<name>/main.ergo makes it with New(), since only main holds
+// Ambient.
 
 import core
-import mcp
 import io
+import json
+import mcp
+import option
 import os
+import strings
 
 // Transport is a standard input and output: the process's (New), or a
-// test's io.Input and io.Recorder.
+// custom io.Stdin and io.Stdout pair (NewFrom).
 type Transport { input io.Stdin, out io.Stdout } implements mcp.Transport
 
 // New is the process's standard input and output.
 func New() Transport needs os.Ambient { Transport{input: io.NewStdin(), out: io.NewHost()} }
+
+// NewFrom builds a stdio Transport over explicit input and out streams.
+func NewFrom(input io.Stdin, out io.Stdout) Transport { Transport{input: input, out: out} }
 
 // Messages is the lines of standard input, until it ends.
 func Messages(t Transport) core.Seq[string] { t.input.Lines() }
 
 // Send writes message and a line feed to standard output.
 func Send(t Transport, message string) { t.out.Println(message) }
+
+func stdioQuoted(s string) string { json.Encode(json.Codec[string]{MaxBytes: 0, MaxDepth: 0}, s) }
+
+// DeliversConcurrentNotifications: ServeFull over a stdio Transport
+// writes clean, uncorrupted JSON-RPC lines for both request answers and
+// outbound server notifications while preserving request order and
+// subscription filtering.
+law DeliversConcurrentNotifications(kinds []int, key string) {
+	let target = "stdio://res/" + key
+	let other = "stdio://other/" + key
+	let notifier = mcp.NewNotifier(128)
+	let emitTool = mcp.Tool{
+		Name:        "emit",
+		Description: "emits resource and log notifications",
+		Input:       json.Object{Members: []json.Member{}},
+		Call:        func(arguments json.Value) json.Value fails mcp.ToolError {
+			let _ = mcp.NotifyResourceUpdated(notifier, target)
+			let _ = mcp.NotifyResourceUpdated(notifier, other)
+			let _ = mcp.Notify(notifier, mcp.LogMessage("info", "stdio", json.Str{Value: key}))
+			json.Str{Value: "ok"}
+		},
+	}
+	let rs = mcp.StaticResources([]mcp.Resource{
+		mcp.Resource{URI: target, Name: "item", Description: "", MIMEType: "text/plain"},
+	}, func(uri string) []mcp.ResourceContents fails mcp.ResourceNotFound | mcp.ResourceError {
+		if uri == target {
+			return []mcp.ResourceContents{mcp.TextContents(uri, "text/plain", "stdio-body")}
+		}
+		mcp.ResourceNotFound{URI: uri}
+	})
+	let full = mcp.WithResources(mcp.Server{Name: "stdio-law", Version: "1", Tools: []mcp.Tool{emitTool}}, rs)
+
+	let mut lines = []string{
+		"{\"jsonrpc\":\"2.0\",\"id\":\"sub\",\"method\":\"resources/subscribe\",\"params\":{\"uri\":" + stdioQuoted(target) + "}}",
+	}
+	let mut wantIDs = []string{"sub"}
+	let mut emitCount = 0
+	for i, k in kinds {
+		let mode = ((k % 3) + 3) % 3
+		let id = "r\(i)"
+		wantIDs = wantIDs.Append(id)
+		if mode == 0 {
+			emitCount = emitCount + 1
+			lines = lines.Append("{\"jsonrpc\":\"2.0\",\"id\":" + stdioQuoted(id) + ",\"method\":\"tools/call\",\"params\":{\"name\":\"emit\",\"arguments\":{}}}")
+		} else if mode == 1 {
+			lines = lines.Append("{\"jsonrpc\":\"2.0\",\"id\":" + stdioQuoted(id) + ",\"method\":\"resources/read\",\"params\":{\"uri\":" + stdioQuoted(target) + "}}")
+		} else {
+			lines = lines.Append("{\"jsonrpc\":\"2.0\",\"id\":" + stdioQuoted(id) + ",\"method\":\"ping\"}")
+		}
+	}
+	lines = lines.Append("{\"jsonrpc\":\"2.0\",\"id\":\"unsub\",\"method\":\"resources/unsubscribe\",\"params\":{\"uri\":" + stdioQuoted(target) + "}}")
+	lines = lines.Append("{\"jsonrpc\":\"2.0\",\"id\":\"after\",\"method\":\"tools/call\",\"params\":{\"name\":\"emit\",\"arguments\":{}}}")
+	wantIDs = wantIDs.Append("unsub")
+	wantIDs = wantIDs.Append("after")
+
+	let rec = io.NewRecorder()
+	let tr = NewFrom(io.NewInput(strings.Join(lines, "\n")+"\n"), rec)
+	let readCount = mcp.ServeFull(full, notifier, tr)
+
+	let raw = strings.TrimSuffix(rec.Text(), "\n")
+	let outLines = if raw == "" { []string{} } else { strings.Split(raw, "\n") }
+	let mut gotIDs = []string{}
+	let mut updatedTarget = 0
+	let mut updatedOther = 0
+	let mut logCount = 0
+	let mut valid = readCount == lines.Len()
+	for ln in outLines {
+		match mcp.ParseNotification(ln) {
+		case option.Some[mcp.Notification] as n:
+			if n.Value.Method == mcp.MethodResourcesUpdated {
+				match mcp.NotificationURI(n.Value) {
+				case option.Some[string] as u:
+					if u.Value == target {
+						updatedTarget = updatedTarget + 1
+					} else if u.Value == other {
+						updatedOther = updatedOther + 1
+					} else {
+						valid = false
+					}
+				case option.None:
+					valid = false
+				}
+			} else if n.Value.Method == mcp.MethodMessage {
+				logCount = logCount + 1
+			} else {
+				valid = false
+			}
+		case option.None:
+			let v = json.Decode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, ln) catch {
+			case _:
+				valid = false
+				json.Null
+			}
+			match mcp.Field(v, "id") {
+			case option.Some[json.Value] as iv:
+				match iv.Value {
+				case json.Str as s:
+					gotIDs = gotIDs.Append(s.Value)
+				case _:
+					valid = false
+				}
+			case option.None:
+				valid = false
+			}
+		}
+	}
+	let ok = valid && gotIDs == wantIDs && updatedTarget == emitCount && updatedOther == 0 && logCount == emitCount+1
+	always ok
+	sometimes emitCount > 0 && ok
+	sometimes emitCount == 0 && ok
+	ok
+}

@@ -1,5 +1,6 @@
 import json
 import option
+import os/host
 import time
 
 // UnitOpenInput opens a unit: its key (repo, run, id), its title, the receipt kinds its verdict requires, and its lane path and branch as facts.
@@ -225,6 +226,18 @@ type Api {
 
 	// ImportPlan idempotently parses run log or fallout markdown lines into structured decisions, landings, run head, and events.
 	ImportPlan(input ImportPlanInput) ImportReport fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed,
+
+	// HostStatus returns host CPU cores, run-queue load averages, physical memory, and requested volume capacities.
+	HostStatus(input HostStatusInput) HostStatusReport fails InvalidInput | host.Unavailable | host.Malformed,
+
+	// HostProcesses returns active operating-system process snapshots filtered optionally by comm, pid, and limit.
+	HostProcesses(input HostProcessesInput) HostProcessList fails InvalidInput | host.Unavailable | host.Malformed,
+
+	// HostReadiness evaluates host load, memory, and volume usage against readiness hysteresis thresholds.
+	HostReadiness(input HostReadinessInput) HostReadinessReport fails InvalidInput | host.Unavailable | host.Malformed,
+
+	// EventsSince queries cursor-ordered operational ledger and transition events strictly after Since.
+	EventsSince(input EventsSinceInput) EventStreamPage fails InvalidInput | StoreFailed,
 
 	// ApiUnitOpenIsIdempotent verifies that opening a unit through Api is idempotent on retry and readable via UnitState.
 	law ApiUnitOpenIsIdempotent(tag int) {
@@ -665,14 +678,173 @@ type Api {
 			sum.MainHead == option.Some[string]{Value: "6ebc20fc2"} &&
 			sum.OpenDecisions == 1 && sum.RecentLandings.Len() == 1
 	},
+
+	// ApiHostStatusAgreesWithSystem verifies host status invariants, GiB conversions, blank-volume rejection, and unavailable-volume failure through Api.
+	law ApiHostStatusAgreesWithSystem(tag int) {
+		let base = HostStatus(HostStatusInput{Volumes: []string{}}) catch {
+		case _:
+			return false
+		}
+		if base.Cores < 0 || base.Volumes.Len() != 0 {
+			return false
+		}
+		if base.Memory.TotalBytes < int64(0) || base.Memory.AvailableBytes < int64(0) || base.Memory.FreeBytes < int64(0) || base.Memory.UsedBytes < int64(0) {
+			return false
+		}
+		if base.Memory.UsedBytes+base.Memory.AvailableBytes != base.Memory.TotalBytes {
+			return false
+		}
+		if base.Memory.TotalGiB != bytesToGiB(base.Memory.TotalBytes) || base.Memory.AvailableGiB != bytesToGiB(base.Memory.AvailableBytes) || base.Memory.FreeGiB != bytesToGiB(base.Memory.FreeBytes) || base.Memory.UsedGiB != bytesToGiB(base.Memory.UsedBytes) {
+			return false
+		}
+		let withRoot = HostStatus(HostStatusInput{Volumes: []string{"/"}}) catch {
+		case _:
+			return false
+		}
+		if withRoot.Volumes.Len() != 1 || withRoot.Volumes[0].Path != "/" {
+			return false
+		}
+		let v = withRoot.Volumes[0]
+		if v.UsedBytes+v.FreeBytes != v.TotalBytes || v.TotalGiB != bytesToGiB(v.TotalBytes) || v.AvailableGiB != bytesToGiB(v.AvailableBytes) || v.FreeGiB != bytesToGiB(v.FreeBytes) || v.UsedGiB != bytesToGiB(v.UsedBytes) {
+			return false
+		}
+		let mut blankRefused = false
+		let _ = HostStatus(HostStatusInput{Volumes: []string{""}}) catch {
+		case InvalidInput as inv:
+			blankRefused = inv.Field == "volumes"
+			base
+		case _:
+			return false
+		}
+		let mut missingRefused = false
+		let _ = HostStatus(HostStatusInput{Volumes: []string{"/no-such-volume-orch-\(tag)"}}) catch {
+		case host.Unavailable as u:
+			missingRefused = u.Target == "/no-such-volume-orch-\(tag)"
+			base
+		case _:
+			return false
+		}
+		blankRefused && missingRefused
+	},
+
+	// ApiHostProcessesAgreesWithSystem verifies host process listing, comm/pid/limit filters, tick sums, and invalid filter rejections through Api.
+	law ApiHostProcessesAgreesWithSystem(tag int) {
+		let all = HostProcesses(HostProcessesInput{Comm: json.Absent, PID: json.Absent, Limit: json.Absent}) catch {
+		case _:
+			return false
+		}
+		if all.Limit != defaultProcessLimit || all.Total < all.Items.Len() || all.Truncated != (all.Total > all.Items.Len()) || all.Items.Len() == 0 {
+			return false
+		}
+		let mut prevPID = 0
+		for item in all.Items {
+			if item.PID <= prevPID || item.Ticks != item.UserTicks+item.SysTicks {
+				return false
+			}
+			prevPID = item.PID
+		}
+		let first = all.Items[0]
+		let byPID = HostProcesses(HostProcessesInput{Comm: json.Absent, PID: json.Present[int]{Value: first.PID}, Limit: json.Absent}) catch {
+		case _:
+			return false
+		}
+		let byComm = HostProcesses(HostProcessesInput{Comm: json.Present[string]{Value: first.Comm}, PID: json.Absent, Limit: json.Absent}) catch {
+		case _:
+			return false
+		}
+		let limited = HostProcesses(HostProcessesInput{Comm: json.Absent, PID: json.Absent, Limit: json.Present[int]{Value: 1}}) catch {
+		case _:
+			return false
+		}
+		let unmatched = HostProcesses(HostProcessesInput{Comm: json.Present[string]{Value: "__missing_proc_\(tag)__"}, PID: json.Absent, Limit: json.Absent}) catch {
+		case _:
+			return false
+		}
+		let mut commMatchOK = byComm.Total >= 1 && byComm.Items.Len() >= 1
+		for item in byComm.Items {
+			if item.Comm != first.Comm {
+				commMatchOK = false
+			}
+		}
+		let mut badPID = false
+		let _ = HostProcesses(HostProcessesInput{Comm: json.Absent, PID: json.Present[int]{Value: 0}, Limit: json.Absent}) catch {
+		case InvalidInput as inv:
+			badPID = inv.Field == "pid"
+			all
+		case _:
+			return false
+		}
+		let mut badLimit = false
+		let _ = HostProcesses(HostProcessesInput{Comm: json.Absent, PID: json.Absent, Limit: json.Present[int]{Value: 0}}) catch {
+		case InvalidInput as inv:
+			badLimit = inv.Field == "limit"
+			all
+		case _:
+			return false
+		}
+		let mut badComm = false
+		let _ = HostProcesses(HostProcessesInput{Comm: json.Present[string]{Value: "   "}, PID: json.Absent, Limit: json.Absent}) catch {
+		case InvalidInput as inv:
+			badComm = inv.Field == "comm"
+			all
+		case _:
+			return false
+		}
+			byPID.Total == 1 && !byPID.Truncated && byPID.Items == []HostProcess{first} &&
+			commMatchOK &&
+			limited.Limit == 1 && limited.Items == []HostProcess{first} && limited.Truncated == (limited.Total > 1) &&
+			unmatched.Total == 0 && unmatched.Items.Len() == 0 && !unmatched.Truncated &&
+			badPID && badLimit && badComm
+	},
+
+	// ApiHostReadinessAndEventsSince verifies HostReadiness threshold hysteresis and EventsSince cursor progression through Api.
+	law ApiHostReadinessAndEventsSince(tag int) {
+		let r1 = HostReadiness(HostReadinessInput{Volume: json.Present[string]{Value: "/workspaces"}, MaxLoad: json.Present[string]{Value: "100"}, RecoveryMaxLoad: json.Absent, MinMemGiB: json.Present[string]{Value: "1"}, RecoveryMinMemGiB: json.Absent, MaxDiskPct: json.Present[string]{Value: "99"}, RecoveryMaxDiskPct: json.Absent, PreviousState: json.Absent}) catch {
+		case _:
+			return false
+		}
+		let r2 = HostReadiness(HostReadinessInput{Volume: json.Present[string]{Value: "/workspaces"}, MaxLoad: json.Present[string]{Value: "0.01"}, RecoveryMaxLoad: json.Absent, MinMemGiB: json.Present[string]{Value: "1"}, RecoveryMinMemGiB: json.Absent, MaxDiskPct: json.Present[string]{Value: "99"}, RecoveryMaxDiskPct: json.Absent, PreviousState: json.Present[string]{Value: "ready"}}) catch {
+		case _:
+			return false
+		}
+		let _ = EventRecord(EventRecordInput{CommandID: CommandID("ae-1-\(tag)"), Actor: "root", Repo: "repo", Run: "ae-\(tag)", Kind: "status", UnitID: json.Absent, Summary: "first", SourceKey: json.Absent, CreatedAt: json.Absent}) catch {
+		case _:
+			return false
+		}
+		let _ = EventRecord(EventRecordInput{CommandID: CommandID("ae-2-\(tag)"), Actor: "root", Repo: "repo", Run: "ae-\(tag)", Kind: "status", UnitID: json.Absent, Summary: "second", SourceKey: json.Absent, CreatedAt: json.Absent}) catch {
+		case _:
+			return false
+		}
+		let p0 = EventsSince(EventsSinceInput{Repo: json.Present[string]{Value: "repo"}, Run: json.Present[string]{Value: "ae-\(tag)"}, Kind: json.Absent, UnitID: json.Absent, Since: json.Present[int]{Value: 0}, Limit: json.Absent, Source: json.Absent}) catch {
+		case _:
+			return false
+		}
+		let p1 = EventsSince(EventsSinceInput{Repo: json.Present[string]{Value: "repo"}, Run: json.Present[string]{Value: "ae-\(tag)"}, Kind: json.Absent, UnitID: json.Absent, Since: json.Present[int]{Value: p0.Items[0].Cursor}, Limit: json.Absent, Source: json.Absent}) catch {
+		case _:
+			return false
+		}
+		let pTr = EventsSince(EventsSinceInput{Repo: json.Present[string]{Value: "repo"}, Run: json.Present[string]{Value: "ae-\(tag)"}, Kind: json.Absent, UnitID: json.Absent, Since: json.Present[int]{Value: 0}, Limit: json.Absent, Source: json.Present[string]{Value: "transitions"}}) catch {
+		case _:
+			return false
+		}
+			r1.Ready && r1.State == "ready" &&
+			!r2.Ready && r2.State == "backpressure" && r2.Transitioned &&
+			p0.Items.Len() == 2 && p1.Items.Len() == 1 && p1.Items[0].Summary == "second" &&
+			p1.NextCursor == p1.Items[0].Cursor && pTr.Items.Len() == 2
+	},
 }
 
-// Service implements Api over any Store provider, stamping each command with the clock's time.
-type Service { store Store, clock time.Clock } implements Api
+// Service implements Api over a Store provider, a clock, and an os/host.System capability.
+type Service { store Store, clock time.Clock, host host.System } implements Api
 
-// NewService constructs an Api Service backed by store and clock.
+// NewService constructs an Api Service backed by store and clock, with host telemetry unconfigured.
 func NewService(store Store, clock time.Clock) Service {
-	Service{store: store, clock: clock}
+	Service{store: store, clock: clock, host: unconfiguredHost}
+}
+
+// NewServiceWithHost constructs an Api Service backed by store, clock, and sys.
+func NewServiceWithHost(store Store, clock time.Clock, sys host.System) Service {
+	Service{store: store, clock: clock, host: sys}
 }
 
 func envelope(s Service, id CommandID, actor string, cmd Command) Envelope {

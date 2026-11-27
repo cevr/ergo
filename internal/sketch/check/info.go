@@ -8,7 +8,6 @@ import (
 	"sort"
 	"strings"
 
-	"ergo.local/prototype/internal/sketch/derive"
 	"ergo.local/prototype/internal/sketch/syntax"
 	v1 "ergo.local/prototype/runtime/v1"
 )
@@ -79,9 +78,10 @@ type Package struct {
 	Path  string
 	Name  string
 	Scope *Scope
-	// Derive is the package's derive record (derive.go): its plan
-	// functions, for importers, and the matchers its bundles lower.
-	Derive *derive.Package
+	// Derive is the package's content-mapper derive record (derive.go): its
+	// inspected mapper invocations and refused derive symbols.
+	Derive         *DeriveRecord
+	generatedFiles map[*syntax.File]bool
 	// cellConvs is, by cell type of this package, a cell conversion into
 	// it that the package makes (CellProvider).
 	cellConvs map[*Named]Conversion
@@ -106,8 +106,8 @@ type Package struct {
 	// LawExportedHelpers are the exported functions that would be law
 	// helpers (lawplace.go, rule 2) if they were not exported: every user
 	// in the package is a law, a test or a helper, declared in a file of
-	// laws (one with nothing else). ergo fix unexports the ones no other
-	// package names. In source order.
+	// laws or tests. ergo fix unexports the ones no other package names.
+	// In source order.
 	LawExportedHelpers []*syntax.FuncDecl
 	// LawHelpers are the declarations ergo fix moves beside their first
 	// user (lawplace.go), in source order.
@@ -212,6 +212,19 @@ func (p *Package) Files() []*syntax.File {
 	out := make([]*syntax.File, len(p.files))
 	for i, f := range p.files {
 		out[i] = f.syntax
+	}
+	return out
+}
+
+// SourceFiles returns only the package's caller-written source files (excluding
+// in-memory files synthesized by inline content mappers), in canonical order.
+func (p *Package) SourceFiles() []*syntax.File {
+	out := make([]*syntax.File, 0, len(p.files))
+	for _, f := range p.files {
+		if p.generatedFiles[f.syntax] || (f.syntax != nil && strings.HasPrefix(f.syntax.Name, "__ergo_derive_")) {
+			continue
+		}
+		out = append(out, f.syntax)
 	}
 	return out
 }
@@ -1264,6 +1277,13 @@ type Test struct {
 	// identical type whose drawn value a generated case may repeat
 	// (Law.Ties; runtime.md, Tests).
 	Ties [][]int
+	// Subjects are a top-level test's subjects (lawplace.go, rule 1), the
+	// ones it names first, then the ones its helpers name.
+	Subjects []LawSubject
+	// FixSubjects are its subjects as ergo fix reads them: with the
+	// exported declarations of a laws or tests file that only laws and tests
+	// use read as helpers too (Package.LawHelpers).
+	FixSubjects []LawSubject
 
 	file *fileInfo // the declaring file, selected while the test is checked
 }

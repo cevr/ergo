@@ -6,7 +6,7 @@ Tag: `default`. It is an original program, not a port. Its goldens were written 
 
 ## Layout
 
-The program is a module of packages (`ergo.mod`: `module regex`), in the Go layout:
+The program is a module of packages (`ergo.mod`: `module regexengine`), in the Go layout:
 
 | folder | what it holds |
 | --- | --- |

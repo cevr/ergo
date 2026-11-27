@@ -142,6 +142,9 @@ func (l *lowerer) declareName(d syntax.Decl) {
 	{
 		switch d := d.(type) {
 		case *syntax.TypeDecl:
+			if d.Derive != nil && d.TypeParams == nil && !syntax.IsProviderPlan(d.Derive) {
+				return
+			}
 			if tn, ok := l.info.Defs[d.Name].(*check.TypeName); ok {
 				l.typeName(tn)
 			}
@@ -246,6 +249,9 @@ func (l *lowerer) decl(d syntax.Decl) {
 	switch d := d.(type) {
 	case *syntax.ImportDecl:
 	case *syntax.TypeDecl:
+		if d.Derive != nil && d.TypeParams == nil && !syntax.IsProviderPlan(d.Derive) {
+			return
+		}
 		tn, ok := l.info.Defs[d.Name].(*check.TypeName)
 		if !ok {
 			ice(d.Name, "the type %s has no Defs entry", d.Name.Name)
@@ -1097,10 +1103,6 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 	}
 	if directives {
 		l.recordDeclAt(fc.owner, f.Decl, src)
-	}
-	if n := nativeOf(f); n != nil {
-		l.emitNative(b, fd.name, n, f) // pattern.go
-		return
 	}
 	var head strings.Builder
 	var params []*check.Var

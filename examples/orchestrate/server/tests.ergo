@@ -1,0 +1,521 @@
+import fstest
+import github.com/cevr/ergo/modules/orchestrate/memory
+import github.com/cevr/ergo/modules/orchestrate/orchestrate
+import http
+import io
+import json
+import mcp
+import mcp/httpmcp
+import mcpmem mcp/memory
+import net
+import option
+import os/host
+import rand
+import strings
+import sync
+import task
+import time
+
+type fixedSecure {
+	seq sync.Ref[int],
+} implements rand.Secure
+
+func Bytes(f fixedSecure, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	let c = sync.Modify(f.seq, func(cur int) (int, int) {
+		(cur, cur + 1)
+	})
+	let digits = "0123456789abcdef"
+	let mut out = ""
+	for i in 0..n {
+		let idx = (((c + i) % 16) + 16) % 16
+		out = out + strings.Slice(digits, idx, idx+1)
+	}
+	out
+}
+
+type steppedHost {
+	step sync.Ref[int],
+	caps []host.Status,
+} implements host.System
+
+func Status(h steppedHost, volumes []string) host.Status fails host.Unavailable | host.Malformed {
+	if h.caps.Len() == 0 {
+		return host.Unavailable{Target: "host", Reason: "no stepped snapshots"}
+	}
+	let idx = sync.Modify(h.step, func(i int) (int, int) {
+		let cur = if i < 0 {
+			0
+		} else if i >= h.caps.Len() {
+			h.caps.Len() - 1
+		} else {
+			i
+		}
+		(cur, cur + 1)
+	})
+	let st = try host.NewStatic(h.caps[idx], []host.Process{})
+	try st.Status(volumes)
+}
+
+func Processes(_ steppedHost) []host.Process fails host.Unavailable | host.Malformed {
+	[]host.Process{}
+}
+
+func mkStatus(loadOne float64, memAvailGiB int64, diskUsedGiB int64) host.Status {
+	let giB = int64(1073741824)
+	let totalMem = int64(32) * giB
+	let availMem = memAvailGiB * giB
+	let totalDisk = int64(200) * giB
+	let usedDisk = diskUsedGiB * giB
+	let freeDisk = totalDisk - usedDisk
+	host.Status{
+		Cores:  16,
+		Load:   host.LoadAvg{One: loadOne, Five: loadOne, Fifteen: loadOne, Running: 2, Entities: 120},
+		Memory: host.Memory{
+			TotalBytes:     totalMem,
+			AvailableBytes: availMem,
+			FreeBytes:      availMem,
+			UsedBytes:      totalMem - availMem,
+		},
+		Volumes: []host.Volume{
+			host.Volume{
+				Path:           "/workspaces",
+				TotalBytes:     totalDisk,
+				FreeBytes:      freeDisk,
+				AvailableBytes: freeDisk,
+				UsedBytes:      usedDisk,
+			},
+		},
+	}
+}
+
+func runSteppedWait(h steppedHost, policy orchestrate.ReadinessPolicy, manual time.Manual, timeoutDur duration) WaitResult fails orchestrate.InvalidInput {
+	let waitTask = task.Go() {
+		with context { time.Clock: manual, time.Scheduler: manual } {
+			RunWait(h, policy, timeoutDur)
+		}
+	}
+	manual.Advance(0ns)
+	for _ in 0..8 {
+		if manual.Sleepers() > 0 {
+			manual.Advance(1s)
+		}
+	}
+	try waitTask.Wait()
+}
+
+test SteppedHostWaitHysteresisAndTimeout {
+	let policy = orchestrate.ReadinessPolicy{
+		Volume:             "/workspaces",
+		MaxLoad:            16.0,
+		RecoveryMaxLoad:    13.6,
+		MinMemGiB:          8.0,
+		RecoveryMinMemGiB:  9.0,
+		MaxDiskPct:         93.0,
+		RecoveryMaxDiskPct: 90.0,
+		PollIntervalMs:     1000,
+		MaxBackoffMs:       4000,
+		BackoffMultiplier:  2,
+	}
+	let h = steppedHost{
+		step: sync.NewRef(0),
+		caps: []host.Status{
+			mkStatus(18.0, int64(16), int64(100)),
+			mkStatus(14.5, int64(16), int64(100)),
+			mkStatus(12.0, int64(16), int64(100)),
+		},
+	}
+	let manual = time.NewManual(1700000000)
+	let got = runSteppedWait(h, policy, manual, 20s) catch {
+	case orchestrate.InvalidInput:
+		assert false
+		return
+	}
+	assert got.Ready && !got.TimedOut && got.Polls == 3
+	assert got.Transitions.Len() == 2
+	assert got.Transitions[0].From == orchestrate.Ready && got.Transitions[0].To == orchestrate.Backpressure
+	assert got.Transitions[1].From == orchestrate.Backpressure && got.Transitions[1].To == orchestrate.Ready
+
+	let stuck = steppedHost{
+		step: sync.NewRef(0),
+		caps: []host.Status{
+			mkStatus(18.0, int64(16), int64(100)),
+			mkStatus(14.5, int64(16), int64(100)),
+		},
+	}
+	let manual2 = time.NewManual(1700000100)
+	let timed = runSteppedWait(stuck, policy, manual2, 2500ms) catch {
+	case orchestrate.InvalidInput:
+		assert false
+		return
+	}
+	assert !timed.Ready && timed.TimedOut && !timed.Report.Ready && timed.Report.State == "backpressure"
+}
+
+func runFollowTest(svc orchestrate.Service, h steppedHost, policy orchestrate.ReadinessPolicy, req orchestrate.EventsSinceInput, rec io.Recorder, manual time.Manual) int fails orchestrate.InvalidInput | orchestrate.StoreFailed {
+	let followTask = task.Go() {
+		with context { io.Stdout: rec, time.Clock: manual, time.Scheduler: manual } {
+			RunEventsFollow(svc, option.Some[host.System]{Value: h}, policy, req, 1s, true, 3)
+		}
+	}
+	manual.Advance(0ns)
+	let _ = svc.EventRecord(orchestrate.EventRecordInput{
+		CommandID: orchestrate.CommandID("evf-2"),
+		Actor:     "worker",
+		Repo:      "ergo",
+		Run:       "r1",
+		Kind:      "hand-back",
+		UnitID:    json.Absent,
+		Summary:   "live update",
+		SourceKey: json.Absent,
+		CreatedAt: json.Absent,
+	}) catch {
+	case _:
+		return 0
+	}
+	for _ in 0..8 {
+		if manual.Sleepers() > 0 {
+			manual.Advance(1s)
+		}
+	}
+	try followTask.Wait()
+}
+
+test EventsFollowStreamsAndDeduplicates {
+	let st = memory.New()
+	let clk = time.NewManual(1700000200)
+	let h = steppedHost{
+		step: sync.NewRef(0),
+		caps: []host.Status{
+			mkStatus(18.0, int64(16), int64(100)),
+			mkStatus(18.0, int64(16), int64(100)),
+			mkStatus(12.0, int64(16), int64(100)),
+		},
+	}
+	let svc = orchestrate.NewServiceWithHost(st, clk, h)
+	let _ = svc.EventRecord(orchestrate.EventRecordInput{
+		CommandID: orchestrate.CommandID("evf-1"),
+		Actor:     "root",
+		Repo:      "ergo",
+		Run:       "r1",
+		Kind:      "note",
+		UnitID:    json.Absent,
+		Summary:   "initial backlog",
+		SourceKey: json.Absent,
+		CreatedAt: json.Absent,
+	}) catch {
+	case _:
+		assert false
+		return
+	}
+	let rec = io.NewRecorder()
+	let manual = time.NewManual(1700000200)
+	let policy = orchestrate.DefaultReadinessPolicy()
+	let req = orchestrate.EventsSinceInput{
+		Repo:   json.Absent,
+		Run:    json.Absent,
+		Kind:   json.Absent,
+		UnitID: json.Absent,
+		Since:  json.Present[int]{Value: 0},
+		Limit:  json.Present[int]{Value: 50},
+		Source: json.Present[string]{Value: "event_log"},
+	}
+	let emitted = runFollowTest(svc, h, policy, req, rec, manual) catch {
+	case _:
+		assert false
+		return
+	}
+	assert emitted == 4
+	let lines = strings.Split(strings.TrimSuffix(rec.Text(), "\n"), "\n")
+	assert lines.Len() == 4
+	assert strings.Contains(lines[0], "initial backlog")
+	assert strings.Contains(lines[1], "\"to\":{\"_tag\":\"Backpressure\"}")
+	assert strings.Contains(lines[2], "live update")
+	assert strings.Contains(lines[3], "\"to\":{\"_tag\":\"Ready\"}")
+}
+
+test MCPStdioResourcesSubscribeAndPush {
+	let st = memory.New()
+	let clk = time.NewManual(1700000300)
+	let h = steppedHost{step: sync.NewRef(0), caps: []host.Status{mkStatus(2.0, int64(20), int64(90))}}
+	let svc = orchestrate.NewServiceWithHost(st, clk, h)
+	let n = mcp.NewNotifier(32)
+	let hub = NewControlHub(st, svc, h, clk, orchestrate.DefaultReadinessPolicy(), option.Some[mcp.Notifier]{Value: n}, option.None)
+	let msgs = []string{
+		"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{},\"clientInfo\":{\"name\":\"t\",\"version\":\"1\"}}}",
+		"{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}",
+		"{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"resources/list\"}",
+		"{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"resources/subscribe\",\"params\":{\"uri\":\"orchestrate://run/ergo/wf10/events\"}}",
+		"{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\"name\":\"unit-open\",\"arguments\":{\"commandID\":\"ms-1\",\"actor\":\"root\",\"repo\":\"ergo\",\"run\":\"wf10\",\"id\":\"U1\",\"title\":\"Push unit\",\"requires\":[\"acceptance\"]}}}",
+		"{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"resources/read\",\"params\":{\"uri\":\"orchestrate://run/ergo/wf10/summary\"}}",
+		"{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"resources/read\",\"params\":{\"uri\":\"orchestrate://host/readiness\"}}",
+		"{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"resources/read\",\"params\":{\"uri\":\"orchestrate://missing/nope\"}}",
+		"{\"jsonrpc\":\"2.0\",\"id\":8,\"method\":\"resources/unsubscribe\",\"params\":{\"uri\":\"orchestrate://run/ergo/wf10/events\"}}",
+		"{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/call\",\"params\":{\"name\":\"event-record\",\"arguments\":{\"commandID\":\"ms-2\",\"actor\":\"root\",\"repo\":\"ergo\",\"run\":\"wf10\",\"kind\":\"status\",\"summary\":\"after-unsub\"}}}",
+	}
+	let tr = mcpmem.New(msgs)
+	let readCount = RunStdioMCP(hub, n, tr)
+	mcp.Close(n)
+	assert readCount == msgs.Len()
+	let sent = tr.Sent()
+	assert strings.Contains(sent[0], "\"subscribe\":true")
+	assert strings.Contains(sent[1], "orchestrate://host/readiness") && strings.Contains(sent[1], "orchestrate://host/status")
+	let mut sawEventsUpdated = false
+	let mut sawSummaryUpdated = false
+	let mut sawLogAfterOpen = false
+	let mut afterUnsubEventsNotifs = 0
+	let mut afterId9 = false
+	for line in sent {
+		if strings.Contains(line, "\"id\":9") {
+			afterId9 = true
+		}
+		if strings.Contains(line, "notifications/resources/updated") && strings.Contains(line, "orchestrate://run/ergo/wf10/events") {
+			if afterId9 {
+				afterUnsubEventsNotifs = afterUnsubEventsNotifs + 1
+			} else {
+				sawEventsUpdated = true
+			}
+		}
+		if strings.Contains(line, "notifications/resources/updated") && strings.Contains(line, "orchestrate://run/ergo/wf10/summary") {
+			sawSummaryUpdated = true
+		}
+		if strings.Contains(line, "notifications/message") && strings.Contains(line, "unit-opened") {
+			sawLogAfterOpen = true
+		}
+	}
+	assert sawEventsUpdated && !sawSummaryUpdated && sawLogAfterOpen && afterUnsubEventsNotifs == 0
+}
+
+func runHTTPMCPStreamExchange(client httpmcp.Client, net http.Handler, sess httpmcp.Sessions, sid string) []mcp.Notification {
+	let sseTask = task.Go() {
+		let mut acc = []mcp.Notification{}
+		client.ReadEvents(func(ev httpmcp.NotificationEvent) fails http.SinkFailed {
+			acc = acc.Append(ev.Notification)
+		}) catch {
+		case _:
+		}
+		acc
+	}
+	if !httpmcp.WaitStream(sess, sid) {
+		httpmcp.CloseStreams(sess, sid)
+		return []mcp.Notification{}
+	}
+	let _ = client.Call("{\"jsonrpc\":\"2.0\",\"id\":10,\"method\":\"tools/call\",\"params\":{\"name\":\"event-record\",\"arguments\":{\"commandID\":\"hsse-1\",\"actor\":\"root\",\"repo\":\"ergo\",\"run\":\"wf10\",\"kind\":\"dispatched\",\"summary\":\"worker start\"}}}") catch {
+	case _:
+		httpmcp.CloseStreams(sess, sid)
+		return []mcp.Notification{}
+	}
+	let _ = net.Send(http.Request{Method: "GET", Path: "/readiness", RawPath: "/readiness", Query: []http.Field{}, Header: []http.Field{}, Body: http.Buffered{Text: ""}}) catch {
+	case _:
+		httpmcp.CloseStreams(sess, sid)
+		return []mcp.Notification{}
+	}
+	httpmcp.CloseStreams(sess, sid)
+	sseTask.Wait()
+}
+
+test MCPHTTPInMemorySSEPushAndEndpoints {
+	let st = memory.New()
+	let clk = time.NewManual(1700000400)
+	let h = steppedHost{
+		step: sync.NewRef(0),
+		caps: []host.Status{
+			mkStatus(2.0, int64(20), int64(90)),
+			mkStatus(19.0, int64(20), int64(90)),
+		},
+	}
+	let svc = orchestrate.NewServiceWithHost(st, clk, h)
+	let sess = httpmcp.NewSessions(fixedSecure{seq: sync.NewRef(1)})
+	let hub = NewControlHub(st, svc, h, clk, orchestrate.DefaultReadinessPolicy(), option.None, option.Some[httpmcp.Sessions]{Value: sess})
+	let ep = httpmcp.NewFull(hub.Full, httpmcp.Options{
+		AllowedOrigins: []string{},
+		MaxBodyBytes:   1048576,
+		Sessions:       httpmcp.Stateful{Store: sess},
+	})
+	let net = http.InMemory(func(r http.Request) http.Response needs http.Streaming {
+		with context { time.Clock: clk, time.Scheduler: clk } {
+			DispatchHTTP(hub, ep, r)
+		}
+	})
+
+	let hz = net.Send(http.Request{Method: "GET", Path: "/healthz", RawPath: "/healthz", Query: []http.Field{}, Header: []http.Field{}, Body: http.Buffered{Text: ""}}) catch {
+	case _:
+		assert false
+		return
+	}
+	assert hz.Status == 200
+
+	let r1 = net.Send(http.Request{Method: "GET", Path: "/readiness", RawPath: "/readiness", Query: []http.Field{}, Header: []http.Field{}, Body: http.Buffered{Text: ""}}) catch {
+	case _:
+		assert false
+		return
+	}
+	assert r1.Status == 200 && strings.Contains(r1.Body, "\"ready\":true")
+
+	let client = httpmcp.NewClient(net, "/mcp")
+	let _ = client.Initialize("test-http", "1.0") catch {
+	case _:
+		assert false
+		return
+	}
+	let sid = client.SessionID()
+	if sid == "" {
+		assert false
+		return
+	}
+	client.Subscribe("orchestrate://run/ergo/wf10/events") catch {
+	case _:
+		assert false
+		return
+	}
+	client.Subscribe("orchestrate://host/readiness") catch {
+	case _:
+		assert false
+		return
+	}
+	let gotEvents = runHTTPMCPStreamExchange(client, net, sess, sid)
+	assert gotEvents.Len() >= 4
+	let mut sawEventURI = false
+	let mut sawReadinessURI = false
+	for ev in gotEvents {
+		match mcp.NotificationURI(ev) {
+		case option.Some[string] as u:
+			if u.Value == "orchestrate://run/ergo/wf10/events" {
+				sawEventURI = true
+			}
+			if u.Value == "orchestrate://host/readiness" {
+				sawReadinessURI = true
+			}
+		case option.None:
+		}
+	}
+	assert sawEventURI && sawReadinessURI
+
+	let evJSON = net.Send(http.Request{Method: "GET", Path: "/events", RawPath: "/events", Query: []http.Field{http.Field{Name: "repo", Value: "ergo"}, http.Field{Name: "run", Value: "wf10"}, http.Field{Name: "limit", Value: "5"}}, Header: []http.Field{}, Body: http.Buffered{Text: ""}}) catch {
+	case _:
+		assert false
+		return
+	}
+	assert evJSON.Status == 200 && strings.Contains(evJSON.Body, "worker start")
+}
+
+type sseLoopbackContract {
+	RunCheck() bool,
+	law LoopbackSSEReceivesLivePush() {
+		RunCheck()
+	},
+}
+
+type loopbackSSEProvider {
+	netHost   net.Host,
+	clientNet http.Remote,
+	limits    http.Limits,
+} implements sseLoopbackContract
+
+func emptyHTTPResponse() http.Response {
+	http.Response{Status: 0, Header: []http.Field{}, Body: ""}
+}
+
+func recordLoopbackEvent(svc orchestrate.Service) {
+	let _ = svc.EventRecord(orchestrate.EventRecordInput{
+		CommandID: orchestrate.CommandID("lb-1"),
+		Actor:     "root",
+		Repo:      "ergo",
+		Run:       "lb",
+		Kind:      "status",
+		UnitID:    json.Absent,
+		Summary:   "loopback-pushed",
+		SourceKey: json.Absent,
+		CreatedAt: json.Absent,
+	}) catch {
+	case _:
+		orchestrate.LedgerEvent{
+			ID:        0,
+			Repo:      "ergo",
+			Run:       "lb",
+			Kind:      "status",
+			UnitID:    option.None,
+			Summary:   "",
+			Actor:     "",
+			CreatedAt: "",
+			SourceKey: option.None,
+		}
+	}
+}
+
+func RunCheck(p loopbackSSEProvider) bool {
+	let st = memory.New()
+	let clk = time.NewManual(1700000500)
+	let h = steppedHost{step: sync.NewRef(0), caps: []host.Status{mkStatus(2.0, int64(20), int64(90))}}
+	let svc = orchestrate.NewServiceWithHost(st, clk, h)
+	let sess = httpmcp.NewSessions(fixedSecure{seq: sync.NewRef(10)})
+	let hub = NewControlHub(st, svc, h, clk, orchestrate.DefaultReadinessPolicy(), option.None, option.Some[httpmcp.Sessions]{Value: sess})
+	let ep = httpmcp.NewFull(hub.Full, httpmcp.Options{
+		AllowedOrigins: []string{},
+		MaxBodyBytes:   1048576,
+		Sessions:       httpmcp.Stateful{Store: sess},
+	})
+	let listener = p.netHost.Listen("127.0.0.1:0") catch {
+	case _:
+		return false
+	}
+	let addr = listener.Addr()
+	let srvTask = task.Go() {
+		with context { time.Clock: clk, time.Scheduler: clk } {
+			http.Serve(listener, p.limits, func(r http.Request) http.Response needs http.Streaming {
+				DispatchHTTP(hub, ep, r)
+			}) catch {
+			case http.InvalidLimits:
+			}
+		}
+		0
+	}
+	let received = sync.NewRef[string]("")
+	let readerTask = task.Go() {
+		let _ = p.clientNet.SendURLInto(
+			http.URLRequest{
+				URL:         "http://\(addr)/events?since=0",
+				Method:      "GET",
+				Header:      []http.Field{http.Field{Name: "Accept", Value: "text/event-stream"}},
+				Credentials: []http.Credential{},
+				Body:        "",
+			},
+			http.AnySuccess,
+			func(part string) fails http.SinkFailed {
+				let joined = sync.Modify(received, func(cur string) (string, string) {
+					let next = cur + part
+					(next, next)
+				})
+				if strings.Contains(joined, "loopback-pushed") {
+					return http.SinkFailed{Reason: "done"}
+				}
+			},
+		) catch {
+		case _:
+			emptyHTTPResponse()
+		}
+		0
+	}
+	let _ = WaitSSEStream(hub)
+	recordLoopbackEvent(svc)
+	let _ = PollLedgerAndNotify(hub)
+	let _ = readerTask.Wait()
+	CloseAllSSE(hub)
+	srvTask.Stop()
+	strings.Contains(received.Get(), "loopback-pushed")
+}
+
+func makeLoopbackProvider() loopbackSSEProvider fails http.InvalidClient | http.InvalidLimits needs fstest.TestLoopback {
+	let limits = http.Limits{MaxBodyBytes: 1048576, MaxHeaderBytes: 65536, IdleTimeout: 5s, ReadHeaderTimeout: 5s, ReadBodyTimeout: 5s}
+	loopbackSSEProvider{
+		netHost:   net.NewTestHost(),
+		clientNet: try http.NewTestNet(limits, http.NoRedirects),
+		limits:    limits,
+	}
+}
+
+let overLoopbackSSE = context fails http.InvalidClient | http.InvalidLimits needs fstest.TestLoopback {
+	sseLoopbackContract: try makeLoopbackProvider(),
+}

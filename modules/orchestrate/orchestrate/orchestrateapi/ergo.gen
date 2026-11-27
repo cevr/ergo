@@ -1,5 +1,5 @@
 kind api
 generator ergo gen api
 subject github.com/cevr/ergo/modules/orchestrate/orchestrate.Api
-contract sha256:c5edb7e4bbe03ab62029c00a4433f7f2ff2106b78e0551577e7ae36c6bd8f0da
-digest sha256:9653f3f9c80f177f3b7a5f448eca85eca83c1dffa242b180c583c1511ce7947e
+contract sha256:697f2c8d3bddcee666388e62202dce66d554d10b37819522f69416fccb7fea1a
+digest sha256:ecd93d17fd0452a1dbc5bdfd31297392b097f2f2384979940c88175d35c519d4

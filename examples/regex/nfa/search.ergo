@@ -1,10 +1,10 @@
 // Inside matching keeps the original pattern, before Search's .* prefix
 // hides its leading literal. Compiled and Simulation stay the reference.
 
-import regex/engine
-import regex/syntax
+import regexengine/engine
+import regexengine/syntax
 import strings
-import regex/backtrack
+import regexengine/backtrack
 import slices
 
 // Search compiles an Inside matcher; Compile still matches Whole texts.

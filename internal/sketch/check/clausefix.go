@@ -21,21 +21,26 @@ type Options struct {
 	// q137, and records them as the clauses that write them
 	// (Package.Clauses). No check, build or test path sets it.
 	Infer bool
-	// placeLaws reports S115 whatever lawPlacementReported says
+	// PlaceLaws reports S115 whatever lawPlacementReported says
 	// (checkWith; lawplace.go).
-	placeLaws bool
+	PlaceLaws bool
 	// mapsRewritten is set on the second check of a package whose Map
 	// forms were rewritten (mapprovider.go), which rewrites nothing more.
 	mapsRewritten bool
 	// shapesWritten is set on the check of a package after its providers'
 	// normal forms were derived (mapshape.go), which derives no more.
 	shapesWritten bool
+	// MapperCache caches validated check-time content mapper outputs.
+	MapperCache MapperCache
+	// MapperBuildID identifies the compiler version/build for sound mapper cache keys.
+	MapperBuildID string
+	expanded      *DeriveExpandResult
 }
 
 // checkWith is Check, with S115 reported when placeLaws is set
 // (lawplace.go, lawPlacementReported).
 func checkWith(path string, files []*syntax.File, imp Importer, placeLaws bool) (*Package, []Diagnostic) {
-	return check(path, files, imp, nil, Options{placeLaws: placeLaws})
+	return check(path, files, imp, nil, Options{PlaceLaws: placeLaws})
 }
 
 // CheckOptions checks like Check, in the modes opts selects.
