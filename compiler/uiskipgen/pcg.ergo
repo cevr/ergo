@@ -1,0 +1,97 @@
+import bits
+import slices
+
+// PCG is the 128-bit state of a DXSM permuted congruential generator matching
+// Go's math/rand/v2.PCG.
+type PCG {
+	Hi uint64,
+	Lo uint64,
+}
+
+let pcgMulHi = uint64(2549297995355413924)
+let pcgMulLo = uint64(4865540595714422341)
+let pcgIncHi = uint64(6364136223846793005)
+let pcgIncLo = uint64(1442695040888963407)
+let pcgCheapMul uint64 = 0xda942042e4dd58b5
+
+// NewPCG initializes a PCG state from seed and stream values.
+func NewPCG(seed uint64, stream uint64) PCG {
+	PCG{Hi: seed, Lo: stream}
+}
+
+// NextUint64 advances p and returns the next uniformly distributed 64-bit word.
+func NextUint64(p mut PCG) uint64 {
+	let (hi0, lo) = bits.Mul64(p.Lo, pcgMulLo)
+	let hi = hi0 + p.Hi*pcgMulLo + p.Lo*pcgMulHi
+	let (nextLo, c) = bits.Add64(lo, pcgIncLo, uint64(0))
+	let (nextHi, _) = bits.Add64(hi, pcgIncHi, c)
+	p.Lo = nextLo
+	p.Hi = nextHi
+	let mut h = nextHi ^ (nextHi >> 32)
+	h = h * pcgCheapMul
+	h = h ^ (h >> 48)
+	h * (nextLo | uint64(1))
+}
+
+// IntN returns a pseudo-random integer in [0, n) using unbiased Lemire reduction.
+func IntN(p mut PCG, n int) int {
+	if n <= 1 {
+		return 0
+	}
+	let un = uint64(n)
+	if (un & (un - uint64(1))) == uint64(0) {
+		return int(NextUint64(p) & (un - uint64(1)))
+	}
+	let (hi0, lo0) = bits.Mul64(NextUint64(p), un)
+	let mut hi = hi0
+	let mut lo = lo0
+	if lo < un {
+		let thresh = (uint64(0) - un) % un
+		for lo < thresh {
+			let (nhi, nlo) = bits.Mul64(NextUint64(p), un)
+			hi = nhi
+			lo = nlo
+		}
+	}
+	int(hi)
+}
+
+// ShuffleIndices returns a Fisher-Yates shuffled copy of indices using Go v2 ordering.
+func ShuffleIndices(p mut PCG, indices []uint32) []uint32 {
+	let mut out = slices.Clone(indices)
+	let mut i = len(out) - 1
+	for i > 0 {
+		let j = IntN(p, i+1)
+		let tmp = out[i]
+		out[i] = out[j]
+		out[j] = tmp
+		i = i - 1
+	}
+	out
+}
+
+law PCGProducesSameSequenceGivenSameSeed(seed uint64, stream uint64) {
+	let mut a = NewPCG(seed, stream)
+	let mut b = NewPCG(seed, stream)
+	NextUint64(&a) == NextUint64(&b) && NextUint64(&a) == NextUint64(&b) && IntN(&a, 17) == IntN(&b, 17)
+}
+
+law IntNAlwaysWithinRange(seed uint64, rawBound uint16) {
+	let bound = 1 + int(rawBound)%10000
+	let mut p = NewPCG(seed, uint64(0x51c9))
+	let v = IntN(&p, bound)
+	v >= 0 && v < bound
+}
+
+test PCGShufflePreservesElements {
+	let mut a = NewPCG(uint64(8), uint64(0x51c9))
+	let base = []uint32{uint32(0), uint32(1), uint32(2), uint32(3), uint32(4)}
+	let shuf = ShuffleIndices(&a, base)
+	assert len(shuf) == len(base)
+	for x in base {
+		assert slices.Contains(shuf, x)
+	}
+	let mut p2 = NewPCG(uint64(1), uint64(0x51c9))
+	let v0 = IntN(&p2, 17)
+	assert v0 >= 0 && v0 < 17
+}

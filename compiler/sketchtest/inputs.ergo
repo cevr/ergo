@@ -1,0 +1,307 @@
+import dense
+import filepath
+import fs
+import fstest
+import option
+import strings
+
+// InputTag identifies a named source fixture stored in InputArena.
+type InputTag {}
+
+// Input pairs a source fixture name with its Ergo source text.
+type Input {
+	Name string,
+	Src  string,
+}
+
+// InputCountMismatch indicates that loaded repository or corpus inputs did
+// not match expected repository counts.
+type InputCountMismatch {
+	Message string,
+}
+
+// InputArena holds source fixtures in flat Structure-of-Arrays tables backed
+// by an interned string pool.
+type InputArena {
+	Pool   dense.Strings,
+	Inputs dense.Count[InputTag],
+	Names  dense.Col[InputTag, dense.ID[dense.Str]],
+	Srcs   dense.Col[InputTag, dense.ID[dense.Str]],
+}
+
+// NewInputArena constructs an empty InputArena.
+func NewInputArena() InputArena {
+	InputArena{
+		Pool:   dense.NewStrings(),
+		Inputs: dense.NewCount[InputTag](),
+		Names:  dense.NewCol[InputTag, dense.ID[dense.Str]](),
+		Srcs:   dense.NewCol[InputTag, dense.ID[dense.Str]](),
+	}
+}
+
+// AddInput interns name and src into a and returns its dense InputTag ID.
+func AddInput(a mut InputArena, name string, src string) dense.ID[InputTag] {
+	let id = dense.Next(&a.Inputs)
+	dense.Push(&a.Names, dense.InternText(&a.Pool, name))
+	dense.Push(&a.Srcs, dense.InternText(&a.Pool, src))
+	id
+}
+
+// FirstWord returns the first non-comment, non-blank word of text up to whitespace, '(' or '{'.
+func FirstWord(text string) string {
+	for line in strings.Split(text, "\n") {
+		let t = strings.TrimSpace(line)
+		if t == "" || strings.HasPrefix(t, "//") {
+			continue
+		}
+		let words = strings.FieldsFunc(t, func(r rune) bool { r == ' ' || r == '\t' || r == '(' || r == '{' })
+		if len(words) > 0 {
+			return words[0]
+		}
+		return ""
+	}
+	""
+}
+
+// WrapChunk wraps top-level-less code chunks inside `func snippet()`.
+func WrapChunk(chunk string) string {
+	let first = FirstWord(chunk)
+	if first == "import" || first == "type" || first == "func" || first == "let" || first == "test" || first == "law" || first == "extern" {
+		return chunk + "\n"
+	}
+	"func snippet() {\n" + chunk + "\n}\n"
+}
+
+func depthAtOffset(markOffsets []int, markDepths []int, offset int) int {
+	let mut d = 0
+	for i in 0..len(markOffsets) {
+		if markOffsets[i] >= offset {
+			break
+		}
+		d = markDepths[i]
+	}
+	d
+}
+
+// SplitChunks splits a fenced block at blank lines outside brackets, parens, and braces.
+func SplitChunks(text string) []string {
+	let lx = LexAll(text)
+	let mut markOffsets = []int{}
+	let mut markDepths = []int{}
+	let mut depth = 0
+	for i in 0..dense.Total(lx.Lexemes) {
+		let id = dense.IDAt(lx.Lexemes, i)
+		let k = dense.Of(lx.TokKind, id)
+		if k == TokLBrace || k == TokLParen || k == TokLBrack {
+			depth = depth + 1
+		} else if k == TokRBrace || k == TokRParen || k == TokRBrack {
+			depth = depth - 1
+		}
+		markOffsets = markOffsets.Append(int(dense.Of(lx.TokStart, id)))
+		markDepths = markDepths.Append(depth)
+	}
+	let mut chunks = []string{}
+	let mut current = []string{}
+	let mut offset = 0
+	for line in strings.Split(text, "\n") {
+		if strings.TrimSpace(line) == "" && depthAtOffset(markOffsets, markDepths, offset) == 0 {
+			if len(current) > 0 {
+				chunks = chunks.Append(strings.Join(current, "\n"))
+				current = []string{}
+			}
+		} else {
+			current = current.Append(line)
+		}
+		offset = offset + line.Len() + 1
+	}
+	if len(current) > 0 {
+		chunks = chunks.Append(strings.Join(current, "\n"))
+	}
+	chunks
+}
+
+func isGoFenceStart(line string) bool {
+	if !strings.HasPrefix(line, "```go") {
+		return false
+	}
+	strings.TrimSpace(line[5:]) == ""
+}
+
+// FenceInputs extracts wrapped ```go fence chunks from a markdown specification file.
+func FenceInputs(fileName string, markdown string) []Input {
+	let lines = strings.Split(markdown, "\n")
+	let mut inputs = []Input{}
+	let mut fence = 0
+	let mut i = 0
+	for i < len(lines) {
+		if !isGoFenceStart(lines[i]) {
+			i = i + 1
+			continue
+		}
+		fence = fence + 1
+		i = i + 1
+		let mut body = []string{}
+		for i < len(lines) && !strings.HasPrefix(lines[i], "```") {
+			body = body.Append(lines[i])
+			i = i + 1
+		}
+		let chunks = SplitChunks(strings.Join(body, "\n"))
+		for c in 0..len(chunks) {
+			let cname = "docs/spec/\(fileName)#fence\(fence).\(c + 1)"
+			inputs = inputs.Append(Input{Name: cname, Src: WrapChunk(chunks[c])})
+		}
+		i = i + 1
+	}
+	inputs
+}
+
+// Corpus loads the sketch-eval corpus beneath root split into v0 and superseded sets.
+func Corpus(root string) ([]Input, []Input) fails fs.NotFound | fs.Denied | fs.Failed | filepath.NotRelative | InputCountMismatch needs fs.Files {
+	let dir = filepath.Join([]string{root, "internal", "sketch", "syntax", "testdata", "corpus"})
+	let walked = try fs.Walk(dir)
+	let mut v0 = []Input{}
+	let mut superseded = []Input{}
+	for p in walked {
+		let info = try fs.Files.Lstat(p)
+		if info.Dir {
+			continue
+		}
+		let data = try fs.Files.ReadFile(p)
+		let rel = try filepath.Rel(dir, p)
+		let entry = Input{Name: "corpus/" + rel, Src: data}
+		let top = match strings.Cut(rel, "/") {
+		case option.Some{Value: h}:
+			h.Before
+		case option.None:
+			rel
+		}
+		if top == "sketch-eval-8" || top == "sketch-eval-9" {
+			v0 = v0.Append(entry)
+		} else {
+			superseded = superseded.Append(entry)
+		}
+	}
+	if len(v0) != 25 || len(superseded) != 53 {
+		return InputCountMismatch{Message: "corpus has \(len(v0)) v0 and \(len(superseded)) superseded files, want 25 and 53"}
+	}
+	(v0, superseded)
+}
+
+// Repository loads the migrated examples and sketch edition example beneath root.
+func Repository(root string) []Input fails fs.NotFound | fs.Denied | fs.Failed | filepath.NotRelative | InputCountMismatch needs fs.Files {
+	let migDir = filepath.Join([]string{root, "internal", "sketch", "sketchtest", "testdata", "migrated"})
+	let names = try fs.Files.ReadDir(migDir)
+	let mut paths = []string{}
+	for name in names {
+		if strings.HasSuffix(name, ".ergo") {
+			paths = paths.Append(filepath.Join([]string{migDir, name}))
+		}
+	}
+	paths = paths.Append(filepath.Join([]string{root, "examples", "editions", "sketch", "main.ergo"}))
+	let mut inputs = []Input{}
+	for p in paths {
+		let data = try fs.Files.ReadFile(p)
+		let rel = try filepath.Rel(root, p)
+		inputs = inputs.Append(Input{Name: rel, Src: data})
+	}
+	if len(inputs) != 6 {
+		return InputCountMismatch{Message: "found \(len(inputs)) repository inputs, want 6"}
+	}
+	inputs
+}
+
+// SpecFences loads and extracts all ```go fence chunks from docs/spec/*.md beneath root.
+func SpecFences(root string) []Input fails fs.NotFound | fs.Denied | fs.Failed | InputCountMismatch needs fs.Files {
+	let specDir = filepath.Join([]string{root, "docs", "spec"})
+	let names = try fs.Files.ReadDir(specDir)
+	let mut inputs = []Input{}
+	for name in names {
+		if !strings.HasSuffix(name, ".md") {
+			continue
+		}
+		let data = try fs.Files.ReadFile(filepath.Join([]string{specDir, name}))
+		for item in FenceInputs(name, data) {
+			inputs = inputs.Append(item)
+		}
+	}
+	if len(inputs) < 20 {
+		return InputCountMismatch{Message: "found \(len(inputs)) spec fence chunks; extraction broken"}
+	}
+	inputs
+}
+
+// Positive loads every positive parser/formatter input beneath root alongside GrammarFixtures.
+func Positive(root string) []Input fails fs.NotFound | fs.Denied | fs.Failed | filepath.NotRelative | InputCountMismatch needs fs.Files {
+	let (v0, _) = try Corpus(root)
+	let repo = try Repository(root)
+	let fences = try SpecFences(root)
+	let mut inputs = v0
+	for r in repo {
+		inputs = inputs.Append(r)
+	}
+	for f in fences {
+		inputs = inputs.Append(f)
+	}
+	for g in GrammarFixtures() {
+		inputs = inputs.Append(Input{Name: "grammar/" + g.Name, Src: g.Src})
+	}
+	inputs
+}
+
+func populateMockInputs(root string) fails fs.NotFound | fs.Denied | fs.Failed needs fs.Writes {
+	let corpus8 = filepath.Join([]string{root, "internal", "sketch", "syntax", "testdata", "corpus", "sketch-eval-8"})
+	let corpusOld = filepath.Join([]string{root, "internal", "sketch", "syntax", "testdata", "corpus", "sketch-eval-7"})
+	let migDir = filepath.Join([]string{root, "internal", "sketch", "sketchtest", "testdata", "migrated"})
+	let exDir = filepath.Join([]string{root, "examples", "editions", "sketch"})
+	let specDir = filepath.Join([]string{root, "docs", "spec"})
+	try fs.Writes.MkdirAll(corpus8)
+	try fs.Writes.MkdirAll(corpusOld)
+	try fs.Writes.MkdirAll(migDir)
+	try fs.Writes.MkdirAll(exDir)
+	try fs.Writes.MkdirAll(specDir)
+	for i in 0..25 {
+		try fs.Writes.WriteFile(filepath.Join([]string{corpus8, "f\(i).ergo"}), "func f\(i)() {}\n")
+	}
+	for i in 0..53 {
+		try fs.Writes.WriteFile(filepath.Join([]string{corpusOld, "o\(i).ergo"}), "func o\(i)() {}\n")
+	}
+	for i in 0..5 {
+		try fs.Writes.WriteFile(filepath.Join([]string{migDir, "m\(i).ergo"}), "func m\(i)() {}\n")
+	}
+	try fs.Writes.WriteFile(filepath.Join([]string{exDir, "main.ergo"}), "func main() {}\n")
+	let mut specDoc = "# Spec\n\n```go\n"
+	for i in 0..21 {
+		specDoc = specDoc + "let x\(i) = \(i)\n\n"
+	}
+	specDoc = specDoc + "```\n"
+	try fs.Writes.WriteFile(filepath.Join([]string{specDir, "overview.md"}), specDoc)
+}
+
+test InMemoryCorpusRepositoryAndSpecFences {
+	assert FirstWord("// comment\n\nfunc Foo() {}\n") == "func"
+	assert WrapChunk("let a = 1") == "let a = 1\n"
+	assert WrapChunk("a + 1") == "func snippet() {\na + 1\n}\n"
+	let md = "intro\n```go\nlet x = {\n\t1\n}\n\nx + 1\n```\n"
+	let fcs = FenceInputs("lang.md", md)
+	assert len(fcs) == 2
+	assert fcs[0].Name == "docs/spec/lang.md#fence1.1"
+	assert fcs[1].Name == "docs/spec/lang.md#fence1.2"
+	assert fcs[1].Src == "func snippet() {\nx + 1\n}\n"
+	let mem = fstest.NewMemory()
+	with context { fs.Files: mem, fs.Writes: mem } {
+		populateMockInputs("/repo") catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			assert false
+		}
+		let all = Positive("/repo") catch {
+		case fs.NotFound, fs.Denied, fs.Failed, filepath.NotRelative, InputCountMismatch:
+			assert false
+			[]Input{}
+		}
+		let mut arena = NewInputArena()
+		for item in all {
+			let _ = AddInput(&arena, item.Name, item.Src)
+		}
+		assert dense.Total(arena.Inputs) == 25+6+21+len(GrammarFixtures())
+	}
+}

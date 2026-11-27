@@ -1,0 +1,96 @@
+{
+  "about": "Pure-Ergo reflectread path codec, metadata parser, and DoD value-graph mutants.",
+  "mutants": [
+    {
+      "name": "selfhost-reflectread-uvarint-cont",
+      "origin": "selfhost-reflectread",
+      "file": "compiler/reflectread/path.ergo",
+      "decl": "DecodeUvarint",
+      "from": "\t\tif b < byte(0x80) {\n",
+      "to": "\t\tif b <= byte(0x80) {\n",
+      "rule": "LEB128 continuation bit 0x80 must continue decoding rather than terminating",
+      "killers": ["compiler/reflectread:law:UvarintRoundTrips"],
+      "anchor": {
+        "tests": ["compiler/reflectread:law:UvarintRoundTrips"]
+      }
+    },
+    {
+      "name": "selfhost-reflectread-format-colon",
+      "origin": "selfhost-reflectread",
+      "file": "compiler/reflectread/path.ergo",
+      "decl": "FormatPath",
+      "from": "\t\tsb.WriteByte(':')\n",
+      "to": "\t\tsb.WriteByte('-')\n",
+      "rule": "FormatPath must separate path step kind from payload with ':'",
+      "killers": ["compiler/reflectread:PathStepsEncodeDecodeAndFormat"],
+      "anchor": {
+        "tests": ["compiler/reflectread:PathStepsEncodeDecodeAndFormat"]
+      }
+    },
+    {
+      "name": "selfhost-reflectread-comparable-slice",
+      "origin": "selfhost-reflectread",
+      "file": "compiler/reflectread/meta.ergo",
+      "decl": "comparableWalk",
+      "from": "\tif k == KindInvalid || k == KindSlice || k == KindMap || k == KindFunc {\n",
+      "to": "\tif k == KindInvalid || k == KindMap || k == KindFunc {\n",
+      "rule": "Slice types must never report Comparable == true",
+      "killers": ["compiler/reflectread:law:MetaTableTextAndBinaryRoundTrip"],
+      "anchor": {
+        "tests": ["compiler/reflectread:law:MetaTableTextAndBinaryRoundTrip"]
+      }
+    },
+    {
+      "name": "selfhost-reflectread-meta-validate-field",
+      "origin": "selfhost-reflectread",
+      "file": "compiler/reflectread/meta.ergo",
+      "decl": "validateMetaRefs",
+      "from": "\t\t\tif int(ft) >= n {\n",
+      "to": "\t\t\tif int(ft) < 0 {\n",
+      "rule": "validateMetaRefs must reject out-of-range field type indices",
+      "killers": ["compiler/reflectread:MetaTableDisplayAndRejectMalformed"],
+      "anchor": {
+        "tests": ["compiler/reflectread:MetaTableDisplayAndRejectMalformed"]
+      }
+    },
+    {
+      "name": "selfhost-reflectread-rank-int-sign",
+      "origin": "selfhost-reflectread",
+      "file": "compiler/reflectread/value.ergo",
+      "decl": "rankScalar",
+      "from": "\t\treturn appendBEUint64(dst.Append(byte(8)), raw^(uint64(1)<<63))\n",
+      "to": "\t\treturn appendBEUint64(dst.Append(byte(8)), raw)\n",
+      "rule": "Rank must flip the sign bit on signed integers so negatives sort before positives",
+      "killers": ["compiler/reflectread:law:RankOrdersNegativeBelowPositive"],
+      "anchor": {
+        "tests": ["compiler/reflectread:law:RankOrdersNegativeBelowPositive"]
+      }
+    },
+    {
+      "name": "selfhost-reflectread-walk-dedup",
+      "origin": "selfhost-reflectread",
+      "file": "compiler/reflectread/value.ergo",
+      "decl": "walkNode",
+      "from": "\t\tif sc.Seen[int(tgtIdx)] {\n\t\t\treturn\n\t\t}\n",
+      "to": "\t\tif false {\n\t\t\treturn\n\t\t}\n",
+      "rule": "Walk must revisit shared pointer targets zero extra times",
+      "killers": ["compiler/reflectread:WalkResolveAndRankBehaviors"],
+      "anchor": {
+        "tests": ["compiler/reflectread:WalkResolveAndRankBehaviors"]
+      }
+    },
+    {
+      "name": "selfhost-reflectread-walk-stop",
+      "origin": "selfhost-reflectread",
+      "file": "compiler/reflectread/value.ergo",
+      "decl": "walkNode",
+      "from": "\t\tif dense.Of(view.Values.ValNil, vid) || tgtIdx == NoIndex || stopMatches(view.Meta, tid, stops) {\n",
+      "to": "\t\tif dense.Of(view.Values.ValNil, vid) || tgtIdx == NoIndex {\n",
+      "rule": "Walk must stop before descending into matching StopType pointer elements",
+      "killers": ["compiler/reflectread:WalkResolveAndRankBehaviors"],
+      "anchor": {
+        "tests": ["compiler/reflectread:WalkResolveAndRankBehaviors"]
+      }
+    }
+  ]
+}

@@ -1,0 +1,906 @@
+import compiler/syntax
+import dense
+import slices
+import strings
+
+// RelFuncTag identifies a function in a RelNeeds SoA program.
+type RelFuncTag {}
+
+// RelStmtTag identifies a statement node in a RelNeeds SoA program.
+type RelStmtTag {}
+
+// NoWrittenRow marks an unwritten capability clause in FuncWritten.
+let NoWrittenRow = uint32(4294967295)
+
+// RelA is the bitmask for capability A.
+let RelA = uint32(1)
+
+// RelB is the bitmask for capability B.
+let RelB = uint32(2)
+
+// RelConsole is the bitmask for prelude capability Console.
+let RelConsole = uint32(4)
+
+// RelLet designates a binding statement `let vV = MK`.
+let RelLet = uint8(0)
+
+// RelTemp designates a temporary lend statement `lendK(MK)`.
+let RelTemp = uint8(1)
+
+// RelKeep designates an owning transfer `keepK(MK)`.
+let RelKeep = uint8(2)
+
+// RelLendVar designates lending a bound variable `lendK(vV)`.
+let RelLendVar = uint8(3)
+
+// RelKeepVar designates handing off a bound variable `keepK(vV)`.
+let RelKeepVar = uint8(4)
+
+// RelReturn designates an early guard return `if n > 2 { return }`.
+let RelReturn = uint8(5)
+
+// RelCall designates a guarded call `if n > 0 { fJ(n - 1) }`.
+let RelCall = uint8(6)
+
+// RelWith designates a scoped capability context block.
+let RelWith = uint8(7)
+
+// RelIf designates a conditional body block.
+let RelIf = uint8(8)
+
+// RelEncode designates a codec encode invocation.
+let RelEncode = uint8(9)
+
+// RelDecode designates a codec decode invocation.
+let RelDecode = uint8(10)
+
+// RelConvert designates a Closer interface boxing statement.
+let RelConvert = uint8(11)
+
+// RelProvide designates a provider context block releasing C on exit.
+let RelProvide = uint8(12)
+
+type relProviderSpec {
+	name string,
+	req  uint32,
+	part string,
+}
+
+type relKindSpec {
+	name     string,
+	req      uint32,
+	mkPrefix string,
+	mkSuffix string,
+	mkNeeds  uint32,
+	part     string,
+}
+
+// RelMainCall records one call site inside main() alongside the capabilities provided there.
+type RelMainCall {
+	Provides uint32,
+	Callee   uint32,
+}
+
+// RelModel summarizes computed capability rows, missing capability sites, and refused conversions.
+type RelModel {
+	Rows    []string,
+	Missing []string,
+	Refused []string,
+}
+
+// RelNeeds holds a generated release-needs program as flat Structure-of-Arrays tables.
+type RelNeeds {
+	Funcs        dense.Count[RelFuncTag],
+	FuncExported dense.Col[RelFuncTag, bool],
+	FuncWritten  dense.Col[RelFuncTag, uint32],
+	FuncBody     dense.Col[RelFuncTag, dense.Run[uint32]],
+	Stmts        dense.Count[RelStmtTag],
+	StmtKind     dense.Col[RelStmtTag, uint8],
+	StmtK        dense.Col[RelStmtTag, uint32],
+	StmtV        dense.Col[RelStmtTag, uint32],
+	StmtCallee   dense.Col[RelStmtTag, uint32],
+	StmtID       dense.Col[RelStmtTag, uint32],
+	StmtProvides dense.Col[RelStmtTag, uint32],
+	StmtP        dense.Col[RelStmtTag, uint32],
+	StmtSplit    dense.Col[RelStmtTag, bool],
+	StmtLine     dense.Col[RelStmtTag, uint32],
+	StmtBody     dense.Col[RelStmtTag, dense.Run[uint32]],
+	StmtPool     dense.Pool[uint32],
+	Main         []RelMainCall,
+	MainLine     []uint32,
+	Src          string,
+	ParseLwLine  uint32,
+	ParseWritten bool,
+}
+
+func allRelProviders() []relProviderSpec {
+	[]relProviderSpec{
+		relProviderSpec{name: "PcA", req: RelA, part: "with-close"},
+		relProviderSpec{name: "PcB", req: RelB, part: "with-close"},
+		relProviderSpec{name: "PcBox", req: RelB, part: "with-fields"},
+		relProviderSpec{name: "PcCon", req: RelConsole, part: "with-close"},
+	}
+}
+
+func allRelKinds() []relKindSpec {
+	[]relKindSpec{
+		relKindSpec{name: "R0", req: uint32(0), mkPrefix: "R0{id: ", mkSuffix: "}", mkNeeds: uint32(0), part: "close"},
+		relKindSpec{name: "RA", req: RelA, mkPrefix: "RA{id: ", mkSuffix: "}", mkNeeds: uint32(0), part: "close"},
+		relKindSpec{name: "RB", req: RelB, mkPrefix: "RB{id: ", mkSuffix: "}", mkNeeds: uint32(0), part: "close"},
+		relKindSpec{name: "RAB", req: RelA | RelB, mkPrefix: "RAB{id: ", mkSuffix: "}", mkNeeds: uint32(0), part: "close"},
+		relKindSpec{name: "Box", req: RelB, mkPrefix: "Box{r: RB{id: ", mkSuffix: "}, n: 1}", mkNeeds: uint32(0), part: "fields"},
+		relKindSpec{name: "[]RA", req: RelA, mkPrefix: "[]RA{RA{id: ", mkSuffix: "}}", mkNeeds: uint32(0), part: "elem"},
+		relKindSpec{name: "Option[RB]", req: RelB, mkPrefix: "optB(", mkSuffix: ")", mkNeeds: uint32(0), part: "variants"},
+		relKindSpec{name: "queue.Queue[RA]", req: RelA, mkPrefix: "qA(", mkSuffix: ")", mkNeeds: RelA, part: "drain"},
+	}
+}
+
+// RelParts returns all Drop-graph and with-provider edge parts exercised by RelNeeds.
+func RelParts() []string {
+	[]string{"close", "fields", "elem", "variants", "drain", "own", "with-close", "with-fields", "with-split"}
+}
+
+func rowText(row uint32) string {
+	let mut caps = []string{}
+	if (row & RelA) != uint32(0) {
+		caps = caps.Append("A")
+	}
+	if (row & RelB) != uint32(0) {
+		caps = caps.Append("B")
+	}
+	if (row & RelConsole) != uint32(0) {
+		caps = caps.Append("Console")
+	}
+	strings.Join(caps, " | ")
+}
+
+func providersText(p uint32) string {
+	let mut es = []string{}
+	if (p & RelA) != uint32(0) {
+		es = capsAppend(es, "A: Pa")
+	}
+	if (p & RelB) != uint32(0) {
+		es = capsAppend(es, "B: Pb")
+	}
+	strings.Join(es, ", ")
+}
+
+func capsAppend(xs []string, v string) []string {
+	xs.Append(v)
+}
+
+// RelPrelude returns the shared capabilities, resource types, helpers, and closer wrappers.
+func RelPrelude() string {
+	let mut b = strings.NewBuilder()
+	b.WriteString(`import codec
+import queue
+
+type A { Use() }
+type B { Use() }
+type Pa {} implements A
+func Use(_ Pa) {}
+type Pb {} implements B
+func Use(_ Pb) {}
+type R0 { id int } implements Closer
+func Close(r R0) {}
+type RA { id int } implements Closer
+func Close(r RA) needs A { A.Use() }
+type RB { id int } implements Closer
+func Close(r RB) needs B { B.Use() }
+type RAB { id int } implements Closer
+func Close(r RAB) needs A | B {
+	A.Use()
+	B.Use()
+}
+type Box { r RB, n int }
+func optB(id int) Option[RB] { Some{RB{id: id}} }
+func qA(id int) queue.Queue[RA] needs A {
+	let q = queue.New[RA](2)
+	q.Push(RA{id: id}) catch {
+	case queue.Closed:
+		return q
+	}
+	q
+}
+type Bad { Text string }
+type Lv { name string }
+func ParseLv(s string) Lv fails Bad needs A {
+	A.Use()
+	Lv{name: s}
+}
+func Wire(l Lv) string needs B {
+	B.Use()
+	l.name
+}
+type lw { name string }
+func Wire(l lw) string needs B {
+	B.Use()
+	l.name
+}
+func lendC(c Closer) {}
+type C { Use() }
+type PcA { id int } implements C, Closer
+func Use(_ PcA) {}
+func Close(_ PcA) needs A { A.Use() }
+type PcB { id int } implements C, Closer
+func Use(_ PcB) {}
+func Close(_ PcB) needs B { B.Use() }
+type PcBox { r RB, id int } implements C
+func Use(_ PcBox) {}
+type PcCon { id int } implements C, Closer
+func Use(_ PcCon) {}
+func Close(_ PcCon) needs Console { Console.Println("closed") }
+`)
+	let kinds = allRelKinds()
+	for k in 0..len(kinds) {
+		let kd = kinds[k]
+		let row = if kd.req != uint32(0) { " needs " + rowText(kd.req) } else { "" }
+		b.WriteString("func lend\(k)(r \(kd.name)) {}\nfunc keep\(k)(r own \(kd.name))\(row) {}\n")
+		b.WriteString("type W\(k) { inner \(kd.name) } implements Closer\nfunc Close(w W\(k)) {}\n")
+	}
+	b.String()
+}
+
+func newEmptyRelNeeds() RelNeeds {
+	RelNeeds{
+		Funcs:        dense.NewCount[RelFuncTag](),
+		FuncExported: dense.NewCol[RelFuncTag, bool](),
+		FuncWritten:  dense.NewCol[RelFuncTag, uint32](),
+		FuncBody:     dense.NewCol[RelFuncTag, dense.Run[uint32]](),
+		Stmts:        dense.NewCount[RelStmtTag](),
+		StmtKind:     dense.NewCol[RelStmtTag, uint8](),
+		StmtK:        dense.NewCol[RelStmtTag, uint32](),
+		StmtV:        dense.NewCol[RelStmtTag, uint32](),
+		StmtCallee:   dense.NewCol[RelStmtTag, uint32](),
+		StmtID:       dense.NewCol[RelStmtTag, uint32](),
+		StmtProvides: dense.NewCol[RelStmtTag, uint32](),
+		StmtP:        dense.NewCol[RelStmtTag, uint32](),
+		StmtSplit:    dense.NewCol[RelStmtTag, bool](),
+		StmtLine:     dense.NewCol[RelStmtTag, uint32](),
+		StmtBody:     dense.NewCol[RelStmtTag, dense.Run[uint32]](),
+		StmtPool:     dense.NewPool[uint32](),
+		Main:         []RelMainCall{},
+		MainLine:     []uint32{},
+		Src:          "",
+		ParseLwLine:  uint32(0),
+		ParseWritten: false,
+	}
+}
+
+type relGenCursor {
+	rng    PCG,
+	nextID uint32,
+	nextV  uint32,
+	vars   []uint32,
+	nFuncs int,
+	nKinds int,
+	nProvs int,
+}
+
+func pushRelStmt(g mut RelNeeds, kind uint8, k uint32, id uint32) dense.ID[RelStmtTag] {
+	let sid = dense.Next(&g.Stmts)
+	dense.Push(&g.StmtKind, kind)
+	dense.Push(&g.StmtK, k)
+	dense.Push(&g.StmtV, uint32(0))
+	dense.Push(&g.StmtCallee, uint32(0))
+	dense.Push(&g.StmtID, id)
+	dense.Push(&g.StmtProvides, uint32(0))
+	dense.Push(&g.StmtP, uint32(0))
+	dense.Push(&g.StmtSplit, false)
+	dense.Push(&g.StmtLine, uint32(0))
+	dense.Push(&g.StmtBody, dense.PutList(&g.StmtPool, []uint32{}))
+	sid
+}
+
+func genRelBlock(g mut RelNeeds, c mut relGenCursor, depth int, size int) dense.Run[uint32] {
+	let mut ids = []uint32{}
+	let mut mark = len(c.vars)
+	for _ in 0..size {
+		let kind = uint8(IntN(&c.rng, 13))
+		let k = uint32(IntN(&c.rng, c.nKinds))
+		c.nextID = c.nextID + uint32(1)
+		let sid = pushRelStmt(g, kind, k, c.nextID)
+		if kind == RelLet {
+			let v = c.nextV
+			c.nextV = c.nextV + uint32(1)
+			dense.SetOf(&g.StmtV, sid, v)
+			c.vars = c.vars.Append((v << 8) | k)
+		} else if kind == RelLendVar || kind == RelKeepVar {
+			if len(c.vars) == 0 {
+				dense.SetOf(&g.StmtKind, sid, RelTemp)
+			} else {
+				let idx = IntN(&c.rng, len(c.vars))
+				let packed = c.vars[idx]
+				dense.SetOf(&g.StmtV, sid, packed>>8)
+				dense.SetOf(&g.StmtK, sid, packed&uint32(0xff))
+				if kind == RelKeepVar {
+					c.vars = slices.Delete(c.vars, idx, idx+1)
+					if idx < mark {
+						mark = mark - 1
+					}
+				}
+			}
+		} else if kind == RelCall {
+			dense.SetOf(&g.StmtCallee, sid, uint32(IntN(&c.rng, c.nFuncs)))
+		} else if kind == RelDecode || kind == RelConvert {
+			dense.SetOf(&g.StmtV, sid, c.nextV)
+			c.nextV = c.nextV + uint32(1)
+		} else if kind == RelWith || kind == RelIf || kind == RelProvide {
+			if depth >= 2 {
+				dense.SetOf(&g.StmtKind, sid, RelCall)
+				dense.SetOf(&g.StmtCallee, sid, uint32(IntN(&c.rng, c.nFuncs)))
+			} else {
+				let mut prov = uint32(1 + IntN(&c.rng, 3))
+				if kind == RelProvide {
+					prov = uint32(IntN(&c.rng, 4))
+					dense.SetOf(&g.StmtP, sid, uint32(IntN(&c.rng, c.nProvs)))
+					let split = prov != uint32(0) && IntN(&c.rng, 2) == 0
+					dense.SetOf(&g.StmtSplit, sid, split)
+				}
+				dense.SetOf(&g.StmtProvides, sid, prov)
+				let sub = genRelBlock(g, c, depth+1, 1+IntN(&c.rng, 3))
+				dense.SetOf(&g.StmtBody, sid, sub)
+			}
+		}
+		ids = ids.Append(uint32(dense.Index(sid)))
+	}
+	if mark < len(c.vars) {
+		c.vars = c.vars[:mark]
+	}
+	dense.PutList(&g.StmtPool, ids)
+}
+
+// FuncName returns the rendered function identifier for function index i.
+func FuncName(g RelNeeds, i int) string {
+	let fid = dense.IDAt(g.Funcs, i)
+	if dense.Of(g.FuncExported, fid) {
+		return "F\(i)"
+	}
+	"f\(i)"
+}
+
+func relCodecType(k uint32) string {
+	if k%uint32(2) == uint32(0) {
+		return "Lv"
+	}
+	"lw"
+}
+
+func relProviderValue(p uint32, id uint32) string {
+	let provs = allRelProviders()
+	let pr = provs[int(p)]
+	if pr.name == "PcBox" {
+		return "PcBox{r: RB{id: \(id)}, id: \(id)}"
+	}
+	"\(pr.name){id: \(id)}"
+}
+
+func relMkValue(k uint32, id uint32) string {
+	let kinds = allRelKinds()
+	let kd = kinds[int(k)]
+	"\(kd.mkPrefix)\(id)\(kd.mkSuffix)"
+}
+
+type relPrinter {
+	sb    strings.Builder,
+	line  int,
+	depth int,
+}
+
+func emitRelLine(pr mut relPrinter, text string) {
+	for _ in 0..pr.depth {
+		pr.sb.WriteByte('\t')
+	}
+	pr.sb.WriteString(text)
+	pr.sb.WriteByte('\n')
+	pr.line = pr.line + 1
+}
+
+func printRelSimpleStmt(pr mut relPrinter, g RelNeeds, sid dense.ID[RelStmtTag], mk string) bool {
+	let kind = dense.Of(g.StmtKind, sid)
+	let k = dense.Of(g.StmtK, sid)
+	let v = dense.Of(g.StmtV, sid)
+	if kind == RelLet {
+		emitRelLine(pr, "let v\(v) = \(mk)")
+		return true
+	}
+	if kind == RelTemp {
+		emitRelLine(pr, "lend\(k)(\(mk))")
+		return true
+	}
+	if kind == RelKeep {
+		emitRelLine(pr, "keep\(k)(\(mk))")
+		return true
+	}
+	if kind == RelLendVar {
+		emitRelLine(pr, "lend\(k)(v\(v))")
+		return true
+	}
+	if kind == RelKeepVar {
+		emitRelLine(pr, "keep\(k)(v\(v))")
+		return true
+	}
+	if kind == RelReturn {
+		emitRelLine(pr, "if n > 2 {")
+		pr.depth = pr.depth + 1
+		emitRelLine(pr, "return")
+		pr.depth = pr.depth - 1
+		emitRelLine(pr, "}")
+		return true
+	}
+	if kind == RelCall {
+		let callee = int(dense.Of(g.StmtCallee, sid))
+		emitRelLine(pr, "if n > 0 { \(FuncName(g, callee))(n - 1) }")
+		return true
+	}
+	false
+}
+
+func printRelComplexStmt(pr mut relPrinter, g mut RelNeeds, sid dense.ID[RelStmtTag], mk string) {
+	let kind = dense.Of(g.StmtKind, sid)
+	let k = dense.Of(g.StmtK, sid)
+	let v = dense.Of(g.StmtV, sid)
+	let id = dense.Of(g.StmtID, sid)
+	if kind == RelWith {
+		emitRelLine(pr, "with context { \(providersText(dense.Of(g.StmtProvides, sid))) } {")
+		pr.depth = pr.depth + 1
+		printRelStmtList(pr, g, dense.Of(g.StmtBody, sid))
+		pr.depth = pr.depth - 1
+		emitRelLine(pr, "}")
+		return
+	}
+	if kind == RelIf {
+		emitRelLine(pr, "if n > 1 {")
+		pr.depth = pr.depth + 1
+		printRelStmtList(pr, g, dense.Of(g.StmtBody, sid))
+		pr.depth = pr.depth - 1
+		emitRelLine(pr, "}")
+		return
+	}
+	if kind == RelProvide {
+		let prov = dense.Of(g.StmtProvides, sid)
+		let entries = "C: " + relProviderValue(dense.Of(g.StmtP, sid), id)
+		if dense.Of(g.StmtSplit, sid) {
+			emitRelLine(pr, "with context { \(providersText(prov)) }, context { \(entries) } {")
+		} else if prov != uint32(0) {
+			emitRelLine(pr, "with context { \(entries), \(providersText(prov)) } {")
+		} else {
+			emitRelLine(pr, "with context { \(entries) } {")
+		}
+		pr.depth = pr.depth + 1
+		emitRelLine(pr, "C.Use()")
+		printRelStmtList(pr, g, dense.Of(g.StmtBody, sid))
+		pr.depth = pr.depth - 1
+		emitRelLine(pr, "}")
+		return
+	}
+	if kind == RelEncode {
+		emitRelLine(pr, "encode(\(relCodecType(k)){name: \"x\"}, ev)")
+		return
+	}
+	if kind == RelDecode {
+		let ct = relCodecType(k)
+		emitRelLine(pr, "let _ = decode[\(ct)](codec.NewReplay(ev.Recorded())) catch {")
+		emitRelLine(pr, "case _:")
+		pr.depth = pr.depth + 1
+		emitRelLine(pr, "\(ct){name: \"\"}")
+		pr.depth = pr.depth - 1
+		emitRelLine(pr, "}")
+		return
+	}
+	emitRelLine(pr, "let c\(v) Closer = W\(k){inner: \(mk)}")
+	emitRelLine(pr, "lendC(c\(v))")
+}
+
+func printRelStmtList(pr mut relPrinter, g mut RelNeeds, run dense.Run[uint32]) {
+	for raw in dense.List(g.StmtPool, run) {
+		let sid = dense.IDAt(g.Stmts, int(raw))
+		dense.SetOf(&g.StmtLine, sid, uint32(pr.line))
+		let mk = relMkValue(dense.Of(g.StmtK, sid), dense.Of(g.StmtID, sid))
+		if !printRelSimpleStmt(pr, *g, sid, mk) {
+			printRelComplexStmt(pr, g, sid, mk)
+		}
+	}
+}
+
+func printRelProgram(g mut RelNeeds) {
+	let pre = RelPrelude()
+	let mut pr = relPrinter{
+		sb:    strings.NewBuilder(),
+		line:  strings.Count(pre, "\n") + 1,
+		depth: 0,
+	}
+	pr.sb.WriteString(pre)
+	for i in 0..dense.Total(g.Funcs) {
+		let fid = dense.IDAt(g.Funcs, i)
+		let w = dense.Of(g.FuncWritten, fid)
+		let row = if w != NoWrittenRow && w != uint32(0) { " needs " + rowText(w) } else { "" }
+		emitRelLine(&pr, "")
+		emitRelLine(&pr, "func \(FuncName(*g, i))(n int)\(row) {")
+		pr.depth = 1
+		emitRelLine(&pr, "let ev = codec.NewEvents()")
+		emitRelLine(&pr, "let _ = ev.Recorded()")
+		printRelStmtList(&pr, g, dense.Of(g.FuncBody, fid))
+		pr.depth = 0
+		emitRelLine(&pr, "}")
+	}
+	emitRelLine(&pr, "")
+	emitRelLine(&pr, "func main() {")
+	g.MainLine = []uint32{}
+	for m in g.Main {
+		let cName = FuncName(*g, int(m.Callee))
+		if m.Provides == uint32(0) {
+			g.MainLine = g.MainLine.Append(uint32(pr.line))
+			pr.depth = 1
+			emitRelLine(&pr, "\(cName)(3)")
+			pr.depth = 0
+			continue
+		}
+		pr.depth = 1
+		emitRelLine(&pr, "with context { \(providersText(m.Provides)) } {")
+		g.MainLine = g.MainLine.Append(uint32(pr.line))
+		pr.depth = 2
+		emitRelLine(&pr, "\(cName)(3)")
+		pr.depth = 1
+		emitRelLine(&pr, "}")
+		pr.depth = 0
+	}
+	emitRelLine(&pr, "}")
+	g.ParseLwLine = uint32(pr.line + 2)
+	let parseRow = if g.ParseWritten { " needs A" } else { "" }
+	pr.sb.WriteString("\nfunc parseLw(s string) lw fails Bad\(parseRow) {\n\tA.Use()\n\tlw{name: s}\n}\n")
+	g.Src = pr.sb.String()
+}
+
+// NewRelNeeds generates a deterministic release-needs program from seed.
+func NewRelNeeds(seed uint64) RelNeeds {
+	let mut rng = NewPCG(seed, uint64(0x726e))
+	let mut g = newEmptyRelNeeds()
+	let nFuncs = 1 + IntN(&rng, 4)
+	for _ in 0..nFuncs {
+		let _ = dense.Next(&g.Funcs)
+		dense.Push(&g.FuncExported, IntN(&rng, 3) == 0)
+		let w = if IntN(&rng, 3) == 0 { uint32(IntN(&rng, 4)) } else { NoWrittenRow }
+		dense.Push(&g.FuncWritten, w)
+		dense.Push(&g.FuncBody, dense.PutList(&g.StmtPool, []uint32{}))
+	}
+	let mut cur = relGenCursor{
+		rng:    rng,
+		nextID: uint32(0),
+		nextV:  uint32(0),
+		vars:   []uint32{},
+		nFuncs: nFuncs,
+		nKinds: len(allRelKinds()),
+		nProvs: len(allRelProviders()),
+	}
+	for i in 0..nFuncs {
+		cur.vars = []uint32{}
+		cur.nextV = uint32(0)
+		let body = genRelBlock(&g, &cur, 0, 1+IntN(&cur.rng, 5))
+		dense.SetOf(&g.FuncBody, dense.IDAt(g.Funcs, i), body)
+	}
+	let nMain = 1 + IntN(&cur.rng, 3)
+	for _ in 0..nMain {
+		g.Main = g.Main.Append(RelMainCall{
+			Provides: uint32(IntN(&cur.rng, 4)),
+			Callee:   uint32(IntN(&cur.rng, nFuncs)),
+		})
+	}
+	printRelProgram(&g)
+	g
+}
+
+// Source returns the generated Ergo program text for g.
+func Source(g RelNeeds) string {
+	g.Src
+}
+
+func funcWrittenRow(g RelNeeds, fid dense.ID[RelFuncTag], infer bool) (bool, uint32) {
+	let w = dense.Of(g.FuncWritten, fid)
+	if w != NoWrittenRow && w > uint32(0) {
+		return (true, w)
+	}
+	if dense.Of(g.FuncExported, fid) || !infer {
+		return (true, uint32(0))
+	}
+	(false, uint32(0))
+}
+
+func stmtDirectNeed(g RelNeeds, sid dense.ID[RelStmtTag], row []uint32, lwRow uint32) uint32 {
+	let kind = dense.Of(g.StmtKind, sid)
+	let k = int(dense.Of(g.StmtK, sid))
+	let kinds = allRelKinds()
+	if kind == RelLet || kind == RelTemp || kind == RelKeep {
+		return kinds[k].req | kinds[k].mkNeeds
+	}
+	if kind == RelKeepVar {
+		return kinds[k].req
+	}
+	if kind == RelConvert {
+		return kinds[k].mkNeeds
+	}
+	if kind == RelEncode {
+		return RelB
+	}
+	if kind == RelDecode {
+		if relCodecType(dense.Of(g.StmtK, sid)) == "lw" {
+			return lwRow
+		}
+		return RelA
+	}
+	if kind == RelCall {
+		return row[int(dense.Of(g.StmtCallee, sid))]
+	}
+	if kind == RelProvide {
+		let provs = allRelProviders()
+		let mut need = provs[int(dense.Of(g.StmtP, sid))].req
+		if dense.Of(g.StmtSplit, sid) {
+			need = need &^ dense.Of(g.StmtProvides, sid)
+		}
+		return need
+	}
+	uint32(0)
+}
+
+type chargeState {
+	row      []uint32,
+	lwRow    uint32,
+	outLines []uint32,
+	outNeeds []uint32,
+}
+
+func collectCharges(g RelNeeds, st mut chargeState, run dense.Run[uint32], provided uint32) {
+	for raw in dense.List(g.StmtPool, run) {
+		let sid = dense.IDAt(g.Stmts, int(raw))
+		let kind = dense.Of(g.StmtKind, sid)
+		let mut need = stmtDirectNeed(g, sid, st.row, st.lwRow)
+		if kind == RelWith || kind == RelProvide {
+			collectCharges(g, st, dense.Of(g.StmtBody, sid), provided|dense.Of(g.StmtProvides, sid))
+		} else if kind == RelIf {
+			collectCharges(g, st, dense.Of(g.StmtBody, sid), provided)
+		}
+		need = need &^ provided
+		if need != uint32(0) {
+			st.outLines = st.outLines.Append(dense.Of(g.StmtLine, sid))
+			st.outNeeds = st.outNeeds.Append(need)
+		}
+	}
+}
+
+func inferRows(g RelNeeds, infer bool) []uint32 {
+	let n = dense.Total(g.Funcs)
+	let mut row = slices.Repeat([]uint32{uint32(0)}, n)
+	for i in 0..n {
+		let (ok, w) = funcWrittenRow(g, dense.IDAt(g.Funcs, i), infer)
+		if ok {
+			row[i] = w
+		}
+	}
+	let lwRow = if infer || g.ParseWritten { RelA } else { uint32(0) }
+	let mut changed = true
+	for changed {
+		changed = false
+		for i in 0..n {
+			let fid = dense.IDAt(g.Funcs, i)
+			let (ok, _) = funcWrittenRow(g, fid, infer)
+			if ok {
+				continue
+			}
+			let mut st = chargeState{row: row, lwRow: lwRow, outLines: []uint32{}, outNeeds: []uint32{}}
+			collectCharges(g, &st, dense.Of(g.FuncBody, fid), uint32(0))
+			for need in st.outNeeds {
+				if (row[i] | need) != row[i] {
+					row[i] = row[i] | need
+					changed = true
+				}
+			}
+		}
+	}
+	row
+}
+
+type strAccum {
+	items []string,
+}
+
+func collectRefusedConverts(g RelNeeds, run dense.Run[uint32], acc mut strAccum) {
+	let kinds = allRelKinds()
+	for raw in dense.List(g.StmtPool, run) {
+		let sid = dense.IDAt(g.Stmts, int(raw))
+		if dense.Of(g.StmtKind, sid) == RelConvert && kinds[int(dense.Of(g.StmtK, sid))].req != uint32(0) {
+			let ln = dense.Of(g.StmtLine, sid)
+			acc.items = acc.items.Append("\(ln) S108")
+		}
+		collectRefusedConverts(g, dense.Of(g.StmtBody, sid), acc)
+	}
+}
+
+func sortCompactStrings(xs []string) []string {
+	let sorted = slices.Sort(slices.Clone(xs))
+	let mut out = slices.WithCapacity[string](len(sorted))
+	for s in sorted {
+		if len(out) == 0 || out[len(out)-1] != s {
+			out = out.Append(s)
+		}
+	}
+	out
+}
+
+func computeModel(g RelNeeds, infer bool) RelModel {
+	let row = inferRows(g, infer)
+	let lwRow = if infer || g.ParseWritten { RelA } else { uint32(0) }
+	let mut rows = []string{}
+	let mut missing = []string{}
+	if !infer && !g.ParseWritten {
+		missing = missing.Append("\(g.ParseLwLine) A")
+	}
+	let allCaps = []uint32{RelA, RelB, RelConsole}
+	for i in 0..dense.Total(g.Funcs) {
+		rows = rows.Append(rowText(row[i]))
+		let fid = dense.IDAt(g.Funcs, i)
+		let (ok, w) = funcWrittenRow(g, fid, infer)
+		if !ok {
+			continue
+		}
+		let mut st = chargeState{row: row, lwRow: lwRow, outLines: []uint32{}, outNeeds: []uint32{}}
+		collectCharges(g, &st, dense.Of(g.FuncBody, fid), uint32(0))
+		for idx in 0..len(st.outLines) {
+			let need = st.outNeeds[idx]
+			for cap in allCaps {
+				if (need&cap) != uint32(0) && (w&cap) == uint32(0) {
+					missing = missing.Append("\(st.outLines[idx]) \(rowText(cap))")
+				}
+			}
+		}
+	}
+	for i in 0..len(g.Main) {
+		let m = g.Main[i]
+		for cap in allCaps {
+			if (row[int(m.Callee)]&cap) != uint32(0) && (m.Provides&cap) == uint32(0) {
+				missing = missing.Append("\(g.MainLine[i]) \(rowText(cap))")
+			}
+		}
+	}
+	let mut refusedAcc = strAccum{items: []string{}}
+	for i in 0..dense.Total(g.Funcs) {
+		collectRefusedConverts(g, dense.Of(g.FuncBody, dense.IDAt(g.Funcs, i)), &refusedAcc)
+	}
+	RelModel{
+		Rows:    rows,
+		Missing: sortCompactStrings(missing),
+		Refused: sortCompactStrings(refusedAcc.items),
+	}
+}
+
+// ModelDirect computes capability rows, missing lines, and refused conversions without inference.
+func ModelDirect(g RelNeeds) RelModel {
+	computeModel(g, false)
+}
+
+// ModelInferred computes capability rows, missing lines, and refused conversions under inference.
+func ModelInferred(g RelNeeds) RelModel {
+	computeModel(g, true)
+}
+
+// Explicit returns a copy of g with inferred capability clauses written explicitly
+// on unexported unwritten functions and on parseLw.
+func Explicit(g RelNeeds) RelNeeds {
+	let inferred = inferRows(g, true)
+	let mut e = g
+	e.ParseWritten = true
+	e.FuncWritten = dense.NewCol[RelFuncTag, uint32]()
+	for i in 0..dense.Total(g.Funcs) {
+		let fid = dense.IDAt(g.Funcs, i)
+		let (ok, w) = funcWrittenRow(g, fid, true)
+		if ok {
+			dense.Push(&e.FuncWritten, if dense.Of(g.FuncWritten, fid) == NoWrittenRow { NoWrittenRow } else { w })
+		} else {
+			dense.Push(&e.FuncWritten, inferred[i])
+		}
+	}
+	e.StmtLine = dense.NewCol[RelStmtTag, uint32]()
+	for _ in 0..dense.Total(g.Stmts) {
+		dense.Push(&e.StmtLine, uint32(0))
+	}
+	printRelProgram(&e)
+	e
+}
+
+func collectWalkedParts(g RelNeeds, run dense.Run[uint32], acc mut strAccum) {
+	let kinds = allRelKinds()
+	let provs = allRelProviders()
+	for raw in dense.List(g.StmtPool, run) {
+		let sid = dense.IDAt(g.Stmts, int(raw))
+		let kind = dense.Of(g.StmtKind, sid)
+		let k = int(dense.Of(g.StmtK, sid))
+		if kind == RelLet || kind == RelTemp || kind == RelKeep || kind == RelKeepVar {
+			if kinds[k].req != uint32(0) {
+				acc.items = acc.items.Append(kinds[k].part)
+			}
+		} else if kind == RelConvert {
+			if kinds[k].req != uint32(0) {
+				acc.items = acc.items.Append("own")
+				acc.items = acc.items.Append(kinds[k].part)
+			}
+		} else if kind == RelProvide {
+			let p = int(dense.Of(g.StmtP, sid))
+			acc.items = acc.items.Append(provs[p].part)
+			if dense.Of(g.StmtSplit, sid) && (provs[p].req&dense.Of(g.StmtProvides, sid)) != uint32(0) {
+				acc.items = acc.items.Append("with-split")
+			}
+		}
+		collectWalkedParts(g, dense.Of(g.StmtBody, sid), acc)
+	}
+}
+
+// Parts returns the deduplicated sorted Drop-graph parts exercised by g.
+func Parts(g RelNeeds) []string {
+	let mut acc = strAccum{items: []string{}}
+	for i in 0..dense.Total(g.Funcs) {
+		collectWalkedParts(g, dense.Of(g.FuncBody, dense.IDAt(g.Funcs, i)), &acc)
+	}
+	sortCompactStrings(acc.items)
+}
+
+func bodyReleases(g RelNeeds, run dense.Run[uint32]) bool {
+	let kinds = allRelKinds()
+	for raw in dense.List(g.StmtPool, run) {
+		let sid = dense.IDAt(g.Stmts, int(raw))
+		let kind = dense.Of(g.StmtKind, sid)
+		if kind == RelLet || kind == RelTemp || kind == RelKeep {
+			if kinds[int(dense.Of(g.StmtK, sid))].req != uint32(0) {
+				return true
+			}
+		} else if kind == RelProvide {
+			return true
+		} else if kind == RelWith || kind == RelIf {
+			if bodyReleases(g, dense.Of(g.StmtBody, sid)) {
+				return true
+			}
+		}
+	}
+	false
+}
+
+// Releases reports whether g releases at least one resource whose Close requires a capability.
+func Releases(g RelNeeds) bool {
+	for i in 0..dense.Total(g.Funcs) {
+		if bodyReleases(g, dense.Of(g.FuncBody, dense.IDAt(g.Funcs, i))) {
+			return true
+		}
+	}
+	false
+}
+
+law ExplicitPreservesRowsAndParses(seed uint64) {
+	let g = NewRelNeeds(seed)
+	let inf = ModelInferred(g)
+	let exp = Explicit(g)
+	let expMod = ModelDirect(exp)
+	if !slices.Equal(inf.Rows, expMod.Rows) || !slices.Equal(inf.Missing, expMod.Missing) || !slices.Equal(inf.Refused, expMod.Refused) {
+		return false
+	}
+	let p = syntax.Parse(Source(exp))
+	!p.Failed
+}
+
+test RelNeedsCoversPartsAndReleaseDetection {
+	let mut seenParts = []string{}
+	let mut anyRelease = false
+	for s in 1..40 {
+		let g = NewRelNeeds(uint64(s))
+		for pt in Parts(g) {
+			seenParts = seenParts.Append(pt)
+		}
+		if Releases(g) {
+			anyRelease = true
+		}
+		let dm = ModelDirect(g)
+		assert slices.Contains(dm.Missing, "\(g.ParseLwLine) A")
+	}
+	let compact = sortCompactStrings(seenParts)
+	assert anyRelease
+	for req in RelParts() {
+		assert slices.Contains(compact, req)
+	}
+}

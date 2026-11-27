@@ -1,0 +1,471 @@
+import compiler/syntax
+import dense
+import option
+import slices
+import strings
+
+// ContextPackage is one generated package inside a ContextProgram module.
+type ContextPackage {
+	Path string,
+	File string,
+	Text string,
+}
+
+// ContextProgram is a generated multi-package module ordered from dependencies
+// up to the root package.
+type ContextProgram {
+	Seed     uint64,
+	Packages []ContextPackage,
+}
+
+// CtxTag identifies an extracted context declaration or literal in ContextBindingTable.
+type CtxTag {}
+
+// EntryTag identifies an extracted binding or embedding entry in ContextBindingTable.
+type EntryTag {}
+
+// ContextBindingTable holds context declarations, anonymous literals, and their
+// bindings extracted from Ergo source as flat Structure-of-Arrays tables.
+type ContextBindingTable {
+	Strs         dense.Strings,
+	ParseFailed  bool,
+	Contexts     dense.Count[CtxTag],
+	CtxName      dense.Col[CtxTag, dense.ID[dense.Str]],
+	CtxIsDecl    dense.Col[CtxTag, bool],
+	CtxEntries   dense.Col[CtxTag, dense.Run[uint32]],
+	Entries      dense.Count[EntryTag],
+	EntryCtx     dense.Col[EntryTag, uint32],
+	EntryKey     dense.Col[EntryTag, dense.ID[dense.Str]],
+	EntryVal     dense.Col[EntryTag, dense.ID[dense.Str]],
+	EntryReplace dense.Col[EntryTag, bool],
+	EntryEmbed   dense.Col[EntryTag, bool],
+	EntryPool    dense.Pool[uint32],
+}
+
+// NewContextBindingTable constructs an empty ContextBindingTable.
+func NewContextBindingTable() ContextBindingTable {
+	ContextBindingTable{
+		Strs:         dense.NewStrings(),
+		ParseFailed:  false,
+		Contexts:     dense.NewCount[CtxTag](),
+		CtxName:      dense.NewCol[CtxTag, dense.ID[dense.Str]](),
+		CtxIsDecl:    dense.NewCol[CtxTag, bool](),
+		CtxEntries:   dense.NewCol[CtxTag, dense.Run[uint32]](),
+		Entries:      dense.NewCount[EntryTag](),
+		EntryCtx:     dense.NewCol[EntryTag, uint32](),
+		EntryKey:     dense.NewCol[EntryTag, dense.ID[dense.Str]](),
+		EntryVal:     dense.NewCol[EntryTag, dense.ID[dense.Str]](),
+		EntryReplace: dense.NewCol[EntryTag, bool](),
+		EntryEmbed:   dense.NewCol[EntryTag, bool](),
+		EntryPool:    dense.NewPool[uint32](),
+	}
+}
+
+// ContextFiles returns the module's virtual file layout including ergo.mod.
+func ContextFiles(p ContextProgram) []ContextPackage {
+	let mut out = slices.WithCapacity[ContextPackage](1 + len(p.Packages))
+	out = out.Append(ContextPackage{Path: "", File: "ergo.mod", Text: "module gen\n"})
+	for q in p.Packages {
+		out = out.Append(q)
+	}
+	out
+}
+
+// FormatContextProgram formats every package file in p for inspection.
+func FormatContextProgram(p ContextProgram) string {
+	let mut b = strings.NewBuilder()
+	for q in p.Packages {
+		b.WriteString("--- \(q.File)\n\(q.Text)")
+	}
+	b.String()
+}
+
+type ctxGenState {
+	rng     PCG,
+	ctxPkgs []string,
+	ctxName []string,
+	ctxUsed []bool,
+	calls   []string,
+	total   int,
+	pkgs    []string,
+}
+
+func emitCapabilities(st mut ctxGenState, pkgIdx int, body mut strings.Builder) []string {
+	let mut entries = []string{}
+	let nCaps = 1 + IntN(&st.rng, 3)
+	for c in 0..nCaps {
+		let op = "C\(pkgIdx)_\(c)"
+		let rec = "R\(pkgIdx)_\(c)"
+		let val = 1 + IntN(&st.rng, 9)
+		let method = "Get\(pkgIdx)_\(c)"
+		body.WriteString("type \(op) { \(method)() int }\ntype \(rec) {} implements \(op)\nfunc \(method)(_ \(rec)) int { \(val) }\n")
+		let mut provider = rec
+		if IntN(&st.rng, 2) == 0 {
+			provider = "New\(rec)()"
+			body.WriteString("func New\(rec)() \(rec) { \(rec) }\n")
+		}
+		entries = entries.Append("\(op): \(provider)")
+		if pkgIdx == 0 {
+			st.calls = st.calls.Append("\(op).\(method)()")
+		} else {
+			st.calls = st.calls.Append("\(st.pkgs[pkgIdx]).\(op).\(method)()")
+		}
+		st.total = st.total + val
+	}
+	entries
+}
+
+func generateOneContextPkg(st mut ctxGenState, pkgIdx int) (string, []string) {
+	let mut body = strings.NewBuilder()
+	let mut entries = emitCapabilities(st, pkgIdx, &body)
+	let mut freeIdx = []int{}
+	for j in 0..len(st.ctxPkgs) {
+		if !st.ctxUsed[j] {
+			freeIdx = freeIdx.Append(j)
+		}
+	}
+	let mut imported = []string{}
+	let mut names = []string{}
+	let nCtx = if pkgIdx == 0 { 1 } else { 1 + IntN(&st.rng, 2) }
+	for n in 0..nCtx {
+		let name = "Ctx\(pkgIdx)_\(n)"
+		let mut es = []string{}
+		if n == nCtx-1 {
+			for item in entries {
+				es = es.Append(item)
+			}
+		} else {
+			let cut = IntN(&st.rng, len(entries)+1)
+			for j in 0..cut {
+				es = es.Append(entries[j])
+			}
+			entries = entries[cut:]
+		}
+		es = ShuffleStrings(&st.rng, es)
+		let mut embeds = []string{}
+		for j in freeIdx {
+			if !st.ctxUsed[j] && (pkgIdx == 0 || IntN(&st.rng, 2) == 0) {
+				st.ctxUsed[j] = true
+				let cpkg = st.ctxPkgs[j]
+				if !slices.Contains(imported, cpkg) {
+					imported = imported.Append(cpkg)
+				}
+				embeds = embeds.Append("\(cpkg).\(st.ctxName[j])")
+			}
+		}
+		embeds = ShuffleStrings(&st.rng, embeds)
+		for em in embeds {
+			es = es.Append(em)
+		}
+		let joined = strings.Join(es, ", ")
+		body.WriteString("let \(name) = context { \(joined) }\n")
+		names = names.Append(name)
+	}
+	let mut head = strings.NewBuilder()
+	for idx in 1..len(st.pkgs) {
+		let p = st.pkgs[idx]
+		if pkgIdx == 0 || slices.Contains(imported, p) {
+			head.WriteString("import gen/\(p)\n")
+		}
+	}
+	(head.String() + body.String(), names)
+}
+
+// GenerateContextProgram builds a deterministic multi-package module exercising
+// shuffled context bindings and cross-package context embeddings.
+func GenerateContextProgram(seed uint64) ContextProgram {
+	let mut rng = NewPCG(seed, uint64(0x6374))
+	let k = 1 + IntN(&rng, 3)
+	let mut pkgs = []string{""}
+	for i in 1..k+1 {
+		pkgs = pkgs.Append("l\(i)")
+	}
+	let mut st = ctxGenState{
+		rng:     rng,
+		ctxPkgs: []string{},
+		ctxName: []string{},
+		ctxUsed: []bool{},
+		calls:   []string{},
+		total:   0,
+		pkgs:    pkgs,
+	}
+	let mut outPkgs = []ContextPackage{}
+	let mut i = k
+	for i >= 1 {
+		let (text, names) = generateOneContextPkg(&st, i)
+		let pname = pkgs[i]
+		outPkgs = outPkgs.Append(ContextPackage{Path: "gen/" + pname, File: "\(pname)/\(pname).ergo", Text: text})
+		for nm in names {
+			st.ctxPkgs = st.ctxPkgs.Append(pname)
+			st.ctxName = st.ctxName.Append(nm)
+			st.ctxUsed = st.ctxUsed.Append(false)
+		}
+		i = i - 1
+	}
+	let (rootText0, rootNames) = generateOneContextPkg(&st, 0)
+	let sumExpr = strings.Join(st.calls, " + ")
+	let mut rootText = rootText0 + "test Runs { assert with \(rootNames[0]) { \(sumExpr) } == \(st.total) }\n"
+	rootText = rootText + "func main() {\n\tlet _ = with \(rootNames[0]) { \(sumExpr) }\n}\n"
+	outPkgs = outPkgs.Append(ContextPackage{Path: "gen", File: "main.ergo", Text: rootText})
+	ContextProgram{Seed: seed, Packages: outPkgs}
+}
+
+func formatExprText(p syntax.Parsed, id dense.ID[syntax.Node], depth int) string {
+	if depth > 24 {
+		return "..."
+	}
+	let t = p.Tree
+	let k = syntax.KindOf(t, id)
+	if k == syntax.KIdent {
+		return syntax.TokText(p, syntax.NameOf(t, id).Tok)
+	}
+	if k == syntax.KBasicLit {
+		return syntax.TokText(p, syntax.BasicLitOf(t, id).Tok)
+	}
+	if k == syntax.KSelectorExpr {
+		let sel = syntax.SelectorExprOf(t, id)
+		return formatExprText(p, sel.X, depth+1) + "." + formatExprText(p, sel.Sel, depth+1)
+	}
+	if k == syntax.KIndexExpr {
+		let ix = syntax.IndexExprOf(t, id)
+		let mut args = []string{}
+		for j in 0..syntax.Len(ix.Indices) {
+			args = args.Append(formatExprText(p, syntax.Item(t, ix.Indices, j), depth+1))
+		}
+		return formatExprText(p, ix.X, depth+1) + "[" + strings.Join(args, ", ") + "]"
+	}
+	if k == syntax.KCallExpr {
+		let call = syntax.CallExprOf(t, id)
+		let mut args = []string{}
+		for j in 0..syntax.Len(call.Args) {
+			args = args.Append(formatExprText(p, syntax.Item(t, call.Args, j), depth+1))
+		}
+		return formatExprText(p, call.Fun, depth+1) + "(" + strings.Join(args, ", ") + ")"
+	}
+	if k == syntax.KCompositeLit {
+		let cl = syntax.CompositeLitOf(t, id)
+		match dense.Unpack(cl.Type) {
+		case option.Some{Value: ty}:
+			return formatExprText(p, ty, depth+1) + "{}"
+		case option.None:
+			return "{}"
+		}
+	}
+	"<expr>"
+}
+
+type ctxEntryInfo {
+	key       string,
+	val       string,
+	isReplace bool,
+	isEmbed   bool,
+}
+
+func addExtractedEntry(tbl mut ContextBindingTable, ctxIdx uint32, info ctxEntryInfo) uint32 {
+	let eid = dense.Next(&tbl.Entries)
+	dense.Push(&tbl.EntryCtx, ctxIdx)
+	dense.Push(&tbl.EntryKey, dense.InternText(&tbl.Strs, info.key))
+	dense.Push(&tbl.EntryVal, dense.InternText(&tbl.Strs, info.val))
+	dense.Push(&tbl.EntryReplace, info.isReplace)
+	dense.Push(&tbl.EntryEmbed, info.isEmbed)
+	uint32(dense.Index(eid))
+}
+
+func extractContextBody(tbl mut ContextBindingTable, p syntax.Parsed, bodyID dense.ID[syntax.Node], ctxName string, isDecl bool) {
+	let t = p.Tree
+	if syntax.KindOf(t, bodyID) != syntax.KContextBody {
+		return
+	}
+	let cid = dense.Next(&tbl.Contexts)
+	let ctxIdx = uint32(dense.Index(cid))
+	dense.Push(&tbl.CtxName, dense.InternText(&tbl.Strs, ctxName))
+	dense.Push(&tbl.CtxIsDecl, isDecl)
+	let body = syntax.ContextBodyOf(t, bodyID)
+	let mut entryIDs = []uint32{}
+	for i in 0..syntax.Len(body.Entries) {
+		let eid = syntax.Item(t, body.Entries, i)
+		if syntax.KindOf(t, eid) != syntax.KContextEntry {
+			continue
+		}
+		let ent = syntax.ContextEntryOf(t, eid)
+		let isReplace = ent.Replace >= 0
+		let mut valTxt = ""
+		let mut isEmbed = true
+		match dense.Unpack(ent.Value) {
+		case option.Some{Value: v}:
+			valTxt = formatExprText(p, v, 0)
+			isEmbed = false
+		case option.None:
+		}
+		let k0 = formatExprText(p, ent.Key, 0)
+		entryIDs = entryIDs.Append(addExtractedEntry(tbl, ctxIdx, ctxEntryInfo{key: k0, val: valTxt, isReplace: isReplace, isEmbed: isEmbed}))
+		for j in 0..syntax.Len(ent.Keys) {
+			let kj = formatExprText(p, syntax.Item(t, ent.Keys, j), 0)
+			entryIDs = entryIDs.Append(addExtractedEntry(tbl, ctxIdx, ctxEntryInfo{key: kj, val: valTxt, isReplace: isReplace, isEmbed: isEmbed}))
+		}
+	}
+	dense.Push(&tbl.CtxEntries, dense.PutList(&tbl.EntryPool, entryIDs))
+}
+
+func walkOptNodeForContexts(tbl mut ContextBindingTable, p syntax.Parsed, opt dense.Opt[syntax.Node]) {
+	match dense.Unpack(opt) {
+	case option.Some{Value: node}:
+		walkNodeForContexts(tbl, p, node)
+	case option.None:
+	}
+}
+
+func walkNodeListForContexts(tbl mut ContextBindingTable, p syntax.Parsed, xs syntax.List) {
+	for i in 0..syntax.Len(xs) {
+		walkNodeForContexts(tbl, p, syntax.Item(p.Tree, xs, i))
+	}
+}
+
+func walkStmtForContexts(tbl mut ContextBindingTable, p syntax.Parsed, id dense.ID[syntax.Node], kind uint8) {
+	let t = p.Tree
+	if kind == syntax.KBlockStmt {
+		walkNodeListForContexts(tbl, p, syntax.BlockStmtOf(t, id).List)
+	} else if kind == syntax.KDeclStmt {
+		walkNodeForContexts(tbl, p, syntax.DeclStmtOf(t, id).Decl)
+	} else if kind == syntax.KExprStmt {
+		walkNodeForContexts(tbl, p, syntax.ExprStmtOf(t, id).X)
+	} else if kind == syntax.KAssignStmt {
+		let s = syntax.AssignStmtOf(t, id)
+		walkNodeForContexts(tbl, p, s.Lhs)
+		walkNodeForContexts(tbl, p, s.Rhs)
+	} else if kind == syntax.KReturnStmt {
+		walkOptNodeForContexts(tbl, p, syntax.ReturnStmtOf(t, id).Result)
+	} else if kind == syntax.KIfStmt {
+		let s = syntax.IfStmtOf(t, id)
+		walkNodeForContexts(tbl, p, s.Cond)
+		walkNodeForContexts(tbl, p, s.Body)
+		walkOptNodeForContexts(tbl, p, s.Else)
+	} else if kind == syntax.KForStmt {
+		let s = syntax.ForStmtOf(t, id)
+		walkOptNodeForContexts(tbl, p, s.Cond)
+		walkNodeForContexts(tbl, p, s.Body)
+	} else if kind == syntax.KSwitchStmt {
+		let s = syntax.SwitchStmtOf(t, id)
+		walkNodeForContexts(tbl, p, s.Tag)
+		walkNodeListForContexts(tbl, p, s.Clauses)
+	} else if kind == syntax.KTypeSwitchStmt {
+		let s = syntax.TypeSwitchStmtOf(t, id)
+		walkNodeForContexts(tbl, p, s.Subject)
+		walkNodeListForContexts(tbl, p, s.Clauses)
+	} else if kind == syntax.KCaseClause {
+		walkNodeListForContexts(tbl, p, syntax.CaseClauseOf(t, id).Body)
+	}
+}
+
+func walkExprForContexts(tbl mut ContextBindingTable, p syntax.Parsed, id dense.ID[syntax.Node], kind uint8) {
+	let t = p.Tree
+	if kind == syntax.KContextLit {
+		let lit = syntax.ContextLitOf(t, id)
+		extractContextBody(tbl, p, lit.Body, "", false)
+	} else if kind == syntax.KCallExpr {
+		let call = syntax.CallExprOf(t, id)
+		walkNodeForContexts(tbl, p, call.Fun)
+		walkNodeListForContexts(tbl, p, call.Args)
+		walkOptNodeForContexts(tbl, p, call.Trailing)
+	} else if kind == syntax.KBinaryExpr {
+		let b = syntax.BinaryExprOf(t, id)
+		walkNodeForContexts(tbl, p, b.X)
+		walkNodeForContexts(tbl, p, b.Y)
+	} else if kind == syntax.KParenExpr {
+		walkNodeForContexts(tbl, p, syntax.ParenExprOf(t, id).X)
+	} else if kind == syntax.KTupleExpr {
+		walkNodeListForContexts(tbl, p, syntax.TupleExprOf(t, id).Elts)
+	} else if kind == syntax.KTryExpr {
+		walkNodeForContexts(tbl, p, syntax.TryExprOf(t, id).X)
+	} else if kind == syntax.KCatchExpr {
+		let c = syntax.CatchExprOf(t, id)
+		walkNodeForContexts(tbl, p, c.X)
+		walkNodeListForContexts(tbl, p, c.Arms)
+	} else if kind == syntax.KCatchArm {
+		walkNodeListForContexts(tbl, p, syntax.CatchArmOf(t, id).Body)
+	}
+}
+
+func walkNodeForContexts(tbl mut ContextBindingTable, p syntax.Parsed, id dense.ID[syntax.Node]) {
+	let t = p.Tree
+	let kind = syntax.KindOf(t, id)
+	if kind == syntax.KContextDecl {
+		let d = syntax.ContextDeclOf(t, id)
+		extractContextBody(tbl, p, d.Body, formatExprText(p, d.Name, 0), true)
+		return
+	}
+	if kind == syntax.KVarDecl {
+		walkNodeForContexts(tbl, p, syntax.VarDeclOf(t, id).Spec)
+		return
+	}
+	if kind == syntax.KVarSpec {
+		walkOptNodeForContexts(tbl, p, syntax.VarSpecOf(t, id).Value)
+		return
+	}
+	if kind == syntax.KFuncDecl {
+		walkOptNodeForContexts(tbl, p, syntax.FuncDeclOf(t, id).Body)
+		return
+	}
+	if kind == syntax.KTestDecl {
+		walkOptNodeForContexts(tbl, p, syntax.TestDeclOf(t, id).Body)
+		return
+	}
+	if kind == syntax.KLawDecl {
+		walkOptNodeForContexts(tbl, p, syntax.LawDeclOf(t, id).Body)
+		return
+	}
+	if kind == syntax.KContextLit || kind == syntax.KCallExpr || kind == syntax.KBinaryExpr || kind == syntax.KParenExpr || kind == syntax.KTupleExpr || kind == syntax.KTryExpr || kind == syntax.KCatchExpr || kind == syntax.KCatchArm {
+		walkExprForContexts(tbl, p, id, kind)
+		return
+	}
+	walkStmtForContexts(tbl, p, id, kind)
+}
+
+// ExtractContextBindings parses src with compiler/syntax and extracts all
+// context declarations, inline context literals, bindings, and embeddings.
+func ExtractContextBindings(src string) ContextBindingTable {
+	let mut tbl = NewContextBindingTable()
+	let p = syntax.Parse(src)
+	if p.Failed {
+		tbl.ParseFailed = true
+		return tbl
+	}
+	let file = syntax.FileOf(p.Tree, syntax.Root(p.Tree))
+	walkNodeListForContexts(&tbl, p, file.Decls)
+	tbl
+}
+
+law GeneratedContextBindingsMatchExtracted(seed uint64) {
+	let prog = GenerateContextProgram(seed)
+	if len(prog.Packages) < 2 {
+		return false
+	}
+	let mut totalContexts = 0
+	let mut totalBindings = 0
+	for pkg in prog.Packages {
+		let tbl = ExtractContextBindings(pkg.Text)
+		if tbl.ParseFailed {
+			return false
+		}
+		totalContexts = totalContexts + dense.Total(tbl.Contexts)
+		totalBindings = totalBindings + dense.Total(tbl.Entries)
+	}
+	totalContexts >= len(prog.Packages) && totalBindings >= totalContexts
+}
+
+test ContextBindingExtractionHandlesNamedReplaceEmbedAndInline {
+	let src = "let Base = context { A: ImplA{} }\nlet Live = context {\n\tBase,\n\treplace A: OverrideA{},\n\tB, C: SharedBC,\n}\nfunc main() {\n\twith context { D: LocalD } {\n\t\trun()\n\t}\n}\n"
+	let tbl = ExtractContextBindings(src)
+	assert !tbl.ParseFailed
+	assert dense.Total(tbl.Contexts) == 3
+	assert dense.Total(tbl.Entries) == 6
+	assert dense.Text(tbl.Strs, dense.Of(tbl.CtxName, dense.IDAt(tbl.Contexts, 0))) == "Base"
+	assert dense.Text(tbl.Strs, dense.Of(tbl.CtxName, dense.IDAt(tbl.Contexts, 1))) == "Live"
+	assert dense.Of(tbl.EntryEmbed, dense.IDAt(tbl.Entries, 1))
+	assert dense.Of(tbl.EntryReplace, dense.IDAt(tbl.Entries, 2))
+	assert !dense.Of(tbl.CtxIsDecl, dense.IDAt(tbl.Contexts, 2))
+	let prog = GenerateContextProgram(uint64(7))
+	let files = ContextFiles(prog)
+	assert files[0].File == "ergo.mod"
+	assert strings.Contains(FormatContextProgram(prog), "main.ergo")
+}

@@ -1,0 +1,593 @@
+import dense
+import filepath
+import option
+import slices
+import strconv
+import strings
+
+// TypeTag identifies a reflected type entry in MetaTable.
+type TypeTag {}
+
+// FieldTag identifies a struct field entry in MetaTable.
+type FieldTag {}
+
+// NoIndex is the sentinel index used when a type lacks an element or key type.
+let NoIndex = uint32(4294967295)
+
+// KindInvalid represents an invalid or absent type metadata entry.
+let KindInvalid = uint8(0)
+
+// KindBool represents a boolean type.
+let KindBool = uint8(1)
+
+// KindInt represents a signed integer type.
+let KindInt = uint8(2)
+
+// KindUint represents an unsigned integer type.
+let KindUint = uint8(3)
+
+// KindFloat represents a floating-point scalar type.
+let KindFloat = uint8(4)
+
+// KindString represents a string type.
+let KindString = uint8(5)
+
+// KindPointer represents a pointer type pointing to Elem.
+let KindPointer = uint8(6)
+
+// KindInterface represents an interface type.
+let KindInterface = uint8(7)
+
+// KindStruct represents a struct type with FieldRuns describing declared fields.
+let KindStruct = uint8(8)
+
+// KindSlice represents a slice type with element type Elem.
+let KindSlice = uint8(9)
+
+// KindArray represents a fixed-size array type of ArrayLen elements of type Elem.
+let KindArray = uint8(10)
+
+// KindMap represents a map type from KeyType to Elem.
+let KindMap = uint8(11)
+
+// KindFunc represents a function type.
+let KindFunc = uint8(12)
+
+// KindChan represents a channel type.
+let KindChan = uint8(13)
+
+// FieldSpec describes one field to register on a struct type.
+type FieldSpec {
+	Name string,
+	Type uint32,
+}
+
+// TypeSpec describes a composite or primitive type entry for registration.
+type TypeSpec {
+	Kind     uint8,
+	PkgPath  string,
+	Name     string,
+	KeyOrLen uint32,
+	Elem     uint32,
+}
+
+// MalformedMeta indicates invalid reflection metadata text or binary encoding.
+type MalformedMeta {
+	Reason string,
+}
+
+// MetaTable stores Go/spec type reflection metadata as flat Structure-of-Arrays tables.
+type MetaTable {
+	Strs      dense.Strings,
+	Types     dense.Count[TypeTag],
+	Kind      dense.Col[TypeTag, uint8],
+	PkgPath   dense.Col[TypeTag, dense.ID[dense.Str]],
+	Name      dense.Col[TypeTag, dense.ID[dense.Str]],
+	Elem      dense.Col[TypeTag, uint32],
+	KeyType   dense.Col[TypeTag, uint32],
+	ArrayLen  dense.Col[TypeTag, uint32],
+	FieldRuns dense.Col[TypeTag, dense.Run[uint32]],
+	Fields    dense.Count[FieldTag],
+	FieldName dense.Col[FieldTag, dense.ID[dense.Str]],
+	FieldType dense.Col[FieldTag, uint32],
+	FieldPool dense.Pool[uint32],
+}
+
+// NewMetaTable creates an empty MetaTable.
+func NewMetaTable() MetaTable {
+	MetaTable{
+		Strs:      dense.NewStrings(),
+		Types:     dense.NewCount[TypeTag](),
+		Kind:      dense.NewCol[TypeTag, uint8](),
+		PkgPath:   dense.NewCol[TypeTag, dense.ID[dense.Str]](),
+		Name:      dense.NewCol[TypeTag, dense.ID[dense.Str]](),
+		Elem:      dense.NewCol[TypeTag, uint32](),
+		KeyType:   dense.NewCol[TypeTag, uint32](),
+		ArrayLen:  dense.NewCol[TypeTag, uint32](),
+		FieldRuns: dense.NewCol[TypeTag, dense.Run[uint32]](),
+		Fields:    dense.NewCount[FieldTag](),
+		FieldName: dense.NewCol[FieldTag, dense.ID[dense.Str]](),
+		FieldType: dense.NewCol[FieldTag, uint32](),
+		FieldPool: dense.NewPool[uint32](),
+	}
+}
+
+func appendTypeRow(m mut MetaTable, spec TypeSpec) dense.ID[TypeTag] {
+	let id = dense.Next(&m.Types)
+	let pkgID = dense.InternText(&m.Strs, spec.PkgPath)
+	let nameID = dense.InternText(&m.Strs, spec.Name)
+	let keyT = if spec.Kind == KindMap { spec.KeyOrLen } else { NoIndex }
+	let arrL = if spec.Kind == KindArray { spec.KeyOrLen } else { uint32(0) }
+	dense.Push(&m.Kind, spec.Kind)
+	dense.Push(&m.PkgPath, pkgID)
+	dense.Push(&m.Name, nameID)
+	dense.Push(&m.Elem, spec.Elem)
+	dense.Push(&m.KeyType, keyT)
+	dense.Push(&m.ArrayLen, arrL)
+	dense.Push(&m.FieldRuns, dense.PutList(&m.FieldPool, []uint32{}))
+	id
+}
+
+// AddType registers a non-struct type entry described by spec in m.
+func AddType(m mut MetaTable, spec TypeSpec) dense.ID[TypeTag] {
+	appendTypeRow(m, spec)
+}
+
+// AddStruct registers a struct type in m with the ordered field specifications.
+func AddStruct(m mut MetaTable, pkgPath string, name string, fields []FieldSpec) dense.ID[TypeTag] {
+	let tid = appendTypeRow(m, TypeSpec{Kind: KindStruct, PkgPath: pkgPath, Name: name, KeyOrLen: uint32(0), Elem: NoIndex})
+	let mut fIndices = slices.WithCapacity[uint32](len(fields))
+	for f in fields {
+		let fid = dense.Next(&m.Fields)
+		dense.Push(&m.FieldName, dense.InternText(&m.Strs, f.Name))
+		dense.Push(&m.FieldType, f.Type)
+		fIndices = fIndices.Append(uint32(dense.Index(fid)))
+	}
+	let run = dense.PutList(&m.FieldPool, fIndices)
+	dense.SetOf(&m.FieldRuns, tid, run)
+	tid
+}
+
+// TypePkgAndName returns the package path and type name registered for id.
+func TypePkgAndName(m MetaTable, id dense.ID[TypeTag]) (string, string) {
+	let pkg = dense.Text(m.Strs, dense.Of(m.PkgPath, id))
+	let name = dense.Text(m.Strs, dense.Of(m.Name, id))
+	(pkg, name)
+}
+
+func compositeDisplayName(m MetaTable, id dense.ID[TypeTag], depth int) string {
+	let k = dense.Of(m.Kind, id)
+	let elem = dense.Of(m.Elem, id)
+	if k == KindPointer {
+		if elem == NoIndex {
+			return "*invalid"
+		}
+		return "*" + typeStringAt(m, dense.IDAt(m.Types, int(elem)), depth+1)
+	}
+	if k == KindSlice {
+		if elem == NoIndex {
+			return "[]invalid"
+		}
+		return "[]" + typeStringAt(m, dense.IDAt(m.Types, int(elem)), depth+1)
+	}
+	if k == KindArray {
+		let n = dense.Of(m.ArrayLen, id)
+		if elem == NoIndex {
+			return "[\(n)]invalid"
+		}
+		return "[\(n)]" + typeStringAt(m, dense.IDAt(m.Types, int(elem)), depth+1)
+	}
+	if k == KindMap {
+		let kt = dense.Of(m.KeyType, id)
+		let ks = if kt == NoIndex { "invalid" } else { typeStringAt(m, dense.IDAt(m.Types, int(kt)), depth+1) }
+		let es = if elem == NoIndex { "invalid" } else { typeStringAt(m, dense.IDAt(m.Types, int(elem)), depth+1) }
+		return "map[\(ks)]\(es)"
+	}
+	kindLabel(k)
+}
+
+func typeStringAt(m MetaTable, id dense.ID[TypeTag], depth int) string {
+	if depth > 32 {
+		return "..."
+	}
+	let (pkg, name) = TypePkgAndName(m, id)
+	if name != "" {
+		if pkg != "" {
+			return filepath.Base(pkg) + "." + name
+		}
+		return name
+	}
+	let k = dense.Of(m.Kind, id)
+	if k == KindPointer || k == KindSlice || k == KindArray || k == KindMap {
+		return compositeDisplayName(m, id, depth)
+	}
+	kindLabel(k)
+}
+
+// TypeDisplay returns a Go reflect.Type.String()-compatible representation of id.
+func TypeDisplay(m MetaTable, id dense.ID[TypeTag]) string {
+	typeStringAt(m, id, 0)
+}
+
+func comparableWalk(m MetaTable, id dense.ID[TypeTag], visiting mut []bool) bool {
+	let idx = dense.Index(id)
+	let k = dense.Of(m.Kind, id)
+	if k == KindInvalid || k == KindSlice || k == KindMap || k == KindFunc {
+		return false
+	}
+	if k == KindBool || k == KindInt || k == KindUint || k == KindFloat || k == KindString || k == KindPointer || k == KindInterface || k == KindChan {
+		return true
+	}
+	if (*visiting)[idx] {
+		return true
+	}
+	(*visiting)[idx] = true
+	if k == KindArray {
+		let elem = dense.Of(m.Elem, id)
+		if elem == NoIndex || int(elem) >= dense.Total(m.Types) {
+			(*visiting)[idx] = false
+			return false
+		}
+		let ok = comparableWalk(m, dense.IDAt(m.Types, int(elem)), visiting)
+		(*visiting)[idx] = false
+		return ok
+	}
+	let run = dense.Of(m.FieldRuns, id)
+	for raw in dense.List(m.FieldPool, run) {
+		let fid = dense.IDAt(m.Fields, int(raw))
+		let ftype = dense.Of(m.FieldType, fid)
+		if ftype == NoIndex || int(ftype) >= dense.Total(m.Types) {
+			(*visiting)[idx] = false
+			return false
+		}
+		if !comparableWalk(m, dense.IDAt(m.Types, int(ftype)), visiting) {
+			(*visiting)[idx] = false
+			return false
+		}
+	}
+	(*visiting)[idx] = false
+	true
+}
+
+// Comparable reports whether the type identified by id may serve as a map key.
+func Comparable(m MetaTable, id dense.ID[TypeTag]) bool {
+	let idx = dense.Index(id)
+	if idx < 0 || idx >= dense.Total(m.Types) {
+		return false
+	}
+	let mut visiting = slices.Repeat([]bool{false}, dense.Total(m.Types))
+	comparableWalk(m, id, &visiting)
+}
+
+func kindLabel(kind uint8) string {
+	if kind == KindBool { return "bool" }
+	if kind == KindInt { return "int" }
+	if kind == KindUint { return "uint" }
+	if kind == KindFloat { return "float64" }
+	if kind == KindString { return "string" }
+	if kind == KindPointer { return "ptr" }
+	if kind == KindInterface { return "interface" }
+	if kind == KindStruct { return "struct" }
+	if kind == KindSlice { return "slice" }
+	if kind == KindArray { return "array" }
+	if kind == KindMap { return "map" }
+	if kind == KindFunc { return "func" }
+	if kind == KindChan { return "chan" }
+	"invalid"
+}
+
+func parseKindName(s string) uint8 fails MalformedMeta {
+	if s == "invalid" { return KindInvalid }
+	if s == "bool" { return KindBool }
+	if s == "int" { return KindInt }
+	if s == "uint" { return KindUint }
+	if s == "float" || s == "float64" { return KindFloat }
+	if s == "string" { return KindString }
+	if s == "ptr" { return KindPointer }
+	if s == "interface" { return KindInterface }
+	if s == "struct" { return KindStruct }
+	if s == "slice" { return KindSlice }
+	if s == "array" { return KindArray }
+	if s == "map" { return KindMap }
+	if s == "func" { return KindFunc }
+	if s == "chan" { return KindChan }
+	return MalformedMeta{Reason: "unknown kind: \(s)"}
+}
+
+func formatFieldList(m MetaTable, id dense.ID[TypeTag]) string {
+	let run = dense.Of(m.FieldRuns, id)
+	let rawList = dense.List(m.FieldPool, run)
+	if len(rawList) == 0 {
+		return ""
+	}
+	let mut sb = strings.NewBuilder()
+	for i in 0..len(rawList) {
+		if i > 0 {
+			sb.WriteByte(',')
+		}
+		let fid = dense.IDAt(m.Fields, int(rawList[i]))
+		let fname = dense.Text(m.Strs, dense.Of(m.FieldName, fid))
+		let ftype = dense.Of(m.FieldType, fid)
+		sb.WriteString(strconv.Quote(fname))
+		sb.WriteByte('=')
+		sb.WriteString(strconv.Itoa(int(ftype)))
+	}
+	sb.String()
+}
+
+// FormatMetaTable serializes m into a deterministic line-oriented text metadata table.
+func FormatMetaTable(m MetaTable) string {
+	let mut sb = strings.NewBuilder()
+	for i in 0..dense.Total(m.Types) {
+		let tid = dense.IDAt(m.Types, i)
+		let kind = dense.Of(m.Kind, tid)
+		let (pkg, name) = TypePkgAndName(m, tid)
+		let keyOrLen = if kind == KindMap { dense.Of(m.KeyType, tid) } else { dense.Of(m.ArrayLen, tid) }
+		let elem = dense.Of(m.Elem, tid)
+		let elemTxt = if elem == NoIndex { "-" } else { strconv.Itoa(int(elem)) }
+		let klTxt = if kind == KindMap && keyOrLen == NoIndex { "-" } else { strconv.Itoa(int(keyOrLen)) }
+		sb.WriteString("type\t\(i)\t\(kindLabel(kind))\t\(strconv.Quote(pkg))\t\(strconv.Quote(name))\t\(klTxt)\t\(elemTxt)")
+		let fl = formatFieldList(m, tid)
+		if fl != "" {
+			sb.WriteByte('\t')
+			sb.WriteString(fl)
+		}
+		sb.WriteByte('\n')
+	}
+	sb.String()
+}
+
+func parseOptIndex(s string) uint32 fails MalformedMeta {
+	if s == "-" {
+		return NoIndex
+	}
+	let v = strconv.Atoi(s) catch {
+	case strconv.Malformed:
+		return MalformedMeta{Reason: "invalid index \(s)"}
+	case strconv.OutOfRange:
+		return MalformedMeta{Reason: "index out of range \(s)"}
+	}
+	if v < 0 {
+		return MalformedMeta{Reason: "negative index \(s)"}
+	}
+	uint32(v)
+}
+
+func parseQuotedStr(s string) string fails MalformedMeta {
+	strconv.Unquote(s) catch {
+	case strconv.Malformed:
+		return MalformedMeta{Reason: "malformed quoted string \(s)"}
+	}
+}
+
+func parseFieldsCol(col string) []FieldSpec fails MalformedMeta {
+	if col == "" {
+		return []FieldSpec{}
+	}
+	let mut out = []FieldSpec{}
+	let parts = strings.Split(col, ",")
+	for part in parts {
+		let (qname, typeTxt) = match strings.Cut(part, "=") {
+		case option.Some{Value: h}:
+			(h.Before, h.After)
+		case option.None:
+			return MalformedMeta{Reason: "malformed field spec \(part)"}
+		}
+		let fname = try parseQuotedStr(qname)
+		let ft = try parseOptIndex(typeTxt)
+		out = out.Append(FieldSpec{Name: fname, Type: ft})
+	}
+	out
+}
+
+func validateMetaRefs(m MetaTable) fails MalformedMeta {
+	let n = dense.Total(m.Types)
+	for i in 0..n {
+		let tid = dense.IDAt(m.Types, i)
+		let e = dense.Of(m.Elem, tid)
+		if e != NoIndex && int(e) >= n {
+			return MalformedMeta{Reason: "elem type index out of range"}
+		}
+		let kt = dense.Of(m.KeyType, tid)
+		if kt != NoIndex && int(kt) >= n {
+			return MalformedMeta{Reason: "key type index out of range"}
+		}
+		for raw in dense.List(m.FieldPool, dense.Of(m.FieldRuns, tid)) {
+			let ft = dense.Of(m.FieldType, dense.IDAt(m.Fields, int(raw)))
+			if int(ft) >= n {
+				return MalformedMeta{Reason: "field type index out of range"}
+			}
+		}
+	}
+}
+
+// ParseMetaTable parses a line-oriented reflection metadata specification into a MetaTable.
+func ParseMetaTable(spec string) MetaTable fails MalformedMeta {
+	let mut m = NewMetaTable()
+	let lines = strings.Split(spec, "\n")
+	for rawLine in lines {
+		let line = strings.TrimSpace(rawLine)
+		if line == "" {
+			continue
+		}
+		let cols = strings.Split(line, "\t")
+		if len(cols) < 7 || len(cols) > 8 || cols[0] != "type" {
+			return MalformedMeta{Reason: "malformed type line: \(line)"}
+		}
+		let idx = try parseOptIndex(cols[1])
+		if int(idx) != dense.Total(m.Types) {
+			return MalformedMeta{Reason: "non-sequential type id \(cols[1])"}
+		}
+		let kind = try parseKindName(cols[2])
+		let pkg = try parseQuotedStr(cols[3])
+		let name = try parseQuotedStr(cols[4])
+		let keyOrLen = try parseOptIndex(cols[5])
+		let elem = try parseOptIndex(cols[6])
+		let fieldsCol = if len(cols) == 8 { cols[7] } else { "" }
+		let fields = try parseFieldsCol(fieldsCol)
+		if kind == KindStruct {
+			let _ = AddStruct(&m, pkg, name, fields)
+		} else {
+			let _ = AddType(&m, TypeSpec{Kind: kind, PkgPath: pkg, Name: name, KeyOrLen: keyOrLen, Elem: elem})
+		}
+	}
+	try validateMetaRefs(m)
+	m
+}
+
+// EncodeMetaTable serializes m into a compact binary metadata representation.
+func EncodeMetaTable(m MetaTable) []byte {
+	let mut out = []byte{'R', 'M', 'E', 'T'}
+	out = AppendUvarint(out, uint64(1))
+	let nTypes = dense.Total(m.Types)
+	out = AppendUvarint(out, uint64(nTypes))
+	for i in 0..nTypes {
+		let tid = dense.IDAt(m.Types, i)
+		let k = dense.Of(m.Kind, tid)
+		let (pkg, name) = TypePkgAndName(m, tid)
+		let keyOrLen = if k == KindMap { dense.Of(m.KeyType, tid) } else { dense.Of(m.ArrayLen, tid) }
+		out = out.Append(byte(k))
+		out = AppendUvarint(out, uint64(pkg.Len()))
+		for b in pkg.Bytes() {
+			out = out.Append(b)
+		}
+		out = AppendUvarint(out, uint64(name.Len()))
+		for b in name.Bytes() {
+			out = out.Append(b)
+		}
+		out = AppendUvarint(out, uint64(dense.Of(m.Elem, tid)))
+		out = AppendUvarint(out, uint64(keyOrLen))
+		let fl = dense.List(m.FieldPool, dense.Of(m.FieldRuns, tid))
+		out = AppendUvarint(out, uint64(len(fl)))
+		for raw in fl {
+			let fid = dense.IDAt(m.Fields, int(raw))
+			let fn = dense.Text(m.Strs, dense.Of(m.FieldName, fid))
+			out = AppendUvarint(out, uint64(fn.Len()))
+			for b in fn.Bytes() {
+				out = out.Append(b)
+			}
+			out = AppendUvarint(out, uint64(dense.Of(m.FieldType, fid)))
+		}
+	}
+	out
+}
+
+func readEncodedText(buf []byte) (string, []byte) fails MalformedMeta {
+	let (slen, w) = DecodeUvarint(buf) catch {
+	case MalformedStep as e:
+		return MalformedMeta{Reason: e.Reason}
+	}
+	if slen > uint64(len(buf)-w) {
+		return MalformedMeta{Reason: "truncated string in binary meta"}
+	}
+	let seg = slices.Clone(buf[w : w+int(slen)])
+	(seg.Text(), buf[w+int(slen):])
+}
+
+func readEncodedU32(buf []byte) (uint32, []byte) fails MalformedMeta {
+	let (v, w) = DecodeUvarint(buf) catch {
+	case MalformedStep as e:
+		return MalformedMeta{Reason: e.Reason}
+	}
+	if v > uint64(NoIndex) {
+		return MalformedMeta{Reason: "uint32 overflow in binary meta"}
+	}
+	(uint32(v), buf[w:])
+}
+
+func decodeOneTypeRow(m mut MetaTable, cur []byte) []byte fails MalformedMeta {
+	if len(cur) < 1 {
+		return MalformedMeta{Reason: "unexpected eof reading kind"}
+	}
+	let kind = cur[0]
+	if kind > KindChan {
+		return MalformedMeta{Reason: "invalid kind tag in binary meta"}
+	}
+	let (pkg, c1) = try readEncodedText(cur[1:])
+	let (name, c2) = try readEncodedText(c1)
+	let (elem, c3) = try readEncodedU32(c2)
+	let (keyOrLen, c4) = try readEncodedU32(c3)
+	let (nf, c5) = try readEncodedU32(c4)
+	let mut nextCur = c5
+	let mut fspecs = slices.WithCapacity[FieldSpec](int(nf))
+	for _ in 0..int(nf) {
+		let (fname, fn1) = try readEncodedText(nextCur)
+		let (ftype, fn2) = try readEncodedU32(fn1)
+		fspecs = fspecs.Append(FieldSpec{Name: fname, Type: ftype})
+		nextCur = fn2
+	}
+	if kind == KindStruct {
+		let _ = AddStruct(m, pkg, name, fspecs)
+	} else {
+		let _ = AddType(m, TypeSpec{Kind: kind, PkgPath: pkg, Name: name, KeyOrLen: keyOrLen, Elem: elem})
+	}
+	nextCur
+}
+
+// DecodeMetaTable decodes a binary metadata table produced by EncodeMetaTable.
+func DecodeMetaTable(data []byte) MetaTable fails MalformedMeta {
+	if len(data) < 5 || data[0] != byte('R') || data[1] != byte('M') || data[2] != byte('E') || data[3] != byte('T') {
+		return MalformedMeta{Reason: "bad binary metadata magic"}
+	}
+	let (ver, cur0) = try readEncodedU32(data[4:])
+	if ver != uint32(1) {
+		return MalformedMeta{Reason: "unsupported binary metadata version \(ver)"}
+	}
+	let (nTypes, cur1) = try readEncodedU32(cur0)
+	let mut cur = cur1
+	let mut m = NewMetaTable()
+	for _ in 0..int(nTypes) {
+		cur = try decodeOneTypeRow(&m, cur)
+	}
+	if len(cur) != 0 {
+		return MalformedMeta{Reason: "trailing bytes in binary meta"}
+	}
+	try validateMetaRefs(m)
+	m
+}
+
+law MetaTableTextAndBinaryRoundTrip(arrayLen uint8, pkg string, name string) {
+	let mut m = NewMetaTable()
+	let tInt = AddType(&m, TypeSpec{Kind: KindInt, PkgPath: "", Name: "int", KeyOrLen: uint32(0), Elem: NoIndex})
+	let tStr = AddType(&m, TypeSpec{Kind: KindString, PkgPath: "", Name: "string", KeyOrLen: uint32(0), Elem: NoIndex})
+	let tSlice = AddType(&m, TypeSpec{Kind: KindSlice, PkgPath: "", Name: "", KeyOrLen: uint32(0), Elem: uint32(dense.Index(tInt))})
+	let tArr = AddType(&m, TypeSpec{Kind: KindArray, PkgPath: "", Name: "", KeyOrLen: uint32(arrayLen), Elem: uint32(dense.Index(tStr))})
+	let tRec = AddStruct(&m, pkg, name, []FieldSpec{
+		FieldSpec{Name: "Key", Type: uint32(dense.Index(tArr))},
+		FieldSpec{Name: "Items", Type: uint32(dense.Index(tSlice))},
+	})
+	if !Comparable(m, tInt) || !Comparable(m, tStr) || Comparable(m, tSlice) || !Comparable(m, tArr) || Comparable(m, tRec) {
+		return false
+	}
+	let txt = FormatMetaTable(m)
+	let parsed = ParseMetaTable(txt) catch {
+	case MalformedMeta:
+		return false
+	}
+	if FormatMetaTable(parsed) != txt {
+		return false
+	}
+	let bin = EncodeMetaTable(m)
+	let dec = DecodeMetaTable(bin) catch {
+	case MalformedMeta:
+		return false
+	}
+	FormatMetaTable(dec) == txt
+}
+
+test MetaTableDisplayAndRejectMalformed {
+	let mut m = NewMetaTable()
+	let tInt = AddType(&m, TypeSpec{Kind: KindInt, PkgPath: "", Name: "int", KeyOrLen: uint32(0), Elem: NoIndex})
+	let tObj = AddStruct(&m, "ergo.local/prototype/check", "Object", []FieldSpec{FieldSpec{Name: "ID", Type: uint32(dense.Index(tInt))}})
+	let tPtr = AddType(&m, TypeSpec{Kind: KindPointer, PkgPath: "", Name: "", KeyOrLen: uint32(0), Elem: uint32(dense.Index(tObj))})
+	assert TypeDisplay(m, tPtr) == "*check.Object"
+	assert Comparable(m, tObj)
+	assert Comparable(m, tPtr)
+	let mut rejected = false
+	let _ = ParseMetaTable("type\t0\tstruct\t\"\"\t\"Bad\"\t0\t-\t\"F\"=99\n") catch {
+	case MalformedMeta:
+		rejected = true
+		NewMetaTable()
+	}
+	assert rejected
+}

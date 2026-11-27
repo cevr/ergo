@@ -1,0 +1,109 @@
+import bits
+import slices
+
+// PCG implements a 128-bit DXSM permuted congruential pseudo-random generator
+// matching Go's math/rand/v2.PCG.
+type PCG {
+	Hi uint64,
+	Lo uint64,
+}
+
+let mulHi = uint64(2549297995355413924)
+let mulLo = uint64(4865540595714422341)
+let incHi = uint64(6364136223846793005)
+let incLo = uint64(1442695040888963407)
+let cheapMul uint64 = 0xda942042e4dd58b5
+
+// NewPCG constructs a deterministic PCG seeded with seed and stream.
+func NewPCG(seed uint64, stream uint64) PCG {
+	PCG{Hi: seed, Lo: stream}
+}
+
+// NextUint64 advances r and yields the next uniformly distributed uint64.
+func NextUint64(r mut PCG) uint64 {
+	let (hi0, lo) = bits.Mul64(r.Lo, mulLo)
+	let hi = hi0 + r.Hi*mulLo + r.Lo*mulHi
+	let (nextLo, c) = bits.Add64(lo, incLo, uint64(0))
+	let (nextHi, _) = bits.Add64(hi, incHi, c)
+	r.Lo = nextLo
+	r.Hi = nextHi
+	let mut h = nextHi ^ (nextHi >> 32)
+	h = h * cheapMul
+	h = h ^ (h >> 48)
+	h * (nextLo | uint64(1))
+}
+
+// IntN draws a uniform pseudo-random integer in [0, n).
+func IntN(r mut PCG, n int) int {
+	if n <= 1 {
+		return 0
+	}
+	let un = uint64(n)
+	if (un & (un - uint64(1))) == uint64(0) {
+		return int(NextUint64(r) & (un - uint64(1)))
+	}
+	let (hi0, lo0) = bits.Mul64(NextUint64(r), un)
+	let mut hi = hi0
+	let mut lo = lo0
+	if lo < un {
+		let thresh = (uint64(0) - un) % un
+		for lo < thresh {
+			let (nhi, nlo) = bits.Mul64(NextUint64(r), un)
+			hi = nhi
+			lo = nlo
+		}
+	}
+	int(hi)
+}
+
+// ShuffleStrings returns a shuffled copy of xs using Fisher-Yates from r.
+func ShuffleStrings(r mut PCG, xs []string) []string {
+	let mut out = slices.Clone(xs)
+	let mut i = len(out) - 1
+	for i > 0 {
+		let j = IntN(r, i+1)
+		let tmp = out[i]
+		out[i] = out[j]
+		out[j] = tmp
+		i = i - 1
+	}
+	out
+}
+
+// Perm returns a shuffled permutation of integers [0, n).
+func Perm(r mut PCG, n int) []int {
+	let mut out = slices.WithCapacity[int](n)
+	for i in 0..n {
+		out = out.Append(i)
+	}
+	let mut i = n - 1
+	for i > 0 {
+		let j = IntN(r, i+1)
+		let tmp = out[i]
+		out[i] = out[j]
+		out[j] = tmp
+		i = i - 1
+	}
+	out
+}
+
+law RNGDeterministic(seed uint64, rawBound uint16) {
+	let bound = 1 + int(rawBound)%10000
+	let mut a = NewPCG(seed, uint64(195))
+	let mut b = NewPCG(seed, uint64(195))
+	let va = IntN(&a, bound)
+	let vb = IntN(&b, bound)
+	va == vb && va >= 0 && va < bound
+}
+
+test RNGPermAndShuffleCoverAllElements {
+	let mut r = NewPCG(uint64(42), uint64(195))
+	let p = Perm(&r, 6)
+	assert len(p) == 6
+	for k in 0..6 {
+		assert slices.Contains(p, k)
+	}
+	let shuf = ShuffleStrings(&r, []string{"a", "b", "c"})
+	assert len(shuf) == 3
+	assert slices.Contains(shuf, "a") && slices.Contains(shuf, "b") && slices.Contains(shuf, "c")
+}
