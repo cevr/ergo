@@ -1,0 +1,105 @@
+{
+  "about": "compiler/testexec: data-oriented test/law discovery, regex selection, LPT sharding, deterministic harness/lib emission, build/run planning, and verdict aggregation (SELFHOST-TEST-RUNNER).",
+  "mutants": [
+    {
+      "name": "selfhost-test-runner-discover-drops-member-laws",
+      "origin": "wf10 SELFHOST-TEST-RUNNER",
+      "file": "compiler/testexec/discover.ergo",
+      "decl": "discoverOnePackage",
+      "from": "\t\t\t\t\t\t\t\t\tKind:       uint8(2),\n\t\t\t\t\t\t\t\t\tFlags:      flags,\n\t\t\t\t\t\t\t\t\tName:       mName,\n\t\t\t\t\t\t\t\t\tTitle:      tName + \".\" + mName,\n",
+      "to": "\t\t\t\t\t\t\t\t\tKind:       uint8(1),\n\t\t\t\t\t\t\t\t\tFlags:      flags,\n\t\t\t\t\t\t\t\t\tName:       mName,\n\t\t\t\t\t\t\t\t\tTitle:      mName,\n",
+      "rule": "DiscoverObligations extracts interface member law declarations as Kind 2 with qualified Type.Law titles.",
+      "killers": ["compiler/testexec:law:MemberAndContextObligationsExtracted", "compiler/testexec:DiscoverExtractsTestsLawsMembersHarnessesAndMachines"]
+    },
+    {
+      "name": "selfhost-test-runner-discover-unsorted-tests",
+      "origin": "wf10 SELFHOST-TEST-RUNNER",
+      "file": "compiler/testexec/discover.ergo",
+      "decl": "discoverOnePackage",
+      "from": "\ttests = slices.SortFunc(tests, compareTestItems)\n",
+      "to": "\tlet sortedTestsUnused = slices.SortFunc(tests, compareTestItems)\n\tlet _ = sortedTestsUnused\n",
+      "rule": "Package test obligations are sorted canonically so file traversal order never changes obligation ordering.",
+      "killers": ["compiler/testexec:law:DiscoveryOrderDeterministic"]
+    },
+    {
+      "name": "selfhost-test-runner-select-ignores-skip-filter",
+      "origin": "wf10 SELFHOST-TEST-RUNNER",
+      "file": "compiler/testexec/select.ergo",
+      "decl": "SelectObligations",
+      "from": "\t\tlet outMatch = hasSkip && matchesObligation(true, skipProg, spec.Skip, title, full)\n",
+      "to": "\t\tlet outMatch = false && hasSkip && matchesObligation(true, skipProg, spec.Skip, title, full)\n",
+      "rule": "SelectObligations excludes obligations matched by --skip into SkippedIDs.",
+      "killers": ["compiler/testexec:law:FilterSubsetPreservesOrder", "compiler/testexec:SelectMatchesExactRegexSkipRunAndLaw"]
+    },
+    {
+      "name": "selfhost-test-runner-select-allows-bad-quantifier",
+      "origin": "wf10 SELFHOST-TEST-RUNNER",
+      "file": "compiler/testexec/select.ergo",
+      "decl": "parseAtom",
+      "from": "\tif ch == '*' || ch == '+' || ch == '?' {\n\t\treturn PatternError{Flag: (*p).Flag, Pattern: (*p).Src, Reason: \"unexpected quantifier \" + (*p).Src[(*p).Pos:(*p).Pos+1]}\n\t}\n",
+      "to": "\tif false && (ch == '*' || ch == '+' || ch == '?') {\n\t\treturn PatternError{Flag: (*p).Flag, Pattern: (*p).Src, Reason: \"unexpected quantifier \" + (*p).Src[(*p).Pos:(*p).Pos+1]}\n\t}\n",
+      "rule": "Unattached and stacked repetition quantifiers (*leading, a++) are rejected with PatternError.",
+      "killers": ["compiler/testexec:law:InvalidRegexReturnsError"]
+    },
+    {
+      "name": "selfhost-test-runner-shard-merges-all-into-first",
+      "origin": "wf10 SELFHOST-TEST-RUNNER",
+      "file": "compiler/testexec/shard.ergo",
+      "decl": "PlanShards",
+      "from": "\t\t\t\ttargetShard[int(tid)] = uint32(s)\n",
+      "to": "\t\t\t\ttargetShard[int(tid)] = uint32(0)\n",
+      "rule": "PlanShards balances items across lightest shards rather than assigning all targets to shard 0.",
+      "killers": ["compiler/testexec:ShardDeterminismTimingsRoundTrip", "compiler/testexec:law:ShardPartitionEquivalent"]
+    },
+    {
+      "name": "selfhost-test-runner-harness-drops-seed-replay",
+      "origin": "wf10 SELFHOST-TEST-RUNNER",
+      "file": "compiler/testexec/harness.ergo",
+      "decl": "FormatReplayCommand",
+      "from": "\tlet seedPart = if seed > uint64(0) { \" --seed \" + u64Decimal(seed) } else { \"\" }\n",
+      "to": "\tlet seedPart = \"\"\n",
+      "rule": "Replay commands embed --seed N when non-zero seed is provided.",
+      "killers": ["compiler/testexec:law:ReplayCommandValid", "compiler/testexec:HarnessDispatchLibraryAndReplay"]
+    },
+    {
+      "name": "selfhost-test-runner-harness-allows-main-lib",
+      "origin": "wf10 SELFHOST-TEST-RUNNER",
+      "file": "compiler/testexec/harness.ergo",
+      "decl": "ValidateLibPackageName",
+      "from": "\tif name == \"\" || name == \"main\" || name == \"_\" || isGoKeyword(name) {\n",
+      "to": "\tif name == \"\" || name == \"_\" || isGoKeyword(name) {\n",
+      "rule": "ValidateLibPackageName rejects `main` as an invalid Go library package name.",
+      "killers": ["compiler/testexec:law:ValidateLibPackageNameRejectsInvalid"]
+    },
+    {
+      "name": "selfhost-test-runner-verdict-bad-json-escape",
+      "origin": "wf10 SELFHOST-TEST-RUNNER",
+      "file": "compiler/testexec/verdict.ergo",
+      "decl": "jsonQuoteString",
+      "from": "\tjson.Encode(json.Codec[string]{MaxBytes: 0, MaxDepth: 0}, s)\n",
+      "to": "\tstrconv.Quote(s)\n",
+      "rule": "FormatVerdictJSON encodes strings using RFC 8259 JSON escaping so control bytes remain valid JSON.",
+      "killers": ["compiler/testexec:law:JsonSummaryWellFormed"]
+    },
+    {
+      "name": "selfhost-test-runner-verdict-priority-wrong",
+      "origin": "wf10 SELFHOST-TEST-RUNNER",
+      "file": "compiler/testexec/verdict.ergo",
+      "decl": "RollupVerdicts",
+      "from": "\t\tif o.ExitCode >= 2 {\n\t\t\tpkgFail = pkgFail + 1\n\t\t\tcode = 2\n",
+      "to": "\t\tif o.ExitCode >= 2 {\n\t\t\tpkgFail = pkgFail + 1\n\t\t\tcode = 1\n",
+      "rule": "Defect/usage exit status 2 takes precedence over test failure status 1 in RollupVerdicts.",
+      "killers": ["compiler/testexec:law:VerdictRollupAccurate"]
+    },
+    {
+      "name": "selfhost-test-runner-plan-allows-dir-output",
+      "origin": "wf10 SELFHOST-TEST-RUNNER",
+      "file": "compiler/testexec/plan.ergo",
+      "decl": "ResolveOutputPath",
+      "from": "\tif strings.HasSuffix(explicitOut, \"/\") {\n\t\treturn PlanError{Code: \"E_OUTPUT\", Message: \"output \" + explicitOut + \" names a directory; name the file to write\"}\n\t}\n",
+      "to": "\tif false && strings.HasSuffix(explicitOut, \"/\") {\n\t\treturn PlanError{Code: \"E_OUTPUT\", Message: \"output \" + explicitOut + \" names a directory; name the file to write\"}\n\t}\n",
+      "rule": "ResolveOutputPath rejects trailing-slash directory paths with PlanError E_OUTPUT.",
+      "killers": ["compiler/testexec:law:OutputNamingAndLibValidation"]
+    }
+  ]
+}

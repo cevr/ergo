@@ -1,11 +1,12 @@
 import core
+import exec
 import fs
 import io
 import os
 import slices
 
 // RunHost runs the self-hosted ergo CLI against ambient host capabilities.
-func RunHost() fails os.Exit needs os.Process | fs.Files | fs.Writes | io.Stdout | io.Stderr | io.Stdin {
+func RunHost() fails os.Exit needs os.Process | exec.Runner | fs.Files | fs.Writes | io.Stdout | io.Stderr | io.Stdin {
 	let args = os.Process.Args()
 	let workDir = os.Process.Getwd() catch {
 	case os.NoWorkdir:
@@ -17,7 +18,7 @@ func RunHost() fails os.Exit needs os.Process | fs.Files | fs.Writes | io.Stdout
 		envList = envList.Append(k + "=" + v)
 	}
 	envList = slices.Sort(envList)
-	let code = Dispatch(args, workDir, envList)
+	let code = DispatchExec(args, workDir, envList)
 	if code == 0 {
 		return
 	}
@@ -29,13 +30,16 @@ func RunHost() fails os.Exit needs os.Process | fs.Files | fs.Writes | io.Stdout
 }
 
 func main() fails os.Exit needs os.Ambient {
+	let proc = os.NewHost()
+	let envMap = with context { os.Process: proc } { os.Process.Environ() }
 	with context {
-		os.Process: os.NewHost(),
-		fs.Files:   fs.NewHost(),
-		fs.Writes:  fs.NewHost(),
-		io.Stdout:  io.NewHost(),
-		io.Stderr:  io.NewErrors(),
-		io.Stdin:   io.NewStdin(),
+		os.Process:  proc,
+		exec.Runner: exec.NewHost().InheritEnv(envMap),
+		fs.Files:    fs.NewHost(),
+		fs.Writes:   fs.NewHost(),
+		io.Stdout:   io.NewHost(),
+		io.Stderr:   io.NewErrors(),
+		io.Stdin:    io.NewStdin(),
 	} {
 		try RunHost()
 	}

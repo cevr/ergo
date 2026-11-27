@@ -1,0 +1,857 @@
+import compiler/driver
+import compiler/syntax
+import dense
+import fs
+import option
+import slices
+import strings
+
+// NoObligation returns the unsigned uint32 sentinel representing an absent obligation or slot.
+func NoObligation() uint32 {
+	uint32(4294967295)
+}
+
+// ObligationKind classifies a discovered test or law execution obligation.
+type ObligationKind =
+	| KindTest{}
+	| KindLaw{}
+	| KindMemberLaw{}
+	| KindContextLaw{}
+	| KindMachineLaw{}
+
+// ObligationFlagUnrun marks obligations whose parameters cannot be auto-generated.
+func ObligationFlagUnrun() uint32 {
+	uint32(1)
+}
+
+// ObligationFlagReach marks machine reachability or path obligations.
+func ObligationFlagReach() uint32 {
+	uint32(2)
+}
+
+// ObligationFlagRewrite marks rewrite laws.
+func ObligationFlagRewrite() uint32 {
+	uint32(4)
+}
+
+// ObligationFlagEquation marks equational or claim-equation laws.
+func ObligationFlagEquation() uint32 {
+	uint32(8)
+}
+
+// ObligationFlagHasParams marks parameterized obligations.
+func ObligationFlagHasParams() uint32 {
+	uint32(16)
+}
+
+// ObligationFlagGeneric marks type-parameterized generic laws.
+func ObligationFlagGeneric() uint32 {
+	uint32(32)
+}
+
+// SourceFile pairs an Ergo source path with its raw file contents.
+type SourceFile {
+	Path    string,
+	Content string,
+}
+
+// SourcePackage describes one package's labels, directory, and source files for discovery.
+type SourcePackage {
+	Label string,
+	Path  string,
+	Dir   string,
+	Files []SourceFile,
+}
+
+// ParseFailure reports a syntax parse failure encountered during obligation discovery.
+type ParseFailure {
+	File    string,
+	Code    string,
+	Line    int,
+	Column  int,
+	Message string,
+}
+
+// ObligationStore stores discovered package tests and laws in pointer-free uint32 SoA columns.
+type ObligationStore {
+	Strings     []string,
+	StrIndex    Map[string, uint32],
+	PkgCount    uint32,
+	PkgLabels   []string,
+	PkgPaths    []string,
+	PkgDirs     []string,
+	PkgObStart  []uint32,
+	PkgObLen    []uint32,
+	Count       uint32,
+	PkgID       []uint32,
+	Kind        []uint8,
+	Flags       []uint32,
+	NameStr     []uint32,
+	TitleStr    []uint32,
+	LabelStr    []uint32,
+	FullStr     []uint32,
+	SubjectStr  []uint32,
+	ProviderStr []uint32,
+	HarnessStr  []uint32,
+	FileStr     []uint32,
+	Line        []uint32,
+	Col         []uint32,
+}
+
+// NewObligationStore allocates an empty SoA ObligationStore.
+func NewObligationStore() ObligationStore {
+	let strs = []string{""}
+	let mut idx = Map[string, uint32]{}
+	idx = idx.Put("", uint32(0))
+	ObligationStore{
+		Strings:     strs,
+		StrIndex:    idx,
+		PkgCount:    uint32(0),
+		PkgLabels:   []string{},
+		PkgPaths:    []string{},
+		PkgDirs:     []string{},
+		PkgObStart:  []uint32{},
+		PkgObLen:    []uint32{},
+		Count:       uint32(0),
+		PkgID:       []uint32{},
+		Kind:        []uint8{},
+		Flags:       []uint32{},
+		NameStr:     []uint32{},
+		TitleStr:    []uint32{},
+		LabelStr:    []uint32{},
+		FullStr:     []uint32{},
+		SubjectStr:  []uint32{},
+		ProviderStr: []uint32{},
+		HarnessStr:  []uint32{},
+		FileStr:     []uint32{},
+		Line:        []uint32{},
+		Col:         []uint32{},
+	}
+}
+
+func internText(st mut ObligationStore, text string) uint32 {
+	match (*st).StrIndex.Get(text) {
+	case option.Some[uint32] as hit:
+		return hit.Value
+	case option.None:
+	}
+	let id = uint32((*st).Strings.Len())
+	(*st).Strings = (*st).Strings.Append(text)
+	(*st).StrIndex = (*st).StrIndex.Put(text, id)
+	id
+}
+
+func kindToTag(k ObligationKind) uint8 {
+	match k {
+	case KindTest:
+		uint8(0)
+	case KindLaw:
+		uint8(1)
+	case KindMemberLaw:
+		uint8(2)
+	case KindContextLaw:
+		uint8(3)
+	case KindMachineLaw:
+		uint8(4)
+	}
+}
+
+func tagToKind(t uint8) ObligationKind {
+	if t == uint8(0) {
+		return KindTest
+	}
+	if t == uint8(1) {
+		return KindLaw
+	}
+	if t == uint8(2) {
+		return KindMemberLaw
+	}
+	if t == uint8(3) {
+		return KindContextLaw
+	}
+	KindMachineLaw
+}
+
+func appendObligation(st mut ObligationStore, pkgID uint32, kind ObligationKind, flags uint32, name string, title string, label string, full string, subject string, provider string, harness string, file string, line int, col int) uint32 {
+	let id = (*st).Count
+	let nameID = internText(st, name)
+	let titleID = internText(st, title)
+	let labelID = internText(st, label)
+	let fullID = internText(st, full)
+	let subjID = internText(st, subject)
+	let provID = internText(st, provider)
+	let harnID = internText(st, harness)
+	let fileID = internText(st, file)
+	(*st).Count = id + uint32(1)
+	(*st).PkgID = (*st).PkgID.Append(pkgID)
+	(*st).Kind = (*st).Kind.Append(kindToTag(kind))
+	(*st).Flags = (*st).Flags.Append(flags)
+	(*st).NameStr = (*st).NameStr.Append(nameID)
+	(*st).TitleStr = (*st).TitleStr.Append(titleID)
+	(*st).LabelStr = (*st).LabelStr.Append(labelID)
+	(*st).FullStr = (*st).FullStr.Append(fullID)
+	(*st).SubjectStr = (*st).SubjectStr.Append(subjID)
+	(*st).ProviderStr = (*st).ProviderStr.Append(provID)
+	(*st).HarnessStr = (*st).HarnessStr.Append(harnID)
+	(*st).FileStr = (*st).FileStr.Append(fileID)
+	(*st).Line = (*st).Line.Append(uint32(if line < 0 { 0 } else { line }))
+	(*st).Col = (*st).Col.Append(uint32(if col < 0 { 0 } else { col }))
+	id
+}
+
+// KindAt returns the ObligationKind of dense obligation id.
+func KindAt(st ObligationStore, id uint32) ObligationKind {
+	tagToKind(st.Kind[int(id)])
+}
+
+// IsLawAt reports whether dense obligation id is any law variant rather than a unit test.
+func IsLawAt(st ObligationStore, id uint32) bool {
+	st.Kind[int(id)] != uint8(0)
+}
+
+// FlagsAt returns the packed flag bits of dense obligation id.
+func FlagsAt(st ObligationStore, id uint32) uint32 {
+	st.Flags[int(id)]
+}
+
+// IsUnrunAt reports whether dense obligation id has ungenerable function parameters.
+func IsUnrunAt(st ObligationStore, id uint32) bool {
+	(st.Flags[int(id)] & ObligationFlagUnrun()) != uint32(0)
+}
+
+// IsReachAt reports whether dense obligation id is a reachability law.
+func IsReachAt(st ObligationStore, id uint32) bool {
+	(st.Flags[int(id)] & ObligationFlagReach()) != uint32(0)
+}
+
+// PkgIDAt returns the owning package index of dense obligation id.
+func PkgIDAt(st ObligationStore, id uint32) uint32 {
+	st.PkgID[int(id)]
+}
+
+// NameAt returns the declared test or law identifier of dense obligation id.
+func NameAt(st ObligationStore, id uint32) string {
+	st.Strings[int(st.NameStr[int(id)])]
+}
+
+// TitleAt returns the qualified title (Name, Type.Law, or Machine.Law) of dense obligation id.
+func TitleAt(st ObligationStore, id uint32) string {
+	st.Strings[int(st.TitleStr[int(id)])]
+}
+
+// LabelAt returns the canonical verdict report label of dense obligation id.
+func LabelAt(st ObligationStore, id uint32) string {
+	st.Strings[int(st.LabelStr[int(id)])]
+}
+
+// FullAt returns the selection string ("test Name" or "law Title") of dense obligation id.
+func FullAt(st ObligationStore, id uint32) string {
+	st.Strings[int(st.FullStr[int(id)])]
+}
+
+// SubjectAt returns the owning interface or machine name of dense obligation id.
+func SubjectAt(st ObligationStore, id uint32) string {
+	st.Strings[int(st.SubjectStr[int(id)])]
+}
+
+// ProviderAt returns the bound provider type name of dense obligation id, if any.
+func ProviderAt(st ObligationStore, id uint32) string {
+	st.Strings[int(st.ProviderStr[int(id)])]
+}
+
+// HarnessAt returns the context harness name of dense obligation id, if any.
+func HarnessAt(st ObligationStore, id uint32) string {
+	st.Strings[int(st.HarnessStr[int(id)])]
+}
+
+// FileAt returns the source filename where dense obligation id is declared.
+func FileAt(st ObligationStore, id uint32) string {
+	st.Strings[int(st.FileStr[int(id)])]
+}
+
+// LineAt returns the 1-indexed declaration line of dense obligation id.
+func LineAt(st ObligationStore, id uint32) int {
+	int(st.Line[int(id)])
+}
+
+// ColAt returns the 1-indexed declaration column of dense obligation id.
+func ColAt(st ObligationStore, id uint32) int {
+	int(st.Col[int(id)])
+}
+
+// PackageObligationCount returns the number of obligations recorded for pkgID.
+func PackageObligationCount(st ObligationStore, pkgID uint32) uint32 {
+	if int(pkgID) >= st.PkgObLen.Len() {
+		return uint32(0)
+	}
+	st.PkgObLen[int(pkgID)]
+}
+
+// PackageObligationStart returns the first dense obligation ID belonging to pkgID.
+func PackageObligationStart(st ObligationStore, pkgID uint32) uint32 {
+	if int(pkgID) >= st.PkgObStart.Len() {
+		return uint32(0)
+	}
+	st.PkgObStart[int(pkgID)]
+}
+
+// PackageObligationIDs returns the ordered dense obligation IDs owned by pkgID.
+func PackageObligationIDs(st ObligationStore, pkgID uint32) []uint32 {
+	let start = int(PackageObligationStart(st, pkgID))
+	let n = int(PackageObligationCount(st, pkgID))
+	let mut out = []uint32{}
+	for i in 0..n {
+		out = out.Append(uint32(start + i))
+	}
+	out
+}
+
+type rawTestItem {
+	Name string,
+	File string,
+	Line int,
+	Col  int,
+}
+
+type rawLawItem {
+	Kind       uint8,
+	Flags      uint32,
+	Name       string,
+	Title      string,
+	Subject    string,
+	ParamCaps  []string,
+	ParamNames []string,
+	File       string,
+	Line       int,
+	Col        int,
+}
+
+type rawImplClaim {
+	Provider string,
+	Iface    string,
+}
+
+type rawContextClaim {
+	Harness string,
+	Iface   string,
+}
+
+func nodeTextName(p syntax.Parsed, id dense.ID[syntax.Node]) string {
+	match syntax.ViewOf(p.Tree, id) {
+	case syntax.Name as nm:
+		syntax.TokText(p, nm.Tok)
+	case syntax.SelectorExpr as se:
+		nodeTextName(p, se.X) + "." + nodeTextName(p, se.Sel)
+	case syntax.IndexExpr as ie:
+		nodeTextName(p, ie.X)
+	case _:
+		""
+	}
+}
+
+func baseIdent(s string) string {
+	let i = strings.LastIndex(s, ".")
+	if i < 0 {
+		return s
+	}
+	s[i+1 : s.Len()]
+}
+
+func scanLawParams(p syntax.Parsed, params dense.Opt[syntax.Node]) (bool, bool, []string, []string) {
+	let fl = match dense.Unpack(params) {
+	case option.Some[dense.ID[syntax.Node]] as node:
+		match syntax.ViewOf(p.Tree, node.Value) {
+		case syntax.FieldList as list:
+			list
+		case _:
+			return (false, false, []string{}, []string{})
+		}
+	case option.None:
+		return (false, false, []string{}, []string{})
+	}
+	let n = syntax.Len(fl.List)
+	let hasParams = n > 0
+	let mut hasFunc = false
+	let mut paramCaps = []string{}
+	let mut paramNames = []string{}
+	for i in 0..n {
+		match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, fl.List, i)) {
+		case syntax.Field as fld:
+			let typeName = match dense.Unpack(fld.Type) {
+			case option.Some[dense.ID[syntax.Node]] as tn:
+				match syntax.ViewOf(p.Tree, tn.Value) {
+				case syntax.FuncType:
+					hasFunc = true
+					""
+				case _:
+					baseIdent(nodeTextName(p, tn.Value))
+				}
+			case option.None:
+				""
+			}
+			let nNames = syntax.Len(fld.Names)
+			if nNames == 0 {
+				paramCaps = paramCaps.Append(typeName)
+				paramNames = paramNames.Append("_")
+			} else {
+				for j in 0..nNames {
+					paramCaps = paramCaps.Append(typeName)
+					paramNames = paramNames.Append(nodeTextName(p, syntax.Item(p.Tree, fld.Names, j)))
+				}
+			}
+		case _:
+		}
+	}
+	(hasParams, hasFunc, paramCaps, paramNames)
+}
+
+func lawFlagsFromDecl(p syntax.Parsed, ld syntax.LawDecl) (uint32, []string, []string) {
+	let mut flags = uint32(0)
+	if ld.Rewrite {
+		flags = flags | ObligationFlagRewrite()
+	}
+	if ld.Equation {
+		flags = flags | ObligationFlagEquation()
+	}
+	if dense.Unpack(ld.Reach) != option.None {
+		flags = flags | ObligationFlagReach()
+	}
+	if dense.Unpack(ld.TypeParams) != option.None {
+		flags = flags | ObligationFlagGeneric()
+	}
+	let (hasParams, hasFunc, paramCaps, paramNames) = scanLawParams(p, ld.Params)
+	if hasParams {
+		flags = flags | ObligationFlagHasParams()
+	}
+	if hasFunc && !ld.Rewrite {
+		flags = flags | ObligationFlagUnrun()
+	}
+	(flags, paramCaps, paramNames)
+}
+
+func compareTestItems(a rawTestItem, b rawTestItem) int {
+	if a.Name < b.Name {
+		return -1
+	}
+	if a.Name > b.Name {
+		return 1
+	}
+	if a.File < b.File {
+		return -1
+	}
+	if a.File > b.File {
+		return 1
+	}
+	a.Line - b.Line
+}
+
+func compareLawItems(a rawLawItem, b rawLawItem) int {
+	if a.Kind != b.Kind {
+		return int(a.Kind) - int(b.Kind)
+	}
+	if a.Title < b.Title {
+		return -1
+	}
+	if a.Title > b.Title {
+		return 1
+	}
+	if a.File < b.File {
+		return -1
+	}
+	if a.File > b.File {
+		return 1
+	}
+	a.Line - b.Line
+}
+
+func compareImplClaims(a rawImplClaim, b rawImplClaim) int {
+	if a.Iface < b.Iface {
+		return -1
+	}
+	if a.Iface > b.Iface {
+		return 1
+	}
+	if a.Provider < b.Provider {
+		return -1
+	}
+	if a.Provider > b.Provider {
+		return 1
+	}
+	0
+}
+
+func compareContextClaims(a rawContextClaim, b rawContextClaim) int {
+	if a.Iface < b.Iface {
+		return -1
+	}
+	if a.Iface > b.Iface {
+		return 1
+	}
+	if a.Harness < b.Harness {
+		return -1
+	}
+	if a.Harness > b.Harness {
+		return 1
+	}
+	0
+}
+
+func sortSourceFiles(files []SourceFile) []SourceFile {
+	let mut copy = []SourceFile{}
+	for f in files {
+		copy = copy.Append(f)
+	}
+	slices.SortFunc(copy, func(a SourceFile, b SourceFile) int {
+		if a.Path < b.Path {
+			return -1
+		}
+		if a.Path > b.Path {
+			return 1
+		}
+		0
+	})
+}
+
+func discoverOnePackage(st mut ObligationStore, pkg SourcePackage) fails ParseFailure {
+	let pkgID = (*st).PkgCount
+	(*st).PkgCount = pkgID + uint32(1)
+	(*st).PkgLabels = (*st).PkgLabels.Append(pkg.Label)
+	(*st).PkgPaths = (*st).PkgPaths.Append(pkg.Path)
+	(*st).PkgDirs = (*st).PkgDirs.Append(pkg.Dir)
+	let start = (*st).Count
+	(*st).PkgObStart = (*st).PkgObStart.Append(start)
+
+	let sortedFiles = sortSourceFiles(pkg.Files)
+	let mut tests = []rawTestItem{}
+	let mut laws = []rawLawItem{}
+	let mut ifaces Map[string, bool] = Map[string, bool]{}
+	let mut impls = []rawImplClaim{}
+	let mut ctxs = []rawContextClaim{}
+
+	for f in sortedFiles {
+		let parsed = syntax.Parse(f.Content)
+		if parsed.Failed {
+			return ParseFailure{
+				File:    f.Path,
+				Code:    parsed.Code,
+				Line:    parsed.Line,
+				Column:  parsed.Column,
+				Message: parsed.Message,
+			}
+		}
+		let lines = syntax.LinesOf(f.Content)
+		let decls = match syntax.ViewOf(parsed.Tree, syntax.Root(parsed.Tree)) {
+		case syntax.File as pf:
+			pf.Decls
+		case _:
+			continue
+		}
+		for i in 0..syntax.Len(decls) {
+			let dNode = syntax.Item(parsed.Tree, decls, i)
+			match syntax.ViewOf(parsed.Tree, dNode) {
+			case syntax.TestDecl as td:
+				let name = nodeTextName(parsed, td.Name)
+				let pos = syntax.PositionOf(lines, syntax.TokPos(parsed, td.Test))
+				tests = tests.Append(rawTestItem{Name: name, File: f.Path, Line: pos.Line, Col: pos.Column})
+			case syntax.LawDecl as ld:
+				let name = nodeTextName(parsed, ld.Name)
+				let pos = syntax.PositionOf(lines, syntax.TokPos(parsed, ld.Law))
+				let (flags, pCaps, pNames) = lawFlagsFromDecl(parsed, ld)
+				laws = laws.Append(rawLawItem{
+					Kind:       uint8(1),
+					Flags:      flags,
+					Name:       name,
+					Title:      name,
+					Subject:    "",
+					ParamCaps:  pCaps,
+					ParamNames: pNames,
+					File:       f.Path,
+					Line:       pos.Line,
+					Col:        pos.Column,
+				})
+			case syntax.TypeDecl as td:
+				let tName = nodeTextName(parsed, td.Name)
+				for k in 0..syntax.Len(td.Implements) {
+					let capName = baseIdent(nodeTextName(parsed, syntax.Item(parsed.Tree, td.Implements, k)))
+					if capName != "" {
+						impls = impls.Append(rawImplClaim{Provider: tName, Iface: capName})
+					}
+				}
+				match dense.Unpack(td.Spec) {
+				case option.Some[dense.ID[syntax.Node]] as sp:
+					match syntax.ViewOf(parsed.Tree, sp.Value) {
+					case syntax.InterfaceType as iface:
+						ifaces = ifaces.Put(tName, true)
+						for m in 0..syntax.Len(iface.Members) {
+							match syntax.ViewOf(parsed.Tree, syntax.Item(parsed.Tree, iface.Members, m)) {
+							case syntax.LawDecl as ml:
+								let mName = nodeTextName(parsed, ml.Name)
+								let mPos = syntax.PositionOf(lines, syntax.TokPos(parsed, ml.Law))
+								let (flags, pCaps, pNames) = lawFlagsFromDecl(parsed, ml)
+								laws = laws.Append(rawLawItem{
+									Kind:       uint8(2),
+									Flags:      flags,
+									Name:       mName,
+									Title:      tName + "." + mName,
+									Subject:    tName,
+									ParamCaps:  pCaps,
+									ParamNames: pNames,
+									File:       f.Path,
+									Line:       mPos.Line,
+									Col:        mPos.Column,
+								})
+							case _:
+							}
+						}
+					case syntax.MachineType as mach:
+						for m in 0..syntax.Len(mach.Members) {
+							match syntax.ViewOf(parsed.Tree, syntax.Item(parsed.Tree, mach.Members, m)) {
+							case syntax.LawDecl as ml:
+								let mName = nodeTextName(parsed, ml.Name)
+								let mPos = syntax.PositionOf(lines, syntax.TokPos(parsed, ml.Law))
+								let (flags, pCaps, pNames) = lawFlagsFromDecl(parsed, ml)
+								laws = laws.Append(rawLawItem{
+									Kind:       uint8(4),
+									Flags:      flags,
+									Name:       mName,
+									Title:      tName + "." + mName,
+									Subject:    tName,
+									ParamCaps:  pCaps,
+									ParamNames: pNames,
+									File:       f.Path,
+									Line:       mPos.Line,
+									Col:        mPos.Column,
+								})
+							case _:
+							}
+						}
+					case _:
+					}
+				case option.None:
+				}
+			case syntax.ContextDecl as cd:
+				let hName = nodeTextName(parsed, cd.Name)
+				match dense.Unpack(cd.Provides) {
+				case option.Some[dense.ID[syntax.Node]] as pv:
+					match syntax.ViewOf(parsed.Tree, pv.Value) {
+					case syntax.ProvidesClause as pc:
+						for k in 0..syntax.Len(pc.Names) {
+							let capName = baseIdent(nodeTextName(parsed, syntax.Item(parsed.Tree, pc.Names, k)))
+							if capName != "" {
+								ctxs = ctxs.Append(rawContextClaim{Harness: hName, Iface: capName})
+							}
+						}
+					case _:
+					}
+				case option.None:
+				}
+				match syntax.ViewOf(parsed.Tree, cd.Body) {
+				case syntax.ContextBody as cb:
+					for k in 0..syntax.Len(cb.Entries) {
+						match syntax.ViewOf(parsed.Tree, syntax.Item(parsed.Tree, cb.Entries, k)) {
+						case syntax.ContextEntry as ce:
+							if ce.Replace < 0 {
+								let keyCap = baseIdent(nodeTextName(parsed, ce.Key))
+								if keyCap != "" {
+									ctxs = ctxs.Append(rawContextClaim{Harness: hName, Iface: keyCap})
+								}
+								for m in 0..syntax.Len(ce.Keys) {
+									let mCap = baseIdent(nodeTextName(parsed, syntax.Item(parsed.Tree, ce.Keys, m)))
+									if mCap != "" {
+										ctxs = ctxs.Append(rawContextClaim{Harness: hName, Iface: mCap})
+									}
+								}
+							}
+						case _:
+						}
+					}
+				case _:
+				}
+			case _:
+			}
+		}
+	}
+
+	tests = slices.SortFunc(tests, compareTestItems)
+	laws = slices.SortFunc(laws, compareLawItems)
+	impls = slices.SortFunc(impls, compareImplClaims)
+	ctxs = slices.SortFunc(ctxs, compareContextClaims)
+
+	for t in tests {
+		appendObligation(st, pkgID, KindTest, uint32(0), t.Name, t.Name, t.Name, "test "+t.Name, "", "", "", t.File, t.Line, t.Col)
+	}
+
+	for l in laws {
+		if l.Kind == uint8(4) {
+			appendObligation(st, pkgID, KindMachineLaw, l.Flags, l.Name, l.Title, "law "+l.Title, "law "+l.Title, l.Subject, "", "", l.File, l.Line, l.Col)
+			continue
+		}
+		if l.Kind == uint8(2) {
+			let mut matched = false
+			for im in impls {
+				if im.Iface == l.Subject {
+					matched = true
+					let lbl = "law " + l.Title + " for " + im.Provider
+					appendObligation(st, pkgID, KindMemberLaw, l.Flags, l.Name, l.Title, lbl, "law "+l.Title, l.Subject, im.Provider, "", l.File, l.Line, l.Col)
+				}
+			}
+			for cx in ctxs {
+				if cx.Iface == l.Subject {
+					matched = true
+					let lbl = "law " + l.Title + " under " + cx.Harness
+					appendObligation(st, pkgID, KindContextLaw, l.Flags, l.Name, l.Title, lbl, "law "+l.Title, l.Subject, "", cx.Harness, l.File, l.Line, l.Col)
+				}
+			}
+			if !matched {
+				appendObligation(st, pkgID, KindMemberLaw, l.Flags, l.Name, l.Title, "law "+l.Title, "law "+l.Title, l.Subject, "", "", l.File, l.Line, l.Col)
+			}
+			continue
+		}
+		let mut capIdx = -1
+		for k in 0..l.ParamCaps.Len() {
+			if ifaces.Get(l.ParamCaps[k]) != option.None {
+				capIdx = k
+				break
+			}
+		}
+		if capIdx >= 0 {
+			let capType = l.ParamCaps[capIdx]
+			let pName = l.ParamNames[capIdx]
+			let mut bound = false
+			for im in impls {
+				if im.Iface == capType {
+					bound = true
+					let lbl = "law " + l.Title + " with " + pName + " = " + im.Provider
+					appendObligation(st, pkgID, KindMemberLaw, l.Flags, l.Name, l.Title, lbl, "law "+l.Title, capType, im.Provider, "", l.File, l.Line, l.Col)
+				}
+			}
+			for cx in ctxs {
+				if cx.Iface == capType {
+					bound = true
+					let lbl = "law " + l.Title + " under " + cx.Harness
+					appendObligation(st, pkgID, KindContextLaw, l.Flags, l.Name, l.Title, lbl, "law "+l.Title, capType, "", cx.Harness, l.File, l.Line, l.Col)
+				}
+			}
+			if !bound {
+				appendObligation(st, pkgID, KindLaw, l.Flags, l.Name, l.Title, "law "+l.Title, "law "+l.Title, capType, "", "", l.File, l.Line, l.Col)
+			}
+			continue
+		}
+		appendObligation(st, pkgID, KindLaw, l.Flags, l.Name, l.Title, "law "+l.Title, "law "+l.Title, "", "", "", l.File, l.Line, l.Col)
+	}
+
+	(*st).PkgObLen = (*st).PkgObLen.Append((*st).Count - start)
+}
+
+// DiscoverObligations scans in-memory SourcePackages into a canonical SoA ObligationStore.
+func DiscoverObligations(pkgs []SourcePackage) ObligationStore fails ParseFailure {
+	let mut st = NewObligationStore()
+	for pkg in pkgs {
+		try discoverOnePackage(&st, pkg)
+	}
+	st
+}
+
+// DiscoverFromDisk reads all package source files from driver.PkgStore via fs.Files and extracts obligations.
+func DiscoverFromDisk(pkgs driver.PkgStore) ObligationStore fails ParseFailure | fs.NotFound | fs.Denied | fs.Failed needs fs.Files {
+	let n = int(driver.PackageCount(pkgs))
+	let mut list = []SourcePackage{}
+	for i in 0..n {
+		let uid = uint32(i)
+		let files = driver.PackageFiles(pkgs, uid)
+		let mut sFiles = []SourceFile{}
+		for fp in files {
+			let txt = try fs.Files.ReadFile(fp)
+			sFiles = sFiles.Append(SourceFile{Path: fp, Content: txt})
+		}
+		let path = driver.PackagePath(pkgs, uid)
+		list = list.Append(SourcePackage{
+			Label: path,
+			Path:  path,
+			Dir:   driver.PackageDir(pkgs, uid),
+			Files: sFiles,
+		})
+	}
+	try DiscoverObligations(list)
+}
+
+// DiscoveryOrderDeterministic: permuting input files within a package yields identical SoA obligation labels and titles.
+law DiscoveryOrderDeterministic(flip bool) {
+	let srcA = "type Store {\n\tGet(k string) int,\n\tlaw NonEmpty(k string) { Get(k) >= 0 },\n}\ntype Mem {} implements Store\nfunc Get(_ Mem, k string) int { k.Len() }\ntest ZetaCheck {\n\tassert 1 == 1\n}\n"
+	let srcB = "let Harness = context { Store: Mem }\nlaw TopAlways(x int) { x == x }\ntest AlphaCheck {\n\tassert 2 == 2\n}\n"
+	let f1 = SourceFile{Path: "a.ergo", Content: srcA}
+	let f2 = SourceFile{Path: "b.ergo", Content: srcB}
+	let files1 = if flip { []SourceFile{f2, f1} } else { []SourceFile{f1, f2} }
+	let files2 = []SourceFile{f1, f2}
+	let s1 = DiscoverObligations([]SourcePackage{SourcePackage{Label: "app/pkg", Path: "app/pkg", Dir: "/pkg", Files: files1}}) catch {
+	case ParseFailure:
+		return false
+	}
+	let s2 = DiscoverObligations([]SourcePackage{SourcePackage{Label: "app/pkg", Path: "app/pkg", Dir: "/pkg", Files: files2}}) catch {
+	case ParseFailure:
+		return false
+	}
+	if s1.Count != s2.Count || s1.Count < uint32(2) {
+		return false
+	}
+	if LabelAt(s1, uint32(0)) != "AlphaCheck" || LabelAt(s1, uint32(1)) != "ZetaCheck" {
+		return false
+	}
+	for i in 0..int(s1.Count) {
+		let id = uint32(i)
+		if LabelAt(s1, id) != LabelAt(s2, id) || TitleAt(s1, id) != TitleAt(s2, id) || FullAt(s1, id) != FullAt(s2, id) {
+			return false
+		}
+	}
+	true
+}
+
+// MemberAndContextObligationsExtracted: member laws bind providers, context harnesses produce under-clauses, and machines report reachability laws.
+law MemberAndContextObligationsExtracted() {
+	let src = "type KV {\n\tGet(k string) int,\n\tlaw RoundTrip(k string) { Get(k) >= 0 },\n}\ntype MemKV {} implements KV\nfunc Get(_ MemKV, k string) int { k.Len() }\nlet MemHarness = context { KV: MemKV }\ntype DoorState = Closed{} | Open{}\ntype DoorSignal = Toggle{}\nfunc beginDoor() DoorState { Closed }\nfunc stepDoor(s DoorState, sig DoorSignal) DoorState { Open }\ntype Door machine[DoorState, DoorSignal] {\n\tinitial: beginDoor,\n\tstep:    stepDoor,\n\tlaw ReachOpen never reaches Open,\n}\ntest SmokeTest {\n\tassert true\n}\n"
+	let st = DiscoverObligations([]SourcePackage{SourcePackage{Label: "app/mod", Path: "app/mod", Dir: "/mod", Files: []SourceFile{SourceFile{Path: "kv.ergo", Content: src}}}}) catch {
+	case ParseFailure:
+		return false
+	}
+	let mut sawTest = false
+	let mut sawMember = false
+	let mut sawCtx = false
+	let mut sawMach = false
+	for i in 0..int(st.Count) {
+		let id = uint32(i)
+		match KindAt(st, id) {
+		case KindTest:
+			sawTest = NameAt(st, id) == "SmokeTest"
+		case KindMemberLaw:
+			if TitleAt(st, id) == "KV.RoundTrip" && ProviderAt(st, id) == "MemKV" && LabelAt(st, id) == "law KV.RoundTrip for MemKV" {
+				sawMember = true
+			}
+		case KindContextLaw:
+			if TitleAt(st, id) == "KV.RoundTrip" && HarnessAt(st, id) == "MemHarness" && LabelAt(st, id) == "law KV.RoundTrip under MemHarness" {
+				sawCtx = true
+			}
+		case KindMachineLaw:
+			if TitleAt(st, id) == "Door.ReachOpen" && IsReachAt(st, id) {
+				sawMach = true
+			}
+		case KindLaw:
+		}
+	}
+	sawTest && sawMember && sawCtx && sawMach
+}
+
+test DiscoverExtractsTestsLawsMembersHarnessesAndMachines {
+	let src = "type Store {\n\tHas(k string) bool,\n\tlaw Preserved(k string) { Has(k) || !Has(k) },\n}\ntype FakeStore {} implements Store\nfunc Has(_ FakeStore, k string) bool { k != \"\" }\nlet FakeCtx = context { Store: FakeStore }\nfunc checkUnrun(op func(int) bool, x int) bool { op(x) }\nlaw FnLaw(f func(int) bool, x int) { checkUnrun(f, x) }\nlaw PureLaw(x int) { x + 0 == x }\ntest UnitAlpha {\n\tassert 2 + 2 == 4\n}\n"
+	let st = DiscoverObligations([]SourcePackage{SourcePackage{Label: "app/s", Path: "app/s", Dir: "/s", Files: []SourceFile{SourceFile{Path: "store.ergo", Content: src}}}}) catch {
+	case ParseFailure:
+		assert false
+		return
+	}
+	assert st.Count == uint32(5)
+	assert NameAt(st, uint32(0)) == "UnitAlpha"
+	assert LabelAt(st, uint32(1)) == "law FnLaw"
+	assert IsUnrunAt(st, uint32(1))
+	assert LabelAt(st, uint32(2)) == "law PureLaw"
+	assert LabelAt(st, uint32(3)) == "law Store.Preserved for FakeStore"
+	assert LabelAt(st, uint32(4)) == "law Store.Preserved under FakeCtx"
+}

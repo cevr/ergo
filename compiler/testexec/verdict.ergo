@@ -1,0 +1,460 @@
+import json
+import option
+import strconv
+import strings
+
+// VerdictPassTag encodes a passing package verdict in VerdictStore.
+func VerdictPassTag() uint8 {
+	uint8(0)
+}
+
+// VerdictFailTag encodes a failing test or law verdict in VerdictStore.
+func VerdictFailTag() uint8 {
+	uint8(1)
+}
+
+// VerdictSkipTag encodes a skipped or empty verdict in VerdictStore.
+func VerdictSkipTag() uint8 {
+	uint8(2)
+}
+
+// VerdictErrorTag encodes a build or runtime defect exit code 2 verdict in VerdictStore.
+func VerdictErrorTag() uint8 {
+	uint8(3)
+}
+
+// VerdictStore records package execution verdicts in pointer-free DoD SoA columns.
+type VerdictStore {
+	Count      uint32,
+	PkgLabels  []string,
+	TimingKeys []string,
+	Status     []uint8,
+	Passed     []int,
+	Failed     []int,
+	Skipped    []int,
+	ExitCode   []int,
+	DurationMs []int64,
+	Replays    []string,
+	Stdout     []string,
+	Stderr     []string,
+}
+
+// PackageOutcome captures the parsed test/law result of one target package.
+type PackageOutcome {
+	Label      string,
+	TimingKey  string,
+	Passed     int,
+	Failed     int,
+	Skipped    int,
+	ExitCode   int,
+	DurationMs int64,
+	Replays    []string,
+	Stdout     string,
+	Stderr     string,
+}
+
+// VerdictSummary aggregates package and obligation counts, replays, and overall exit code.
+type VerdictSummary {
+	PkgTotal        int,
+	PkgPassed       int,
+	PkgFailed       int,
+	TestsPassed     int,
+	TestsFailed     int,
+	TestsSkipped    int,
+	TotalDurationMs int64,
+	ExitCode        int,
+	StatusLabel     string,
+	Replays         []string,
+	Outcomes        []PackageOutcome,
+}
+
+// NewVerdictStore allocates an empty DoD VerdictStore.
+func NewVerdictStore() VerdictStore {
+	VerdictStore{
+		Count:      uint32(0),
+		PkgLabels:  []string{},
+		TimingKeys: []string{},
+		Status:     []uint8{},
+		Passed:     []int{},
+		Failed:     []int{},
+		Skipped:    []int{},
+		ExitCode:   []int{},
+		DurationMs: []int64{},
+		Replays:    []string{},
+		Stdout:     []string{},
+		Stderr:     []string{},
+	}
+}
+
+// AppendVerdict appends one PackageOutcome row to st and returns its dense uint32 ID.
+func AppendVerdict(st mut VerdictStore, o PackageOutcome) uint32 {
+	let id = (*st).Count
+	let statusTag = if o.ExitCode >= 2 {
+		VerdictErrorTag()
+	} else if o.ExitCode != 0 || o.Failed > 0 {
+		VerdictFailTag()
+	} else if o.Passed == 0 && o.Skipped > 0 {
+		VerdictSkipTag()
+	} else {
+		VerdictPassTag()
+	}
+	(*st).Count = id + uint32(1)
+	(*st).PkgLabels = (*st).PkgLabels.Append(o.Label)
+	(*st).TimingKeys = (*st).TimingKeys.Append(o.TimingKey)
+	(*st).Status = (*st).Status.Append(statusTag)
+	(*st).Passed = (*st).Passed.Append(o.Passed)
+	(*st).Failed = (*st).Failed.Append(o.Failed)
+	(*st).Skipped = (*st).Skipped.Append(o.Skipped)
+	(*st).ExitCode = (*st).ExitCode.Append(o.ExitCode)
+	(*st).DurationMs = (*st).DurationMs.Append(o.DurationMs)
+	(*st).Replays = (*st).Replays.Append(strings.Join(o.Replays, "\n"))
+	(*st).Stdout = (*st).Stdout.Append(o.Stdout)
+	(*st).Stderr = (*st).Stderr.Append(o.Stderr)
+	id
+}
+
+func parseLeadingUint(s string) int {
+	let mut i = 0
+	for i < s.Len() && s[i] >= '0' && s[i] <= '9' {
+		i = i + 1
+	}
+	if i == 0 {
+		return -1
+	}
+	strconv.Atoi(s[0:i]) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		-1
+	}
+}
+
+func parsePassSummaryLine(line string) option.Option[(int, int)] {
+	if !strings.HasPrefix(line, "PASS (") {
+		return option.None
+	}
+	let rest = strings.TrimPrefix(line, "PASS (")
+	let total = parseLeadingUint(rest)
+	if total < 0 {
+		return option.None
+	}
+	let skipped = match strings.Cut(rest, ", ") {
+	case option.Some[strings.Halves] as h:
+		let sk = parseLeadingUint(h.Value.After)
+		if sk < 0 { 0 } else { sk }
+	case option.None:
+		0
+	}
+	option.Some[(int, int)]{Value: (total, skipped)}
+}
+
+func parseFailSummaryLine(line string) option.Option[(int, int, int)] {
+	if !strings.HasPrefix(line, "FAIL (") {
+		return option.None
+	}
+	let rest = strings.TrimPrefix(line, "FAIL (")
+	let k = parseLeadingUint(rest)
+	if k < 0 {
+		return option.None
+	}
+	let ofSplit = match strings.Cut(rest, " of ") {
+	case option.Some[strings.Halves] as h:
+		h.Value.After
+	case option.None:
+		return option.None
+	}
+	let total = parseLeadingUint(ofSplit)
+	if total < 0 {
+		return option.None
+	}
+	let skipped = match strings.Cut(ofSplit, ", ") {
+	case option.Some[strings.Halves] as h:
+		let sk = parseLeadingUint(h.Value.After)
+		if sk < 0 { 0 } else { sk }
+	case option.None:
+		0
+	}
+	let passed = if total > k { total - k } else { 0 }
+	option.Some[(int, int, int)]{Value: (passed, k, skipped)}
+}
+
+// ParseChildTestOutput parses stdout, stderr, and exitCode from one test execution into PackageOutcome.
+func ParseChildTestOutput(pkgLabel string, timingKey string, stdout string, stderr string, exitCode int, durationMs int64) PackageOutcome {
+	let mut itemPass = 0
+	let mut itemFail = 0
+	let mut itemSkip = 0
+	let mut sumPass = -1
+	let mut sumFail = -1
+	let mut sumSkip = -1
+	let mut replays = []string{}
+
+	for raw in strings.Split(stdout, "\n") {
+		let line = strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "replay: ") {
+			let r = strings.TrimSpace(strings.TrimPrefix(line, "replay: "))
+			if r != "" {
+				replays = replays.Append(r)
+			}
+			continue
+		}
+		match parsePassSummaryLine(line) {
+		case option.Some[(int, int)] as ps:
+			let (p, sk) = ps.Value
+			sumPass = p
+			sumFail = 0
+			sumSkip = sk
+			continue
+		case option.None:
+		}
+		match parseFailSummaryLine(line) {
+		case option.Some[(int, int, int)] as fs:
+			let (p, fl, sk) = fs.Value
+			sumPass = p
+			sumFail = fl
+			sumSkip = sk
+			continue
+		case option.None:
+		}
+		if strings.HasPrefix(line, "PASS ") {
+			itemPass = itemPass + 1
+		} else if strings.HasPrefix(line, "FAIL ") {
+			itemFail = itemFail + 1
+		} else if strings.HasPrefix(line, "skip ") {
+			itemSkip = itemSkip + 1
+		}
+	}
+
+	let finalPass = if sumPass >= 0 { sumPass } else { itemPass }
+	let mut finalFail = if sumFail >= 0 { sumFail } else { itemFail }
+	let finalSkip = if sumSkip >= 0 { sumSkip } else { itemSkip }
+	if exitCode == 1 && finalFail == 0 {
+		finalFail = 1
+	}
+
+	PackageOutcome{
+		Label:      pkgLabel,
+		TimingKey:  timingKey,
+		Passed:     finalPass,
+		Failed:     finalFail,
+		Skipped:    finalSkip,
+		ExitCode:   exitCode,
+		DurationMs: durationMs,
+		Replays:    replays,
+		Stdout:     stdout,
+		Stderr:     stderr,
+	}
+}
+
+// OutcomeStatusLabel returns PASS, FAIL, or ERROR for one PackageOutcome.
+func OutcomeStatusLabel(o PackageOutcome) string {
+	if o.ExitCode >= 2 {
+		return "ERROR"
+	}
+	if o.ExitCode != 0 || o.Failed > 0 {
+		return "FAIL"
+	}
+	"PASS"
+}
+
+// RollupVerdicts aggregates per-package outcomes into totals, deduplicated replays, and overall exit code.
+func RollupVerdicts(outcomes []PackageOutcome) VerdictSummary {
+	let mut pkgPass = 0
+	let mut pkgFail = 0
+	let mut totPass = 0
+	let mut totFail = 0
+	let mut totSkip = 0
+	let mut totMs = int64(0)
+	let mut code = 0
+	let mut replays = []string{}
+	let mut seenReplay Map[string, bool] = Map[string, bool]{}
+
+	for o in outcomes {
+		totPass = totPass + o.Passed
+		totFail = totFail + o.Failed
+		totSkip = totSkip + o.Skipped
+		totMs = totMs + o.DurationMs
+		if o.ExitCode >= 2 {
+			pkgFail = pkgFail + 1
+			code = 2
+		} else if o.ExitCode != 0 || o.Failed > 0 {
+			pkgFail = pkgFail + 1
+			if code == 0 {
+				code = 1
+			}
+		} else {
+			pkgPass = pkgPass + 1
+		}
+		for r in o.Replays {
+			if seenReplay.Get(r) == option.None {
+				seenReplay = seenReplay.Put(r, true)
+				replays = replays.Append(r)
+			}
+		}
+	}
+
+	let label = if code >= 2 {
+		"ERROR"
+	} else if code != 0 || totFail > 0 {
+		"FAIL"
+	} else {
+		"PASS"
+	}
+
+	VerdictSummary{
+		PkgTotal:        outcomes.Len(),
+		PkgPassed:       pkgPass,
+		PkgFailed:       pkgFail,
+		TestsPassed:     totPass,
+		TestsFailed:     totFail,
+		TestsSkipped:    totSkip,
+		TotalDurationMs: totMs,
+		ExitCode:        code,
+		StatusLabel:     label,
+		Replays:         replays,
+		Outcomes:        outcomes,
+	}
+}
+
+// FormatHumanSummary renders deterministic human-readable package and rollup verdict lines.
+func FormatHumanSummary(summary VerdictSummary) string {
+	let mut lines = []string{}
+	let multi = summary.Outcomes.Len() > 1
+	for o in summary.Outcomes {
+		if multi {
+			lines = lines.Append("package " + o.Label)
+		}
+		let trimmed = strings.TrimRight(o.Stdout, "\n")
+		if trimmed != "" {
+			lines = lines.Append(trimmed)
+		} else {
+			let total = o.Passed + o.Failed
+			let skipSuffix = if o.Skipped > 0 { ", " + strconv.Itoa(o.Skipped) + " skipped" } else { "" }
+			if o.ExitCode >= 2 {
+				lines = lines.Append("FAIL " + o.Label + " (exit " + strconv.Itoa(o.ExitCode) + ")")
+			} else if o.Failed > 0 || o.ExitCode != 0 {
+				lines = lines.Append("FAIL (" + strconv.Itoa(o.Failed) + " of " + strconv.Itoa(total) + " tests" + skipSuffix + ")")
+			} else {
+				lines = lines.Append("PASS (" + strconv.Itoa(o.Passed) + " tests" + skipSuffix + ")")
+			}
+		}
+	}
+	if multi {
+		let skipPart = if summary.TestsSkipped > 0 { ", " + strconv.Itoa(summary.TestsSkipped) + " skipped" } else { "" }
+		if summary.ExitCode == 0 {
+			lines = lines.Append("PASS (" + strconv.Itoa(summary.PkgPassed) + "/" + strconv.Itoa(summary.PkgTotal) + " packages, " + strconv.Itoa(summary.TestsPassed) + " tests" + skipPart + ")")
+		} else {
+			lines = lines.Append(summary.StatusLabel + " (" + strconv.Itoa(summary.PkgFailed) + " of " + strconv.Itoa(summary.PkgTotal) + " packages failed, " + strconv.Itoa(summary.TestsFailed) + " of " + strconv.Itoa(summary.TestsPassed+summary.TestsFailed) + " tests" + skipPart + ")")
+		}
+	}
+	if lines.Len() == 0 {
+		return "PASS (0 tests)\n"
+	}
+	strings.Join(lines, "\n") + "\n"
+}
+
+func jsonQuoteString(s string) string {
+	json.Encode(json.Codec[string]{MaxBytes: 0, MaxDepth: 0}, s)
+}
+
+// FormatVerdictJSON renders summary as compact structured JSON for --json consumers.
+func FormatVerdictJSON(summary VerdictSummary) string {
+	let mut pkgRows = []string{}
+	for o in summary.Outcomes {
+		let mut replayArr = []string{}
+		for r in o.Replays {
+			replayArr = replayArr.Append(jsonQuoteString(r))
+		}
+		let row = "{\"package\":" + jsonQuoteString(o.Label) +
+			",\"status\":" + jsonQuoteString(OutcomeStatusLabel(o)) +
+			",\"passed\":" + strconv.Itoa(o.Passed) +
+			",\"failed\":" + strconv.Itoa(o.Failed) +
+			",\"skipped\":" + strconv.Itoa(o.Skipped) +
+			",\"exit_code\":" + strconv.Itoa(o.ExitCode) +
+			",\"duration_ms\":" + strconv.FormatInt(o.DurationMs, 10) +
+			",\"replays\":[" + strings.Join(replayArr, ",") + "]}"
+		pkgRows = pkgRows.Append(row)
+	}
+	let mut topReplays = []string{}
+	for r in summary.Replays {
+		topReplays = topReplays.Append(jsonQuoteString(r))
+	}
+		"{\"status\":" + jsonQuoteString(summary.StatusLabel) +
+		",\"exit_code\":" + strconv.Itoa(summary.ExitCode) +
+		",\"packages_total\":" + strconv.Itoa(summary.PkgTotal) +
+		",\"packages_passed\":" + strconv.Itoa(summary.PkgPassed) +
+		",\"packages_failed\":" + strconv.Itoa(summary.PkgFailed) +
+		",\"passed\":" + strconv.Itoa(summary.TestsPassed) +
+		",\"failed\":" + strconv.Itoa(summary.TestsFailed) +
+		",\"skipped\":" + strconv.Itoa(summary.TestsSkipped) +
+		",\"duration_ms\":" + strconv.FormatInt(summary.TotalDurationMs, 10) +
+		",\"replays\":[" + strings.Join(topReplays, ",") + "]" +
+		",\"packages\":[" + strings.Join(pkgRows, ",") + "]}"
+}
+
+// VerdictRollupAccurate: rolling up package outcomes conserves total counts and prioritizes exit code 2 > 1 > 0.
+law VerdictRollupAccurate(p1 uint32, f1 uint32, s1 uint32, err1 bool, p2 uint32, f2 uint32, s2 uint32, err2 bool) {
+	let ip1 = int(p1 % uint32(20))
+	let if1 = int(f1 % uint32(10))
+	let is1 = int(s1 % uint32(5))
+	let ip2 = int(p2 % uint32(20))
+	let if2 = int(f2 % uint32(10))
+	let is2 = int(s2 % uint32(5))
+	let c1 = if err1 { 2 } else if if1 > 0 { 1 } else { 0 }
+	let c2 = if err2 { 2 } else if if2 > 0 { 1 } else { 0 }
+	let outs = []PackageOutcome{
+		PackageOutcome{Label: "a", TimingKey: "a", Passed: ip1, Failed: if1, Skipped: is1, ExitCode: c1, DurationMs: int64(10), Replays: []string{}, Stdout: "", Stderr: ""},
+		PackageOutcome{Label: "b", TimingKey: "b", Passed: ip2, Failed: if2, Skipped: is2, ExitCode: c2, DurationMs: int64(25), Replays: []string{}, Stdout: "", Stderr: ""},
+	}
+	let sum = RollupVerdicts(outs)
+	let wantCode = if c1 == 2 || c2 == 2 { 2 } else if c1 == 1 || c2 == 1 { 1 } else { 0 }
+	sum.TestsPassed == ip1+ip2 && sum.TestsFailed == if1+if2 && sum.TestsSkipped == is1+is2 && sum.ExitCode == wantCode && sum.PkgTotal == 2
+}
+
+// JsonSummaryWellFormed: FormatVerdictJSON always produces valid JSON accepted by json.Open.
+law JsonSummaryWellFormed(passed uint32, failed uint32, label string) {
+	let ip = int(passed % uint32(50))
+	let ifl = int(failed % uint32(10))
+	let code = if ifl > 0 { 1 } else { 0 }
+	let outs = []PackageOutcome{
+		PackageOutcome{
+			Label:      label,
+			TimingKey:  label,
+			Passed:     ip,
+			Failed:     ifl,
+			Skipped:    1,
+			ExitCode:   code,
+			DurationMs: int64(42),
+			Replays:    []string{"ergo test a.ergo --law Foo --seed 7"},
+			Stdout:     "",
+			Stderr:     "",
+		},
+	}
+	let raw = FormatVerdictJSON(RollupVerdicts(outs))
+	let _ = json.Open(raw, 0, 0) catch {
+	case json.Malformed:
+		return false
+	}
+	strings.Contains(raw, "\"passed\":") && strings.Contains(raw, "\"exit_code\":") && strings.Contains(raw, "\"packages\":[")
+}
+
+test VerdictParsesSummaryAndReplays {
+	let stdout = "PASS TestOne\nFAIL law RoundTrip for Mem\n\treplay: ergo test a.ergo --law RoundTrip --seed 9\nFAIL (1 of 2 tests, 1 skipped)\n"
+	let o = ParseChildTestOutput("app/pkg", "app/pkg", stdout, "", 1, int64(17))
+	assert o.Passed == 1
+	assert o.Failed == 1
+	assert o.Skipped == 1
+	assert o.Replays.Len() == 1
+	assert o.Replays[0] == "ergo test a.ergo --law RoundTrip --seed 9"
+
+	let sum = RollupVerdicts([]PackageOutcome{o})
+	assert sum.ExitCode == 1
+	assert sum.StatusLabel == "FAIL"
+	assert strings.Contains(FormatHumanSummary(sum), "FAIL (1 of 2 tests, 1 skipped)")
+	assert strings.Contains(FormatVerdictJSON(sum), "\"status\":\"FAIL\"")
+
+	let mut store = NewVerdictStore()
+	let vid = AppendVerdict(&store, o)
+	assert vid == uint32(0)
+	assert store.Status[0] == VerdictFailTag()
+}

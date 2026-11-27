@@ -100,6 +100,26 @@
       "to": "\t\tfileParts = fileParts.Append(cachekey.Framed([]string{fd.Path, \"\"}))\n",
       "rule": "PackageActionKey incorporates every source file content digest.",
       "killers": ["compiler/driver:law:ActionKeySensitiveToFileEdit"]
+    },
+    {
+      "name": "selfhost-test-runner-driver-test-key-ignores-seed",
+      "origin": "wf10 SELFHOST-TEST-RUNNER",
+      "file": "compiler/driver/cache.ergo",
+      "decl": "TestActionKey",
+      "from": "\t\tcachekey.Field{Name: \"seed\", Value: formatUint64Dec(input.Seed)},\n",
+      "to": "\t\tcachekey.Field{Name: \"seed\", Value: \"0\"},\n",
+      "rule": "TestActionKey incorporates the property seed so distinct seeds invalidate cached test outcomes.",
+      "killers": ["compiler/driver:law:TestActionKeySensitiveToSeedAndFilter"]
+    },
+    {
+      "name": "selfhost-test-runner-driver-build-key-ignores-platform",
+      "origin": "wf10 SELFHOST-TEST-RUNNER",
+      "file": "compiler/driver/cache.ergo",
+      "decl": "BuildActionKey",
+      "from": "\t\tcachekey.Field{Name: \"platform\", Value: input.Platform},\n",
+      "to": "\t\tcachekey.Field{Name: \"platform\", Value: \"\"},\n",
+      "rule": "BuildActionKey incorporates the target platform so cross-platform builds remain distinct.",
+      "killers": ["compiler/driver:law:BuildActionKeySensitiveToModeAndPlatform"]
     }
   ]
 }

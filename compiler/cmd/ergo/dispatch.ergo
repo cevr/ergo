@@ -1,4 +1,5 @@
 import compiler/driver
+import exec
 import fs
 import fstest
 import io
@@ -204,6 +205,13 @@ func ParseUnifiedOptions(cmd string, args []string) UnifiedOptions fails FlagErr
 
 // Dispatch routes a complete CLI argument vector (excluding argv[0]) to the matching command handler.
 func Dispatch(args []string, workDir string, environ []string) int needs fs.Files | fs.Writes | io.Stdout | io.Stderr | io.Stdin {
+	with context { exec.Runner: exec.Script{Results: Map[string, exec.Result]{}} } {
+		DispatchExec(args, workDir, environ)
+	}
+}
+
+// DispatchExec routes a CLI argument vector using the caller's exec.Runner, filesystem, and standard streams.
+func DispatchExec(args []string, workDir string, environ []string) int needs exec.Runner | fs.Files | fs.Writes | io.Stdout | io.Stderr | io.Stdin {
 	if args.Len() == 0 {
 		io.Stderr.Eprint(GeneralHelp())
 		return 2
@@ -222,6 +230,18 @@ func Dispatch(args []string, workDir string, environ []string) int needs fs.File
 	}
 	if first == "check" {
 		return RunCheck(args[1:args.Len()], workDir, environ)
+	}
+	if first == "test" {
+		return RunTestExec(args[1:args.Len()], workDir, environ)
+	}
+	if first == "build" {
+		return RunBuildExec(args[1:args.Len()], workDir, environ)
+	}
+	if first == "run" {
+		return RunRunExec(args[1:args.Len()], workDir, environ)
+	}
+	if first == "lib" {
+		return RunLibExec(args[1:args.Len()], workDir, environ)
 	}
 	if first == "version" {
 		return runVersion(args[1:args.Len()])
@@ -305,10 +325,12 @@ func runStubHook(cmd CommandDesc, rest []string, workDir string) int needs fs.Fi
 	2
 }
 
-// RetiredLeakageFlagsRejected: legacy --native, --compiled, and --target flags fail with exit code 2.
-law RetiredLeakageFlagsRejected(idx uint32) {
+// RetiredLeakageFlagsRejected: legacy --native, --compiled, and --target flags fail with exit code 2 across check, test, build, and run.
+law RetiredLeakageFlagsRejected(idx uint32, cmdIdx uint32) {
 	let retired = []string{"--native", "--compiled", "--target=go", "-go-text", "--go-trace"}
+	let cmds = []string{"check", "test", "build", "run"}
 	let flag = retired[int(idx%uint32(retired.Len()))]
+	let cmd = cmds[int(cmdIdx%uint32(cmds.Len()))]
 	let rec = io.NewRecorder()
 	let mem = fstest.NewMemory()
 	let code = with context {
@@ -318,7 +340,7 @@ law RetiredLeakageFlagsRejected(idx uint32) {
 		io.Stderr: rec,
 		io.Stdin:  io.NewInput(""),
 	} {
-		Dispatch([]string{"check", flag}, "/ws", []string{})
+		Dispatch([]string{cmd, flag}, "/ws", []string{})
 	}
 	code == 2 && strings.Contains(rec.Text(), "unknown option")
 }
@@ -379,6 +401,19 @@ test DispatchRoutesFmtCheckHelpAndStubs {
 	assert codeVer == 0
 	assert strings.Contains(recVer.Text(), "\"driver\":\"s6\"")
 
+	let recLint = io.NewRecorder()
+	let codeLint = with context {
+		fs.Files:  mem,
+		fs.Writes: mem,
+		io.Stdout: recLint,
+		io.Stderr: recLint,
+		io.Stdin:  io.NewInput(""),
+	} {
+		Dispatch([]string{"lint", "--strict"}, "/mod", []string{})
+	}
+	assert codeLint == 2
+	assert strings.Contains(recLint.Text(), "target=./...")
+
 	let recTest = io.NewRecorder()
 	let codeTest = with context {
 		fs.Files:  mem,
@@ -387,8 +422,34 @@ test DispatchRoutesFmtCheckHelpAndStubs {
 		io.Stderr: recTest,
 		io.Stdin:  io.NewInput(""),
 	} {
-		Dispatch([]string{"test", "-k", "Parse", "--skip", "Slow", "--fresh"}, "/mod", []string{})
+		Dispatch([]string{"test", "--json"}, "/mod", []string{})
 	}
-	assert codeTest == 2
-	assert strings.Contains(recTest.Text(), "target=./...")
+	assert codeTest == 0
+	assert strings.Contains(recTest.Text(), "\"status\":\"PASS\"")
+
+	let recBuild = io.NewRecorder()
+	let codeBuild = with context {
+		fs.Files:  mem,
+		fs.Writes: mem,
+		io.Stdout: recBuild,
+		io.Stderr: recBuild,
+		io.Stdin:  io.NewInput(""),
+	} {
+		Dispatch([]string{"build", "--help"}, "/mod", []string{})
+	}
+	assert codeBuild == 0
+	assert strings.Contains(recBuild.Text(), "--lib")
+
+	let recRun = io.NewRecorder()
+	let codeRun = with context {
+		fs.Files:  mem,
+		fs.Writes: mem,
+		io.Stdout: recRun,
+		io.Stderr: recRun,
+		io.Stdin:  io.NewInput(""),
+	} {
+		Dispatch([]string{"run", "--help"}, "/mod", []string{})
+	}
+	assert codeRun == 0
+	assert strings.Contains(recRun.Text(), "ergo run")
 }
