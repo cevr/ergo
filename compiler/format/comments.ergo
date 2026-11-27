@@ -1,45 +1,60 @@
 // Comments: each is printed before the first token after it, by
 // structure, not by its source column.
 
+import compiler/syntax
 import strings
 
-// flushComments prints every comment before at.
 func flushComments(p mut Printer, at int) {
-	for p.Ci < p.CSlash.Len() && p.CSlash[p.Ci] < at {
+	if at <= p.NextComment {
+		return
+	}
+	p.flushCommentsSlow(at)
+}
+
+func flushCommentsSlow(p mut Printer, at int) {
+	for p.NextComment < at {
 		p.comment(at)
 	}
 }
 
-// flushClauseComments prints, at the current (clause body) indentation,
-// the comments before at up to the first one that a blank line separates
-// from what precedes it; that one and the rest belong to the next clause.
 func flushClauseComments(p mut Printer, at int) {
-	for p.Ci < p.CSlash.Len() && p.CSlash[p.Ci] < at {
-		if p.LastEnd >= 0 && p.ln(p.CSlash[p.Ci])-p.LastEndLine >= 2 {
+	if at <= p.NextComment {
+		return
+	}
+	for p.NextComment < at {
+		let slash = p.NextComment
+		if p.LastEnd >= 0 && p.ln(slash)-p.LastEndLine >= 2 {
 			return
 		}
 		p.comment(at)
 	}
 }
 
-// comment prints the next comment; limit is the token it precedes.
+func commentRawText(src string, slash int, end int) (string, bool) {
+	let raw = strings.Slice(src, slash, end)
+	let isLine = strings.HasPrefix(raw, "//")
+	if strings.IndexByte(raw, '\r') < 0 {
+		return (if isLine { trimLineEnd(raw) } else { raw }, isLine)
+	}
+	let cleaned = if isLine { trimCR(raw) } else { strings.ReplaceAll(raw, "\r", "") }
+	(if isLine { trimLineEnd(cleaned) } else { cleaned }, isLine)
+}
+
 func comment(p mut Printer, limit int) {
 	let ci = p.Ci
-	let slash = p.CSlash[ci]
-	let end = p.CEnd[ci]
+	let slash = p.NextComment
+	let end = syntax.CommentEndAt(p.P, ci)
+	let nextCi = ci + 1
+	let nxt = if nextCi < p.Nc { syntax.CommentStartAt(p.P, nextCi) } else { p.EOF + 2 }
 	let mut next = limit
-	if ci+1 < p.CSlash.Len() && p.CSlash[ci+1] < limit {
-		next = p.CSlash[ci+1]
+	if nxt < limit {
+		next = nxt
 	}
-	p.Ci = ci + 1
-	let isLine = strings.HasPrefix(p.CText[ci], "//")
-	// A line comment ends at a newline; trailing blanks, and a carriage
-	// return the scanner kept because a blank followed it, are dropped, so
-	// the output reads back as the same comment.
-	let text = if isLine { trimLineEnd(p.CText[ci]) } else { p.CText[ci] }
+	p.Ci = nextCi
+	p.NextComment = nxt
+	let (text, isLine) = commentRawText(p.Src, slash, end)
 	let trailing = p.LastEnd >= 0 && p.ln(slash) == p.LastEndLine
 	if trailing && p.L.PendingNL > 0 {
-		// A comment that ends a line aligns with its neighbours.
 		let nl = p.L.PendingNL
 		let noBlank = p.L.NoBlank
 		p.L.PendingNL = 0

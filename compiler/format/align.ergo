@@ -33,8 +33,16 @@ let alignSmall = 40
 // the padded width of each cell but a line's last (0 is no padding).
 type Grid {
 	Text  string,
-	Width []int,
-	Pad   []int,
+	Width []uint32,
+	Pad   []uint32,
+}
+
+func allocZero32(n int) []uint32 {
+	let mut out = slices.WithCapacity[uint32](n)
+	for _ in 0..n {
+		out = out.Append(uint32(0))
+	}
+	out
 }
 
 // Finish ends a layout: it aligns the cells of each column block and joins
@@ -47,21 +55,37 @@ type Grid {
 // output is OutputLimit with no text. It closes l's open line.
 func Finish(l mut Layout, limit int) Rendered fails OutputLimit {
 	l.endLine()
-	let n = l.CellA.Len()
 	let text = l.Buf.String()
-	// Only a cell that a cell follows on its line is padded, so only its
-	// width is read: a line's last cell keeps width 0.
-	let mut c = Grid{Text: text, Width: slices.Repeat([]int{0}, n), Pad: slices.Repeat([]int{0}, n)}
-	for i in 0..l.LineIndent.Len() {
-		let a = l.LineFirst[i]
-		for k in a..a+l.LineN[i]-1 {
-			c.Width[k] = utf8.RuneCount(strings.Slice(text, l.CellA[k], l.CellB[k]))
+	let nlines = l.LineIndent.Len()
+	if l.MaxCells <= 1 {
+		let mut first = 0
+		for first < nlines && simpleLineLen(l, first) == 0 {
+			first += 1
+		}
+		if limit > 0 {
+			let mut size = 0
+			for i in first..nlines {
+				size += simpleLineLen(l, i) + 1
+				if size > limit {
+					return OutputLimit{Limit: limit, Built: 0}
+				}
+			}
+		}
+		let out = buildSimple(l, text, first)
+		return Rendered{Text: out, Built: out.Len()}
+	}
+	let n = l.CellA.Len()
+	let mut c = Grid{Text: text, Width: allocZero32(n), Pad: allocZero32(n)}
+	for i in 0..nlines {
+		let a = int(l.LineFirst[i])
+		let b = a + int(l.LineN[i]) - 1
+		for k in a..b {
+			c.Width[k] = uint32(utf8.RuneCount(strings.Slice(text, int(l.CellA[k]), int(l.CellB[k]))))
 		}
 	}
-	c.align(l, 0, l.LineIndent.Len(), 0)
-	// Leading empty lines are dropped: no output starts with a blank line.
+	c.align(l, 0, nlines, 0)
 	let mut first = 0
-	for first < l.LineIndent.Len() && lineLen(l, c, first) == 0 {
+	for first < nlines && lineLen(l, c, first) == 0 {
 		first += 1
 	}
 	if limit > 0 && sizeOver(l, c, first, limit) {
@@ -71,9 +95,62 @@ func Finish(l mut Layout, limit int) Rendered fails OutputLimit {
 	Rendered{Text: out, Built: out.Len()}
 }
 
-// sizeOver reports whether the text of l's lines from first is longer
-// than limit, from the cells and their padding alone; it stops at the
-// first line past the limit.
+func simpleLineLen(l mut Layout, i int) int {
+	let mut n = cmp.Max(int(l.LineIndent[i])-1, 0)
+	if l.LineN[i] > uint32(0) {
+		let a = int(l.LineFirst[i])
+		n += int(l.CellB[a]) - int(l.CellA[a])
+	}
+	n
+}
+
+let tabRun = "\t\t\t\t\t\t\t\t"
+let spaceRun = "                "
+
+func writeTabs(out mut strings.Builder, tabs int) {
+	let mut n = tabs
+	for n >= 8 {
+		out.WriteString(tabRun)
+		n -= 8
+	}
+	if n > 0 {
+		out.WriteString(strings.Slice(tabRun, 0, n))
+	}
+}
+
+func writeSpaces(out mut strings.Builder, spaces int) {
+	let mut n = spaces
+	for n >= 16 {
+		out.WriteString(spaceRun)
+		n -= 16
+	}
+	if n > 0 {
+		out.WriteString(strings.Slice(spaceRun, 0, n))
+	}
+}
+
+func buildSimple(l mut Layout, text string, first int) string {
+	let nlines = l.LineIndent.Len()
+	let mut size = 0
+	for i in first..nlines {
+		size += simpleLineLen(l, i) + 1
+	}
+	let mut out = strings.NewBuilder()
+	out.Grow(size)
+	for i in first..nlines {
+		let tabs = int(l.LineIndent[i]) - 1
+		if tabs > 0 {
+			writeTabs(&out, tabs)
+		}
+		if l.LineN[i] > uint32(0) {
+			let a = int(l.LineFirst[i])
+			out.WriteString(strings.Slice(text, int(l.CellA[a]), int(l.CellB[a])))
+		}
+		out.WriteByte('\n')
+	}
+	out.String()
+}
+
 func sizeOver(l mut Layout, c Grid, first int, limit int) bool {
 	let mut size = 0
 	for i in first..l.LineIndent.Len() {
@@ -85,9 +162,6 @@ func sizeOver(l mut Layout, c Grid, first int, limit int) bool {
 	false
 }
 
-// build is the text of l's lines from first: the indentation, and each
-// cell but the last padded to its width. The builder is grown to the
-// output's size first, as go/printer's is, so the text is written once.
 func build(l mut Layout, c Grid, first int) string {
 	let mut size = 0
 	for i in first..l.LineIndent.Len() {
@@ -96,16 +170,18 @@ func build(l mut Layout, c Grid, first int) string {
 	let mut out = strings.NewBuilder()
 	out.Grow(size)
 	for i in first..l.LineIndent.Len() {
-		for _ in 0..l.LineIndent[i] {
-			out.WriteByte('\t')
+		let tabs = int(l.LineIndent[i]) - 1
+		if tabs > 0 {
+			writeTabs(&out, tabs)
 		}
-		let a = l.LineFirst[i]
-		let b = a + l.LineN[i]
+		let a = int(l.LineFirst[i])
+		let b = a + int(l.LineN[i])
 		for k in a..b {
-			out.WriteString(strings.Slice(c.Text, l.CellA[k], l.CellB[k]))
+			out.WriteString(strings.Slice(c.Text, int(l.CellA[k]), int(l.CellB[k])))
 			if k < b-1 {
-				for _ in 0..c.Pad[k]-c.Width[k] {
-					out.WriteByte(' ')
+				let pad = int(c.Pad[k]) - int(c.Width[k])
+				if pad > 0 {
+					writeSpaces(&out, pad)
 				}
 			}
 		}
@@ -114,32 +190,28 @@ func build(l mut Layout, c Grid, first int) string {
 	out.String()
 }
 
-// lineLen is the length in bytes of line i with its padding, without its
-// line break.
 func lineLen(l mut Layout, c Grid, i int) int {
-	let mut n = cmp.Max(l.LineIndent[i], 0)
-	let a = l.LineFirst[i]
-	let b = a + l.LineN[i]
+	let mut n = cmp.Max(int(l.LineIndent[i])-1, 0)
+	let a = int(l.LineFirst[i])
+	let b = a + int(l.LineN[i])
 	for k in a..b {
-		n += l.CellB[k] - l.CellA[k]
-		if k < b-1 && c.Pad[k] > 0 {
-			n += c.Pad[k] - c.Width[k]
+		n += int(l.CellB[k]) - int(l.CellA[k])
+		if k < b-1 && c.Pad[k] > uint32(0) {
+			n += int(c.Pad[k]) - int(c.Width[k])
 		}
 	}
 	n
 }
 
-// align sets the padded widths of column for lines from to to, and of the
-// columns after it within each block.
 func align(c mut Grid, l mut Layout, from int, to int, column int) {
 	let mut i = from
 	for i < to {
-		if l.LineN[i] <= column+1 {
+		if int(l.LineN[i]) <= column+1 {
 			i += 1
 			continue
 		}
 		let mut j = i + 1
-		let mut prev = c.Width[l.LineFirst[i]+column]
+		let mut prev = int(c.Width[int(l.LineFirst[i])+column])
 		let mut widest = prev
 		let mut narrowest = prev
 		let mut hasEmpty = prev == 0
@@ -149,8 +221,8 @@ func align(c mut Grid, l mut Layout, from int, to int, column int) {
 			lnsum = math.Log(float64(prev))
 			count = 1
 		}
-		for j < to && l.LineN[j] > column+1 && l.LineIndent[j] == l.LineIndent[i] {
-			let s = c.Width[l.LineFirst[j]+column]
+		for j < to && int(l.LineN[j]) > column+1 && l.LineIndent[j] == l.LineIndent[i] {
+			let s = int(c.Width[int(l.LineFirst[j])+column])
 			if s == 0 {
 				if widest > alignSmall {
 					break
@@ -186,13 +258,13 @@ func align(c mut Grid, l mut Layout, from int, to int, column int) {
 		}
 		let mut width = 0
 		for k in i..j {
-			width = cmp.Max(width, c.Width[l.LineFirst[k]+column])
+			width = cmp.Max(width, int(c.Width[int(l.LineFirst[k])+column]))
 		}
 		if width > 0 {
 			width += 1
 		}
 		for k in i..j {
-			c.Pad[l.LineFirst[k]+column] = width
+			c.Pad[int(l.LineFirst[k])+column] = uint32(width)
 		}
 		c.align(l, i, j, column+1)
 		i = j

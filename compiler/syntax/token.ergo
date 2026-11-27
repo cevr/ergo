@@ -132,7 +132,7 @@ type Tok {}
 // by the token's id; ids counts the tokens.
 type Toks {
 	ids   dense.Count[Tok],
-	kind  []uint32,
+	kind  []uint8,
 	start []uint32,
 	end   []uint32,
 }
@@ -144,7 +144,7 @@ func NumToks(t Toks) int { dense.Total(t.ids) }
 func TokAt(t Toks, i int) dense.ID[Tok] { dense.IDAt(t.ids, i) }
 
 // Kind is the kind of token id.
-func Kind(t Toks, id dense.ID[Tok]) uint8 { uint8(t.kind[dense.Index(id)]) }
+func Kind(t Toks, id dense.ID[Tok]) uint8 { t.kind[dense.Index(id)] }
 
 // Start is the offset of token id's first byte.
 func Start(t Toks, id dense.ID[Tok]) int { int(t.start[dense.Index(id)]) }

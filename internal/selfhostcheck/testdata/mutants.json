@@ -148,8 +148,8 @@
       "name": "sh-precedence-loses-parens",
       "origin": "wf10/selfhost/SH1",
       "file": "compiler/format/span.ergo",
-      "from": "n == syntax.Rem || ",
-      "to": "",
+      "from": "\\x04\\x04\\x05\\x05\\x05\\x05",
+      "to": "\\x04\\x04\\x05\\x05\\x04\\x05",
       "rule": "The precedence table is syntax.Token.Precedence: % binds at level 5, which decides the blanks around it (gofmt's cutoff).",
       "killers": [
         "internal/selfhostcheck:TestFormatAgreesWithSeed"
@@ -159,8 +159,8 @@
       "name": "sh-align-counts-bytes",
       "origin": "wf10/selfhost/SH1",
       "file": "compiler/format/align.ergo",
-      "from": "c.Width[k] = utf8.RuneCount(strings.Slice(text, l.CellA[k], l.CellB[k]))",
-      "to": "c.Width[k] = l.CellB[k] - l.CellA[k] + utf8.RuneCount(\"\")",
+      "from": "c.Width[k] = uint32(utf8.RuneCount(strings.Slice(text, int(l.CellA[k]), int(l.CellB[k]))))",
+      "to": "c.Width[k] = l.CellB[k] - l.CellA[k] + uint32(utf8.RuneCount(\"\"))",
       "rule": "A column's width counts runes, not bytes.",
       "killers": [
         "internal/selfhostcheck:TestFormatAgreesWithSeed"
@@ -181,6 +181,7 @@
       "name": "sh-limit-allows-one-extra-byte",
       "origin": "wf10/selfhost/SH1",
       "file": "compiler/format/align.ergo",
+      "decl": "sizeOver",
       "from": "\t\tif size > limit {\n",
       "to": "\t\tif size > limit+1 {\n",
       "rule": "A positive limit one byte below the size is refused.",
@@ -236,8 +237,8 @@
       "name": "sh-clause-comment-joins-next",
       "origin": "wf10/selfhost/SH1",
       "file": "compiler/format/comments.ergo",
-      "from": "p.ln(p.CSlash[p.Ci])-p.LastEndLine >= 2 {",
-      "to": "p.ln(p.CSlash[p.Ci])-p.LastEndLine >= 3 {",
+      "from": "p.ln(slash)-p.LastEndLine >= 2 {",
+      "to": "p.ln(slash)-p.LastEndLine >= 3 {",
       "rule": "A comment after a clause's last statement belongs to the next clause when a blank line separates it from the statement.",
       "killers": [
         "internal/selfhostcheck:TestFormatAgreesWithSeed"
@@ -302,7 +303,7 @@
       "name": "sh-union-ignores-variant-span",
       "origin": "wf10/selfhost/SH1",
       "file": "compiler/format/nodes.ergo",
-      "from": " || p.ln(p.stop(v)) != p.ln(p.start(v))",
+      "from": " || p.ln(p.stop(v)) != sv",
       "to": "",
       "rule": "A union prints one variant per line when a variant spans several source lines.",
       "killers": [
@@ -357,8 +358,9 @@
       "name": "b18-format-law-rewrite-as-body",
       "origin": "batch-18 integration (SH1 x LR1)",
       "file": "compiler/format/nodes.ergo",
-      "from": "\tif x.Rewrite {\n\t\t// The rewrite form (types.md, Laws 14): its Body is synthetic",
-      "to": "\tif false {\n\t\t// The rewrite form (types.md, Laws 14): its Body is synthetic",
+      "decl": "memberLaw",
+      "from": "\tif x.Rewrite {\n\t\tlet stmts = syntax.BlockStmtOf(p.P.Tree, the(x.Body)).List",
+      "to": "\tif false {\n\t\tlet stmts = syntax.BlockStmtOf(p.P.Tree, the(x.Body)).List",
       "rule": "A rewrite law prints as `{ lhs } == { rhs }`, as the Go formatter's memberLaw does, not its synthetic Body.",
       "killers": [
         "internal/selfhostcheck:TestSelfhostFormatLaws"
@@ -412,7 +414,8 @@
       "name": "sh-own-dropped",
       "origin": "wf10/selfhost/S1a",
       "file": "compiler/format/nodes.ergo",
-      "from": "\t\tif f.Own >= 0 {\n\t\t\tp.token(p.tp(f.Own), \"own\")\n\t\t\tp.space()\n\t\t}\n",
+      "decl": "opMember",
+      "from": "\tif f.Own >= 0 {\n\t\tp.token(p.tp(f.Own), \"own\")\n\t\tp.space()\n\t}\n",
       "to": "",
       "rule": "A parameter's mode word own is printed.",
       "killers": [
@@ -456,7 +459,7 @@
       "name": "sh-token-skips-merge",
       "origin": "wf10/selfhost/S1d",
       "file": "compiler/format/layout.ergo",
-      "from": "\tlet last = l.lastByte()\n\tif last != 0 && merges(last, text[0]) {\n\t\tl.put(\" \")\n\t}\n\tl.put(text)\n",
+      "from": "\tlet last = l.lastByte()\n\tif last != 0 && merges(last, text[0]) {\n\t\tl.putSpace()\n\t}\n\tl.put(text)\n",
       "to": "\tl.put(text)\n",
       "rule": "A token the printer writes with no search for a line break still gets a blank before it when it would lex as one token with the last byte.",
       "killers": [
@@ -489,8 +492,8 @@
       "name": "sh-walk-memo-dropped",
       "origin": "wf10/selfhost/S1b",
       "file": "compiler/format/nodes.ergo",
-      "from": "\tif p.WalkedSet[i] {\n\t\treturn p.Walked[i]\n\t}\n",
-      "to": "\tif false && p.WalkedSet[i] {\n\t\treturn p.Walked[i]\n\t}\n",
+      "from": "\tlet packed = p.Walked[i]\n\tif packed != uint8(0) {\n",
+      "to": "\tlet packed = p.Walked[i]\n\tif false && packed != uint8(0) {\n",
       "rule": "walkBinary is memoised by row: go/printer's cutoff asks it for every operator of a chain, which without the memo is quadratic in the chain's length (no output changes; SH1 gap 12).",
       "killers": [
         "internal/selfhostcheck:TestFormatWorkGrowsLinearly"
@@ -2594,6 +2597,70 @@
     {"name": "agree-cache-lower-drops-inline-chain", "origin": "wf10 AGREEMENT-RUN-SPEED r2", "file": "internal/selfhostcheck/iragreecache_test.go", "decl": "irMapSegments", "from": "chain := strings.Split(part, \">\")", "to": "chain := []string{part}", "rule": "Nested inline site chains (> paths) rewrite every segment to @/ so they are kept across checkouts.", "killers": ["internal/selfhostcheck:TestIRAgreeCacheServesOnlyItsKey"]},
     {"name": "agree-cache-lower-drops-func-within", "origin": "wf10 AGREEMENT-RUN-SPEED r2", "file": "internal/selfhostcheck/iragreecache_test.go", "decl": "irWithinRaw", "from": "r := strings.ReplaceAll(s, irRootPrefix(), \"@/\")", "to": "r := s", "rule": "IR func and shared JSON strings naming the repository root are rewritten to @/ so they are kept across checkouts.", "killers": ["internal/selfhostcheck:TestIRAgreeCacheServesOnlyItsKey"]},
     {"name": "agree-cache-lower-drops-func-unroot", "origin": "wf10 AGREEMENT-RUN-SPEED r2", "file": "internal/selfhostcheck/iragreecache_test.go", "decl": "irUnrootRaw", "from": "r := strings.ReplaceAll(s, \"@/\", irRootPrefix())", "to": "r := s", "rule": "Stored IR func and shared JSON strings rewrite @/ back to this checkout's repository root on read.", "killers": ["internal/selfhostcheck:TestIRAgreeCacheServesOnlyItsKey"]},
-    {"name": "agree-cache-lower-keeps-at-slash", "origin": "wf10 AGREEMENT-RUN-SPEED r2", "file": "internal/selfhostcheck/iragreecache_test.go", "decl": "irLowerPackReason", "from": "\t\tif strings.Contains(string(env.Funcs), \"@/\") || strings.Contains(string(env.Shared), \"@/\") {", "to": "\t\tif false {", "rule": "An IR lowering whose funcs or shared strings already contain @/ is never kept.", "killers": ["internal/selfhostcheck:TestIRAgreeCacheServesOnlyItsKey"]}
+    {"name": "agree-cache-lower-keeps-at-slash", "origin": "wf10 AGREEMENT-RUN-SPEED r2", "file": "internal/selfhostcheck/iragreecache_test.go", "decl": "irLowerPackReason", "from": "\t\tif strings.Contains(string(env.Funcs), \"@/\") || strings.Contains(string(env.Shared), \"@/\") {", "to": "\t\tif false {", "rule": "An IR lowering whose funcs or shared strings already contain @/ is never kept.", "killers": ["internal/selfhostcheck:TestIRAgreeCacheServesOnlyItsKey"]},
+    {
+      "name": "dod-floor-builtin-type-slot-dropped",
+      "origin": "wf10 DOD-COMPILER-FLOOR",
+      "file": "compiler/ir/kinds.ergo",
+      "from": "\tk(\"builtin\", TExpr, []uint8{3, 8, 9}),\n",
+      "to": "\tk(\"builtin\", TExpr, []uint8{8, 9}),\n",
+      "rule": "A builtin IR node may carry result type slot 3 (T).",
+      "regenerate": {"dir": ".", "argv": ["go", "run", "./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerDoDFloor"]
+    },
+    {
+      "name": "dod-floor-forces-break-scratch-alloc",
+      "origin": "wf10 DOD-COMPILER-FLOOR",
+      "file": "compiler/format/span.ergo",
+      "decl": "forcesBreak",
+      "from": "\tlet start = p.ForceStack.Len()\n\tp.ForceStack = syntax.Children(p.P.Tree, id, p.ForceStack)\n",
+      "to": "\tlet start = p.ForceStack.Len()\n\tp.ForceStack = syntax.Children(p.P.Tree, id, []uint32{})\n",
+      "rule": "forcesBreak reuses Printer.ForceStack scratch storage across recursive AST walks.",
+      "regenerate": {"dir": ".", "argv": ["go", "run", "./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerDoDFloor"]
+    },
+    {
+      "name": "dod-floor-syntax-shape-scratch-alloc",
+      "origin": "wf10 DOD-COMPILER-FLOOR",
+      "file": "compiler/syntax/shape.ergo",
+      "decl": "shapeOf",
+      "from": "\t*kids = children(t, x, *kids)\n",
+      "to": "\t*kids = children(t, x, []uint32{})\n",
+      "rule": "shapeOf reuses a flat kids scratch stack across AST recursion.",
+      "regenerate": {"dir": ".", "argv": ["go", "run", "./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerDoDFloor"]
+    },
+    {
+      "name": "dod-floor-syntax-scan-presize-dropped",
+      "origin": "wf10 DOD-COMPILER-FLOOR",
+      "file": "compiler/syntax/scan.ergo",
+      "decl": "scanAll",
+      "from": "\tlet room = src.Len()/4 + 32\n",
+      "to": "\tlet room = 0\n",
+      "rule": "scanAll pre-sizes token columns from source length to keep syntax below its alloc and bytes/B floor.",
+      "regenerate": {"dir": ".", "argv": ["go", "run", "./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerDoDFloor"]
+    },
+    {
+      "name": "dod-floor-align-repeats-grid",
+      "origin": "wf10 DOD-COMPILER-FLOOR",
+      "file": "compiler/format/align.ergo",
+      "decl": "Finish",
+      "from": "\tlet mut c = Grid{Text: text, Width: allocZero32(n), Pad: allocZero32(n)}\n",
+      "to": "\tlet mut c = Grid{Text: text, Width: slices.Repeat([]uint32{uint32(0)}, n), Pad: allocZero32(n)}\n",
+      "rule": "Layout.Finish must not call slices.Repeat for grid columns.",
+      "killers": ["internal/selfhostcheck:TestCompilerDoDFloor"]
+    },
+    {
+      "name": "dod-floor-format-presize-dropped",
+      "origin": "wf10 DOD-COMPILER-FLOOR",
+      "file": "compiler/format/format.ergo",
+      "decl": "Print",
+      "from": "\t\tL:            NewLayoutFor(src.Len()),\n",
+      "to": "\t\tL:            NewLayout(),\n",
+      "rule": "Print pre-sizes Layout from source length to enforce the format allocation and memory floor.",
+      "regenerate": {"dir": ".", "argv": ["go", "run", "./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerDoDFloor"]
+    }
   ]
 }

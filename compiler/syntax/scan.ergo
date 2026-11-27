@@ -26,36 +26,31 @@ type Scanned {
 // scanner is the state of one scan, with Go's semicolon insertion and the
 // word contexts of import and extern (the Go scanner's doc comment).
 type scanner {
-	src    string,
-	offset int,
-	// toks is the token columns; its ids count the tokens.
-	toks     Toks,
-	comments Comments,
-	semi     bool,
-	failed   bool,
-	message  string,
-	at       int,
-	length   int,
-	paths    int,
-	pathGo   bool,
-	externs  bool,
-	goPath   bool,
-	// ctx is paths != 0 || pathGo || externs || goPath: a word context is
-	// open, and emit must move it.
-	ctx bool,
-	// The open interpolations `\( … )`: the opening quote of each one's
-	// string and the parentheses open inside it, open of them in use.
-	quotes []int,
-	depths []int,
-	open   int,
+	src     string,
+	offset  int,
+	toks    Toks,
+	semi    bool,
+	failed  bool,
+	message string,
+	at      int,
+	length  int,
+	paths   int,
+	pathGo  bool,
+	externs bool,
+	goPath  bool,
+	ctx     bool,
+	quotes  []uint32,
+	depths  []uint32,
+	open    int,
 }
 
 // Scan is the scan of src.
 func Scan(src string) Scanned {
-	let s = scanAll(src)
+	let mut cmts = newComments(src.Len()/64 + 4)
+	let s = scanAll(src, &cmts)
 	Scanned{
 		Toks:     s.toks,
-		Comments: s.comments,
+		Comments: cmts,
 		Failed:   s.failed,
 		Message:  s.message,
 		Offset:   s.at,
@@ -63,42 +58,33 @@ func Scan(src string) Scanned {
 	}
 }
 
-// scanAll is the scanner at the end of the scan of src, a failure's
-// ILLEGAL and EOF past its tokens. Parse takes it whole: a new value, so
-// its columns move into the parser with no copy.
-func scanAll(src string) scanner {
-	// Room for a token per five bytes: the corpus has one per 6.8.
-	let room = src.Len()/5 + 16
+func scanAll(src string, cmts mut Comments) scanner {
+	let room = src.Len()/4 + 32
 	let mut s = scanner{
-		src:    src,
-		offset: 0,
-		toks:   Toks{ids: dense.NewCount[Tok](), kind: zeros32(room), start: zeros32(room), end: zeros32(room)},
-		// Room for a comment per 64 bytes: the corpus has one per 132.
-		comments: newComments(src.Len()/64 + 4),
-		semi:     false,
-		failed:   false,
-		message:  "",
-		at:       0,
-		length:   0,
-		paths:    0,
-		pathGo:   false,
-		externs:  false,
-		goPath:   false,
-		ctx:      false,
-		quotes:   []int{},
-		depths:   []int{},
-		open:     0,
+		src:     src,
+		offset:  0,
+		toks:    Toks{ids: dense.NewCount[Tok](), kind: slices.WithCapacity[uint8](room), start: slices.WithCapacity[uint32](room), end: slices.WithCapacity[uint32](room)},
+		semi:    false,
+		failed:  false,
+		message: "",
+		at:      0,
+		length:  0,
+		paths:   0,
+		pathGo:  false,
+		externs: false,
+		goPath:  false,
+		ctx:     false,
+		quotes:  []uint32{},
+		depths:  []uint32{},
+		open:    0,
 	}
-	run(&s)
+	run(&s, cmts)
 	if s.failed {
 		failTail(&s)
 	}
 	s
 }
 
-// failTail puts the ILLEGAL and EOF of the Go scanner's fail past the
-// tokens, where Toks keeps room for them and Parse reads them: at the
-// failure, or at the end of the last token when that is past it.
 func failTail(s mut scanner) {
 	let n = NumToks(s.toks)
 	let mut at = s.at
@@ -107,41 +93,28 @@ func failTail(s mut scanner) {
 		at = int(s.toks.end[n-1])
 		end = at
 	}
-	s.toks.kind[n] = uint32(Illegal)
-	s.toks.start[n] = uint32(at)
-	s.toks.end[n] = uint32(end)
-	s.toks.kind[n+1] = uint32(EOF)
-	s.toks.start[n+1] = uint32(end)
-	s.toks.end[n+1] = uint32(end)
+	s.toks.kind = s.toks.kind.Append(Illegal)
+	s.toks.start = s.toks.start.Append(uint32(at))
+	s.toks.end = s.toks.end.Append(uint32(end))
+	s.toks.kind = s.toks.kind.Append(EOF)
+	s.toks.start = s.toks.start.Append(uint32(end))
+	s.toks.end = s.toks.end.Append(uint32(end))
 }
 
-// growToks doubles the token columns.
-func growToks(s mut scanner) {
-	s.toks.kind = slices.AppendAll(s.toks.kind, zeros32(s.toks.kind.Len()))
-	s.toks.start = slices.AppendAll(s.toks.start, zeros32(s.toks.start.Len()))
-	s.toks.end = slices.AppendAll(s.toks.end, zeros32(s.toks.end.Len()))
-}
-
-// push appends a token with no change of context.
 func push(s mut scanner, kind uint8, start int, end int) {
-	let i = NumToks(s.toks)
-	if i+2 >= s.toks.kind.Len() {
-		growToks(s)
-	}
-	s.toks.kind[i] = uint32(kind)
-	s.toks.start[i] = uint32(start)
-	s.toks.end[i] = uint32(end)
+	s.toks.kind = s.toks.kind.Append(kind)
+	s.toks.start = s.toks.start.Append(uint32(start))
+	s.toks.end = s.toks.end.Append(uint32(end))
 	let _ = dense.Next(&s.toks.ids)
+}
+
+func semiAt(k int) bool {
+	(if k < 64 { semiLo >> uint8(k) } else { semiHi >> uint8(k-64) })&uint64(1) == uint64(1)
 }
 
 // semiAfter reports whether a newline after a token of kind inserts a
 // semicolon (Go's rule): semiRule as two masks, by the bit of the kind.
-func semiAfter(kind uint8) bool {
-	if kind < 64 {
-		return (semiLo>>kind)&uint64(1) == uint64(1)
-	}
-	(semiHi>>(kind-uint8(64)))&uint64(1) == uint64(1)
-}
+func semiAfter(kind uint8) bool { semiAt(int(kind)) }
 
 // SemiMasksAreTheRule: semiAfter's masks say what semiRule says, for every
 // kind a byte can hold.
@@ -149,7 +122,7 @@ law SemiMasksAreTheRule(n int) {
 	let mut ok = true
 	for i in 0..256 {
 		let k = uint8((((n + i) % 256) + 256) % 256)
-		ok = ok && semiAfter(k) == semiRule(k)
+		ok = ok && semiAfter(k) == semiRule(k) && semiAt(int(k)) == semiRule(k)
 	}
 	ok
 }
@@ -168,7 +141,7 @@ func semiRule(kind uint8) bool {
 // moveContext, only while one is open or one opens.
 func emit(s mut scanner, kind uint8, start int, end int) {
 	push(s, kind, start, end)
-	s.semi = semiAfter(kind)
+	s.semi = semiAt(int(kind))
 	if s.ctx || kind == Import || kind == Extern {
 		moveContext(s, kind)
 	}
@@ -244,7 +217,7 @@ func fail(s mut scanner, pos int, length int, message string) {
 	s.length = l
 }
 
-func run(s mut scanner) {
+func run(s mut scanner, cmts mut Comments) {
 	let src = s.src
 	let n = src.Len()
 	// The offset lives in i; s.offset holds it only across a call to a
@@ -254,7 +227,7 @@ func run(s mut scanner) {
 		if i >= n {
 			s.offset = i
 			if s.open > 0 {
-				fail(s, s.quotes[s.open-1], 1, "string literal not terminated")
+				fail(s, int(s.quotes[s.open-1]), 1, "string literal not terminated")
 				return
 			}
 			insertSemi(s, n)
@@ -273,7 +246,7 @@ func run(s mut scanner) {
 		}
 		if c == '\n' {
 			if s.open > 0 {
-				fail(s, s.quotes[s.open-1], 1, "newline in string")
+				fail(s, int(s.quotes[s.open-1]), 1, "newline in string")
 				return
 			}
 			insertSemi(s, start)
@@ -318,7 +291,7 @@ func run(s mut scanner) {
 		}
 		s.offset = start
 		if c == '/' && start+1 < n && (src[start+1] == '/' || src[start+1] == '*') {
-			comment(s, start)
+			comment(s, cmts, start)
 		} else if s.paths > 0 && pathStart(src, start) {
 			pathWord(s, start)
 		} else if k&clsDigit != 0 || (c == '.' && start+1 < n && isDigit(src[start+1])) {
@@ -561,10 +534,7 @@ func keyword(src string, start int, end int) uint8 {
 // 44 keywords and reserved words, 0 elsewhere (no two share a hash).
 let kwTable = "\x00\x65\x00\x51\x00\x4d\x00\x00\x00\x00\x00\x00\x45\x00\x66\x00\x6a\x00\x67\x00\x00\x00\x00\x00\x59\x00\x00\x00\x6b\x00\x00\x50\x00\x00\x00\x00\x00\x00\x64\x5e\x00\x4c\x40\x00\x00\x00\x42\x00\x62\x00\x63\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x47\x00\x00\x00\x00\x60\x00\x5f\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x4e\x00\x00\x00\x00\x00\x00\x00\x4a\x00\x00\x00\x00\x44\x00\x3e\x00\x00\x00\x00\x00\x46\x00\x00\x68\x54\x00\x00\x00\x00\x00\x00\x5a\x00\x00\x00\x56\x00\x00\x00\x00\x00\x00\x5d\x00\x00\x00\x00\x00\x00\x52\x00\x00\x00\x00\x00\x00\x00\x00\x00\x4b\x00\x00\x00\x00\x00\x00\x48\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x43\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x69\x00\x4f\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x58\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x3f\x49\x00\x41\x00\x00\x00\x00\x00\x00\x53\x00\x00\x00\x00\x00\x61\x00\x00\x00\x00\x00\x00\x00\x00\x57\x55\x00"
 
-// comment scans a line or block comment at start into the comment
-// columns. A line comment, and a block comment that spans lines, end the
-// line: they insert a semicolon at their start.
-func comment(s mut scanner, start int) {
+func comment(s mut scanner, cmts mut Comments, start int) {
 	let src = s.src
 	let n = src.Len()
 	if src[start+1] == '/' {
@@ -577,7 +547,7 @@ func comment(s mut scanner, start int) {
 		for text > start && src[text-1] == '\r' {
 			text = text - 1
 		}
-		addComment(&s.comments, start, text)
+		addComment(cmts, start, text)
 		s.offset = end
 		return
 	}
@@ -590,7 +560,7 @@ func comment(s mut scanner, start int) {
 	if strings.IndexByte(src[start:end], '\n') >= 0 {
 		insertSemi(s, start)
 	}
-	addComment(&s.comments, start, end)
+	addComment(cmts, start, end)
 	s.offset = end
 }
 
@@ -728,22 +698,24 @@ func digits(src string, i int) int {
 	j
 }
 
-// digitValue is the value of the digit c, or 99 when c is no digit.
-func digitValue(c byte) int {
+func digitAt(c int) int {
 	if c >= '0' && c <= '9' {
-		return int(c - '0')
+		return c - '0'
 	}
 	if c >= 'a' && c <= 'f' {
-		return int(c-'a') + 10
+		return c - 'a' + 10
 	}
 	if c >= 'A' && c <= 'F' {
-		return int(c-'A') + 10
+		return c - 'A' + 10
 	}
 	99
 }
 
+// digitValue is the value of the digit c, or 99 when c is no digit.
+func digitValue(c byte) int { digitAt(int(c)) }
+
 // isDigitOf reports whether lit[i] is a digit of base.
-func isDigitOf(lit string, i int, base int) bool { i >= 0 && i < lit.Len() && digitValue(lit[i]) < base }
+func isDigitOf(lit string, i int, base int) bool { i >= 0 && i < lit.Len() && digitAt(int(lit[i])) < base }
 
 // badSeparator reports a `_` of lit that does not stand between two
 // digits of base, or right after a base prefix (Go's rule).
@@ -756,8 +728,7 @@ func badSeparator(lit string, base int, prefixed bool) bool {
 	false
 }
 
-// baseOf is the base of a prefix letter.
-func baseOf(c byte) int {
+func baseAt(c int) int {
 	if c == 'x' || c == 'X' {
 		return 16
 	}
@@ -767,11 +738,14 @@ func baseOf(c byte) int {
 	2
 }
 
+// baseOf is the base of a prefix letter.
+func baseOf(c byte) int { baseAt(int(c)) }
+
 // prefixed scans an integer with a base prefix: 0x1F, 0o600, 0b1010.
 func prefixed(s mut scanner, start int) {
 	let src = s.src
 	let n = src.Len()
-	let base = baseOf(src[start+1])
+	let base = baseAt(int(src[start+1]))
 	let end = identRest(src, start+2)
 	let lit = src[start:end]
 	if base == 16 && (strings.ContainsRune(lit[2:], 'p') || strings.ContainsRune(lit[2:], 'P') || (end < n && src[end] == '.' && !strings.HasPrefix(src[end:], ".."))) {
@@ -781,7 +755,7 @@ func prefixed(s mut scanner, start int) {
 	let mut seen = false
 	for i in 2..lit.Len() {
 		if lit[i] != '_' {
-			if digitValue(lit[i]) >= base {
+			if digitAt(int(lit[i])) >= base {
 				fail(s, start, end-start, "invalid digit "+strconv.QuoteRune(utf8.DecodeRuneInString(lit[i:]).Rune)+" in the "+baseName(base)+" literal "+lit)
 				return
 			}
@@ -897,14 +871,13 @@ func interpreted(s mut scanner, quote int, segStart int, kind uint8) {
 	fail(s, quote, 1, "string literal not terminated")
 }
 
-// openInterpolation pushes an interpolation of the string quoted at quote.
 func openInterpolation(s mut scanner, quote int) {
 	if s.open < s.quotes.Len() {
-		s.quotes[s.open] = quote
-		s.depths[s.open] = 0
+		s.quotes[s.open] = uint32(quote)
+		s.depths[s.open] = uint32(0)
 	} else {
-		s.quotes = s.quotes.Append(quote)
-		s.depths = s.depths.Append(0)
+		s.quotes = s.quotes.Append(uint32(quote))
+		s.depths = s.depths.Append(uint32(0))
 	}
 	s.open = s.open + 1
 }
@@ -990,7 +963,7 @@ func oneRune(lit string) bool {
 func hexDigits(s string, i int, k int) int {
 	let mut v = 0
 	for j in i..i+k {
-		let d = digitValue(s[j])
+		let d = digitAt(int(s[j]))
 		if d >= 16 {
 			return -1
 		}
@@ -1109,15 +1082,14 @@ func operator(s mut scanner, start int) {
 	let c = src[start]
 	if s.open > 0 {
 		if c == '(' {
-			s.depths[s.open-1] = s.depths[s.open-1] + 1
+			s.depths[s.open-1] = s.depths[s.open-1] + uint32(1)
 		} else if c == ')' {
-			if s.depths[s.open-1] == 0 {
-				// The `)` closes the interpolation: the string goes on.
+			if s.depths[s.open-1] == uint32(0) {
 				s.open = s.open - 1
-				interpreted(s, s.quotes[s.open], start, StringMid)
+				interpreted(s, int(s.quotes[s.open]), start, StringMid)
 				return
 			}
-			s.depths[s.open-1] = s.depths[s.open-1] - 1
+			s.depths[s.open-1] = s.depths[s.open-1] - uint32(1)
 		}
 	}
 	let c1 = if start+1 < n { src[start+1] } else { byte(0) }

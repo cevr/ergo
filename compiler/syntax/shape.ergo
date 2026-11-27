@@ -1,3 +1,4 @@
+import slices
 import strconv
 import strings
 
@@ -10,19 +11,20 @@ import strings
 func Shape(p Parsed) string {
 	let mut b = strings.NewBuilder()
 	if p.Tree.n > 0 {
-		shapeOf(p, uint32(p.Tree.n-1), &b)
+		let mut kids = slices.WithCapacity[uint32](32)
+		shapeOf(p, uint32(p.Tree.n-1), &b, &kids)
 	}
 	b.String()
 }
 
-func shapeOf(p Parsed, x uint32, b mut strings.Builder) {
+func shapeOf(p Parsed, x uint32, b mut strings.Builder, kids mut []uint32) {
 	let t = p.Tree
 	let i = int(x)
-	let k = uint8(t.kind[i])
+	let k = t.kind[i]
 	b.WriteString(strconv.Itoa(int(k)))
 	let j = int(t.tok[i])
 	if j < p.kinds.Len() {
-		let tk = uint8(p.kinds[j])
+		let tk = p.kinds[j]
 		if tk >= Ident && tk <= StringTail || tk >= Add && tk <= Define || tk == Tilde {
 			b.WriteByte(' ')
 			b.WriteString(TokText(p, j))
@@ -49,10 +51,14 @@ func shapeOf(p Parsed, x uint32, b mut strings.Builder) {
 		}
 	}
 	b.WriteByte('[')
-	for c in children(t, x, []uint32{}) {
-		shapeOf(p, c, b)
+	let start = (*kids).Len()
+	*kids = children(t, x, *kids)
+	let end = (*kids).Len()
+	for ci in start..end {
+		shapeOf(p, (*kids)[ci], b, kids)
 		b.WriteByte(',')
 	}
+	*kids = (*kids)[:start]
 	b.WriteByte(']')
 }
 

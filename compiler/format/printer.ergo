@@ -2,7 +2,6 @@
 // from the tree and the source, and hands its requests to the layout.
 
 import compiler/syntax
-import slices
 import strings
 
 // Printer is the state of one print of a parse.
@@ -19,13 +18,12 @@ type Printer {
 	BLine int,
 	BLo   int,
 	BHi   int,
-	// The comments in source order: where each starts and ends, its text.
-	CSlash []int,
-	CEnd   []int,
-	CText  []string,
-	// Ci is the next comment to print.
-	Ci int,
-	L  Layout,
+	// Ci is the next comment to print; Nc is the comment count and NextComment is
+	// the byte offset of comment Ci (or EOF + 2 when exhausted).
+	Ci          int,
+	Nc          int,
+	NextComment int,
+	L           Layout,
 	// LastEnd is the end of the last printed source item (token or
 	// comment), LastTok of the last printed source token; LastEndLine and
 	// LastTokLine are their lines.
@@ -33,10 +31,10 @@ type Printer {
 	LastTok     int,
 	LastEndLine int,
 	LastTokLine int,
-	// Walked memoises walkBinary by row, WalkedSet marks the rows it holds;
-	// both are empty until the first walk.
-	Walked    []Walk,
-	WalkedSet []bool,
+	// Walked memoises walkBinary by row (1 byte per row: bit 7 set, bits 6..5
+	// has4/has5, bits 0..3 maxProblem).
+	Walked     []uint8,
+	ForceStack []uint32,
 	// Walks counts the walks computed, the work counter that shows the
 	// memo keeps the walks linear in a chain's length.
 	Walks int,
@@ -49,26 +47,10 @@ type Printer {
 // Walk is go/printer's walkBinary result for one binary expression.
 type Walk { Has4 bool, Has5 bool, MaxProblem int }
 
-// load reads the comments and the end of p's parse, which did not fail.
 func load(p mut Printer) {
-	let src = p.Src
-	let cs = syntax.CommentsOf(p.P)
-	let n = syntax.NumComments(cs)
-	p.CSlash = slices.WithCapacity[int](n)
-	p.CEnd = slices.WithCapacity[int](n)
-	p.CText = slices.WithCapacity[string](n)
-	for i in 0..n {
-		let c = syntax.CommentAt(cs, i)
-		let a = syntax.CommentStart(cs, c)
-		let b = syntax.CommentEnd(cs, c)
-		p.CSlash = p.CSlash.Append(a)
-		p.CEnd = p.CEnd.Append(b)
-		// A block comment's text has no carriage returns, a line comment's
-		// none at its end (the Go tree's Comment.Text).
-		let raw = src[a:b]
-		p.CText = p.CText.Append(if strings.HasPrefix(raw, "//") { trimCR(raw) } else { strings.ReplaceAll(raw, "\r", "") })
-	}
 	p.EOF = syntax.TokPos(p.P, syntax.FileOf(p.P.Tree, syntax.Root(p.P.Tree)).EOF)
+	p.Nc = syntax.NumCommentsOf(p.P)
+	p.NextComment = if p.Nc > 0 { syntax.CommentStartAt(p.P, 0) } else { p.EOF + 2 }
 }
 
 // ln is the 1-based line of offset at: the last line that starts at or
@@ -209,39 +191,65 @@ func sourceToken(p mut Printer, text string) int {
 		return NoPos
 	}
 	let src = p.Src
+	let n = src.Len()
 	let mut i = p.LastTok
-	// The first comment that starts at or after i.
-	let mut lo = 0
-	let mut hi = p.CSlash.Len()
-	for lo < hi {
-		let mid = (lo + hi) / 2
-		if p.CSlash[mid] >= i {
-			hi = mid
+	let nc = p.Nc
+	if nc == 0 {
+		for i < n {
+			let c = src[i]
+			if c == ' ' || c == '\t' || c == '\r' || c == '\n' {
+				i += 1
+				continue
+			}
+			break
+		}
+	} else {
+		let mut ci = p.Ci
+		if ci == 0 || i <= p.NextComment && syntax.CommentStartAt(p.P, ci-1) < i {
+			for i < n {
+				let c = src[i]
+				if c == ' ' || c == '\t' || c == '\r' || c == '\n' {
+					i += 1
+					continue
+				}
+				if i < p.NextComment {
+					break
+				}
+				for ci < nc && syntax.CommentStartAt(p.P, ci) < i {
+					ci += 1
+				}
+				if ci < nc && syntax.CommentStartAt(p.P, ci) == i {
+					i = syntax.CommentEndAt(p.P, ci)
+					continue
+				}
+				break
+			}
 		} else {
-			lo = mid + 1
+			for ci > 0 && syntax.CommentStartAt(p.P, ci-1) >= i {
+				ci -= 1
+			}
+			for i < n {
+				let c = src[i]
+				if c == ' ' || c == '\t' || c == '\r' || c == '\n' {
+					i += 1
+					continue
+				}
+				for ci < nc && syntax.CommentStartAt(p.P, ci) < i {
+					ci += 1
+				}
+				if ci < nc && syntax.CommentStartAt(p.P, ci) == i {
+					i = syntax.CommentEndAt(p.P, ci)
+					continue
+				}
+				break
+			}
 		}
-	}
-	let mut ci = lo
-	for i < src.Len() {
-		let c = src[i]
-		if c == ' ' || c == '\t' || c == '\r' || c == '\n' {
-			i += 1
-			continue
-		}
-		for ci < p.CSlash.Len() && p.CSlash[ci] < i {
-			ci += 1
-		}
-		if ci < p.CSlash.Len() && p.CSlash[ci] == i {
-			i = p.CEnd[ci]
-			continue
-		}
-		break
 	}
 	if !hasAt(src, i, text) {
 		return NoPos
 	}
 	let end = i + text.Len()
-	if isWordByte(text[text.Len()-1]) && end < src.Len() && isWordByte(src[end]) {
+	if isWordByte(text[text.Len()-1]) && end < n && isWordByte(src[end]) {
 		return NoPos
 	}
 	i

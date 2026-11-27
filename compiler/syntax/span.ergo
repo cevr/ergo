@@ -2,8 +2,6 @@
 // (with the ILLEGAL and EOF of a failed scan) and the start of the first
 // comment, -1 for none.
 type tokens {
-	src    string,
-	kinds  []uint32,
 	starts []uint32,
 	ends   []uint32,
 	cmt0   int,

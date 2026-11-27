@@ -58,7 +58,7 @@ func parseBinary(p mut parser, prec int) uint32 {
 	let mut h = height(p, saved)
 	for {
 		let op = p.tk
-		let opPrec = precedence(op)
+		let opPrec = precAt(int(op))
 		if opPrec < prec || opPrec == 0 {
 			break
 		}
@@ -737,7 +737,7 @@ func parseCaseList(p mut parser) int {
 		}
 		if p.tk == Or {
 			errorf(p, "the alternatives of a case are separated by commas: case A, B:; | separates alternatives inside a tuple, a record pattern or parentheses")
-		} else if precedence(p.tk) > 0 || p.tk == LParen || p.tk == Period || p.tk == LBrack || p.tk == DotDot {
+		} else if precAt(int(p.tk)) > 0 || p.tk == LParen || p.tk == Period || p.tk == LBrack || p.tk == DotDot {
 			errorf(p, "a case lists patterns, not expressions; test a condition with `if`")
 		}
 		break

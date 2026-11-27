@@ -22,12 +22,12 @@ type Parsed {
 	Line    int,
 	Column  int,
 	src     string,
-	kinds   []uint32,
+	kinds   []uint8,
 	starts  []uint32,
 	ends    []uint32,
 	cmts    Comments,
-	gFirst  []int,
-	gLast   []int,
+	gFirst  []uint32,
+	gLast   []uint32,
 	// cmt0 is the start of the first comment, -1 for none.
 	cmt0 int,
 	// HasFix reports that the error names a habit with its Ergo form:
@@ -41,7 +41,7 @@ type Parsed {
 // EmptyParsed is a failed empty parse holding no syntax tables.
 func EmptyParsed() Parsed {
 	Parsed{
-		Tree:      Tree{ids: dense.NewCount[Node](), n: 0, kind: []uint32{}, tok: []uint32{}, a: []uint32{}, b: []uint32{}, extra: []uint32{}, ne: 0, stack: []uint32{}, top: 0},
+		Tree:      Tree{ids: dense.NewCount[Node](), n: 0, kind: []uint8{}, tok: []uint32{}, a: []uint32{}, b: []uint32{}, extra: []uint32{}, ne: 0, stack: []uint32{}, top: 0},
 		Failed:    true,
 		Code:      "",
 		Message:   "",
@@ -50,12 +50,12 @@ func EmptyParsed() Parsed {
 		Line:      0,
 		Column:    0,
 		src:       "",
-		kinds:     []uint32{},
+		kinds:     []uint8{},
 		starts:    []uint32{},
 		ends:      []uint32{},
 		cmts:      newComments(0),
-		gFirst:    []int{},
-		gLast:     []int{},
+		gFirst:    []uint32{},
+		gLast:     []uint32{},
 		cmt0:      -1,
 		HasFix:    false,
 		FixOffset: 0,
@@ -92,8 +92,8 @@ type parser {
 	msg         string,
 	eoff        int,
 	elen        int,
-	gFirst      []int,
-	gLast       []int,
+	gFirst      []uint32,
+	gLast       []uint32,
 	gOwn        []bool,
 	t           Tree,
 	litErr      bool,
@@ -116,17 +116,15 @@ type parser {
 // declarations and the expansion of or-patterns left out: the tree is the
 // tree as written).
 func Parse(src string) Parsed {
-	let s = scanAll(src)
+	let mut cmts = newComments(src.Len()/64 + 4)
+	let s = scanAll(src, &cmts)
 	let n = NumToks(s.toks)
-	// The parser reads the scan's columns in place, a failed scan's
-	// ILLEGAL and EOF past its tokens (Scan), and takes them whole as the
-	// last use of s, so they are not copied (scanAll).
 	let ntok = if s.failed { n + 2 } else { n }
-	let tk = uint8(s.toks.kind[0])
+	let tk = s.toks.kind[0]
 	let mut p = parser{
 		src:         src,
 		ntok:        ntok,
-		cmts:        s.comments,
+		cmts:        cmts,
 		scanFailed:  s.failed,
 		scanOffset:  s.at,
 		scanLength:  s.length,
@@ -143,28 +141,23 @@ func Parse(src string) Parsed {
 		msg:         "",
 		eoff:        0,
 		elen:        0,
-		gFirst:      []int{},
-		gLast:       []int{},
+		gFirst:      []uint32{},
+		gLast:       []uint32{},
 		gOwn:        []bool{},
-		// Room for a row per token and two words per token: the corpus has
-		// 0.9 rows and 0.6 words per token, the parsebench workload 0.85
-		// rows and 1.6 words. Sized by the file's length instead (7 bytes a
-		// row, 4 a word) the per-file bench grew small files' columns and
-		// its GC share rose (S2b profile.md).
-		t:        NewTree(ntok, 2*ntok),
-		litErr:   false,
-		litPos:   0,
-		litLen:   0,
-		asFields: false,
-		ents:     []entry{},
-		entTop:   0,
-		quiet:    0,
-		gHint:    0,
-		toks:     s.toks,
-		hasFix:   false,
-		fixOff:   0,
-		fixLen:   0,
-		fixText:  "",
+		t:           NewTree(ntok, 2*ntok),
+		litErr:      false,
+		litPos:      0,
+		litLen:      0,
+		asFields:    false,
+		ents:        []entry{},
+		entTop:      0,
+		quiet:       0,
+		gHint:       0,
+		toks:        s.toks,
+		hasFix:      false,
+		fixOff:      0,
+		fixLen:      0,
+		fixText:     "",
 	}
 	groupComments(&p)
 	parseFile(&p)
@@ -395,12 +388,12 @@ func optionalMask(k uint8) int {
 
 // parents counts, for each row of t, the rows that name it as a child, and
 // reports whether every child comes before its parent.
-type census { parents []int, inOrder bool }
+type census { parents []uint32, inOrder bool }
 
 func censusOf(t Tree) census {
-	let mut parents = []int{}
+	let mut parents = slices.WithCapacity[uint32](t.n)
 	for _ in 0..t.n {
-		parents = parents.Append(0)
+		parents = parents.Append(uint32(0))
 	}
 	let mut inOrder = true
 	let mut kids = []uint32{}
@@ -410,7 +403,7 @@ func censusOf(t Tree) census {
 			if int(c) >= i {
 				inOrder = false
 			} else {
-				parents[int(c)] = parents[int(c)] + 1
+				parents[int(c)] = parents[int(c)] + uint32(1)
 			}
 		}
 	}
@@ -1025,13 +1018,13 @@ func groupComments(p mut parser) {
 			// The comment is on the group's last line or the next one.
 			let apart = newlines(p, cmtEnd(p, curLast), slash)
 			if apart <= 1 && (curOwn || apart == 0) {
-				p.gLast[cur] = c
+				p.gLast[cur] = uint32(c)
 				curLast = c
 				continue
 			}
 		}
-		p.gFirst = p.gFirst.Append(c)
-		p.gLast = p.gLast.Append(c)
+		p.gFirst = p.gFirst.Append(uint32(c))
+		p.gLast = p.gLast.Append(uint32(c))
 		p.gOwn = p.gOwn.Append(own)
 		cur = p.gFirst.Len() - 1
 		curOwn = own
@@ -1040,22 +1033,17 @@ func groupComments(p mut parser) {
 	}
 }
 
-// leadComment is the comment group that documents a node starting at the
-// current token, as a word (its index+1, 0 for none): an own-line group
-// that ends on the line just above it, with no token in between.
 func leadComment(p mut parser) uint32 {
 	let ng = p.gFirst.Len()
 	if ng == 0 {
 		return uint32(0)
 	}
 	let at = pos(p)
-	// The first group that ends after at, walked to from the last one asked
-	// for: the parser asks in source order but for a backtrack.
 	let mut lo = p.gHint
-	for lo > 0 && cmtEnd(p, p.gLast[lo-1]) > at {
+	for lo > 0 && cmtEnd(p, int(p.gLast[lo-1])) > at {
 		lo = lo - 1
 	}
-	for lo < ng && cmtEnd(p, p.gLast[lo]) <= at {
+	for lo < ng && cmtEnd(p, int(p.gLast[lo])) <= at {
 		lo = lo + 1
 	}
 	p.gHint = lo
@@ -1063,10 +1051,10 @@ func leadComment(p mut parser) uint32 {
 	if g < 0 || !p.gOwn[g] {
 		return uint32(0)
 	}
-	if !oneLineApart(p, cmtEnd(p, p.gLast[g]), at) {
+	if !oneLineApart(p, cmtEnd(p, int(p.gLast[g])), at) {
 		return uint32(0)
 	}
-	let gpos = cmtStart(p, p.gFirst[g])
+	let gpos = cmtStart(p, int(p.gFirst[g]))
 	let mut j = p.i - 1
 	for j >= 0 {
 		if !inserted(p, j) {
@@ -1111,7 +1099,7 @@ func nodeEnd(p mut parser, x uint32) int { endOf(p.t, toks(p), x) }
 // toks is the parser's tokens, to read spans from.
 func toks(p mut parser) tokens {
 	let c0 = if NumComments(p.cmts) > 0 { cmtStart(p, 0) } else { -1 }
-	tokens{src: p.src, kinds: p.toks.kind, starts: p.toks.start, ends: p.toks.end, cmt0: c0}
+	tokens{starts: p.toks.start, ends: p.toks.end, cmt0: c0}
 }
 
 // errorNode reports message at the span of row x.

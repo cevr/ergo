@@ -101,7 +101,7 @@ let FactKeeps = 3
 type Tree {
 	ids   dense.Count[Node],
 	n     int,
-	kind  []uint32,
+	kind  []uint8,
 	tok   []uint32,
 	a     []uint32,
 	b     []uint32,
@@ -116,13 +116,13 @@ func NewTree(rows int, words int) Tree {
 	Tree{
 		ids:   dense.NewCount[Node](),
 		n:     0,
-		kind:  zeros32(rows + 1),
-		tok:   zeros32(rows + 1),
-		a:     zeros32(rows + 1),
-		b:     zeros32(rows + 1),
+		kind:  slices.WithCapacity[uint8](rows + 1),
+		tok:   slices.WithCapacity[uint32](rows + 1),
+		a:     slices.WithCapacity[uint32](rows + 1),
+		b:     slices.WithCapacity[uint32](rows + 1),
 		extra: slices.WithCapacity[uint32](words + 1),
 		ne:    0,
-		stack: zeros32(256),
+		stack: slices.WithCapacity[uint32](256),
 		top:   0,
 	}
 }
@@ -137,21 +137,17 @@ func NodeAt(t Tree, i int) dense.ID[Node] { dense.IDAt(t.ids, i) }
 func Root(t Tree) dense.ID[Node] { dense.IDAt(t.ids, t.n-1) }
 
 // KindOf is the kind of node id.
-func KindOf(t Tree, id dense.ID[Node]) uint8 { uint8(t.kind[dense.Index(id)]) }
+func KindOf(t Tree, id dense.ID[Node]) uint8 { t.kind[dense.Index(id)] }
 
 // ExtraWords is the number of words in the extra pool.
 func ExtraWords(t Tree) int { t.ne }
 
-// row appends a row and returns its index.
 func row(t mut Tree, kind uint8, tok uint32, a uint32, b uint32) uint32 {
 	let i = t.n
-	if i >= t.kind.Len() {
-		growRows(t)
-	}
-	t.kind[i] = uint32(kind)
-	t.tok[i] = tok
-	t.a[i] = a
-	t.b[i] = b
+	t.kind = t.kind.Append(kind)
+	t.tok = t.tok.Append(tok)
+	t.a = t.a.Append(a)
+	t.b = t.b.Append(b)
 	if i == dense.Total(t.ids) {
 		let _ = dense.Next(&t.ids)
 	}
@@ -159,30 +155,14 @@ func row(t mut Tree, kind uint8, tok uint32, a uint32, b uint32) uint32 {
 	uint32(i)
 }
 
-// The row columns are as long as their room, so a write is a store: a row
-// past the room doubles it (the tree keeps its lengths in n, ne and top).
-func zeros32(n int) []uint32 { slices.Repeat([]uint32{uint32(0)}, n) }
-
-func growRows(t mut Tree) {
-	let n = t.kind.Len()
-	t.kind = slices.AppendAll(t.kind, zeros32(n))
-	t.tok = slices.AppendAll(t.tok, zeros32(n))
-	t.a = slices.AppendAll(t.a, zeros32(n))
-	t.b = slices.AppendAll(t.b, zeros32(n))
-}
-
-// push puts w on the scratch stack.
 func pushW(t mut Tree, w uint32) {
-	if t.top >= t.stack.Len() {
-		growStack(t)
+	if t.top < t.stack.Len() {
+		t.stack[t.top] = w
+	} else {
+		t.stack = t.stack.Append(w)
 	}
-	t.stack[t.top] = w
 	t.top = t.top + 1
 }
-
-// growStack doubles the scratch stack, out of pushW so Go inlines pushW
-// (capstone S2f).
-func growStack(t mut Tree) { t.stack = slices.AppendAll(t.stack, zeros32(t.stack.Len())) }
 
 // mark is the stack's height, where a list starts.
 func mark(t Tree) int { t.top }
@@ -215,6 +195,10 @@ func checkpoint(t Tree) Checkpoint { Checkpoint{n: t.n, ne: t.ne, top: t.top} }
 
 func rewind(t mut Tree, c Checkpoint) {
 	t.n = c.n
+	t.kind = t.kind[:c.n]
+	t.tok = t.tok[:c.n]
+	t.a = t.a[:c.n]
+	t.b = t.b[:c.n]
 	t.ne = c.ne
 	t.extra = t.extra[:c.ne]
 	t.top = c.top
@@ -224,21 +208,24 @@ func rewind(t mut Tree, c Checkpoint) {
 // ends extra.
 func dropLast(t mut Tree) {
 	let i = t.n - 1
-	if t.b[i] > uint32(0) && int(t.a[i])+int(t.b[i]) == t.ne && recorded(uint8(t.kind[i])) {
+	if t.b[i] > uint32(0) && int(t.a[i])+int(t.b[i]) == t.ne && recorded(t.kind[i]) {
 		t.ne = int(t.a[i])
 		t.extra = t.extra[:t.ne]
 	}
+	t.kind = t.kind[:i]
+	t.tok = t.tok[:i]
+	t.a = t.a[:i]
+	t.b = t.b[:i]
 	t.n = i
 }
 
-// rowA, rowB and rowTok are the words of row i.
 func rowA(t Tree, i uint32) uint32 { t.a[int(i)] }
 
 func rowB(t Tree, i uint32) uint32 { t.b[int(i)] }
 
 func rowTok(t Tree, i uint32) uint32 { t.tok[int(i)] }
 
-func rowKind(t Tree, i uint32) uint8 { uint8(t.kind[int(i)]) }
+func rowKind(t Tree, i uint32) uint8 { t.kind[int(i)] }
 
 // fixed is word k of the f fixed words that end row i's record.
 func fixed(t Tree, i uint32, f int, k int) uint32 { t.extra[int(t.a[int(i)])+int(t.b[int(i)])-f+k] }

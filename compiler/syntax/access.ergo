@@ -3,7 +3,7 @@ import dense
 // The readers of a parse: its tokens, comment groups and node spans. A
 // token is its index; a position is a byte offset.
 
-func parsedToks(p Parsed) tokens { tokens{src: p.src, kinds: p.kinds, starts: p.starts, ends: p.ends, cmt0: p.cmt0} }
+func parsedToks(p Parsed) tokens { tokens{starts: p.starts, ends: p.ends, cmt0: p.cmt0} }
 
 // TokPos is the offset of token j.
 func TokPos(p Parsed, j int) int { int(p.starts[j]) }
@@ -49,11 +49,11 @@ func TokStartingAt(p Parsed, at int) int {
 func NumGroups(p Parsed) int { p.gFirst.Len() }
 
 // GroupPos, GroupEnd and GroupLen are comment group g's span and count.
-func GroupPos(p Parsed, g int) int { CommentStart(p.cmts, CommentAt(p.cmts, p.gFirst[g])) }
+func GroupPos(p Parsed, g int) int { CommentStart(p.cmts, CommentAt(p.cmts, int(p.gFirst[g]))) }
 
-func GroupEnd(p Parsed, g int) int { CommentEnd(p.cmts, CommentAt(p.cmts, p.gLast[g])) }
+func GroupEnd(p Parsed, g int) int { CommentEnd(p.cmts, CommentAt(p.cmts, int(p.gLast[g]))) }
 
-func GroupLen(p Parsed, g int) int { p.gLast[g] - p.gFirst[g] + 1 }
+func GroupLen(p Parsed, g int) int { int(p.gLast[g]) - int(p.gFirst[g]) + 1 }
 
 // NodePos and NodeEnd are node id's span.
 func NodePos(p Parsed, id dense.ID[Node]) int { posOf(p.Tree, parsedToks(p), uint32(dense.Index(id))) }
@@ -84,6 +84,15 @@ func TokAtOrAfter(p Parsed, at int) int {
 
 // CommentsOf is the comments of the parse, in source order.
 func CommentsOf(p Parsed) Comments { p.cmts }
+
+// NumCommentsOf is the number of comments in the parse.
+func NumCommentsOf(p Parsed) int { NumComments(p.cmts) }
+
+// CommentStartAt is the start offset of comment i in the parse.
+func CommentStartAt(p Parsed, i int) int { int(dense.Of(p.cmts.start, CommentAt(p.cmts, i))) }
+
+// CommentEndAt is the end offset of comment i in the parse.
+func CommentEndAt(p Parsed, i int) int { int(dense.Of(p.cmts.end, CommentAt(p.cmts, i))) }
 
 // Children appends the child rows of node id to out, by row index (NodeAt
 // reads one): its list items, then the node words of its record.

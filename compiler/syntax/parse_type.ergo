@@ -702,7 +702,7 @@ func isMapForm(p mut parser, x uint32) bool {
 // the two kinds share their record.
 func mapType(p mut parser, x uint32) uint32 {
 	if isMapForm(p, x) {
-		p.t.kind[int(x)] = uint32(KMapType)
+		p.t.kind[int(x)] = KMapType
 	}
 	x
 }

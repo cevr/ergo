@@ -33,12 +33,14 @@ func Columns(p Parsed) []uint32 {
 	out = out.Append(uint32(ncmt))
 	out = out.Append(uint32(ngroups))
 	out = out.Append(if p.Failed { uint32(1) } else { uint32(0) })
-	out = slices.AppendAll(out, slices.Slice(p.kinds, 0, ntok))
+	for i in 0..ntok {
+		out = out.Append(uint32(p.kinds[i]))
+	}
 	out = slices.AppendAll(out, slices.Slice(p.starts, 0, ntok))
-	// The parse stores a failed scan's ILLEGAL and EOF ends too, so the
-	// ends column is tokEnd's.
 	out = slices.AppendAll(out, slices.Slice(p.ends, 0, ntok))
-	out = slices.AppendAll(out, slices.Slice(p.Tree.kind, 0, nrows))
+	for i in 0..nrows {
+		out = out.Append(uint32(p.Tree.kind[i]))
+	}
 	out = slices.AppendAll(out, slices.Slice(p.Tree.tok, 0, nrows))
 	out = slices.AppendAll(out, slices.Slice(p.Tree.a, 0, nrows))
 	out = slices.AppendAll(out, slices.Slice(p.Tree.b, 0, nrows))

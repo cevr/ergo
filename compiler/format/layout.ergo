@@ -17,15 +17,14 @@ type Layout {
 	// Buf holds the text of every cell in order. Cell k is the bytes
 	// [CellA[k], CellB[k]) of it.
 	Buf   strings.Builder,
-	CellA []int,
-	CellB []int,
-	// Line i has indentation LineIndent[i] in tabs (-1 for the
-	// continuation of a multi-line raw string or block comment, which is
-	// never re-indented) and the LineN[i] cells from LineFirst[i]. Every
-	// cell but a line's last is padded to the width of its column block.
-	LineIndent []int,
-	LineFirst  []int,
-	LineN      []int,
+	CellA []uint32,
+	CellB []uint32,
+	// Line i has indentation LineIndent[i]-1 in tabs (0 for
+	// continuation lines with -1 indent) and LineN[i] cells from LineFirst[i].
+	LineIndent []uint32,
+	LineFirst  []uint32,
+	LineN      []uint32,
+	MaxCells   int,
 	// Pend is the first cell no line holds yet: the finished cells of the
 	// current line, which endLine hands to it.
 	Pend int,
@@ -67,11 +66,12 @@ type Command =
 func NewLayout() Layout {
 	Layout{
 		Buf:          strings.NewBuilder(),
-		CellA:        []int{},
-		CellB:        []int{},
-		LineIndent:   []int{},
-		LineFirst:    []int{},
-		LineN:        []int{},
+		CellA:        []uint32{},
+		CellB:        []uint32{},
+		LineIndent:   []uint32{},
+		LineFirst:    []uint32{},
+		LineN:        []uint32{},
+		MaxCells:     0,
 		Pend:         0,
 		Open:         0,
 		Trail:        0,
@@ -96,11 +96,12 @@ func NewLayoutFor(size int) Layout {
 	b.Grow(size + size/8)
 	Layout{
 		Buf:          b,
-		CellA:        slices.WithCapacity[int](cells),
-		CellB:        slices.WithCapacity[int](cells),
-		LineIndent:   slices.WithCapacity[int](lines),
-		LineFirst:    slices.WithCapacity[int](lines),
-		LineN:        slices.WithCapacity[int](lines),
+		CellA:        slices.WithCapacity[uint32](cells),
+		CellB:        slices.WithCapacity[uint32](cells),
+		LineIndent:   slices.WithCapacity[uint32](lines),
+		LineFirst:    slices.WithCapacity[uint32](lines),
+		LineN:        slices.WithCapacity[uint32](lines),
+		MaxCells:     0,
 		Pend:         0,
 		Open:         0,
 		Trail:        0,
@@ -149,11 +150,10 @@ func newline(l mut Layout) {
 	}
 }
 
-// addLine appends a line with no cells yet.
 func addLine(l mut Layout, indent int) {
-	l.LineIndent = l.LineIndent.Append(indent)
-	l.LineFirst = l.LineFirst.Append(l.CellA.Len())
-	l.LineN = l.LineN.Append(0)
+	l.LineIndent = l.LineIndent.Append(if indent < 0 { uint32(0) } else { uint32(indent + 1) })
+	l.LineFirst = l.LineFirst.Append(uint32(l.CellA.Len()))
+	l.LineN = l.LineN.Append(uint32(0))
 }
 
 // emit applies the pending whitespace before an item. blank reports that
@@ -174,9 +174,15 @@ func emit(l mut Layout, blank bool) {
 		return
 	}
 	if l.PendingSpace {
-		l.put(" ")
+		l.putSpace()
 	}
 	l.PendingSpace = false
+}
+
+func putSpace(l mut Layout) {
+	l.Buf.WriteByte(' ')
+	l.CellTail = byte(' ')
+	l.Trail += 1
 }
 
 // put appends text to the open cell as it is.
@@ -186,8 +192,14 @@ func put(l mut Layout, text string) {
 		return
 	}
 	l.Buf.WriteString(text)
-	l.CellTail = text[n-1]
-	let mut k = n
+	let last = text[n-1]
+	l.CellTail = last
+	if last != ' ' {
+		l.Trail = 0
+		l.Solid = last
+		return
+	}
+	let mut k = n - 1
 	for k > 0 && text[k-1] == ' ' {
 		k -= 1
 	}
@@ -199,20 +211,16 @@ func put(l mut Layout, text string) {
 	}
 }
 
-// closeCell ends the open cell, without its trailing blanks when trim:
-// the next cell starts after it.
 func closeCell(l mut Layout, trim bool) {
 	let end = l.Buf.Len()
-	l.CellA = l.CellA.Append(l.Open)
-	l.CellB = l.CellB.Append(if trim { end - l.Trail } else { end })
+	l.CellA = l.CellA.Append(uint32(l.Open))
+	l.CellB = l.CellB.Append(uint32(if trim { end - l.Trail } else { end }))
 	l.Open = end
 	l.Trail = 0
 	l.Solid = 0
 	l.CellTail = 0
 }
 
-// endLine closes the current line: its open cell is its last cell, and
-// trailing empty cells are dropped.
 func endLine(l mut Layout) {
 	if !l.Started {
 		return
@@ -227,8 +235,12 @@ func endLine(l mut Layout) {
 		l.CellB = slices.Slice(l.CellB, 0, n)
 	}
 	let last = l.LineIndent.Len() - 1
-	l.LineFirst[last] = l.Pend
-	l.LineN[last] = n - l.Pend
+	let cells = n - l.Pend
+	if cells > l.MaxCells {
+		l.MaxCells = cells
+	}
+	l.LineFirst[last] = uint32(l.Pend)
+	l.LineN[last] = uint32(cells)
 	l.Pend = n
 	l.CellsTail = 0
 	l.Started = false
@@ -263,7 +275,7 @@ func writeToken(l mut Layout, text string) {
 	}
 	let last = l.lastByte()
 	if last != 0 && merges(last, text[0]) {
-		l.put(" ")
+		l.putSpace()
 	}
 	l.put(text)
 }
