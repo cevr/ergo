@@ -1,0 +1,163 @@
+{
+  "about": "compiler/check/summary: canonical cross-package check and lower summaries, digests, verification, rendering, and extraction invariants.",
+  "mutants": [
+    {
+      "name": "pkg-summary-verify-skips-check-digest",
+      "origin": "compiler/check/summary",
+      "file": "compiler/check/summary/summary.ergo",
+      "decl": "VerifyAssumptions",
+      "from": "\t\tcase option.Some{Value: got}:\n\t\t\tif got.CheckDigest != expected {\n\t\t\t\treturn CheckDigestMismatch{Path: path, Expected: expected, Actual: got.CheckDigest}\n\t\t\t}",
+      "to": "\t\tcase option.Some{Value: got}:\n\t\t\tif false && got.CheckDigest != expected {\n\t\t\t\treturn CheckDigestMismatch{Path: path, Expected: expected, Actual: got.CheckDigest}\n\t\t\t}",
+      "rule": "VerifyAssumptions refuses any dependency whose CheckDigest disagrees with the header assumption.",
+      "killers": [
+        "compiler/check/summary:SummaryHeaderVerifyRefusesMismatch",
+        "compiler/check/summary:law:HeaderDigestMismatchRefused"
+      ]
+    },
+    {
+      "name": "pkg-summary-verify-skips-lower-digest",
+      "origin": "compiler/check/summary",
+      "file": "compiler/check/summary/summary.ergo",
+      "decl": "VerifyAssumptions",
+      "from": "\t\tcase option.Some{Value: got}:\n\t\t\tif got.LowerDigest != expected {\n\t\t\t\treturn LowerDigestMismatch{Path: path, Expected: expected, Actual: got.LowerDigest}\n\t\t\t}",
+      "to": "\t\tcase option.Some{Value: _}:\n\t\t\tif false {\n\t\t\t\treturn MissingImport{Path: path}\n\t\t\t}",
+      "rule": "VerifyAssumptions refuses any dependency whose LowerDigest disagrees with a non-zero lowering assumption.",
+      "killers": [
+        "compiler/check/summary:law:HeaderDigestMismatchRefused"
+      ]
+    },
+    {
+      "name": "pkg-summary-verify-skips-missing-import",
+      "origin": "compiler/check/summary",
+      "file": "compiler/check/summary/summary.ergo",
+      "decl": "VerifyAssumptions",
+      "from": "\t\tlet expected = s.Check.ImportCheck[i]\n\t\tmatch findAssumption(sorted, path) {\n\t\tcase option.None:\n\t\t\treturn MissingImport{Path: path}",
+      "to": "\t\tlet expected = s.Check.ImportCheck[i]\n\t\tmatch findAssumption(sorted, path) {\n\t\tcase option.None:\n\t\t\tlet _ = expected",
+      "rule": "VerifyAssumptions refuses when an import recorded in the header has no resolved dependency assumption.",
+      "killers": [
+        "compiler/check/summary:law:HeaderDigestMismatchRefused"
+      ]
+    },
+    {
+      "name": "pkg-summary-object-lookup-ignores-pkg",
+      "origin": "compiler/check/summary",
+      "file": "compiler/check/summary/summary.ergo",
+      "decl": "LookupObject",
+      "from": "func LookupObject(s Summary, ref ObjectRef) option.Option[ResolvedDecl] {\n\tif ref.ImportPath != PackagePath(s) {\n\t\treturn option.None\n\t}",
+      "to": "func LookupObject(s Summary, ref ObjectRef) option.Option[ResolvedDecl] {\n\tif false && ref.ImportPath != PackagePath(s) {\n\t\treturn option.None\n\t}",
+      "rule": "Cross-package object lookup scopes resolution by both ImportPath and NamePath.",
+      "killers": [
+        "compiler/check/summary:law:SummaryRoundTrips"
+      ]
+    },
+    {
+      "name": "pkg-summary-type-named-drops-name",
+      "origin": "compiler/check/summary/types",
+      "file": "compiler/check/summary/types.ergo",
+      "decl": "ImportStoreType",
+      "from": "\t\tlet tname = store.TypeNameText(s, store.ArgOf(s, t))\n\t\treturn InternNamed(p, InternSym(syms, org.SelfPath), InternSym(syms, tname))",
+      "to": "\t\treturn InternNamed(p, InternSym(syms, org.SelfPath), InternSym(syms, \"\"))",
+      "rule": "Named local types preserve their canonical TypeNameText rather than colliding on index.",
+      "killers": [
+        "compiler/check/summary:ExtractProgramCoversRichConstructs"
+      ]
+    },
+    {
+      "name": "pkg-summary-row-unsorted",
+      "origin": "compiler/check/summary",
+      "file": "compiler/check/summary/types.ergo",
+      "decl": "sortKeyedTypes",
+      "from": "\tslices.SortFunc(items, func(a keyedType, b keyedType) int {\n\t\tstrings.Compare(a.Key, b.Key)\n\t})",
+      "to": "\titems",
+      "rule": "Canonical type rows sort members by canonical key rather than written or pool order.",
+      "killers": [
+        "compiler/check/summary:law:PositionShiftKeepsDigest"
+      ]
+    },
+    {
+      "name": "pkg-summary-codec-skips-check-digest-verify",
+      "origin": "compiler/check/summary",
+      "file": "compiler/check/summary/codec.ergo",
+      "decl": "decodeCheckSection",
+      "from": "\tlet gotDigest = digestOfBytes(bytes)\n\tif gotDigest != wantDigest {\n\t\treturn CorruptDigest{Section: \"check\", Expected: wantDigest, Actual: gotDigest}\n\t}",
+      "to": "\tlet gotDigest = digestOfBytes(bytes)\n\tif false && gotDigest != wantDigest {\n\t\treturn CorruptDigest{Section: \"check\", Expected: wantDigest, Actual: gotDigest}\n\t}",
+      "rule": "decodeCheckSection rejects any payload whose SHA-256 checksum disagrees with the header CheckDigest.",
+      "killers": [
+        "compiler/check/summary:law:SummaryRoundTrips"
+      ]
+    },
+    {
+      "name": "pkg-summary-codec-skips-lower-digest-verify",
+      "origin": "compiler/check/summary",
+      "file": "compiler/check/summary/codec.ergo",
+      "decl": "decodeLowerSection",
+      "from": "\tlet gotDigest = digestOfBytes(bytes)\n\tif gotDigest != wantDigest {\n\t\treturn CorruptDigest{Section: \"lower\", Expected: wantDigest, Actual: gotDigest}\n\t}",
+      "to": "\tlet gotDigest = digestOfBytes(bytes)\n\tif false && gotDigest != wantDigest {\n\t\treturn CorruptDigest{Section: \"lower\", Expected: wantDigest, Actual: gotDigest}\n\t}",
+      "rule": "decodeLowerSection rejects any payload whose SHA-256 checksum disagrees with the header LowerDigest.",
+      "killers": [
+        "compiler/check/summary:law:SummaryRoundTrips"
+      ]
+    },
+    {
+      "name": "pkg-summary-render-drops-implements",
+      "origin": "compiler/check/summary",
+      "file": "compiler/check/summary/render.ergo",
+      "decl": "renderTypeDecl",
+      "from": "\tfor j in cs..ce {\n\t\tstrings.WriteString(sb, \" is \")",
+      "to": "\tfor j in ce..ce {\n\t\tlet _ = cs\n\t\tstrings.WriteString(sb, \" is \")",
+      "rule": "Rendered package interface includes type implements claims deterministically.",
+      "killers": [
+        "compiler/check/summary:ExtractProgramCoversRichConstructs"
+      ]
+    },
+    {
+      "name": "pkg-summary-extract-leaks-unexported",
+      "origin": "compiler/check/summary",
+      "file": "compiler/check/summary/extract.ergo",
+      "decl": "isExportedName",
+      "from": "func isExportedName(name string) bool {\n\tif name.Len() == 0 {\n\t\treturn false\n\t}\n\tlet c = name[0]\n\tc >= byte('A') && c <= byte('Z')\n}",
+      "to": "func isExportedName(name string) bool {\n\tname.Len() > 0\n}",
+      "rule": "Unexported declarations and struct fields are omitted from CheckSection and rendered output.",
+      "killers": [
+        "compiler/check/summary:law:PrivateBodyEditKeepsCheckDigest",
+        "compiler/check/summary:ExtractProgramCoversRichConstructs"
+      ]
+    },
+    {
+      "name": "pkg-summary-extract-skips-generic-body",
+      "origin": "compiler/check/summary",
+      "file": "compiler/check/summary/extract.ergo",
+      "decl": "appendExportedFunc",
+      "from": "\tif isGeneric {\n\t\tlet (bs, be) = captureNodeStream(&st.sec.Tokens, &st.sec.Syms, p, fd.Body)\n\t\tst.sec.FnBodyTokStarts = st.sec.FnBodyTokStarts.Append(bs)\n\t\tst.sec.FnBodyTokEnds = st.sec.FnBodyTokEnds.Append(be)\n\t} else {",
+      "to": "\tif false && isGeneric {\n\t\tlet (bs, be) = captureNodeStream(&st.sec.Tokens, &st.sec.Syms, p, fd.Body)\n\t\tst.sec.FnBodyTokStarts = st.sec.FnBodyTokStarts.Append(bs)\n\t\tst.sec.FnBodyTokEnds = st.sec.FnBodyTokEnds.Append(be)\n\t} else {",
+      "rule": "Generic function bodies are included in CheckSection as position-free tokens so body edits move CheckDigest.",
+      "killers": [
+        "compiler/check/summary:law:ExportedSigEditMovesCheckDigest"
+      ]
+    },
+    {
+      "name": "pkg-summary-extract-keeps-nongeneric-body",
+      "origin": "compiler/check/summary",
+      "file": "compiler/check/summary/extract.ergo",
+      "decl": "appendExportedFunc",
+      "from": "\tif isGeneric {\n\t\tlet (bs, be) = captureNodeStream(&st.sec.Tokens, &st.sec.Syms, p, fd.Body)\n\t\tst.sec.FnBodyTokStarts = st.sec.FnBodyTokStarts.Append(bs)\n\t\tst.sec.FnBodyTokEnds = st.sec.FnBodyTokEnds.Append(be)\n\t} else {",
+      "to": "\tif true {\n\t\tlet (bs, be) = captureNodeStream(&st.sec.Tokens, &st.sec.Syms, p, fd.Body)\n\t\tst.sec.FnBodyTokStarts = st.sec.FnBodyTokStarts.Append(bs)\n\t\tst.sec.FnBodyTokEnds = st.sec.FnBodyTokEnds.Append(be)\n\t} else {",
+      "rule": "Non-generic function bodies are excluded from CheckSection so body edits preserve CheckDigest.",
+      "killers": [
+        "compiler/check/summary:law:PrivateBodyEditKeepsCheckDigest"
+      ]
+    },
+    {
+      "name": "pkg-summary-extract-includes-doc-comments",
+      "origin": "compiler/check/summary",
+      "file": "compiler/check/summary/extract.ergo",
+      "decl": "extractDirectives",
+      "from": "\tfor i in 0..lines.Len() {\n\t\tlet line = strings.TrimSpace(lines[i])\n\t\tif strings.HasPrefix(line, \"// ergo:\") {\n\t\t\tkept = kept.Append(strings.TrimSpace(strings.TrimPrefix(line, \"// ergo:\")))\n\t\t}\n\t}",
+      "to": "\tfor i in 0..lines.Len() {\n\t\tlet line = strings.TrimSpace(lines[i])\n\t\tif line != \"\" {\n\t\t\tkept = kept.Append(line)\n\t\t}\n\t}",
+      "rule": "Regular doc and line comments are excluded from digests so position and comment edits preserve digests.",
+      "killers": [
+        "compiler/check/summary:law:PositionShiftKeepsDigest"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,564 @@
+import compiler/check/types
+import strconv
+import strings
+
+// Render produces a deterministic textual package interface summary strictly from s.Header and s.Check.
+func Render(s Summary) string {
+	let mut sb = strings.NewBuilder()
+	let c = s.Check
+	let pkgPath = SymText(c.Syms, s.Header.PkgPath)
+	let pkgName = SymText(c.Syms, s.Header.PkgName)
+	strings.WriteString(&sb, "package ")
+	strings.WriteString(&sb, pkgName)
+	strings.WriteString(&sb, " (")
+	strings.WriteString(&sb, pkgPath)
+	strings.WriteString(&sb, ") check@")
+	strings.WriteString(&sb, shortDigestHex(s.Header.CheckDigest))
+	strings.WriteByte(&sb, '\n')
+	renderImports(&sb, c)
+	renderDecls(&sb, c, pkgPath)
+	renderFunctionClaims(&sb, c, pkgPath)
+	strings.String(sb)
+}
+
+func shortDigestHex(d Digest) string {
+	let full = DigestHex(d)
+	if full.Len() >= 12 { full[0:12] } else { full }
+}
+
+func renderImports(sb mut strings.Builder, c CheckSection) {
+	let n = c.ImportPaths.Len()
+	if n == 0 {
+		return
+	}
+	strings.WriteByte(sb, '\n')
+	for i in 0..n {
+		strings.WriteString(sb, "import \"")
+		strings.WriteString(sb, SymText(c.Syms, c.ImportPaths[i]))
+		strings.WriteString(sb, "\" @ ")
+		strings.WriteString(sb, shortDigestHex(c.ImportCheck[i]))
+		strings.WriteByte(sb, '\n')
+	}
+}
+
+func renderDecls(sb mut strings.Builder, c CheckSection, pkgPath string) {
+	let n = c.DeclKinds.Len()
+	if n == 0 {
+		return
+	}
+	strings.WriteByte(sb, '\n')
+	for i in 0..n {
+		let k = c.DeclKinds[i]
+		let sub = int(c.DeclSubs[i])
+		let dir = c.DeclDirectives[i]
+		if dir != NoIdx {
+			strings.WriteString(sb, "// ergo:")
+			strings.WriteString(sb, SymText(c.Syms, dir))
+			strings.WriteByte(sb, '\n')
+		}
+		if k == DeclConst {
+			renderConst(sb, c, pkgPath, sub)
+		} else if k == DeclVar {
+			renderTopVar(sb, c, pkgPath, sub)
+		} else if k == DeclType {
+			renderTypeDecl(sb, c, pkgPath, sub)
+		} else if k == DeclContext {
+			renderContextDecl(sb, c, pkgPath, sub)
+		} else if k == DeclFunc {
+			renderFuncDecl(sb, c, pkgPath, sub)
+		} else if k == DeclLaw {
+			renderLawDecl(sb, c, pkgPath, sub)
+		} else if k == DeclParse {
+			renderParseDecl(sb, c, pkgPath, sub)
+		}
+	}
+}
+
+func renderConst(sb mut strings.Builder, c CheckSection, pkgPath string, i int) {
+	strings.WriteString(sb, "const ")
+	strings.WriteString(sb, SymText(c.Syms, c.ConstNames[i]))
+	strings.WriteByte(sb, ' ')
+	writeRenderType(sb, c, pkgPath, c.ConstTypes[i])
+	let val = c.ConstValues[i]
+	if val != NoIdx {
+		strings.WriteString(sb, " = ")
+		strings.WriteString(sb, SymText(c.Syms, val))
+	}
+	strings.WriteByte(sb, '\n')
+}
+
+func renderTopVar(sb mut strings.Builder, c CheckSection, pkgPath string, i int) {
+	let flags = c.TopVarFlags[i]
+	if flags&VarFlagMut != uint32(0) {
+		strings.WriteString(sb, "var mut ")
+	} else {
+		strings.WriteString(sb, "let ")
+	}
+	strings.WriteString(sb, SymText(c.Syms, c.TopVarNames[i]))
+	strings.WriteByte(sb, ' ')
+	writeRenderType(sb, c, pkgPath, c.TopVarTypes[i])
+	strings.WriteByte(sb, '\n')
+}
+
+func renderContextDecl(sb mut strings.Builder, c CheckSection, pkgPath string, i int) {
+	strings.WriteString(sb, "context ")
+	strings.WriteString(sb, SymText(c.Syms, c.CtxNames[i]))
+	if c.CtxProvides[i] != NoIdx {
+		strings.WriteString(sb, " provides ")
+		writeRenderType(sb, c, pkgPath, c.CtxProvides[i])
+	}
+	writeRowClause(sb, c, pkgPath, " fails ", c.CtxFailTypes, c.CtxFailStarts[i], c.CtxFailStarts[i+1])
+	writeRowClause(sb, c, pkgPath, " needs ", c.CtxNeedTypes, c.CtxNeedStarts[i], c.CtxNeedStarts[i+1])
+	strings.WriteByte(sb, '\n')
+}
+
+func renderFuncDecl(sb mut strings.Builder, c CheckSection, pkgPath string, i int) {
+	let flags = c.FnFlags[i]
+	if flags&FnFlagEntry != uint32(0) {
+		strings.WriteString(sb, "entry ")
+	}
+	if flags&FnFlagExtern != uint32(0) {
+		strings.WriteString(sb, "extern ")
+	}
+	strings.WriteString(sb, "func ")
+	strings.WriteString(sb, SymText(c.Syms, c.FnNames[i]))
+	writeFnTypeParams(sb, c, pkgPath, i)
+	strings.WriteByte(sb, '(')
+	let ps = int(c.FnParamStarts[i])
+	let pe = int(c.FnParamStarts[i+1])
+	for j in ps..pe {
+		if j > ps {
+			strings.WriteString(sb, ", ")
+		}
+		writeParamMode(sb, c.FnParamModes[j])
+		let pn = SymText(c.Syms, c.FnParamNames[j])
+		if pn != "" {
+			strings.WriteString(sb, pn)
+			strings.WriteByte(sb, ' ')
+		}
+		writeRenderType(sb, c, pkgPath, c.FnParamTypes[j])
+	}
+	strings.WriteByte(sb, ')')
+	if c.FnResults[i] != NoIdx {
+		strings.WriteByte(sb, ' ')
+		writeRenderType(sb, c, pkgPath, c.FnResults[i])
+	}
+	writeRowClause(sb, c, pkgPath, " fails ", c.FnFailTypes, c.FnFailStarts[i], c.FnFailStarts[i+1])
+	writeRowClause(sb, c, pkgPath, " needs ", c.FnNeedTypes, c.FnNeedStarts[i], c.FnNeedStarts[i+1])
+	writeRowClause(sb, c, pkgPath, " defects ", c.FnDefectTypes, c.FnDefectStarts[i], c.FnDefectStarts[i+1])
+	if flags&FnFlagClose != uint32(0) {
+		strings.WriteString(sb, " [closer]")
+	}
+	strings.WriteByte(sb, '\n')
+}
+
+func writeFnTypeParams(sb mut strings.Builder, c CheckSection, pkgPath string, i int) {
+	let s0 = int(c.FnTParamStarts[i])
+	let e0 = int(c.FnTParamStarts[i+1])
+	if s0 >= e0 {
+		return
+	}
+	strings.WriteByte(sb, '[')
+	for j in s0..e0 {
+		if j > s0 {
+			strings.WriteString(sb, ", ")
+		}
+		if c.FnTPFlags[j]&TParamFlagOwn != uint32(0) {
+			strings.WriteString(sb, "own ")
+		}
+		if c.FnTPFlags[j]&TParamFlagRow != uint32(0) {
+			strings.WriteString(sb, "row ")
+		}
+		strings.WriteString(sb, SymText(c.Syms, c.FnTPNames[j]))
+		if c.FnTPCons[j] != NoIdx {
+			strings.WriteByte(sb, ' ')
+			writeRenderType(sb, c, pkgPath, c.FnTPCons[j])
+		} else if c.FnTPConsText[j] != NoIdx {
+			strings.WriteByte(sb, ' ')
+			strings.WriteString(sb, SymText(c.Syms, c.FnTPConsText[j]))
+		}
+	}
+	strings.WriteByte(sb, ']')
+}
+
+func writeParamMode(sb mut strings.Builder, mode uint8) {
+	if mode == ParamTakes {
+		strings.WriteString(sb, "takes ")
+	} else if mode == ParamMut {
+		strings.WriteString(sb, "mut ")
+	} else if mode == ParamOwn {
+		strings.WriteString(sb, "own ")
+	} else if mode == ParamEntry {
+		strings.WriteString(sb, "entry ")
+	}
+}
+
+func writeRowClause(sb mut strings.Builder, c CheckSection, pkgPath string, label string, items []uint32, start uint32, end uint32) {
+	let s0 = int(start)
+	let e0 = int(end)
+	if s0 >= e0 {
+		return
+	}
+	strings.WriteString(sb, label)
+	for j in s0..e0 {
+		if j > s0 {
+			strings.WriteString(sb, " | ")
+		}
+		writeRenderType(sb, c, pkgPath, items[j])
+	}
+}
+
+func renderTypeDecl(sb mut strings.Builder, c CheckSection, pkgPath string, i int) {
+	strings.WriteString(sb, "type ")
+	strings.WriteString(sb, SymText(c.Syms, c.TyNames[i]))
+	writeTyTypeParams(sb, c, pkgPath, i)
+	let sk = c.TySubkinds[i]
+	if sk == TyAlias {
+		strings.WriteString(sb, " = ")
+		writeRenderType(sb, c, pkgPath, c.TyUnderlyings[i])
+	} else if sk == TyDefined || sk == TyRefined {
+		strings.WriteByte(sb, ' ')
+		writeRenderType(sb, c, pkgPath, c.TyUnderlyings[i])
+		if c.TyRefineIdx[i] != NoIdx {
+			writeRefinement(sb, c, int(c.TyRefineIdx[i]))
+		}
+	} else if sk == TyStruct {
+		strings.WriteString(sb, " {")
+		let fs = int(c.TyFieldStarts[i])
+		let fe = int(c.TyFieldStarts[i+1])
+		for j in fs..fe {
+			if j > fs {
+				strings.WriteString(sb, ", ")
+			}
+			strings.WriteString(sb, SymText(c.Syms, c.FieldNames[j]))
+			strings.WriteByte(sb, ' ')
+			writeRenderType(sb, c, pkgPath, c.FieldTypes[j])
+		}
+		if c.TyFlags[i]&TyFlagHasUnexportedFields != uint32(0) {
+			if fe > fs {
+				strings.WriteString(sb, ", ")
+			}
+			strings.WriteString(sb, "...")
+		}
+		strings.WriteByte(sb, '}')
+	} else if sk == TyUnion {
+		strings.WriteString(sb, " = ")
+		let vs = int(c.TyVarStarts[i])
+		let ve = int(c.TyVarStarts[i+1])
+		for j in vs..ve {
+			if j > vs {
+				strings.WriteString(sb, " | ")
+			}
+			strings.WriteString(sb, SymText(c.Syms, c.UnionVarNames[j]))
+			strings.WriteByte(sb, '{')
+			let vfs = int(c.UnionVarFieldStarts[j])
+			let vfe = int(c.UnionVarFieldEnds[j])
+			for k in vfs..vfe {
+				if k > vfs {
+					strings.WriteString(sb, ", ")
+				}
+				strings.WriteString(sb, SymText(c.Syms, c.UnionVarFieldNames[k]))
+				strings.WriteByte(sb, ' ')
+				writeRenderType(sb, c, pkgPath, c.UnionVarFieldTypes[k])
+			}
+			strings.WriteByte(sb, '}')
+		}
+	} else if sk == TyOp && c.TyRoleIdx[i] != NoIdx {
+		writeRoleBody(sb, c, pkgPath, int(c.TyRoleIdx[i]))
+	} else if sk == TyMachine {
+		strings.WriteString(sb, " machine {")
+		let ms = int(c.TyMachineStart[i])
+		let me = int(c.TyMachineStart[i+1])
+		for j in ms..me {
+			if j > ms {
+				strings.WriteString(sb, "; ")
+			}
+			strings.WriteString(sb, SymText(c.Syms, c.MachNames[j]))
+		}
+		strings.WriteByte(sb, '}')
+	}
+	let cs = int(c.TyClaimStarts[i])
+	let ce = int(c.TyClaimStarts[i+1])
+	for j in cs..ce {
+		strings.WriteString(sb, " is ")
+		let rImp = SymText(c.Syms, c.ClaimRoleImp[j])
+		if rImp != "" && rImp != pkgPath {
+			strings.WriteString(sb, rImp)
+			strings.WriteByte(sb, '.')
+		}
+		strings.WriteString(sb, SymText(c.Syms, c.ClaimRoleName[j]))
+	}
+	if c.TyFlags[i]&TyFlagCloser != uint32(0) {
+		strings.WriteString(sb, " [closer]")
+	}
+	if c.TyFlags[i]&TyFlagHoldsResource != uint32(0) {
+		strings.WriteString(sb, " [resource]")
+	}
+	if c.TyFlags[i]&TyFlagIsError != uint32(0) {
+		strings.WriteString(sb, " [error]")
+	}
+	strings.WriteByte(sb, '\n')
+}
+
+func writeTyTypeParams(sb mut strings.Builder, c CheckSection, pkgPath string, i int) {
+	let ts = int(c.TyTParamStarts[i])
+	let te = int(c.TyTParamStarts[i+1])
+	if ts >= te {
+		return
+	}
+	strings.WriteByte(sb, '[')
+	for j in ts..te {
+		if j > ts {
+			strings.WriteString(sb, ", ")
+		}
+		strings.WriteString(sb, SymText(c.Syms, c.TyTPNames[j]))
+		if c.TyTPCons[j] != NoIdx {
+			strings.WriteByte(sb, ' ')
+			writeRenderType(sb, c, pkgPath, c.TyTPCons[j])
+		}
+	}
+	strings.WriteByte(sb, ']')
+}
+
+func writeRefinement(sb mut strings.Builder, c CheckSection, idx int) {
+	strings.WriteString(sb, " where ")
+	if c.RefIsLen[idx] {
+		strings.WriteString(sb, "len ")
+	}
+	let ss = int(c.RefSpanStarts[idx])
+	let se = int(c.RefSpanStarts[idx+1])
+	for j in ss..se {
+		if j > ss {
+			strings.WriteString(sb, " | ")
+		}
+		writeBoundNum(sb, c.SpanLoKind[j], c.SpanLoNeg[j], c.SpanLoMag[j])
+		strings.WriteString(sb, "..")
+		writeBoundNum(sb, c.SpanHiKind[j], c.SpanHiNeg[j], c.SpanHiMag[j])
+	}
+}
+
+func writeBoundNum(sb mut strings.Builder, kind uint8, neg uint8, mag uint64) {
+	if kind == NumBelow {
+		strings.WriteString(sb, "-inf")
+	} else if kind == NumAbove {
+		strings.WriteString(sb, "+inf")
+	} else {
+		if neg != uint8(0) {
+			strings.WriteByte(sb, '-')
+		}
+		strings.WriteString(sb, strconv.Itoa(int(mag)))
+	}
+}
+
+func writeRoleBody(sb mut strings.Builder, c CheckSection, pkgPath string, r int) {
+	strings.WriteString(sb, " interface {")
+	let ms = int(c.RoleMemberStarts[r])
+	let me = int(c.RoleMemberStarts[r+1])
+	for j in ms..me {
+		if j > ms {
+			strings.WriteString(sb, "; ")
+		}
+		strings.WriteString(sb, SymText(c.Syms, c.RoleMemNames[j]))
+		strings.WriteByte(sb, ' ')
+		writeRenderType(sb, c, pkgPath, c.RoleMemSigs[j])
+	}
+	strings.WriteByte(sb, '}')
+}
+
+func renderLawDecl(sb mut strings.Builder, c CheckSection, pkgPath string, i int) {
+	let _ = pkgPath
+	strings.WriteString(sb, "law ")
+	strings.WriteString(sb, SymText(c.Syms, c.LawNames[i]))
+	strings.WriteByte(sb, '\n')
+}
+
+func renderParseDecl(sb mut strings.Builder, c CheckSection, pkgPath string, i int) {
+	strings.WriteString(sb, "func ")
+	strings.WriteString(sb, SymText(c.Syms, c.ParseFnNames[i]))
+	strings.WriteByte(sb, ' ')
+	writeRenderType(sb, c, pkgPath, c.ParseSigs[i])
+	strings.WriteByte(sb, '\n')
+}
+
+func renderFunctionClaims(sb mut strings.Builder, c CheckSection, pkgPath string) {
+	let n = c.FClaimRoleName.Len()
+	for i in 0..n {
+		strings.WriteString(sb, "claim ")
+		writeRenderType(sb, c, pkgPath, c.FClaimReceiver[i])
+		strings.WriteString(sb, " is ")
+		let imp = SymText(c.Syms, c.FClaimRoleImp[i])
+		if imp != "" && imp != pkgPath {
+			strings.WriteString(sb, imp)
+			strings.WriteByte(sb, '.')
+		}
+		strings.WriteString(sb, SymText(c.Syms, c.FClaimRoleName[i]))
+		strings.WriteByte(sb, '\n')
+	}
+}
+
+func writeRenderType(sb mut strings.Builder, c CheckSection, pkgPath string, id uint32) {
+	if id == NoIdx || int(id) >= TypeCount(c.Types) {
+		strings.WriteString(sb, "void")
+		return
+	}
+	let p = c.Types
+	let i = int(id)
+	let k = p.Kind[i]
+	let a = p.A[i]
+	let b = p.B[i]
+	if k == TypeNoValue {
+		strings.WriteString(sb, "void")
+		return
+	}
+	if k == TypeBasic {
+		strings.WriteString(sb, types.BasicName(int(a)))
+		return
+	}
+	if k == TypeNamed {
+		let imp = SymText(c.Syms, a)
+		let name = SymText(c.Syms, b)
+		if imp != "" && imp != pkgPath {
+			strings.WriteString(sb, imp)
+			strings.WriteByte(sb, '.')
+		}
+		strings.WriteString(sb, name)
+		return
+	}
+	if k == TypeParam {
+		strings.WriteString(sb, "$")
+		strings.WriteString(sb, strconv.Itoa(int(a)))
+		return
+	}
+	if k == TypeSlice {
+		strings.WriteString(sb, "[]")
+		writeRenderType(sb, c, pkgPath, a)
+		return
+	}
+	if k == TypeArray {
+		strings.WriteByte(sb, '[')
+		strings.WriteString(sb, strconv.Itoa(int(b)))
+		strings.WriteByte(sb, ']')
+		writeRenderType(sb, c, pkgPath, a)
+		return
+	}
+	if k == TypeMap {
+		strings.WriteString(sb, "Map[")
+		writeRenderType(sb, c, pkgPath, a)
+		strings.WriteString(sb, ", ")
+		writeRenderType(sb, c, pkgPath, b)
+		strings.WriteByte(sb, ']')
+		return
+	}
+	if k == TypePointer {
+		strings.WriteByte(sb, '*')
+		writeRenderType(sb, c, pkgPath, a)
+		return
+	}
+	if k == TypeOwn {
+		strings.WriteString(sb, "own ")
+		writeRenderType(sb, c, pkgPath, a)
+		return
+	}
+	if k == TypeEntry {
+		strings.WriteString(sb, "entry ")
+		writeRenderType(sb, c, pkgPath, a)
+		return
+	}
+	if k == TypeWired || k == TypeWiredNeeds {
+		strings.WriteString(sb, "wired[")
+		writeRenderType(sb, c, pkgPath, a)
+		strings.WriteByte(sb, ']')
+		return
+	}
+	writeCompositeRenderType(sb, c, pkgPath, p, k, id)
+}
+
+func writeCompositeRenderType(sb mut strings.Builder, c CheckSection, pkgPath string, p TypePool, k uint8, id uint32) {
+	let ops = TypeOperands(p, id)
+	if k == TypeTuple || k == TypeRow || k == TypeRowValue || k == TypeSelf || k == TypeReapplied {
+		let sep = if k == TypeRow || k == TypeRowValue { " | " } else { ", " }
+		if k == TypeTuple {
+			strings.WriteByte(sb, '(')
+		} else if k == TypeSelf {
+			strings.WriteString(sb, "Self[")
+		} else if k == TypeReapplied {
+			strings.WriteString(sb, "Reapplied[")
+		}
+		for j in 0..ops.Len() {
+			if j > 0 {
+				strings.WriteString(sb, sep)
+			}
+			writeRenderType(sb, c, pkgPath, ops[j])
+		}
+		if k == TypeTuple {
+			strings.WriteByte(sb, ')')
+		} else if k == TypeSelf || k == TypeReapplied {
+			strings.WriteByte(sb, ']')
+		}
+		return
+	}
+	if k == TypeInstance && ops.Len() >= 2 {
+		let imp = SymText(c.Syms, ops[0])
+		let name = SymText(c.Syms, ops[1])
+		if imp != "" && imp != pkgPath {
+			strings.WriteString(sb, imp)
+			strings.WriteByte(sb, '.')
+		}
+		strings.WriteString(sb, name)
+		if ops.Len() > 2 {
+			strings.WriteByte(sb, '[')
+			for j in 2..ops.Len() {
+				if j > 2 {
+					strings.WriteString(sb, ", ")
+				}
+				writeRenderType(sb, c, pkgPath, ops[j])
+			}
+			strings.WriteByte(sb, ']')
+		}
+		return
+	}
+	if k == TypeSig && ops.Len() >= 5 {
+		let np = int(ops[0])
+		strings.WriteString(sb, "func(")
+		for j in 0..np {
+			if j > 0 {
+				strings.WriteString(sb, ", ")
+			}
+			writeRenderType(sb, c, pkgPath, ops[2+j])
+		}
+		strings.WriteByte(sb, ')')
+		let res = ops[2+np]
+		if res != NoIdx && !(res < uint32(TypeCount(p)) && p.Kind[int(res)] == TypeNoValue) {
+			strings.WriteByte(sb, ' ')
+			writeRenderType(sb, c, pkgPath, res)
+		}
+		let failsT = ops[3+np]
+		if failsT < uint32(TypeCount(p)) && TypeOperands(p, failsT).Len() > 0 {
+			strings.WriteString(sb, " fails ")
+			writeRenderType(sb, c, pkgPath, failsT)
+		}
+		let needsT = ops[4+np]
+		if needsT < uint32(TypeCount(p)) && TypeOperands(p, needsT).Len() > 0 {
+			strings.WriteString(sb, " needs ")
+			writeRenderType(sb, c, pkgPath, needsT)
+		}
+		if ops[1] != uint32(0) {
+			strings.WriteString(sb, " defects")
+		}
+	}
+}
+
+law RenderedInterfaceMatchesCheckDigest(seed int) {
+	let s1 = makeSampleSummary(seed)
+	let mut s2 = makeSampleSummary(seed)
+	s2.Lower.FnInlineCost[0] = s2.Lower.FnInlineCost[0] + uint32(17)
+	RefreshDigests(&s2)
+	assert s1.Header.CheckDigest == s2.Header.CheckDigest
+	assert s1.Header.LowerDigest != s2.Header.LowerDigest
+	let t1 = Render(s1)
+	let t2 = Render(s2)
+	assert t1 == t2
+	assert strings.Contains(t1, "BuildItem")
+	assert strings.Contains(t1, "pkg/alpha")
+	true
+}

@@ -1,0 +1,968 @@
+import hex
+import option
+import slices
+import strings
+
+// FormatVersion identifies the canonical binary summary wire format.
+let FormatVersion = uint32(1)
+
+// NoIdx is the unsigned 32-bit sentinel representing an absent index or ID.
+let NoIdx = uint32(4294967295)
+
+// Header and capability flags carried in a package summary.
+let FlagPrelude = uint32(1)
+let FlagHasGeneric = uint32(2)
+let FlagParseFailed = uint32(4)
+
+// Declaration kind discriminants stored in CheckSection.
+let DeclFunc = uint8(1)
+let DeclType = uint8(2)
+let DeclVar = uint8(3)
+let DeclConst = uint8(4)
+let DeclContext = uint8(5)
+let DeclLaw = uint8(6)
+let DeclParse = uint8(7)
+
+// Type declaration subkinds stored in CheckSection.
+let TyAlias = uint8(1)
+let TyDefined = uint8(2)
+let TyRefined = uint8(3)
+let TyStruct = uint8(4)
+let TyUnion = uint8(5)
+let TyOp = uint8(6)
+let TyMachine = uint8(7)
+
+// Function parameter passing modes.
+let ParamVal = uint8(0)
+let ParamTakes = uint8(1)
+let ParamMut = uint8(2)
+let ParamOwn = uint8(3)
+let ParamEntry = uint8(4)
+
+// Function fact clause kinds matching syntax fact clauses.
+let FactGiven = uint8(0)
+let FactGives = uint8(1)
+let FactKeeps = uint8(2)
+
+// Check-section function flags.
+let FnFlagClose = uint32(1)
+let FnFlagGeneric = uint32(2)
+let FnFlagEntry = uint32(4)
+let FnFlagExtern = uint32(8)
+let FnFlagPure = uint32(16)
+let FnFlagHasSelfRole = uint32(32)
+
+// Check-section type flags.
+let TyFlagCloser = uint32(1)
+let TyFlagHoldsResource = uint32(2)
+let TyFlagIsError = uint32(4)
+let TyFlagHasUnexportedFields = uint32(8)
+let TyFlagConstraintOnly = uint32(16)
+
+// Type parameter flags.
+let TParamFlagOwn = uint32(1)
+let TParamFlagRow = uint32(2)
+
+// Variable declaration flags.
+let VarFlagMut = uint32(1)
+let VarFlagReassigned = uint32(2)
+let VarFlagPattern = uint32(4)
+
+// Law declaration flags.
+let LawFlagRewrite = uint32(1)
+let LawFlagEquation = uint32(2)
+let LawFlagQuant = uint32(4)
+let LawFlagReach = uint32(8)
+
+// Lowering-section function property flags.
+let LowerPure = uint32(1)
+let LowerAllocFree = uint32(2)
+let LowerInlineCandidate = uint32(4)
+let LowerStayDirect = uint32(8)
+let LowerSmallAcyclic = uint32(16)
+let LowerRecursive = uint32(32)
+let LowerTabulate = uint32(64)
+let LowerDies = uint32(128)
+let LowerOpaque = uint32(256)
+let LowerUnproved = uint32(512)
+
+// Lowering-section parameter ABI encodings.
+let ParamAbiCopy = uint8(0)
+let ParamAbiTakes = uint8(1)
+let ParamAbiBorrow = uint8(2)
+let ParamAbiMutCell = uint8(3)
+
+// Lowering-section type value representations.
+let ValueAbiScalar = uint8(1)
+let ValueAbiRecord = uint8(2)
+let ValueAbiUnion = uint8(3)
+let ValueAbiOpBox = uint8(4)
+let ValueAbiMachine = uint8(5)
+let ValueAbiExternAlias = uint8(6)
+
+// Machine entry discriminants stored inside CheckSection.
+let MachineState = uint8(1)
+let MachineSignal = uint8(2)
+let MachineInvariant = uint8(3)
+let MachineHandle = uint8(4)
+
+// Refinement bound endpoint discriminants.
+let NumBelow = uint8(0)
+let NumAt = uint8(1)
+let NumAbove = uint8(2)
+
+// Digest holds a 256-bit SHA-256 checksum split into four little-endian words.
+type Digest {
+	// W0 through W3 store bytes [0:8), [8:16), [16:24), and [24:32) in little-endian order.
+	W0 uint64,
+	W1 uint64,
+	W2 uint64,
+	W3 uint64,
+}
+
+// ImportAssumption names an imported package and the digests expected when this package was built.
+type ImportAssumption {
+	// Path is the canonical import path string.
+	Path string,
+	// CheckDigest is the expected check-section digest of the imported package.
+	CheckDigest Digest,
+	// LowerDigest is the expected lower-section digest of the imported package, or zero if unchecked.
+	LowerDigest Digest,
+}
+
+// Header carries the package identity, import assumptions, and canonical section digests.
+type Header {
+	// Version identifies the binary encoding format.
+	Version uint32,
+	// Flags holds package-level capability bits such as FlagPrelude and FlagHasGeneric.
+	Flags uint32,
+	// PkgPath is the symbol index of the package import path.
+	PkgPath uint32,
+	// PkgName is the symbol index of the declared package identifier.
+	PkgName uint32,
+	// CheckDigest is the SHA-256 digest over the canonical check header and section.
+	CheckDigest Digest,
+	// LowerDigest is the SHA-256 digest over the canonical lower header and section.
+	LowerDigest Digest,
+}
+
+// Mismatch describes a failed verification against a resolved dependency summary set.
+type Mismatch =
+	| MissingImport{Path string}
+	| CheckDigestMismatch{Path string, Expected Digest, Actual Digest}
+	| LowerDigestMismatch{Path string, Expected Digest, Actual Digest}
+
+// Malformed describes a corrupt, truncated, or non-canonical summary byte payload.
+type Malformed =
+	| BadMagic{}
+	| UnsupportedVersion{Got uint32}
+	| Truncated{}
+	| TrailingBytes{}
+	| OutOfBounds{Section string}
+	| UnsortedOrDuplicate{Section string}
+	| CorruptDigest{Section string, Expected Digest, Actual Digest}
+
+// LoadError classifies failures returned by verified summary decoding.
+type LoadError =
+	| FormatError{Detail Malformed}
+	| MismatchError{Detail Mismatch}
+
+// SymPool stores unique UTF-8 strings packed into a flat byte slab with uint32 offsets.
+type SymPool {
+	// Bytes concatenates all interned string payloads.
+	Bytes []byte,
+	// Offs holds Len+1 byte offsets so string i occupies Bytes[Offs[i]:Offs[i+1]].
+	Offs []uint32,
+	// Buckets holds an open-addressed FNV-1a index table storing id+1 (0 means empty).
+	Buckets []uint32,
+}
+
+// TokenPool holds position-free structural AST token streams for generic bodies, laws, and expressions.
+type TokenPool {
+	// Kinds stores the token kind byte (including structural open/close markers).
+	Kinds []uint8,
+	// Texts stores SymPool string IDs (or NoIdx for non-textual punctuation/markers).
+	Texts []uint32,
+}
+
+// CheckSection stores exported type-check and semantic facts in flat SoA uint32-indexed columns.
+type CheckSection {
+	// Syms holds strings referenced by exported declarations, imports, types, claims, and laws.
+	Syms SymPool,
+	// Types holds the canonical position-free TypePool using (importPath, namePath) object identity.
+	Types TypePool,
+	// Tokens holds position-free token streams for generic bodies, laws, and fact predicates.
+	Tokens TokenPool,
+	// ImportPaths lists sorted import path symbol IDs matching the package imports.
+	ImportPaths []uint32,
+	// ImportCheck lists expected CheckDigest per import.
+	ImportCheck []Digest,
+	// DeclKinds through DeclDirectives store exported declarations sorted by (Kind, Name).
+	DeclKinds      []uint8,
+	DeclNames      []uint32,
+	DeclSubs       []uint32,
+	DeclDirectives []uint32,
+	// Exported function tables and child SoA columns.
+	FnNames           []uint32,
+	FnFlags           []uint32,
+	FnTParamStarts    []uint32,
+	FnParamStarts     []uint32,
+	FnResults         []uint32,
+	FnFailStarts      []uint32,
+	FnNeedStarts      []uint32,
+	FnDefectStarts    []uint32,
+	FnRefineStarts    []uint32,
+	FnSelfBoundStarts []uint32,
+	FnSelfArity       []uint32,
+	FnSelfRole        []uint32,
+	FnFactStarts      []uint32,
+	FnBodyTokStarts   []uint32,
+	FnBodyTokEnds     []uint32,
+	// Flattened function type parameters.
+	FnTPNames    []uint32,
+	FnTPCons     []uint32,
+	FnTPConsText []uint32,
+	FnTPFlags    []uint32,
+	// Flattened function value parameters.
+	FnParamNames []uint32,
+	FnParamTypes []uint32,
+	FnParamModes []uint8,
+	// Flattened function error, capability, and defect row entries.
+	FnFailTypes   []uint32,
+	FnNeedTypes   []uint32,
+	FnDefectTypes []uint32,
+	// Flattened function parameter refinement assignments.
+	FnRefParamIdx []uint32,
+	FnRefIdx      []uint32,
+	// Flattened SelfBound pairs on functions.
+	FnSelfBoundOps   []uint32,
+	FnSelfBoundArity []uint32,
+	// Flattened given/gives/keeps clauses.
+	FnFactKinds      []uint8,
+	FnFactCondStarts []uint32,
+	FnFactCondEnds   []uint32,
+	FnFactWhenStarts []uint32,
+	FnFactWhenEnds   []uint32,
+	// Exported type declaration columns.
+	TyNames        []uint32,
+	TySubkinds     []uint8,
+	TyFlags        []uint32,
+	TyTParamStarts []uint32,
+	TyUnderlyings  []uint32,
+	TyExternPaths  []uint32,
+	TyRefineIdx    []uint32,
+	TyFieldStarts  []uint32,
+	TyVarStarts    []uint32,
+	TyRoleIdx      []uint32,
+	TyClaimStarts  []uint32,
+	TyMachineStart []uint32,
+	// Flattened type declaration bracket parameters.
+	TyTPNames []uint32,
+	TyTPCons  []uint32,
+	TyTPFlags []uint32,
+	// Flattened exported struct and variant fields.
+	FieldNames []uint32,
+	FieldTypes []uint32,
+	FieldFlags []uint32,
+	// Flattened union variants sorted by variant name.
+	UnionVarNames       []uint32,
+	UnionVarTypes       []uint32,
+	UnionVarFieldStarts []uint32,
+	UnionVarFieldEnds   []uint32,
+	UnionVarFieldNames  []uint32,
+	UnionVarFieldTypes  []uint32,
+	UnionVarFieldFlags  []uint32,
+	// Operation type definitions and flattened members/laws.
+	RoleSelfSites     []uint8,
+	RoleHarness       []uint32,
+	RoleIncludeStarts []uint32,
+	RoleMemberStarts  []uint32,
+	RoleLawStarts     []uint32,
+	RoleIncludes      []uint32,
+	// Operation type members.
+	RoleMemNames     []uint32,
+	RoleMemFlags     []uint32,
+	RoleMemSigs      []uint32,
+	RoleMemOwnStarts []uint32,
+	RoleMemPosStarts []uint32,
+	RoleMemOwnNames  []uint32,
+	RoleMemOwnCons   []uint32,
+	RoleMemPositions []uint32,
+	// Canonical position-free operation laws.
+	RoleLawNames     []uint32,
+	RoleLawTokStarts []uint32,
+	RoleLawTokEnds   []uint32,
+	// Type-level implements claims.
+	ClaimRoleImp     []uint32,
+	ClaimRoleName    []uint32,
+	ClaimArgStarts   []uint32,
+	ClaimLayStarts   []uint32,
+	ClaimArgs        []uint32,
+	ClaimLayoutSlots []uint32,
+	// Machine exported items.
+	MachKinds  []uint8,
+	MachNames  []uint32,
+	MachStarts []uint32,
+	MachEnds   []uint32,
+	// Refinement metadata and span endpoints.
+	RefIsLen      []bool,
+	RefParseNames []uint32,
+	RefSpanStarts []uint32,
+	SpanLoKind    []uint8,
+	SpanLoNeg     []uint8,
+	SpanLoMag     []uint64,
+	SpanHiKind    []uint8,
+	SpanHiNeg     []uint8,
+	SpanHiMag     []uint64,
+	// Exported variables, constants, contexts, top-level laws, and parse helpers.
+	TopVarNames    []uint32,
+	TopVarTypes    []uint32,
+	TopVarFlags    []uint32,
+	ConstNames     []uint32,
+	ConstTypes     []uint32,
+	ConstValues    []uint32,
+	ConstTokStarts []uint32,
+	ConstTokEnds   []uint32,
+	CtxNames       []uint32,
+	CtxProvides    []uint32,
+	CtxFailStarts  []uint32,
+	CtxNeedStarts  []uint32,
+	CtxFailTypes   []uint32,
+	CtxNeedTypes   []uint32,
+	LawNames       []uint32,
+	LawTParamStart []uint32,
+	LawParamStart  []uint32,
+	LawFlags       []uint32,
+	LawTokStarts   []uint32,
+	LawTokEnds     []uint32,
+	LawTPNames     []uint32,
+	LawTPCons      []uint32,
+	LawParamNames  []uint32,
+	LawParamTypes  []uint32,
+	ParseTypeNames []uint32,
+	ParseFnNames   []uint32,
+	ParseSigs      []uint32,
+	// Cross-package function claim table sorted canonically.
+	FClaimRoleImp   []uint32,
+	FClaimRoleName  []uint32,
+	FClaimReceiver  []uint32,
+	FClaimBindStart []uint32,
+	FClaimPosStart  []uint32,
+	FClaimMemStart  []uint32,
+	FClaimBinds     []uint32,
+	FClaimPositions []uint32,
+	FClaimMemNames  []uint32,
+	FClaimMemTypes  []uint32,
+}
+
+// LowerSection stores cross-package lowering hints and ABI tables separate from CheckSection.
+type LowerSection {
+	// Syms holds strings referenced exclusively by lowering tables.
+	Syms SymPool,
+	// Types holds lowering-specific physical field and capability type trees.
+	Types TypePool,
+	// Tokens holds position-free inline body templates for eligible functions.
+	Tokens TokenPool,
+	// ImportPaths lists sorted import path symbol IDs whose lowering assumptions matter.
+	ImportPaths []uint32,
+	// ImportLower lists expected LowerDigest per import.
+	ImportLower []Digest,
+	// Exported function lowering hints sorted by function name.
+	FnNames      []uint32,
+	FnFlags      []uint32,
+	FnInlineCost []uint32,
+	FnCapStarts  []uint32,
+	FnAbiStarts  []uint32,
+	FnTokStarts  []uint32,
+	FnTokEnds    []uint32,
+	FnCaps       []uint32,
+	FnParamAbis  []uint8,
+	// Exported type physical ABI and full record field representations.
+	TyNames           []uint32,
+	TyValueAbi        []uint8,
+	TyRuntimeGo       []uint32,
+	TyPhysFieldStarts []uint32,
+	PhysFieldNames    []uint32,
+	PhysFieldTypes    []uint32,
+	PhysFieldFlags    []uint32,
+}
+
+// Summary pairs canonical CheckSection and LowerSection facts under verified digests.
+type Summary {
+	// Header holds package identity, flags, and SHA-256 digests.
+	Header Header,
+	// Check holds the canonical type-check interface and semantic facts.
+	Check CheckSection,
+	// Lower holds the canonical lowering hints, caps, and physical value representations.
+	Lower LowerSection,
+}
+
+// ZeroDigest returns the all-zero 256-bit digest sentinel.
+func ZeroDigest() Digest {
+	Digest{W0: uint64(0), W1: uint64(0), W2: uint64(0), W3: uint64(0)}
+}
+
+// IsZeroDigest reports whether d equals the zero sentinel digest.
+func IsZeroDigest(d Digest) bool {
+	d.W0 == uint64(0) && d.W1 == uint64(0) && d.W2 == uint64(0) && d.W3 == uint64(0)
+}
+
+// DigestHex formats d as a 64-character lowercase hexadecimal string.
+func DigestHex(d Digest) string {
+	let mut bs = slices.WithCapacity[byte](32)
+	bs = appendU64LE(bs, d.W0)
+	bs = appendU64LE(bs, d.W1)
+	bs = appendU64LE(bs, d.W2)
+	bs = appendU64LE(bs, d.W3)
+	hex.Encode(bs.Text())
+}
+
+// DigestFromRaw packs 32 raw SHA-256 bytes into a Digest.
+func DigestFromRaw(raw string) option.Option[Digest] {
+	let bs = strings.Bytes(raw)
+	if bs.Len() != 32 {
+		return option.None
+	}
+	let d = Digest{
+		W0: readU64LE(bs, 0),
+		W1: readU64LE(bs, 8),
+		W2: readU64LE(bs, 16),
+		W3: readU64LE(bs, 24),
+	}
+	option.Some{Value: d}
+}
+
+func appendU64LE(dst []byte, v uint64) []byte {
+	let mut out = dst
+	out = out.Append(byte(v & uint64(255)))
+	out = out.Append(byte((v >> uint64(8)) & uint64(255)))
+	out = out.Append(byte((v >> uint64(16)) & uint64(255)))
+	out = out.Append(byte((v >> uint64(24)) & uint64(255)))
+	out = out.Append(byte((v >> uint64(32)) & uint64(255)))
+	out = out.Append(byte((v >> uint64(40)) & uint64(255)))
+	out = out.Append(byte((v >> uint64(48)) & uint64(255)))
+	out = out.Append(byte((v >> uint64(56)) & uint64(255)))
+	out
+}
+
+func readU64LE(bs []byte, at int) uint64 {
+	let b0 = uint64(bs[at])
+	let b1 = uint64(bs[at+1]) << uint64(8)
+	let b2 = uint64(bs[at+2]) << uint64(16)
+	let b3 = uint64(bs[at+3]) << uint64(24)
+	let b4 = uint64(bs[at+4]) << uint64(32)
+	let b5 = uint64(bs[at+5]) << uint64(40)
+	let b6 = uint64(bs[at+6]) << uint64(48)
+	let b7 = uint64(bs[at+7]) << uint64(56)
+	b0 | b1 | b2 | b3 | b4 | b5 | b6 | b7
+}
+
+// NewSymPool initializes an empty string pool.
+func NewSymPool() SymPool {
+	SymPool{
+		Bytes:   []byte{},
+		Offs:    []uint32{uint32(0)},
+		Buckets: makeZeroBuckets(16),
+	}
+}
+
+func makeZeroBuckets(n int) []uint32 {
+	let mut bs = slices.WithCapacity[uint32](n)
+	for i in 0..n {
+		let _ = i
+		bs = bs.Append(uint32(0))
+	}
+	bs
+}
+
+func hashStrBytes(s string) uint32 {
+	let bs = strings.Bytes(s)
+	let mut h = uint32(2166136261)
+	for i in 0..bs.Len() {
+		h = (h ^ uint32(bs[i])) * uint32(16777619)
+	}
+	h
+}
+
+// SymCount returns the number of interned strings in p.
+func SymCount(p SymPool) int {
+	if p.Offs.Len() == 0 {
+		return 0
+	}
+	p.Offs.Len() - 1
+}
+
+// SymText returns the string stored at SymPool index id.
+func SymText(p SymPool, id uint32) string {
+	if id == NoIdx || int(id)+1 >= p.Offs.Len() {
+		return ""
+	}
+	let lo = int(p.Offs[int(id)])
+	let hi = int(p.Offs[int(id)+1])
+	p.Bytes.Slice(lo, hi).Text()
+}
+
+// InternSym inserts s into p if absent and returns its unsigned uint32 ID.
+func InternSym(p mut SymPool, s string) uint32 {
+	if p.Offs.Len() == 0 {
+		*p = NewSymPool()
+	}
+	let count = SymCount(*p)
+	if (count+1)*2 > p.Buckets.Len() {
+		rehashSymPool(p, p.Buckets.Len()*2)
+	}
+	let mask = uint32(p.Buckets.Len() - 1)
+	let mut slot = hashStrBytes(s) & mask
+	for {
+		let entry = p.Buckets[int(slot)]
+		if entry == uint32(0) {
+			let id = uint32(SymCount(*p))
+			p.Bytes = p.Bytes.AppendString(s)
+			p.Offs = p.Offs.Append(uint32(p.Bytes.Len()))
+			p.Buckets[int(slot)] = id + uint32(1)
+			return id
+		}
+		let id = entry - uint32(1)
+		if SymText(*p, id) == s {
+			return id
+		}
+		slot = (slot + uint32(1)) & mask
+	}
+}
+
+func rehashSymPool(p mut SymPool, capN int) {
+	let mut bs = makeZeroBuckets(capN)
+	let mask = uint32(capN - 1)
+	let n = SymCount(*p)
+	for i in 0..n {
+		let s = SymText(*p, uint32(i))
+		let mut slot = hashStrBytes(s) & mask
+		for bs[int(slot)] != uint32(0) {
+			slot = (slot + uint32(1)) & mask
+		}
+		bs[int(slot)] = uint32(i) + uint32(1)
+	}
+	p.Buckets = bs
+}
+
+// FindSym looks up s in p and returns its uint32 ID or NoIdx if absent.
+func FindSym(p SymPool, s string) uint32 {
+	if p.Buckets.Len() == 0 {
+		return NoIdx
+	}
+	let mask = uint32(p.Buckets.Len() - 1)
+	let mut slot = hashStrBytes(s) & mask
+	for {
+		let entry = p.Buckets[int(slot)]
+		if entry == uint32(0) {
+			return NoIdx
+		}
+		let id = entry - uint32(1)
+		if SymText(p, id) == s {
+			return id
+		}
+		slot = (slot + uint32(1)) & mask
+	}
+}
+
+// NewTokenPool creates an empty position-free TokenPool.
+func NewTokenPool() TokenPool {
+	TokenPool{Kinds: []uint8{}, Texts: []uint32{}}
+}
+
+// EmptyCheckSection initializes empty canonical CheckSection columns.
+func EmptyCheckSection() CheckSection {
+	CheckSection{
+		Syms:                NewSymPool(),
+		Types:               NewTypePool(),
+		Tokens:              NewTokenPool(),
+		ImportPaths:         []uint32{},
+		ImportCheck:         []Digest{},
+		DeclKinds:           []uint8{},
+		DeclNames:           []uint32{},
+		DeclSubs:            []uint32{},
+		DeclDirectives:      []uint32{},
+		FnNames:             []uint32{},
+		FnFlags:             []uint32{},
+		FnTParamStarts:      []uint32{uint32(0)},
+		FnParamStarts:       []uint32{uint32(0)},
+		FnResults:           []uint32{},
+		FnFailStarts:        []uint32{uint32(0)},
+		FnNeedStarts:        []uint32{uint32(0)},
+		FnDefectStarts:      []uint32{uint32(0)},
+		FnRefineStarts:      []uint32{uint32(0)},
+		FnSelfBoundStarts:   []uint32{uint32(0)},
+		FnSelfArity:         []uint32{},
+		FnSelfRole:          []uint32{},
+		FnFactStarts:        []uint32{uint32(0)},
+		FnBodyTokStarts:     []uint32{},
+		FnBodyTokEnds:       []uint32{},
+		FnTPNames:           []uint32{},
+		FnTPCons:            []uint32{},
+		FnTPConsText:        []uint32{},
+		FnTPFlags:           []uint32{},
+		FnParamNames:        []uint32{},
+		FnParamTypes:        []uint32{},
+		FnParamModes:        []uint8{},
+		FnFailTypes:         []uint32{},
+		FnNeedTypes:         []uint32{},
+		FnDefectTypes:       []uint32{},
+		FnRefParamIdx:       []uint32{},
+		FnRefIdx:            []uint32{},
+		FnSelfBoundOps:      []uint32{},
+		FnSelfBoundArity:    []uint32{},
+		FnFactKinds:         []uint8{},
+		FnFactCondStarts:    []uint32{},
+		FnFactCondEnds:      []uint32{},
+		FnFactWhenStarts:    []uint32{},
+		FnFactWhenEnds:      []uint32{},
+		TyNames:             []uint32{},
+		TySubkinds:          []uint8{},
+		TyFlags:             []uint32{},
+		TyTParamStarts:      []uint32{uint32(0)},
+		TyUnderlyings:       []uint32{},
+		TyExternPaths:       []uint32{},
+		TyRefineIdx:         []uint32{},
+		TyFieldStarts:       []uint32{uint32(0)},
+		TyVarStarts:         []uint32{uint32(0)},
+		TyRoleIdx:           []uint32{},
+		TyClaimStarts:       []uint32{uint32(0)},
+		TyMachineStart:      []uint32{uint32(0)},
+		TyTPNames:           []uint32{},
+		TyTPCons:            []uint32{},
+		TyTPFlags:           []uint32{},
+		FieldNames:          []uint32{},
+		FieldTypes:          []uint32{},
+		FieldFlags:          []uint32{},
+		UnionVarNames:       []uint32{},
+		UnionVarTypes:       []uint32{},
+		UnionVarFieldStarts: []uint32{},
+		UnionVarFieldEnds:   []uint32{},
+		UnionVarFieldNames:  []uint32{},
+		UnionVarFieldTypes:  []uint32{},
+		UnionVarFieldFlags:  []uint32{},
+		RoleSelfSites:       []uint8{},
+		RoleHarness:         []uint32{},
+		RoleIncludeStarts:   []uint32{uint32(0)},
+		RoleMemberStarts:    []uint32{uint32(0)},
+		RoleLawStarts:       []uint32{uint32(0)},
+		RoleIncludes:        []uint32{},
+		RoleMemNames:        []uint32{},
+		RoleMemFlags:        []uint32{},
+		RoleMemSigs:         []uint32{},
+		RoleMemOwnStarts:    []uint32{uint32(0)},
+		RoleMemPosStarts:    []uint32{uint32(0)},
+		RoleMemOwnNames:     []uint32{},
+		RoleMemOwnCons:      []uint32{},
+		RoleMemPositions:    []uint32{},
+		RoleLawNames:        []uint32{},
+		RoleLawTokStarts:    []uint32{},
+		RoleLawTokEnds:      []uint32{},
+		ClaimRoleImp:        []uint32{},
+		ClaimRoleName:       []uint32{},
+		ClaimArgStarts:      []uint32{uint32(0)},
+		ClaimLayStarts:      []uint32{uint32(0)},
+		ClaimArgs:           []uint32{},
+		ClaimLayoutSlots:    []uint32{},
+		MachKinds:           []uint8{},
+		MachNames:           []uint32{},
+		MachStarts:          []uint32{},
+		MachEnds:            []uint32{},
+		RefIsLen:            []bool{},
+		RefParseNames:       []uint32{},
+		RefSpanStarts:       []uint32{uint32(0)},
+		SpanLoKind:          []uint8{},
+		SpanLoNeg:           []uint8{},
+		SpanLoMag:           []uint64{},
+		SpanHiKind:          []uint8{},
+		SpanHiNeg:           []uint8{},
+		SpanHiMag:           []uint64{},
+		TopVarNames:         []uint32{},
+		TopVarTypes:         []uint32{},
+		TopVarFlags:         []uint32{},
+		ConstNames:          []uint32{},
+		ConstTypes:          []uint32{},
+		ConstValues:         []uint32{},
+		ConstTokStarts:      []uint32{},
+		ConstTokEnds:        []uint32{},
+		CtxNames:            []uint32{},
+		CtxProvides:         []uint32{},
+		CtxFailStarts:       []uint32{uint32(0)},
+		CtxNeedStarts:       []uint32{uint32(0)},
+		CtxFailTypes:        []uint32{},
+		CtxNeedTypes:        []uint32{},
+		LawNames:            []uint32{},
+		LawTParamStart:      []uint32{uint32(0)},
+		LawParamStart:       []uint32{uint32(0)},
+		LawFlags:            []uint32{},
+		LawTokStarts:        []uint32{},
+		LawTokEnds:          []uint32{},
+		LawTPNames:          []uint32{},
+		LawTPCons:           []uint32{},
+		LawParamNames:       []uint32{},
+		LawParamTypes:       []uint32{},
+		ParseTypeNames:      []uint32{},
+		ParseFnNames:        []uint32{},
+		ParseSigs:           []uint32{},
+		FClaimRoleImp:       []uint32{},
+		FClaimRoleName:      []uint32{},
+		FClaimReceiver:      []uint32{},
+		FClaimBindStart:     []uint32{uint32(0)},
+		FClaimPosStart:      []uint32{uint32(0)},
+		FClaimMemStart:      []uint32{uint32(0)},
+		FClaimBinds:         []uint32{},
+		FClaimPositions:     []uint32{},
+		FClaimMemNames:      []uint32{},
+		FClaimMemTypes:      []uint32{},
+	}
+}
+
+// EmptyLowerSection initializes empty canonical LowerSection columns.
+func EmptyLowerSection() LowerSection {
+	LowerSection{
+		Syms:              NewSymPool(),
+		Types:             NewTypePool(),
+		Tokens:            NewTokenPool(),
+		ImportPaths:       []uint32{},
+		ImportLower:       []Digest{},
+		FnNames:           []uint32{},
+		FnFlags:           []uint32{},
+		FnInlineCost:      []uint32{},
+		FnCapStarts:       []uint32{uint32(0)},
+		FnAbiStarts:       []uint32{uint32(0)},
+		FnTokStarts:       []uint32{},
+		FnTokEnds:         []uint32{},
+		FnCaps:            []uint32{},
+		FnParamAbis:       []uint8{},
+		TyNames:           []uint32{},
+		TyValueAbi:        []uint8{},
+		TyRuntimeGo:       []uint32{},
+		TyPhysFieldStarts: []uint32{uint32(0)},
+		PhysFieldNames:    []uint32{},
+		PhysFieldTypes:    []uint32{},
+		PhysFieldFlags:    []uint32{},
+	}
+}
+
+// EmptySummary constructs a minimal valid Summary for pkgPath and pkgName.
+func EmptySummary(pkgPath string, pkgName string) Summary {
+	let mut c = EmptyCheckSection()
+	let pID = InternSym(&c.Syms, pkgPath)
+	let nID = InternSym(&c.Syms, pkgName)
+	let l = EmptyLowerSection()
+	let mut s = Summary{
+		Header: Header{
+			Version:     FormatVersion,
+			Flags:       uint32(0),
+			PkgPath:     pID,
+			PkgName:     nID,
+			CheckDigest: ZeroDigest(),
+			LowerDigest: ZeroDigest(),
+		},
+		Check: c,
+		Lower: l,
+	}
+	RefreshDigests(&s)
+	s
+}
+
+// ObjectRef identifies an exported item across package boundaries without global IDs.
+type ObjectRef {
+	// ImportPath is the defining package import path.
+	ImportPath string,
+	// NamePath is the declaration or nested member/variant name within ImportPath.
+	NamePath string,
+}
+
+// ResolvedDecl describes one found exported declaration in CheckSection.
+type ResolvedDecl {
+	// Kind is one of the Decl* constants.
+	Kind uint8,
+	// Index is the subtable index from DeclSubs.
+	Index uint32,
+}
+
+// PackagePath returns the package's import path string.
+func PackagePath(s Summary) string {
+	SymText(s.Check.Syms, s.Header.PkgPath)
+}
+
+// PackageName returns the package's declared identifier string.
+func PackageName(s Summary) string {
+	SymText(s.Check.Syms, s.Header.PkgName)
+}
+
+// LookupExported looks up an exported declaration by kind and name using binary search on sorted Decls.
+func LookupExported(s Summary, kind uint8, name string) option.Option[ResolvedDecl] {
+	let n = s.Check.DeclNames.Len()
+	let mut lo = 0
+	let mut hi = n
+	for lo < hi {
+		let mid = (lo + hi) / 2
+		let mk = s.Check.DeclKinds[mid]
+		let mn = SymText(s.Check.Syms, s.Check.DeclNames[mid])
+		if mk < kind || (mk == kind && mn < name) {
+			lo = mid + 1
+		} else if mk > kind || (mk == kind && mn > name) {
+			hi = mid
+		} else {
+			return option.Some{Value: ResolvedDecl{Kind: mk, Index: s.Check.DeclSubs[mid]}}
+		}
+	}
+	option.None
+}
+
+// LookupObject resolves a cross-package ObjectRef inside s when ImportPath matches PackagePath(s).
+func LookupObject(s Summary, ref ObjectRef) option.Option[ResolvedDecl] {
+	if ref.ImportPath != PackagePath(s) {
+		return option.None
+	}
+	let kinds = []uint8{DeclFunc, DeclType, DeclVar, DeclConst, DeclContext, DeclLaw, DeclParse}
+	for i in 0..kinds.Len() {
+		match LookupExported(s, kinds[i], ref.NamePath) {
+		case option.Some{Value: d}:
+			return option.Some{Value: d}
+		case option.None:
+		}
+	}
+	option.None
+}
+
+// HeaderImports returns all import assumptions sorted by import path.
+func HeaderImports(s Summary) []ImportAssumption {
+	let n = s.Check.ImportPaths.Len()
+	let mut out = slices.WithCapacity[ImportAssumption](n)
+	for i in 0..n {
+		let path = SymText(s.Check.Syms, s.Check.ImportPaths[i])
+		let lowerD = findLowerImportDigest(s.Lower, path)
+		out = out.Append(ImportAssumption{
+			Path:        path,
+			CheckDigest: s.Check.ImportCheck[i],
+			LowerDigest: lowerD,
+		})
+	}
+	out
+}
+
+func findLowerImportDigest(l LowerSection, path string) Digest {
+	let n = l.ImportPaths.Len()
+	let mut lo = 0
+	let mut hi = n
+	for lo < hi {
+		let mid = (lo + hi) / 2
+		let mp = SymText(l.Syms, l.ImportPaths[mid])
+		if mp < path {
+			lo = mid + 1
+		} else if mp > path {
+			hi = mid
+		} else {
+			return l.ImportLower[mid]
+		}
+	}
+	ZeroDigest()
+}
+
+// VerifyCheckAssumptions refuses any check-time import assumption mismatch against resolved dependencies.
+func VerifyCheckAssumptions(s Summary, resolved []ImportAssumption) fails Mismatch {
+	let sorted = sortAssumptions(resolved)
+	let n = s.Check.ImportPaths.Len()
+	for i in 0..n {
+		let path = SymText(s.Check.Syms, s.Check.ImportPaths[i])
+		let expected = s.Check.ImportCheck[i]
+		match findAssumption(sorted, path) {
+		case option.None:
+			return MissingImport{Path: path}
+		case option.Some{Value: got}:
+			if got.CheckDigest != expected {
+				return CheckDigestMismatch{Path: path, Expected: expected, Actual: got.CheckDigest}
+			}
+		}
+	}
+}
+
+// VerifyAssumptions verifies both check-time and lower-time import assumptions in s.
+func VerifyAssumptions(s Summary, resolved []ImportAssumption) fails Mismatch {
+	let sorted = sortAssumptions(resolved)
+	let cn = s.Check.ImportPaths.Len()
+	for i in 0..cn {
+		let path = SymText(s.Check.Syms, s.Check.ImportPaths[i])
+		let expected = s.Check.ImportCheck[i]
+		match findAssumption(sorted, path) {
+		case option.None:
+			return MissingImport{Path: path}
+		case option.Some{Value: got}:
+			if got.CheckDigest != expected {
+				return CheckDigestMismatch{Path: path, Expected: expected, Actual: got.CheckDigest}
+			}
+		}
+	}
+	let ln = s.Lower.ImportPaths.Len()
+	for i in 0..ln {
+		let path = SymText(s.Lower.Syms, s.Lower.ImportPaths[i])
+		let expected = s.Lower.ImportLower[i]
+		if IsZeroDigest(expected) {
+			continue
+		}
+		match findAssumption(sorted, path) {
+		case option.None:
+			return MissingImport{Path: path}
+		case option.Some{Value: got}:
+			if got.LowerDigest != expected {
+				return LowerDigestMismatch{Path: path, Expected: expected, Actual: got.LowerDigest}
+			}
+		}
+	}
+}
+
+func sortAssumptions(items []ImportAssumption) []ImportAssumption {
+	slices.SortFunc(items, func(a ImportAssumption, b ImportAssumption) int {
+		strings.Compare(a.Path, b.Path)
+	})
+}
+
+func findAssumption(sorted []ImportAssumption, path string) option.Option[ImportAssumption] {
+	let mut lo = 0
+	let mut hi = sorted.Len()
+	for lo < hi {
+		let mid = (lo + hi) / 2
+		let mp = sorted[mid].Path
+		if mp < path {
+			lo = mid + 1
+		} else if mp > path {
+			hi = mid
+		} else {
+			return option.Some{Value: sorted[mid]}
+		}
+	}
+	option.None
+}
+
+test SummaryHeaderVerifyRefusesMismatch {
+	let mut s = EmptySummary("pkg/app", "app")
+	let depA = InternSym(&s.Check.Syms, "pkg/dep")
+	s.Check.ImportPaths = []uint32{depA}
+	let d1 = Digest{W0: uint64(11), W1: uint64(22), W2: uint64(33), W3: uint64(44)}
+	let d2 = Digest{W0: uint64(55), W1: uint64(66), W2: uint64(77), W3: uint64(88)}
+	s.Check.ImportCheck = []Digest{d1}
+	let depAL = InternSym(&s.Lower.Syms, "pkg/dep")
+	s.Lower.ImportPaths = []uint32{depAL}
+	s.Lower.ImportLower = []Digest{d2}
+	RefreshDigests(&s)
+
+	let okRes = []ImportAssumption{ImportAssumption{Path: "pkg/dep", CheckDigest: d1, LowerDigest: d2}}
+	let mut failed = false
+	VerifyAssumptions(s, okRes) catch {
+	case _:
+		failed = true
+	}
+	assert !failed
+
+	let badRes = []ImportAssumption{ImportAssumption{Path: "pkg/dep", CheckDigest: Digest{W0: uint64(99), W1: uint64(0), W2: uint64(0), W3: uint64(0)}, LowerDigest: d2}}
+	let mut sawCheckMismatch = false
+	VerifyAssumptions(s, badRes) catch {
+	case CheckDigestMismatch as m:
+		sawCheckMismatch = m.Path == "pkg/dep" && m.Expected == d1
+	case _:
+	}
+	assert sawCheckMismatch
+}
