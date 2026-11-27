@@ -174,3 +174,9 @@ test IndexTypeReadingReachesTheError {
 test ContextEntryKeysUnterminatedString {
 	assert lexOutcome("func A(){with context{A, \"", true) == "S001 25 string literal not terminated"
 }
+
+test FailedScanIllegalCarriesEnd {
+	let cols = Columns(Parse("func A(){match A{\xff"))
+	let ntok = int(cols[1])
+	assert ntok >= 2 && cols[7+ntok-2] == uint32(Illegal) && int(cols[7+3*ntok-2]) == 18
+}

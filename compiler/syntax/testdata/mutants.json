@@ -488,7 +488,7 @@
       "to": "\ts.toks.end = s.toks.end.Append(uint32(0))\n\ts.toks.kind = s.toks.kind.Append(EOF)",
       "rule": "A failed scan's ILLEGAL carries its end in the ends column, which Columns copies whole.",
       "killers": [
-        "internal/sketch/syntax:TestDecodeAgreesWithView"
+        "internal/sketch/syntax:TestCompilerSyntaxTestsPass"
       ]
     },
     {
