@@ -140,12 +140,7 @@ func handleEventsHTTP(hub ControlHub, req http.Request) http.Response needs http
 	case orchestrate.InvalidInput as e:
 		return errorJSONResponse(400, e)
 	}
-	let sourceOpt = match optionalQueryParam(req.Query, "source") {
-	case json.Present[string] as s:
-		json.Present[string]{Value: s.Value}
-	case json.Absent:
-		if wantsSSE(req.Header) { json.Present[string]{Value: "all"} } else { json.Absent }
-	}
+	let sourceOpt = resolveSourceParam(req)
 	let input = orchestrate.EventsSinceInput{
 		Repo:   optionalQueryParam(req.Query, "repo"),
 		Run:    optionalQueryParam(req.Query, "run"),
@@ -226,6 +221,18 @@ func handleEventsHTTP(hub ControlHub, req http.Request) http.Response needs http
 	})
 	UnregisterSSE(hub, sub)
 	resp
+}
+
+func resolveSourceParam(req http.Request) json.Optional[string] {
+	match optionalQueryParam(req.Query, "source") {
+	case json.Present[string] as s:
+		json.Present[string]{Value: s.Value}
+	case json.Absent:
+		if wantsSSE(req.Header) {
+			return json.Present[string]{Value: "all"}
+		}
+		json.Absent
+	}
 }
 
 // DispatchHTTP routes HTTP requests across /healthz, /readiness, /events (JSON and SSE), and /mcp (Streamable HTTP + SSE).
