@@ -227,6 +227,7 @@ var bodyTable = []bodyRow{
 	{"FSLink", bodyFact{body: Body{Params: []Param{{Type: "string"}, {Type: "string"}}, Results: []string{"error"}, Host: true, Wait: "none", Package: Path}}},
 	{"FSLockFile", bodyFact{body: Body{Params: []Param{{Type: "string"}, {Type: "time.Duration"}}, Results: []string{"int", "error"}, Host: true, Wait: "none", Package: Path}}},
 	{"FSLstat", bodyFact{body: Body{Params: []Param{{Type: "string"}}, Results: []string{"Info", "error"}, Host: true, Wait: "none", Package: Path}}},
+	{"FSLstatEntry", bodyFact{body: Body{Params: []Param{{Type: "string"}}, Results: []string{"FSEntry", "error"}, Host: true, Wait: "none", Package: Path}}},
 	{"FSMapBounded", bodyFact{body: Body{Params: []Param{{Type: "string"}, {Type: "int"}}, Results: []string{"*Mapped", "error"}, Host: true, Wait: "none", Package: Path}}},
 	{"FSMapFile", bodyFact{body: Body{Params: []Param{{Type: "string"}}, Results: []string{"*Mapped", "error"}, Host: true, Wait: "none", Package: Path}}},
 	{"FSMapText", bodyFact{body: Body{Params: []Param{{Type: "string"}}, Results: []string{"*Mapped"}, Pure: true, Wait: "none", Package: Path}}},
@@ -885,7 +886,7 @@ var bodyTable = []bodyRow{
 // typeTable is goDecls.goType of every exported type of Source, by name.
 // TypeOf reads it (CHK1). Sorted by name, a slice, as bodyTable is.
 var typeTable = []typeRow{
-	{"Actor", GoType{Arity: 3, Struct: true, Fields: []string{"inbox", "task", "sleeper", "span", "graph", "step", "fire", "delay", "kind", "next", "out", "work", "hasExit", "leave", "spare", "dropped", "handled", "done", "ready", "isReady", "mu", "state", "version", "ended", "onEnd", "endTaken", "doneWait", "exit", "subs", "spareSub", "latest", "hasLatest", "final", "finished", "kidsMu", "adopting", "kids", "kidsEpoch", "kidsOpen", "kidsDone", "hosts", "hostsLeft", "settle", "report", "reported", "feedMu", "feedSeq", "feedQ", "fresh", "decide", "restarts", "cur", "curEnv", "timer", "timers", "timerSpan", "timerRegistered", "timerDelay", "timerEnv", "timerAt", "timerDone", "timerLast", "working", "feeds", "newHosts", "recovered", "hostSlot", "epoch", "bound", "owed"}, Package: Path}},
+	{"Actor", GoType{Arity: 3, Struct: true, Fields: []string{"inbox", "task", "sleeper", "span", "graph", "step", "fire", "delay", "kind", "next", "out", "work", "hasExit", "leave", "spare", "dropped", "handled", "done", "ready", "isReady", "mu", "state", "version", "ended", "onEnd", "endTaken", "doneWait", "exit", "subs", "spareSub", "latest", "hasLatest", "final", "finished", "kidsMu", "adopting", "kids", "kidsEpoch", "kidsOpen", "kidsDone", "hosts", "hostsLeft", "settle", "report", "reported", "feedMu", "feedSeq", "feedQ", "fresh", "decide", "restarts", "cur", "curEnv", "timer", "timers", "timerSpan", "timerRegistered", "timerDelay", "timerEnv", "timerAt", "timerDone", "timerLast", "durable", "timerAlarm", "timerDeadlineSet", "timerDeadlineMono", "timerBaseDelay", "working", "feeds", "newHosts", "recovered", "hostSlot", "epoch", "bound", "owed"}, Package: Path}},
 	{"ActorChildDefect", GoType{Struct: true, Fields: []string{"Site"}, Package: Path}},
 	{"ActorFreshDefect", GoType{Struct: true, Fields: []string{"Reason"}, Package: Path}},
 	{"ActorHostDefect", GoType{Struct: true, Fields: []string{"Site"}, Package: Path}},
@@ -936,6 +937,7 @@ var typeTable = []typeRow{
 	{"Expired", GoType{Struct: true, Package: Path}},
 	{"FD", GoType{Struct: true, Fields: []string{"mu", "closed", "file", "pipe", "kind", "fdNum", "plist", "pconn"}, Package: Path + "/net"}},
 	{"FS", GoType{Struct: true, Fields: []string{"files"}, Package: Path}},
+	{"FSEntry", GoType{Struct: true, Fields: []string{"Kind", "Size", "AllocatedBytes", "ModSec", "ModNsec", "AccessSec", "AccessNsec", "Nlink", "Dev", "Ino"}, Package: Path}},
 	{"Failed", GoType{Struct: true, Fields: []string{"Path", "Reason"}, Package: Path}},
 	{"Full", GoType{Struct: true, Package: Path}},
 	{"GoArgClause", GoType{Struct: true, Fields: []string{"Lent", "Reason"}, Package: Path}},
