@@ -1,0 +1,205 @@
+import llm
+import option
+import strings
+
+// CompactionResult describes the output transcript and metrics after branch-preserving compaction.
+type CompactionResult {
+	Messages      []llm.Message,
+	Compacted     bool,
+	DroppedGroups int,
+	KeptChars     int,
+}
+
+func messageCharLen(m llm.Message) int {
+	match m {
+	case llm.User as u:
+		u.Text.Len()
+	case llm.Assistant as a:
+		let mut n = a.Text.Len()
+		for c in a.Calls {
+			n = n + c.Id.Len() + c.Name.Len() + c.Arguments.Len()
+		}
+		n
+	case llm.Result as r:
+		r.CallId.Len() + r.Text.Len() + 8
+	}
+}
+
+// TranscriptCharCount returns the approximate serialized character length of ms.
+func TranscriptCharCount(ms []llm.Message) int {
+	let mut total = 0
+	for m in ms {
+		total = total + messageCharLen(m)
+	}
+	total
+}
+
+type turnGroup {
+	Messages []llm.Message,
+	Chars    int,
+}
+
+func findCallIndex(openIds []string, id string) int {
+	let mut i = 0
+	for i < openIds.Len() {
+		if openIds[i] == id {
+			return i
+		}
+		i = i + 1
+	}
+	-1
+}
+
+func collectToolGroup(ms []llm.Message, start int, calls []llm.Call) (turnGroup, int) {
+	let mut group = []llm.Message{ms[start]}
+	let mut pending = []string{}
+	for c in calls {
+		pending = pending.Append(c.Id)
+	}
+	let mut i = start + 1
+	for i < ms.Len() && pending.Len() > 0 {
+		match ms[i] {
+		case llm.Result as r:
+			let pos = findCallIndex(pending, r.CallId)
+			if pos >= 0 {
+				group = group.Append(ms[i])
+				pending = pending[:pos].Concat(pending[pos+1:])
+				i = i + 1
+			} else {
+				break
+			}
+		case llm.User, llm.Assistant:
+			break
+		}
+	}
+	if pending.Len() > 0 {
+		return (turnGroup{Messages: []llm.Message{}, Chars: 0}, i)
+	}
+	(turnGroup{Messages: group, Chars: TranscriptCharCount(group)}, i)
+}
+
+func partitionBranchGroups(ms []llm.Message) []turnGroup {
+	let mut groups = []turnGroup{}
+	let mut i = 0
+	for i < ms.Len() {
+		match ms[i] {
+		case llm.User:
+			groups = groups.Append(turnGroup{Messages: []llm.Message{ms[i]}, Chars: messageCharLen(ms[i])})
+			i = i + 1
+		case llm.Assistant as a:
+			if a.Calls.Len() == 0 {
+				groups = groups.Append(turnGroup{Messages: []llm.Message{ms[i]}, Chars: messageCharLen(ms[i])})
+				i = i + 1
+			} else {
+				let (grp, nextI) = collectToolGroup(ms, i, a.Calls)
+				if grp.Messages.Len() > 0 {
+					groups = groups.Append(grp)
+				}
+				i = nextI
+			}
+		case llm.Result:
+			i = i + 1
+		}
+	}
+	groups
+}
+
+func firstUserSummary(groups []turnGroup) option.Option[string] {
+	if groups.Len() == 0 {
+		return option.None
+	}
+	match groups[0].Messages[0] {
+	case llm.User as u:
+		let trimmed = strings.TrimSpace(u.Text)
+		if trimmed.Len() <= 120 {
+			return option.Some[string]{Value: trimmed}
+		}
+		option.Some[string]{Value: strings.Slice(trimmed, 0, 120) + "..."}
+	case llm.Assistant, llm.Result:
+		option.None
+	}
+}
+
+func selectTailGroups(groups []turnGroup, maxChars int, minTail int) (int, []turnGroup) {
+	let n = groups.Len()
+	if n == 0 {
+		return (0, []turnGroup{})
+	}
+	let mut startIdx = n
+	let mut chars = 0
+	let mut count = 0
+	let mut idx = n - 1
+	for idx >= 0 {
+		let g = groups[idx]
+		let mustKeep = count == 0 || (count < minTail && chars+g.Chars <= maxChars)
+		let fits = chars+g.Chars <= maxChars
+		if mustKeep || fits {
+			chars = chars + g.Chars
+			count = count + 1
+			startIdx = idx
+			idx = idx - 1
+		} else {
+			break
+		}
+	}
+	(startIdx, groups[startIdx:n])
+}
+
+// CompactTranscript shrinks ms toward maxChars without breaking Assistant tool calls from their Result messages.
+func CompactTranscript(ms []llm.Message, maxChars int, keepTailGroups int) CompactionResult {
+	let total = TranscriptCharCount(ms)
+	if maxChars <= 0 || total <= maxChars {
+		return CompactionResult{Messages: ms, Compacted: false, DroppedGroups: 0, KeptChars: total}
+	}
+	let groups = partitionBranchGroups(ms)
+	let minTail = if keepTailGroups <= 0 { 1 } else { keepTailGroups }
+	let summaryOverhead = 180
+	let tailBudget = if maxChars > summaryOverhead { maxChars - summaryOverhead } else { maxChars }
+	let (droppedCount, tailGroups) = selectTailGroups(groups, tailBudget, minTail)
+	if droppedCount == 0 {
+		return CompactionResult{Messages: ms, Compacted: false, DroppedGroups: 0, KeptChars: total}
+	}
+	let rootPrefix = match firstUserSummary(groups) {
+	case option.Some[string] as r:
+		"root_intent=" + r.Value + "; "
+	case option.None:
+		""
+	}
+	let summaryMsg = llm.User{Text: "[compacted \(droppedCount) earlier turn groups; \(rootPrefix)active tool branch preserved]"}
+	let mut out = []llm.Message{summaryMsg}
+	for grp in tailGroups {
+		out = out.Concat(grp.Messages)
+	}
+	if !llm.Valid(out) {
+		return CompactionResult{Messages: ms, Compacted: false, DroppedGroups: 0, KeptChars: total}
+	}
+	CompactionResult{
+		Messages:      out,
+		Compacted:     true,
+		DroppedGroups: droppedCount,
+		KeptChars:     TranscriptCharCount(out),
+	}
+}
+
+// CompactionPreservesValidTranscriptLaw verifies branch-preserving compaction keeps llm.Valid true and never orphans tool Results.
+law CompactionPreservesValidTranscriptLaw() {
+	let ms = []llm.Message{
+		llm.User{Text: "implement widget"},
+		llm.Assistant{Text: "reading", Calls: []llm.Call{
+			llm.Call{Id: "c1", Name: "read", Arguments: "{\"path\":\"a.txt\"}"},
+			llm.Call{Id: "c2", Name: "read", Arguments: "{\"path\":\"b.txt\"}"},
+		}},
+		llm.Result{CallId: "c1", Text: strings.Repeat("alpha-", 40), Failed: false},
+		llm.Result{CallId: "c2", Text: strings.Repeat("beta-", 40), Failed: false},
+		llm.Assistant{Text: "editing", Calls: []llm.Call{
+			llm.Call{Id: "c3", Name: "edit", Arguments: "{\"path\":\"a.txt\"}"},
+		}},
+		llm.Result{CallId: "c3", Text: "edited /repo/a.txt", Failed: false},
+		llm.User{Text: "now verify tests"},
+	}
+	if !llm.Valid(ms) {
+		return false
+	}
+	let res = CompactTranscript(ms, 260, 2)
+	res.Compacted && res.DroppedGroups >= 1 && llm.Valid(res.Messages) && res.Messages.Len() >= 3
+}

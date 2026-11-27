@@ -1,0 +1,251 @@
+import fs
+import github.com/cevr/ergo/modules/atlas/guard
+import glob
+import option
+import strconv
+import strings
+
+// MaxReadLines returns the maximum default lines returned by a single read call.
+func MaxReadLines() int { 200 }
+
+// MaxToolOutputBytes caps text returned by read/search/shell tool calls.
+func MaxToolOutputBytes() int { 32768 }
+
+// ToolResult represents a structured tool execution output before conversion to llm.Result.
+type ToolResult {
+	Text   string,
+	Failed bool,
+}
+
+func boundedToolText(s string) string {
+	let limit = MaxToolOutputBytes()
+	if s.Len() <= limit {
+		return s
+	}
+	strings.Slice(s, 0, limit) + "\n...[truncated]"
+}
+
+func resolveSafeWorkspacePath(ctx ToolContext, raw string, tool string) string fails ToolError {
+	let resolved = guard.ResolvePosix(ctx.WorkspaceRoot, raw)
+	if ctx.ConfineWorkspace && !guard.PosixWithin(resolved, ctx.WorkspaceRoot) {
+		return ApprovalDeniedError{Tool: tool, Reason: "path escapes workspace root: " + resolved}
+	}
+	resolved
+}
+
+func sliceLinesWindow(content string, offset int, limit int) string {
+	let lines = strings.Split(content, "\n")
+	let start = if offset <= 1 { 0 } else { offset - 1 }
+	let capLimit = if limit <= 0 { MaxReadLines() } else { limit }
+	if start >= lines.Len() {
+		return ""
+	}
+	let mut end = start + capLimit
+	if end > lines.Len() {
+		end = lines.Len()
+	}
+	let mut out = []string{}
+	let mut i = start
+	for i < end {
+		out = out.Append(strconv.Itoa(i+1) + ": " + lines[i])
+		i = i + 1
+	}
+	boundedToolText(strings.Join(out, "\n"))
+}
+
+// RunRead executes the surgical read tool over fs.Files with optional 1-based line offset and limit.
+func RunRead(args ReadArgs, ctx ToolContext) ToolResult fails ToolError needs fs.Files {
+	let path = try resolveSafeWorkspacePath(ctx, args.Path, "read")
+	let content = fs.Files.ReadFile(path) catch {
+	case fs.NotFound as nf:
+		return ToolIoError{Tool: "read", Reason: "file not found: " + nf.Path}
+	case fs.Denied as dn:
+		return ToolIoError{Tool: "read", Reason: "permission denied: " + dn.Path}
+	case fs.Failed as fl:
+		return ToolIoError{Tool: "read", Reason: fl.Reason}
+	}
+	ToolResult{Text: sliceLinesWindow(content, args.Offset, args.Limit), Failed: false}
+}
+
+func replaceFirstOccurrence(content string, oldStr string, newStr string) string fails ToolError {
+	let idx = strings.Index(content, oldStr)
+	if idx < 0 {
+		return BadToolArgs{Tool: "edit", Field: "old_string", Reason: "old_string not found in file"}
+	}
+	let head = strings.Slice(content, 0, idx)
+	let tail = strings.Slice(content, idx+oldStr.Len(), content.Len())
+	head + newStr + tail
+}
+
+func applyEditTransform(content string, args EditArgs) string fails ToolError {
+	if args.OldString == "" {
+		return BadToolArgs{Tool: "edit", Field: "old_string", Reason: "old_string is required unless create=true on new file"}
+	}
+	let count = strings.Count(content, args.OldString)
+	if count == 0 {
+		return BadToolArgs{Tool: "edit", Field: "old_string", Reason: "old_string not found"}
+	}
+	if count > 1 && !args.ReplaceAll {
+		return BadToolArgs{Tool: "edit", Field: "old_string", Reason: "old_string matched \(count) times; set replace_all=true or pass more context"}
+	}
+	if args.ReplaceAll {
+		return strings.ReplaceAll(content, args.OldString, args.NewString)
+	}
+	try replaceFirstOccurrence(content, args.OldString, args.NewString)
+}
+
+func ensureParentDir(path string) fails ToolError needs fs.Writes {
+	let dir = guard.CleanPosix(path)
+	let idx = strings.LastIndex(dir, "/")
+	if idx <= 0 {
+		return
+	}
+	let parent = strings.Slice(dir, 0, idx)
+	fs.Writes.MkdirAll(parent) catch {
+	case fs.Denied as dn:
+		return ToolIoError{Tool: "edit", Reason: "mkdir denied: " + dn.Path}
+	case fs.Failed as fl:
+		return ToolIoError{Tool: "edit", Reason: fl.Reason}
+	}
+}
+
+// RunEdit executes surgical single/all replacement or file creation while blocking .git modifications.
+func RunEdit(args EditArgs, ctx ToolContext) ToolResult fails ToolError needs fs.Files | fs.Writes {
+	let path = try resolveSafeWorkspacePath(ctx, args.Path, "edit")
+	if targetsGitMetadata(path) {
+		return GuardBlockedError{Cause: guard.Destructive{Rule: guard.RuleDestructiveRm, Reason: "refusing edit inside .git metadata"}}
+	}
+	if args.Create && args.OldString == "" {
+		try ensureParentDir(path)
+		fs.Writes.WriteFile(path, args.NewString) catch {
+		case fs.NotFound as nf:
+			return ToolIoError{Tool: "edit", Reason: "parent missing: " + nf.Path}
+		case fs.Denied as dn:
+			return ToolIoError{Tool: "edit", Reason: "write denied: " + dn.Path}
+		case fs.Failed as fl:
+			return ToolIoError{Tool: "edit", Reason: fl.Reason}
+		}
+		return ToolResult{Text: "created " + path, Failed: false}
+	}
+	let content = fs.Files.ReadFile(path) catch {
+	case fs.NotFound as nf:
+		return ToolIoError{Tool: "edit", Reason: "file not found: " + nf.Path}
+	case fs.Denied as dn:
+		return ToolIoError{Tool: "edit", Reason: "read denied: " + dn.Path}
+	case fs.Failed as fl:
+		return ToolIoError{Tool: "edit", Reason: fl.Reason}
+	}
+	let updated = try applyEditTransform(content, args)
+	fs.Writes.WriteFile(path, updated) catch {
+	case fs.NotFound as nf:
+		return ToolIoError{Tool: "edit", Reason: "missing path: " + nf.Path}
+	case fs.Denied as dn:
+		return ToolIoError{Tool: "edit", Reason: "write denied: " + dn.Path}
+	case fs.Failed as fl:
+		return ToolIoError{Tool: "edit", Reason: fl.Reason}
+	}
+	ToolResult{Text: "edited " + path, Failed: false}
+}
+
+func compileSearchGlob(raw string) option.Option[glob.Pattern] fails ToolError {
+	let trimmed = strings.TrimSpace(raw)
+	if trimmed == "" {
+		return option.None
+	}
+	let pat = glob.Compile(trimmed) catch {
+	case glob.InvalidPattern as inv:
+		return BadToolArgs{Tool: "search", Field: "glob", Reason: inv.Reason}
+	}
+	option.Some[glob.Pattern]{Value: pat}
+}
+
+func searchOneFile(fullPath string, relPath string, pattern string, maxLeft int) []string needs fs.Files {
+	let content = fs.Files.ReadFile(fullPath) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return []string{}
+	}
+	let mut hits = []string{}
+	let lines = strings.Split(content, "\n")
+	let mut idx = 0
+	for idx < lines.Len() && hits.Len() < maxLeft {
+		if strings.Contains(lines[idx], pattern) {
+			hits = hits.Append(relPath + ":" + strconv.Itoa(idx+1) + ": " + lines[idx])
+		}
+		idx = idx + 1
+	}
+	hits
+}
+
+func globAcceptsFile(patOpt option.Option[glob.Pattern], relPath string, name string) bool {
+	match patOpt {
+	case option.None:
+		true
+	case option.Some[glob.Pattern] as p:
+		glob.Match(p.Value, relPath) || glob.Match(p.Value, name)
+	}
+}
+
+type searchSpec {
+	RootDir    string,
+	Pattern    string,
+	PatOpt     option.Option[glob.Pattern],
+	MaxResults int,
+}
+
+func walkSearch(spec searchSpec, relPrefix string, acc []string) []string needs fs.Files {
+	if acc.Len() >= spec.MaxResults {
+		return acc
+	}
+	let curDir = if relPrefix == "" { spec.RootDir } else { guard.ResolvePosix(spec.RootDir, relPrefix) }
+	let entries = fs.Files.ReadDir(curDir) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return acc
+	}
+	let mut out = acc
+	for name in entries {
+		if out.Len() >= spec.MaxResults {
+			break
+		}
+		if name == ".git" {
+			continue
+		}
+		let rel = if relPrefix == "" { name } else { relPrefix + "/" + name }
+		let full = guard.ResolvePosix(spec.RootDir, rel)
+		let info = fs.Files.Stat(full) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			continue
+		}
+		if info.Dir {
+			out = walkSearch(spec, rel, out)
+		} else if globAcceptsFile(spec.PatOpt, rel, name) {
+			let fileHits = searchOneFile(full, rel, spec.Pattern, spec.MaxResults-out.Len())
+			out = out.Concat(fileHits)
+		}
+	}
+	out
+}
+
+// RunSearch scans files within root matching pattern and optional glob, bounded cleanly by MaxResults.
+func RunSearch(args SearchArgs, ctx ToolContext) ToolResult fails ToolError needs fs.Files {
+	let searchRoot = try resolveSafeWorkspacePath(ctx, args.Root, "search")
+	let patOpt = try compileSearchGlob(args.Glob)
+	let maxHits = if args.MaxResults <= 0 { 50 } else { args.MaxResults }
+	let info = fs.Files.Stat(searchRoot) catch {
+	case fs.NotFound as nf:
+		return ToolIoError{Tool: "search", Reason: "root not found: " + nf.Path}
+	case fs.Denied as dn:
+		return ToolIoError{Tool: "search", Reason: "permission denied: " + dn.Path}
+	case fs.Failed as fl:
+		return ToolIoError{Tool: "search", Reason: fl.Reason}
+	}
+	let spec = searchSpec{RootDir: searchRoot, Pattern: args.Pattern, PatOpt: patOpt, MaxResults: maxHits}
+	let hits = if info.Dir {
+		walkSearch(spec, "", []string{})
+	} else {
+		searchOneFile(searchRoot, guard.BasenamePosix(searchRoot), args.Pattern, maxHits)
+	}
+	if hits.Len() == 0 {
+		return ToolResult{Text: "(no matches)", Failed: false}
+	}
+	ToolResult{Text: boundedToolText(strings.Join(hits, "\n")), Failed: false}
+}
