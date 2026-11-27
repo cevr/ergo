@@ -16,6 +16,7 @@
 import core
 import option
 import os
+import time
 
 // NotFound is the failure of a path that does not exist.
 extern go ergo.local/prototype/runtime/v1.NotFound type NotFound { Path string }
@@ -49,6 +50,42 @@ extern go ergo.local/prototype/runtime/v1.Exists type Exists { Path string }
 // a mode. Perm is bits, not a Mode, because Mode has no value for some
 // bits, such as a write without a read.
 extern go ergo.local/prototype/runtime/v1.Info type Info { Name string, Size int, Dir bool, Perm int }
+
+// EntryKind is the kind of filesystem entry observed by ReadEntry without
+// following symbolic links.
+type EntryKind = FileEntry{} | DirEntry{} | SymlinkEntry{} | OtherEntry{}
+
+// FileID is the opaque, comparable identity of a filesystem object,
+// pairing its device and inode numbers.
+type FileID { dev uint64, ino uint64 }
+
+// NewFileID constructs a FileID from device and inode identifiers.
+func NewFileID(dev uint64, ino uint64) FileID { FileID{dev: dev, ino: ino} }
+
+// Entry describes the object at a path without following symbolic links
+// (Lstat semantics).
+type Entry {
+	Kind           EntryKind,
+	Size           int,
+	AllocatedBytes int,
+	ModTime        time.Time,
+	AccessTime     time.Time,
+	Nlink          int,
+	ID             FileID,
+}
+
+extern go ergo.local/prototype/runtime/v1.FSEntry type rawEntry {
+	Kind           int,
+	Size           int,
+	AllocatedBytes int,
+	ModSec         int64,
+	ModNsec        int64,
+	AccessSec      int64,
+	AccessNsec     int64,
+	Nlink          int,
+	Dev            uint64,
+	Ino            uint64,
+}
 
 // Access is what one class of users may do with a file: the three
 // permission bits of that class (read 4, write 2, execute 1). The variants
@@ -377,11 +414,63 @@ extern go ergo.local/prototype/runtime/v1.HostRoot type HostRoot {
 extern go ergo.local/prototype/runtime/v1.FSOpenRoot func OpenRoot(dir string) HostRoot fails NotFound | Denied | Failed needs os.Ambient
 
 // Host is the host's Files and Writes provider. Its field gives this
+// Entries reads the file system and rich non-following entry metadata.
+type Entries {
+	..Files,
+	// ReadEntry describes the object at path without following symbolic
+	// links (Lstat semantics).
+	ReadEntry(path string) Entry fails NotFound | Denied | Failed,
+
+	// EntryAgreesWithLstat: ReadEntry matches Lstat on failures,
+	// directory status, and byte size, reports non-negative 512-byte
+	// aligned allocated bytes, and reports at least one link.
+	law EntryAgreesWithLstat(path string) {
+		let l = Lstat(path) catch {
+		case NotFound as err:
+			let _ = ReadEntry(path) catch {
+			case NotFound as got:
+				return got == err
+			case Denied, Failed:
+				return false
+			}
+			return false
+		case Denied as err:
+			let _ = ReadEntry(path) catch {
+			case Denied as got:
+				return got == err
+			case NotFound, Failed:
+				return false
+			}
+			return false
+		case Failed as err:
+			let _ = ReadEntry(path) catch {
+			case Failed as got:
+				return got == err
+			case NotFound, Denied:
+				return false
+			}
+			return false
+		}
+		let e = ReadEntry(path) catch {
+		case NotFound, Denied, Failed:
+			return false
+		}
+		let isDir = match e.Kind {
+		case DirEntry:
+			true
+		case FileEntry, SymlinkEntry, OtherEntry:
+			false
+		}
+		isDir == l.Dir && e.Size == l.Size && e.AllocatedBytes >= 0 && e.AllocatedBytes%512 == 0 && e.Nlink >= 1
+	},
+}
+
+// Host is the file system of this host. Its unexported field gives this
 // package the construction authority (types.md, Zero values 6): no other
 // package writes fs.Host{}, its zero value or a record update of it. root
 // is "" for the host's own (NewHost), and the case's folder for a test's
 // (NewTestHost, confined.ergo).
-type Host { root string } implements Files, Writes
+type Host { root string } implements Files, Writes, Entries
 
 // NewHost is the host's Files and Writes provider. It needs Ambient: only
 // code whose row holds the authority to choose the host makes one.
@@ -485,6 +574,29 @@ func Stat(h Host, path string) Info fails NotFound | Denied | Failed {
 // Lstat is Stat of path itself: a symbolic link is not followed.
 func Lstat(h Host, path string) Info fails NotFound | Denied | Failed {
 	try hostLstat(try atLast(h, path))
+}
+
+// ReadEntry returns rich non-following metadata (Lstat semantics) for path.
+func ReadEntry(h Host, path string) Entry fails NotFound | Denied | Failed {
+	let raw = try hostLstatEntry(try atLast(h, path))
+	Entry{
+		Kind: match raw.Kind {
+		case 0:
+			FileEntry
+		case 1:
+			DirEntry
+		case 2:
+			SymlinkEntry
+		case _:
+			OtherEntry
+		},
+		Size:           raw.Size,
+		AllocatedBytes: raw.AllocatedBytes,
+		ModTime:        time.Unix(raw.ModSec, raw.ModNsec),
+		AccessTime:     time.Unix(raw.AccessSec, raw.AccessNsec),
+		Nlink:          raw.Nlink,
+		ID:             NewFileID(raw.Dev, raw.Ino),
+	}
 }
 
 // WriteFile makes the file at path hold text, by a new file in its
@@ -602,6 +714,7 @@ extern go ergo.local/prototype/runtime/v1.FSSameAs func hostSameAs(path string, 
 extern go ergo.local/prototype/runtime/v1.FSReadDir func hostReadDir(path string) []string fails NotFound | Denied | Failed
 extern go ergo.local/prototype/runtime/v1.FSStat func hostStat(path string) Info fails NotFound | Denied | Failed
 extern go ergo.local/prototype/runtime/v1.FSLstat func hostLstat(path string) Info fails NotFound | Denied | Failed
+extern go ergo.local/prototype/runtime/v1.FSLstatEntry func hostLstatEntry(path string) rawEntry fails NotFound | Denied | Failed
 extern go ergo.local/prototype/runtime/v1.FSMkdir func hostMkdir(path string, perm int) fails NotFound | Denied | Failed | Exists
 extern go ergo.local/prototype/runtime/v1.FSWriteFile func hostWriteFile(path string, text string) fails NotFound | Denied | Failed
 extern go ergo.local/prototype/runtime/v1.FSMkdirAll func hostMkdirAll(path string) fails Denied | Failed

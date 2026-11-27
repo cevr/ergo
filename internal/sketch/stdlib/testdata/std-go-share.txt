@@ -115,6 +115,7 @@ fs	hostIsLink	library	HOST-ROW: os.Lstat through import go charges go.Foreign, a
 fs	hostLink	host
 fs	hostLockFile	host
 fs	hostLstat	library	HOST-ROW: os.Lstat through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; the CAP stack's host leaf (917) waits with fs's and os's others
+fs	hostLstatEntry	host
 fs	hostMapBounded	provider
 fs	hostMapFile	provider
 fs	hostMkdir	library	HOST-ROW: os.Mkdir through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; the CAP stack's host leaf (917) waits with fs's and os's others
@@ -133,6 +134,7 @@ fs	hostSymlink	library	HOST-ROW: os.Symlink through import go charges go.Foreign
 fs	hostUnlockFile	host
 fs	hostWriteFile	library	HOST-ROW: os.WriteFile through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead; its errors need GBX3
 fs	hostWriteFileMode	library	HOST-ROW: os.WriteFile through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead; its errors need GBX3
+fs	rawEntry	type
 hex	Decode	library	LF2b (FK2): the string is copied for DecodeString and the result copied back (strings.FromBytes), 1.495x the body
 hex	Encode	library	LF2b (FK2): the string's bytes are copied for EncodeToString (strings.Bytes), 1.038x the body; a view of a string as []byte removes the copy
 hex	Malformed	type

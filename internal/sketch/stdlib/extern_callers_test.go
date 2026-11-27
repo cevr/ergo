@@ -263,7 +263,7 @@ func TestStdExternCallersHoldAuthority(t *testing.T) {
 	slices.Sort(hosts)
 	want := []string{
 		"exec.confine", "exec.confineSink", "exec.hostAlive", "exec.hostKill", "exec.hostReplace", "exec.hostRun", "exec.hostRunIn", "exec.hostSpawn", "exec.hostStart", "exec.hostStartIn",
-		"fs.OpenRoot", "fs.confine", "fs.confineLast", "fs.hostAppendFile", "fs.hostChmod", "fs.hostExchange", "fs.hostIsLink", "fs.hostLink", "fs.hostLockFile", "fs.hostLstat", "fs.hostMapBounded", "fs.hostMapFile", "fs.hostMkdir", "fs.hostMkdirAll", "fs.hostMkdirAllMode", "fs.hostReadDir", "fs.hostReadFile", "fs.hostReadlink", "fs.hostRemove", "fs.hostRename", "fs.hostResolve", "fs.hostSameAs", "fs.hostSameFile", "fs.hostStat", "fs.hostSymlink", "fs.hostUnlockFile", "fs.hostWriteFile", "fs.hostWriteFileMode",
+		"fs.OpenRoot", "fs.confine", "fs.confineLast", "fs.hostAppendFile", "fs.hostChmod", "fs.hostExchange", "fs.hostIsLink", "fs.hostLink", "fs.hostLockFile", "fs.hostLstat", "fs.hostLstatEntry", "fs.hostMapBounded", "fs.hostMapFile", "fs.hostMkdir", "fs.hostMkdirAll", "fs.hostMkdirAllMode", "fs.hostReadDir", "fs.hostReadFile", "fs.hostReadlink", "fs.hostRemove", "fs.hostRename", "fs.hostResolve", "fs.hostSameAs", "fs.hostSameFile", "fs.hostStat", "fs.hostSymlink", "fs.hostUnlockFile", "fs.hostWriteFile", "fs.hostWriteFileMode",
 		"host.hostEnv", "host.hostLocal", "host.hostZone",
 		"http.IntoFile", "http.Listen", "http.fetch", "http.fetchInto", "http.send", "http.sendInto", "http.serve",
 		"io.hostEprint", "io.hostIsTerminal", "io.hostLines", "io.hostPrint", "io.hostRead", "io.hostReadAll", "io.hostStderrIsTerminal", "io.hostStdinIsTerminal",

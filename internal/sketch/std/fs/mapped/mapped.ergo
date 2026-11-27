@@ -43,6 +43,7 @@ type Host {
 	readDir       func(path string) []string fails fs.NotFound | fs.Denied | fs.Failed,
 	stat          func(path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed,
 	lstat         func(path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed,
+	readEntry     func(path string) fs.Entry fails fs.NotFound | fs.Denied | fs.Failed,
 	writeFile     func(path string, text string) fails fs.NotFound | fs.Denied | fs.Failed,
 	mkdirAll      func(path string) fails fs.Denied | fs.Failed,
 	writeFileMode func(path string, text string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed,
@@ -54,7 +55,7 @@ type Host {
 	mkdir         func(path string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed | fs.Exists,
 	mapBounded    func(path string, limit int) fs.Mapped fails fs.NotFound | fs.Denied | fs.Failed | fs.NotRegular | fs.TooLarge,
 	sameAs        func(m fs.Mapped, path string) bool fails fs.NotFound | fs.Denied | fs.Failed,
-} implements Maps
+} implements Maps, fs.Entries
 
 // NewHost is the Maps of the host file system h.
 func NewHost(h fs.Host) Host {
@@ -63,6 +64,7 @@ func NewHost(h fs.Host) Host {
 		readDir:       func(path string) []string fails fs.NotFound | fs.Denied | fs.Failed { try fs.ReadDir(h, path) },
 		stat:          func(path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { try fs.Stat(h, path) },
 		lstat:         func(path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { try fs.Lstat(h, path) },
+		readEntry:     func(path string) fs.Entry fails fs.NotFound | fs.Denied | fs.Failed { try fs.ReadEntry(h, path) },
 		writeFile:     func(path string, text string) fails fs.NotFound | fs.Denied | fs.Failed { try fs.WriteFile(h, path, text) },
 		mkdirAll:      func(path string) fails fs.Denied | fs.Failed { try fs.MkdirAll(h, path) },
 		writeFileMode: func(path string, text string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed { try fs.WriteFileMode(h, path, text, mode) },
@@ -84,7 +86,7 @@ func NewTestHost() Host needs fstest.TestAmbient { NewHost(fs.NewTestHost()) }
 let OnTestHost = context needs fstest.TestAmbient { Maps: NewTestHost() }
 
 // onTestFiles also runs the laws of the contracts Maps includes on Host.
-let onTestFiles = context needs fstest.TestAmbient { fs.Files, fs.Writes: NewTestHost() }
+let onTestFiles = context needs fstest.TestAmbient { fs.Files, fs.Writes, fs.Entries: NewTestHost() }
 
 func ReadFile(h Host, path string) string fails fs.NotFound | fs.Denied | fs.Failed { try h.readFile(path) }
 
@@ -93,6 +95,8 @@ func ReadDir(h Host, path string) []string fails fs.NotFound | fs.Denied | fs.Fa
 func Stat(h Host, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { try h.stat(path) }
 
 func Lstat(h Host, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { try h.lstat(path) }
+
+func ReadEntry(h Host, path string) fs.Entry fails fs.NotFound | fs.Denied | fs.Failed { try h.readEntry(path) }
 
 func WriteFile(h Host, path string, text string) fails fs.NotFound | fs.Denied | fs.Failed { try h.writeFile(path, text) }
 

@@ -49,18 +49,21 @@ import option
 import slices
 import strings
 import sync
+import time
 
 // Memory is an fs.Files and fs.Writes provider over a tree in memory. Its
 // fields are unexported, so NewMemory and NewVolumes are its constructors.
 // mounts are the cleaned paths of the directories that are file systems of
 // their own (NewVolumes): a Rename between two is CrossDevice.
-type Memory { tree sync.Ref[Map[string, entry]], mounts []string } implements fs.Files, fs.Writes
+type Memory { state sync.Ref[memState], mounts []string } implements fs.Files, fs.Writes, fs.Entries
+
+type memState { tree Map[string, entry], nextIno uint64, tick int64 }
 
 // entry is one file or directory of a Memory: a file's text is Text and
 // then the texts appended since the file was last read or written (More,
 // the last first), and Perm is its permission bits, as fs.Perm gives them.
 // A directory has no text.
-type entry { Dir bool, Text string, More parts, Perm int }
+type entry { Dir bool, Text string, More parts, Perm int, Ino uint64, ModSec int64, AccessSec int64 }
 
 // parts is the texts appended to a file, the last first: Part's Before is
 // every text appended before its own.
@@ -77,14 +80,14 @@ type outcome = Changed{} | Missing{Path string} | Broken{Path string, Reason str
 // NewMemory is an empty Memory: its two roots and nothing in them.
 func NewMemory() Memory {
 	let mut t = Map[string, entry]{}
-	t["."] = entry{Dir: true, Text: "", More: NoParts, Perm: fs.Perm(fs.SharedDir())}
-	t["/"] = entry{Dir: true, Text: "", More: NoParts, Perm: fs.Perm(fs.SharedDir())}
-	Memory{tree: sync.NewRef[Map[string, entry]](t), mounts: []string{}}
+	t["."] = entry{Dir: true, Text: "", More: NoParts, Perm: fs.Perm(fs.SharedDir()), Ino: uint64(1), ModSec: int64(1), AccessSec: int64(1)}
+	t["/"] = entry{Dir: true, Text: "", More: NoParts, Perm: fs.Perm(fs.SharedDir()), Ino: uint64(2), ModSec: int64(1), AccessSec: int64(1)}
+	Memory{state: sync.NewRef[memState](memState{tree: t, nextIno: uint64(3), tick: int64(2)}), mounts: []string{}}
 }
 
 type BadFixture { Path string, Reason string }
 
-type Fixture { entries Map[string, entry] }
+type Fixture { entries Map[string, entry], nextIno uint64, tick int64 }
 
 func checkFixturePath(p string) fails BadFixture {
 	if p == "" {
@@ -108,8 +111,10 @@ func NewFixture(dirs []string, files Map[string, string]) Fixture fails BadFixtu
 	let dirPerm = fs.Perm(fs.SharedDir())
 	let filePerm = fs.Perm(fs.Shared())
 	let mut t = Map[string, entry]{}
-	t["."] = entry{Dir: true, Text: "", More: NoParts, Perm: dirPerm}
-	t["/"] = entry{Dir: true, Text: "", More: NoParts, Perm: dirPerm}
+	t["."] = entry{Dir: true, Text: "", More: NoParts, Perm: dirPerm, Ino: uint64(1), ModSec: int64(1), AccessSec: int64(1)}
+	t["/"] = entry{Dir: true, Text: "", More: NoParts, Perm: dirPerm, Ino: uint64(2), ModSec: int64(1), AccessSec: int64(1)}
+	let mut nextIno = uint64(3)
+	let mut tick = int64(2)
 	let mut seenDirs = Map[string, bool]{}
 	for d in dirs {
 		try checkFixturePath(d)
@@ -119,10 +124,14 @@ func NewFixture(dirs []string, files Map[string, string]) Fixture fails BadFixtu
 		seenDirs[d] = true
 		for a in ancestors(d) {
 			if t.Get(a) == option.None {
-				t[a] = entry{Dir: true, Text: "", More: NoParts, Perm: dirPerm}
+				t[a] = entry{Dir: true, Text: "", More: NoParts, Perm: dirPerm, Ino: nextIno, ModSec: tick, AccessSec: tick}
+				nextIno = nextIno + uint64(1)
+				tick = tick + int64(1)
 			}
 		}
-		t[d] = entry{Dir: true, Text: "", More: NoParts, Perm: dirPerm}
+		t[d] = entry{Dir: true, Text: "", More: NoParts, Perm: dirPerm, Ino: nextIno, ModSec: tick, AccessSec: tick}
+		nextIno = nextIno + uint64(1)
+		tick = tick + int64(1)
 	}
 	for p in slices.Sorted(maps.Keys(files)) {
 		try checkFixturePath(p)
@@ -136,16 +145,20 @@ func NewFixture(dirs []string, files Map[string, string]) Fixture fails BadFixtu
 					return BadFixture{Path: p, Reason: "ancestor is a file"}
 				}
 			case option.None:
-				t[a] = entry{Dir: true, Text: "", More: NoParts, Perm: dirPerm}
+				t[a] = entry{Dir: true, Text: "", More: NoParts, Perm: dirPerm, Ino: nextIno, ModSec: tick, AccessSec: tick}
+				nextIno = nextIno + uint64(1)
+				tick = tick + int64(1)
 			}
 		}
-		t[p] = entry{Dir: false, Text: maps.GetOr(files, p, ""), More: NoParts, Perm: filePerm}
+		t[p] = entry{Dir: false, Text: maps.GetOr(files, p, ""), More: NoParts, Perm: filePerm, Ino: nextIno, ModSec: tick, AccessSec: tick}
+		nextIno = nextIno + uint64(1)
+		tick = tick + int64(1)
 	}
-	Fixture{entries: t}
+	Fixture{entries: t, nextIno: nextIno, tick: tick}
 }
 
 func MemoryOf(f Fixture) Memory {
-	Memory{tree: sync.NewRef[Map[string, entry]](f.entries), mounts: []string{}}
+	Memory{state: sync.NewRef[memState](memState{tree: f.entries, nextIno: f.nextIno, tick: f.tick}), mounts: []string{}}
 }
 
 func fixtureRejected(dirs []string, files Map[string, string]) bool {
@@ -198,7 +211,7 @@ func NewVolumes(mounts []string) Memory {
 			kept = kept.Append(c)
 		}
 	}
-	Memory{tree: m.tree, mounts: kept}
+	Memory{state: m.state, mounts: kept}
 }
 
 // volumeOf is the mount the cleaned path c is on: the longest of mounts at
@@ -231,15 +244,15 @@ func ReadFile(m Memory, path string) string fails fs.NotFound | fs.Denied | fs.F
 // ReadDir is the names of the entries of the directory at path, sorted by
 // name.
 func ReadDir(m Memory, path string) []string fails fs.NotFound | fs.Denied | fs.Failed {
-	let names = sync.Modify(m.tree, func(t Map[string, entry]) (option.Option[[]string], Map[string, entry]) {
-		match find(t, path) {
+	let names = sync.Modify(m.state, func(s memState) (option.Option[[]string], memState) {
+		match find(s.tree, path) {
 		case Taken as p:
 			if p.At.Dir {
-				return (option.Some[[]string]{Value: children(t, filepath.Clean(path))}, t)
+				return (option.Some[[]string]{Value: children(s.tree, filepath.Clean(path))}, s)
 			}
-			(option.None, t)
+			(option.None, s)
 		case NoParent, UnderFile, Free:
-			(option.None, t)
+			(option.None, s)
 		}
 	})
 	match names {
@@ -275,40 +288,77 @@ func Lstat(m Memory, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Fai
 	try m.Stat(path)
 }
 
+// ReadEntry returns non-following entry metadata for path.
+func ReadEntry(m Memory, path string) fs.Entry fails fs.NotFound | fs.Denied | fs.Failed {
+	match read(m, path) {
+	case NoParent, Free:
+		return fs.NotFound{Path: path}
+	case UnderFile:
+		return fs.Failed{Path: path, Reason: "not a directory"}
+	case Taken as p:
+		let size = if p.At.Dir { 0 } else { p.At.Text.Len() }
+		let kind = if p.At.Dir { fs.DirEntry } else { fs.FileEntry }
+		let alloc = if p.At.Dir || size == 0 { 0 } else { (size + 511) / 512 * 512 }
+		let dev = volumeDev(m.mounts, filepath.Clean(path))
+		fs.Entry{
+			Kind:           kind,
+			Size:           size,
+			AllocatedBytes: alloc,
+			ModTime:        time.Unix(p.At.ModSec, int64(0)),
+			AccessTime:     time.Unix(p.At.AccessSec, int64(0)),
+			Nlink:          1,
+			ID:             fs.NewFileID(dev, p.At.Ino),
+		}
+	}
+}
+
+func volumeDev(mounts []string, c string) uint64 {
+	let v = volumeOf(mounts, c)
+	if v == "" {
+		return uint64(1)
+	}
+	for i, m in mounts {
+		if m == v {
+			return uint64(i + 2)
+		}
+	}
+	uint64(1)
+}
+
 // WriteFile makes the file at path hold text. A new file has mode
 // fs.Shared(); a file that was there keeps its mode.
 func WriteFile(m Memory, path string, text string) fails fs.NotFound | fs.Denied | fs.Failed {
-	try raise(sync.Modify(m.tree, func(t Map[string, entry]) (outcome, Map[string, entry]) { write(t, path, text, -1, false) }))
+	try raise(sync.Modify(m.state, func(s memState) (outcome, memState) { write(s, path, text, -1, false) }))
 }
 
 // WriteFileMode is WriteFile, but the file at path gets exactly mode.
 func WriteFileMode(m Memory, path string, text string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed {
 	let perm = fs.Perm(mode)
-	try raise(sync.Modify(m.tree, func(t Map[string, entry]) (outcome, Map[string, entry]) { write(t, path, text, perm, false) }))
+	try raise(sync.Modify(m.state, func(s memState) (outcome, memState) { write(s, path, text, perm, false) }))
 }
 
 // AppendFile adds text at the end of the file at path, and makes the file,
 // with mode fs.Shared(), when there is none.
 func AppendFile(m Memory, path string, text string) fails fs.NotFound | fs.Denied | fs.Failed {
-	try raise(sync.Modify(m.tree, func(t Map[string, entry]) (outcome, Map[string, entry]) { write(t, path, text, -1, true) }))
+	try raise(sync.Modify(m.state, func(s memState) (outcome, memState) { write(s, path, text, -1, true) }))
 }
 
 // Mkdir makes the one directory path with exactly mode when nothing is
 // there, and fails fs.Exists when something is.
 func Mkdir(m Memory, path string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed | fs.Exists {
 	let perm = fs.Perm(mode)
-	let made = sync.Modify(m.tree, func(t Map[string, entry]) (outcome, Map[string, entry]) {
-		let mut u = t
-		match find(t, path) {
+	let made = sync.Modify(m.state, func(s memState) (outcome, memState) {
+		let mut u = s.tree
+		match find(s.tree, path) {
 		case NoParent:
-			(Missing{Path: path}, u)
+			(Missing{Path: path}, s)
 		case UnderFile:
-			(Broken{Path: path, Reason: "not a directory"}, u)
+			(Broken{Path: path, Reason: "not a directory"}, s)
 		case Taken:
-			(Broken{Path: path, Reason: "file exists"}, u)
+			(Broken{Path: path, Reason: "file exists"}, s)
 		case Free:
-			u[filepath.Clean(path)] = entry{Dir: true, Text: "", More: NoParts, Perm: perm}
-			(Changed, u)
+			u[filepath.Clean(path)] = entry{Dir: true, Text: "", More: NoParts, Perm: perm, Ino: s.nextIno, ModSec: s.tick, AccessSec: s.tick}
+			(Changed, memState{tree: u, nextIno: s.nextIno + uint64(1), tick: s.tick + int64(1)})
 		}
 	})
 	match made {
@@ -325,54 +375,54 @@ func Mkdir(m Memory, path string, mode fs.Mode) fails fs.NotFound | fs.Denied | 
 // fs.SharedDir(). A directory that is there already is no failure.
 func MkdirAll(m Memory, path string) fails fs.Denied | fs.Failed {
 	let perm = fs.Perm(fs.SharedDir())
-	try raiseFailed(sync.Modify(m.tree, func(t Map[string, entry]) (outcome, Map[string, entry]) { mkdirAll(t, path, perm) }))
+	try raiseFailed(sync.Modify(m.state, func(s memState) (outcome, memState) { mkdirAll(s, path, perm) }))
 }
 
 // MkdirAllMode is MkdirAll, but each directory it makes gets exactly mode.
 // A directory that is there keeps its mode.
 func MkdirAllMode(m Memory, path string, mode fs.Mode) fails fs.Denied | fs.Failed {
 	let perm = fs.Perm(mode)
-	try raiseFailed(sync.Modify(m.tree, func(t Map[string, entry]) (outcome, Map[string, entry]) { mkdirAll(t, path, perm) }))
+	try raiseFailed(sync.Modify(m.state, func(s memState) (outcome, memState) { mkdirAll(s, path, perm) }))
 }
 
 // Chmod gives the file or directory at path exactly mode.
 func Chmod(m Memory, path string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed {
 	let perm = fs.Perm(mode)
-	try raise(sync.Modify(m.tree, func(t Map[string, entry]) (outcome, Map[string, entry]) {
-		let at = find(t, path)
-		let mut u = t
+	try raise(sync.Modify(m.state, func(s memState) (outcome, memState) {
+		let at = find(s.tree, path)
+		let mut u = s.tree
 		match at {
 		case NoParent, Free:
-			(Missing{Path: path}, u)
+			(Missing{Path: path}, s)
 		case UnderFile:
-			(Broken{Path: path, Reason: "not a directory"}, u)
+			(Broken{Path: path, Reason: "not a directory"}, s)
 		case Taken as p:
-			u[filepath.Clean(path)] = entry{Dir: p.At.Dir, Text: p.At.Text, More: p.At.More, Perm: perm}
-			(Changed, u)
+			u[filepath.Clean(path)] = entry{Dir: p.At.Dir, Text: p.At.Text, More: p.At.More, Perm: perm, Ino: p.At.Ino, ModSec: p.At.ModSec, AccessSec: p.At.AccessSec}
+			(Changed, memState{tree: u, nextIno: s.nextIno, tick: s.tick})
 		}
 	}))
 }
 
 // Remove removes the file, or the empty directory, at path.
 func Remove(m Memory, path string) fails fs.NotFound | fs.Denied | fs.Failed {
-	try raise(sync.Modify(m.tree, func(t Map[string, entry]) (outcome, Map[string, entry]) {
+	try raise(sync.Modify(m.state, func(s memState) (outcome, memState) {
 		let c = filepath.Clean(path)
-		let at = find(t, path)
-		let mut u = t
+		let at = find(s.tree, path)
+		let mut u = s.tree
 		match at {
 		case NoParent, Free:
-			(Missing{Path: path}, u)
+			(Missing{Path: path}, s)
 		case UnderFile:
-			(Broken{Path: path, Reason: "not a directory"}, u)
+			(Broken{Path: path, Reason: "not a directory"}, s)
 		case Taken as p:
 			if isRoot(c) {
-				return (Broken{Path: path, Reason: "invalid argument"}, u)
+				return (Broken{Path: path, Reason: "invalid argument"}, s)
 			}
 			if p.At.Dir && children(u, c).Len() > 0 {
-				return (Broken{Path: path, Reason: "directory not empty"}, u)
+				return (Broken{Path: path, Reason: "directory not empty"}, s)
 			}
 			u = u.Delete(c)
-			(Changed, u)
+			(Changed, memState{tree: u, nextIno: s.nextIno, tick: s.tick})
 		}
 	}))
 }
@@ -387,16 +437,16 @@ func Remove(m Memory, path string) fails fs.NotFound | fs.Denied | fs.Failed {
 // nothing.
 func Rename(m Memory, from string, to string) fails fs.NotFound | fs.Denied | fs.Failed | fs.CrossDevice {
 	let apart = volumeOf(m.mounts, filepath.Clean(from)) != volumeOf(m.mounts, filepath.Clean(to))
-	try raise(sync.Modify(m.tree, func(t Map[string, entry]) (outcome, Map[string, entry]) {
-		let o = renaming(t, from, to)
+	try raise(sync.Modify(m.state, func(s memState) (outcome, memState) {
+		let o = renaming(s.tree, from, to)
 		match o {
 		case Missing, Broken:
-			(o, t)
+			(o, s)
 		case Changed:
 			if apart {
-				(o, t)
+				(o, s)
 			} else {
-				(o, move(t, filepath.Clean(from), filepath.Clean(to)))
+				(o, memState{tree: move(s.tree, filepath.Clean(from), filepath.Clean(to)), nextIno: s.nextIno, tick: s.tick})
 			}
 		}
 	}))
@@ -495,21 +545,21 @@ law ModeIsKept(path string, text string, more string) {
 // read is look, but a file's appended parts are joined into its Text
 // first, and the join is kept: the next read of the file copies nothing.
 func read(m Memory, path string) place {
-	sync.Modify(m.tree, func(t Map[string, entry]) (place, Map[string, entry]) {
-		let at = find(t, path)
-		let mut u = t
+	sync.Modify(m.state, func(s memState) (place, memState) {
+		let at = find(s.tree, path)
+		let mut u = s.tree
 		match at {
 		case Taken as p:
 			match p.At.More {
 			case NoParts:
-				return (at, u)
+				return (at, s)
 			case Part:
 			}
-			let whole = entry{Dir: false, Text: joined(p.At.Text, p.At.More), More: NoParts, Perm: p.At.Perm}
+			let whole = entry{Dir: false, Text: joined(p.At.Text, p.At.More), More: NoParts, Perm: p.At.Perm, Ino: p.At.Ino, ModSec: p.At.ModSec, AccessSec: p.At.AccessSec}
 			u[filepath.Clean(path)] = whole
-			(Taken{At: whole}, u)
+			(Taken{At: whole}, memState{tree: u, nextIno: s.nextIno, tick: s.tick})
 		case NoParent, UnderFile, Free:
-			(at, u)
+			(at, s)
 		}
 	})
 }
@@ -535,7 +585,7 @@ func joined(text string, more parts) string {
 
 // look is the place of path in m's tree.
 func look(m Memory, path string) place {
-	sync.Modify(m.tree, func(t Map[string, entry]) (place, Map[string, entry]) { (find(t, path), t) })
+	sync.Modify(m.state, func(s memState) (place, memState) { (find(s.tree, path), s) })
 }
 
 // raise fails with the failure o names, if any.
@@ -614,58 +664,62 @@ func children(t Map[string, entry], c string) []string {
 // write gives the file at path text, or adds text at its end when add is
 // true. perm is the mode the file gets, or -1 to keep the mode of the file
 // that is there (fs.Shared() for a new file).
-func write(t Map[string, entry], path string, text string, perm int, add bool) (outcome, Map[string, entry]) {
+func write(s memState, path string, text string, perm int, add bool) (outcome, memState) {
 	let c = filepath.Clean(path)
-	let at = find(t, path)
-	let mut u = t
+	let at = find(s.tree, path)
+	let mut u = s.tree
 	match at {
 	case NoParent:
-		(Missing{Path: path}, u)
+		(Missing{Path: path}, s)
 	case UnderFile:
-		(Broken{Path: path, Reason: "not a directory"}, u)
+		(Broken{Path: path, Reason: "not a directory"}, s)
 	case Free:
-		u[c] = entry{Dir: false, Text: text, More: NoParts, Perm: if perm < 0 { fs.Perm(fs.Shared()) } else { perm }}
-		(Changed, u)
+		u[c] = entry{Dir: false, Text: text, More: NoParts, Perm: if perm < 0 { fs.Perm(fs.Shared()) } else { perm }, Ino: s.nextIno, ModSec: s.tick, AccessSec: s.tick}
+		(Changed, memState{tree: u, nextIno: s.nextIno + uint64(1), tick: s.tick + int64(1)})
 	case Taken as p:
 		if p.At.Dir {
-			return (Broken{Path: path, Reason: "is a directory"}, u)
+			return (Broken{Path: path, Reason: "is a directory"}, s)
 		}
 		let mode = if perm < 0 { p.At.Perm } else { perm }
 		if add {
-			u[c] = entry{Dir: false, Text: p.At.Text, More: Part{Text: text, Before: p.At.More}, Perm: mode}
-		} else {
-			u[c] = entry{Dir: false, Text: text, More: NoParts, Perm: mode}
+			u[c] = entry{Dir: false, Text: p.At.Text, More: Part{Text: text, Before: p.At.More}, Perm: mode, Ino: p.At.Ino, ModSec: s.tick, AccessSec: p.At.AccessSec}
+			return (Changed, memState{tree: u, nextIno: s.nextIno, tick: s.tick + int64(1)})
 		}
-		(Changed, u)
+		u[c] = entry{Dir: false, Text: text, More: NoParts, Perm: mode, Ino: s.nextIno, ModSec: s.tick, AccessSec: s.tick}
+		(Changed, memState{tree: u, nextIno: s.nextIno + uint64(1), tick: s.tick + int64(1)})
 	}
 }
 
 // mkdirAll makes the directory path and each missing parent with perm.
-func mkdirAll(t Map[string, entry], path string, perm int) (outcome, Map[string, entry]) {
-	let at = find(t, path)
-	let mut u = t
+func mkdirAll(s memState, path string, perm int) (outcome, memState) {
+	let at = find(s.tree, path)
+	let mut u = s.tree
 	if path == "" {
-		return (Missing{Path: path}, u)
+		return (Missing{Path: path}, s)
 	}
 	let c = filepath.Clean(path)
 	match at {
 	case UnderFile:
-		(Broken{Path: path, Reason: "not a directory"}, u)
+		(Broken{Path: path, Reason: "not a directory"}, s)
 	case Taken as p:
 		if p.At.Dir {
-			return (Changed, u)
+			return (Changed, s)
 		}
-		(Broken{Path: path, Reason: "not a directory"}, u)
+		(Broken{Path: path, Reason: "not a directory"}, s)
 	case NoParent, Free:
+		let mut nextIno = s.nextIno
+		let mut tick = s.tick
 		for a in ancestors(c) {
 			match u.Get(a) {
 			case option.Some[entry]:
 			case option.None:
-				u[a] = entry{Dir: true, Text: "", More: NoParts, Perm: perm}
+				u[a] = entry{Dir: true, Text: "", More: NoParts, Perm: perm, Ino: nextIno, ModSec: tick, AccessSec: tick}
+				nextIno = nextIno + uint64(1)
+				tick = tick + int64(1)
 			}
 		}
-		u[c] = entry{Dir: true, Text: "", More: NoParts, Perm: perm}
-		(Changed, u)
+		u[c] = entry{Dir: true, Text: "", More: NoParts, Perm: perm, Ino: nextIno, ModSec: tick, AccessSec: tick}
+		(Changed, memState{tree: u, nextIno: nextIno + uint64(1), tick: tick + int64(1)})
 	}
 }
 

@@ -398,6 +398,7 @@ flag ShortNameWhere	none
 flag ShortNamesMatchASCII	none
 flag UnknownCommandNamesItsGroup	TestFlagTreeLaws
 flag UnknownNamesTheFlag	TestFlagLaws
+fs Entries.EntryAgreesWithLstat	TestStdFSEntryLawsRun
 fs Files.LstatDirIsStatDir	TestFSMemoryAgreesWithHost
 fs Files.ReadIsRepeatable	TestFSMemoryAgreesWithHost
 fs MapTextIsText	none
