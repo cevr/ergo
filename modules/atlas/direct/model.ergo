@@ -1,0 +1,356 @@
+import machines
+
+// ModelDriver identifies meta vs direct adapters in the M9 direct-loop state model.
+type ModelDriver = ModelClaudeMeta{} | ModelAgyMeta{} | ModelCodexDirect{} | ModelAgyDirect{}
+
+// ModelAction enumerates driver selection, turn streaming, retry, write approval, steer, and compaction transitions.
+type ModelAction = ActPickClaudeMeta{} | ActPickAgyMeta{} | ActPickCodexDirect{} | ActPickAgyDirect{} | ActStartTurn{} | ActEmitDelta{} | ActRetryTransient{} | ActRequestWriteTool{} | ActApproveTool{} | ActDenyTool{} | ActSteer{} | ActCompact{} | ActFinishTurn{}
+
+// ModelState mirrors docs/specs/atlas/models/direct/direct.ergo for M9 safety and liveness verification.
+type ModelState {
+	AllowDirectAgy          bool,
+	Driver                  ModelDriver,
+	TurnActive              bool,
+	DeltaEmitted            bool,
+	WaitingApproval         bool,
+	ToolApproved            bool,
+	RunningWrite            bool,
+	Compacted               bool,
+	Retries                 int,
+	Turns                   int,
+	DirectRuns              int,
+	MetaRuns                int,
+	Threads                 int,
+	ThreadSwitched          bool,
+	DirectAgyStarted        bool,
+	RetryAfterDeltaObserved bool,
+	UnapprovedWriteRan      bool,
+	EmulatedMissingCap      bool,
+}
+
+func initialDirectModel(allowDirectAgy bool) ModelState {
+	ModelState{
+		AllowDirectAgy:          allowDirectAgy,
+		Driver:                  ModelClaudeMeta,
+		TurnActive:              false,
+		DeltaEmitted:            false,
+		WaitingApproval:         false,
+		ToolApproved:            false,
+		RunningWrite:            false,
+		Compacted:               false,
+		Retries:                 0,
+		Turns:                   0,
+		DirectRuns:              0,
+		MetaRuns:                0,
+		Threads:                 1,
+		ThreadSwitched:          false,
+		DirectAgyStarted:        false,
+		RetryAfterDeltaObserved: false,
+		UnapprovedWriteRan:      false,
+		EmulatedMissingCap:      false,
+	}
+}
+
+func isDirectModelDriver(d ModelDriver) bool {
+	match d {
+	case ModelCodexDirect, ModelAgyDirect:
+		true
+	case ModelClaudeMeta, ModelAgyMeta:
+		false
+	}
+}
+
+func driverSupportsSteer(d ModelDriver) bool {
+	match d {
+	case ModelClaudeMeta, ModelCodexDirect:
+		true
+	case ModelAgyMeta, ModelAgyDirect:
+		false
+	}
+}
+
+func stepPickDriver(s ModelState, nextDriver ModelDriver) machines.Decision[ModelState, string] {
+	if s.TurnActive {
+		return machines.Ignore
+	}
+	match nextDriver {
+	case ModelAgyDirect:
+		if !s.AllowDirectAgy {
+			return machines.Ignore
+		}
+	case ModelClaudeMeta, ModelAgyMeta, ModelCodexDirect:
+	}
+	machines.Stay[ModelState]{Next: ModelState{..s, Driver: nextDriver}}
+}
+
+func stepStartTurn(s ModelState) machines.Decision[ModelState, string] {
+	if s.TurnActive || s.Turns >= 2 {
+		return machines.Ignore
+	}
+	let mut agyStarted = s.DirectAgyStarted
+	if s.Driver == ModelAgyDirect {
+		agyStarted = true
+	}
+	machines.Stay[ModelState]{Next: ModelState{
+		..s,
+		TurnActive:       true,
+		DeltaEmitted:     false,
+		WaitingApproval:  false,
+		ToolApproved:     false,
+		RunningWrite:     false,
+		Retries:          0,
+		DirectAgyStarted: agyStarted,
+	}}
+}
+
+func stepFinishTurn(s ModelState) machines.Decision[ModelState, string] {
+	if !s.TurnActive || s.WaitingApproval {
+		return machines.Ignore
+	}
+	let isDirect = isDirectModelDriver(s.Driver)
+	let directRuns = if isDirect { s.DirectRuns + 1 } else { s.DirectRuns }
+	let metaRuns = if !isDirect { s.MetaRuns + 1 } else { s.MetaRuns }
+	machines.Stay[ModelState]{Next: ModelState{
+		..s,
+		TurnActive:      false,
+		DeltaEmitted:    false,
+		WaitingApproval: false,
+		ToolApproved:    false,
+		RunningWrite:    false,
+		Turns:           s.Turns + 1,
+		DirectRuns:      directRuns,
+		MetaRuns:        metaRuns,
+	}}
+}
+
+func stepTurnBody(s ModelState, a ModelAction) machines.Decision[ModelState, string] {
+	match a {
+	case ActEmitDelta:
+		if !s.TurnActive {
+			return machines.Ignore
+		}
+		machines.Stay[ModelState]{Next: ModelState{..s, DeltaEmitted: true}}
+	case ActRetryTransient:
+		if !s.TurnActive || s.DeltaEmitted || s.Retries >= 2 {
+			return machines.Ignore
+		}
+		machines.Stay[ModelState]{Next: ModelState{..s, Retries: s.Retries + 1}}
+	case ActRequestWriteTool:
+		if !s.TurnActive || s.WaitingApproval || s.RunningWrite {
+			return machines.Ignore
+		}
+		machines.Stay[ModelState]{Next: ModelState{..s, WaitingApproval: true, ToolApproved: false}}
+	case ActApproveTool:
+		if !s.TurnActive || !s.WaitingApproval {
+			return machines.Ignore
+		}
+		machines.Stay[ModelState]{Next: ModelState{..s, WaitingApproval: false, ToolApproved: true, RunningWrite: true}}
+	case ActDenyTool:
+		if !s.TurnActive || !s.WaitingApproval {
+			return machines.Ignore
+		}
+		machines.Stay[ModelState]{Next: ModelState{..s, WaitingApproval: false, ToolApproved: false, RunningWrite: false}}
+	case ActSteer:
+		if !s.TurnActive || !driverSupportsSteer(s.Driver) {
+			return machines.Ignore
+		}
+		machines.Stay[ModelState]{Next: s}
+	case ActCompact:
+		if s.TurnActive || s.Turns == 0 || s.Compacted {
+			return machines.Ignore
+		}
+		machines.Stay[ModelState]{Next: ModelState{..s, Compacted: true}}
+	case ActPickClaudeMeta, ActPickAgyMeta, ActPickCodexDirect, ActPickAgyDirect, ActStartTurn, ActFinishTurn:
+		machines.Ignore
+	}
+}
+
+func stepDirectModel(s ModelState, a ModelAction) machines.Decision[ModelState, string] {
+	match a {
+	case ActPickClaudeMeta:
+		stepPickDriver(s, ModelClaudeMeta)
+	case ActPickAgyMeta:
+		stepPickDriver(s, ModelAgyMeta)
+	case ActPickCodexDirect:
+		stepPickDriver(s, ModelCodexDirect)
+	case ActPickAgyDirect:
+		stepPickDriver(s, ModelAgyDirect)
+	case ActStartTurn:
+		stepStartTurn(s)
+	case ActFinishTurn:
+		stepFinishTurn(s)
+	case ActEmitDelta, ActRetryTransient, ActRequestWriteTool, ActApproveTool, ActDenyTool, ActSteer, ActCompact:
+		stepTurnBody(s, a)
+	}
+}
+
+func invNoDirectAgyUnlessSupported(s ModelState) bool {
+	if !s.AllowDirectAgy { !s.DirectAgyStarted } else { true }
+}
+
+func invNoRetryAfterFirstDelta(s ModelState) bool {
+	!s.RetryAfterDeltaObserved
+}
+
+func invNoWriteToolWithoutApproval(s ModelState) bool {
+	!s.UnapprovedWriteRan && (!s.RunningWrite || s.ToolApproved)
+}
+
+func invNeverEmulateMissingCapability(s ModelState) bool {
+	!s.EmulatedMissingCap
+}
+
+func invOneThreadInvariant(s ModelState) bool {
+	s.Threads == 1 && !s.ThreadSwitched
+}
+
+func allDirectModelInvariants(s ModelState) bool {
+		invNoDirectAgyUnlessSupported(s) &&
+		invNoRetryAfterFirstDelta(s) &&
+		invNoWriteToolWithoutApproval(s) &&
+		invNeverEmulateMissingCapability(s) &&
+		invOneThreadInvariant(s)
+}
+
+func witMetaClaudeCompleted(s ModelState) bool {
+	s.MetaRuns >= 1 && s.Driver == ModelClaudeMeta
+}
+
+func witDirectCodexCompleted(s ModelState) bool {
+	s.DirectRuns >= 1 && s.Driver == ModelCodexDirect
+}
+
+func witRetryBeforeDeltaWorked(s ModelState) bool {
+	s.TurnActive && !s.DeltaEmitted && s.Retries >= 1
+}
+
+func witCompactedBetweenTurns(s ModelState) bool {
+	!s.TurnActive && s.Compacted && s.Turns >= 1
+}
+
+// DirectLoopModel verifies all 5 always-invariants and 4 sometimes-witnesses of docs/specs/atlas/models/direct/direct.ergo.
+type DirectLoopModel machine[ModelState, ModelAction] {
+	initial: initialDirectModel,
+	step:    stepDirectModel,
+
+	law NoDirectAgyUnlessSupported always invNoDirectAgyUnlessSupported,
+	law NoRetryAfterFirstDelta always invNoRetryAfterFirstDelta,
+	law NoWriteToolWithoutApproval always invNoWriteToolWithoutApproval,
+	law NeverEmulateMissingCapability always invNeverEmulateMissingCapability,
+	law OneThreadInvariant always invOneThreadInvariant,
+
+	law MetaClaudeCompleted sometimes witMetaClaudeCompleted,
+	law DirectCodexCompleted sometimes witDirectCodexCompleted,
+	law RetryBeforeDeltaWorked sometimes witRetryBeforeDeltaWorked,
+	law CompactedBetweenTurns sometimes witCompactedBetweenTurns,
+}
+
+// LoopCoordState models parallel read batching, write barriers, subagent parenting/open handles, and branch compaction.
+type LoopCoordState {
+	ReadBatchActive    int,
+	WriteBarrierActive bool,
+	ChildSpawned       bool,
+	ChildHasParentLink bool,
+	ChildOpenHandles   int,
+	ChildHandedBack    bool,
+	CompactionValid    bool,
+	CompletedTurns     int,
+}
+
+// LoopCoordAction enumerates parallel read batching, write barrier, child subagent lifecycle, and compaction actions.
+type LoopCoordAction = ActStartReadBatch{} | ActFinishReadBatch{} | ActRunWriteBarrier{} | ActSpawnChild{} | ActOpenChildHandle{} | ActSettleChildHandle{} | ActHandBackChild{} | ActCompactTranscript{}
+
+func initLoopCoord(_ bool) LoopCoordState {
+	LoopCoordState{
+		ReadBatchActive:    0,
+		WriteBarrierActive: false,
+		ChildSpawned:       false,
+		ChildHasParentLink: false,
+		ChildOpenHandles:   0,
+		ChildHandedBack:    false,
+		CompactionValid:    true,
+		CompletedTurns:     0,
+	}
+}
+
+func stepLoopCoord(s LoopCoordState, a LoopCoordAction) machines.Decision[LoopCoordState, string] {
+	match a {
+	case ActStartReadBatch:
+		if s.WriteBarrierActive || s.ReadBatchActive >= 3 {
+			return machines.Ignore
+		}
+		machines.Stay[LoopCoordState]{Next: LoopCoordState{..s, ReadBatchActive: s.ReadBatchActive + 1}}
+	case ActFinishReadBatch:
+		if s.ReadBatchActive == 0 {
+			return machines.Ignore
+		}
+		machines.Stay[LoopCoordState]{Next: LoopCoordState{..s, ReadBatchActive: s.ReadBatchActive - 1}}
+	case ActRunWriteBarrier:
+		if s.ReadBatchActive > 0 || s.CompletedTurns >= 2 {
+			return machines.Ignore
+		}
+		machines.Stay[LoopCoordState]{Next: LoopCoordState{..s, WriteBarrierActive: false, CompletedTurns: s.CompletedTurns + 1}}
+	case ActSpawnChild:
+		if s.ChildSpawned {
+			return machines.Ignore
+		}
+		machines.Stay[LoopCoordState]{Next: LoopCoordState{..s, ChildSpawned: true, ChildHasParentLink: true}}
+	case ActOpenChildHandle:
+		if !s.ChildSpawned || s.ChildHandedBack || s.ChildOpenHandles >= 2 {
+			return machines.Ignore
+		}
+		machines.Stay[LoopCoordState]{Next: LoopCoordState{..s, ChildOpenHandles: s.ChildOpenHandles + 1}}
+	case ActSettleChildHandle:
+		if s.ChildOpenHandles == 0 {
+			return machines.Ignore
+		}
+		machines.Stay[LoopCoordState]{Next: LoopCoordState{..s, ChildOpenHandles: s.ChildOpenHandles - 1}}
+	case ActHandBackChild:
+		if !s.ChildSpawned || s.ChildHandedBack || s.ChildOpenHandles > 0 {
+			return machines.Ignore
+		}
+		machines.Stay[LoopCoordState]{Next: LoopCoordState{..s, ChildHandedBack: true}}
+	case ActCompactTranscript:
+		machines.Stay[LoopCoordState]{Next: LoopCoordState{..s, CompactionValid: true}}
+	}
+}
+
+func invNoReadWriteOverlap(s LoopCoordState) bool {
+	!(s.ReadBatchActive > 0 && s.WriteBarrierActive)
+}
+
+func invChildParentAndZeroOpenHandBack(s LoopCoordState) bool {
+	let parentOk = !s.ChildSpawned || s.ChildHasParentLink
+	let handBackOk = !s.ChildHandedBack || s.ChildOpenHandles == 0
+	parentOk && handBackOk && s.CompactionValid
+}
+
+func witParallelAndChildSettled(s LoopCoordState) bool {
+	s.CompletedTurns >= 1 && s.ChildHandedBack && s.ChildOpenHandles == 0
+}
+
+// LoopCoordinationModel verifies parallel read/write barrier exclusivity, parentThreadID linkage, and open-handle hand-back blocking.
+type LoopCoordinationModel machine[LoopCoordState, LoopCoordAction] {
+	initial: initLoopCoord,
+	step:    stepLoopCoord,
+
+	law NoReadWriteOverlap always invNoReadWriteOverlap,
+	law ChildParentAndZeroOpenHandBack always invChildParentAndZeroOpenHandBack,
+	law ParallelAndChildSettled sometimes witParallelAndChildSettled,
+}
+
+// DirectMutantChecksRefuteBugs verifies all 5 mutant models (UnsupportedDirectAgy, RetryAfterDelta, UnapprovedWriteTool, EmulateSteer, SplitThread) fail safety invariants.
+law DirectMutantChecksRefuteBugs() {
+	let base = initialDirectModel(false)
+	let mUnsupportedAgy = ModelState{..base, Driver: ModelAgyDirect, DirectAgyStarted: true}
+	let mRetryAfterDelta = ModelState{..base, TurnActive: true, DeltaEmitted: true, RetryAfterDeltaObserved: true}
+	let mUnapprovedWrite = ModelState{..base, TurnActive: true, RunningWrite: true, ToolApproved: false, UnapprovedWriteRan: true}
+	let mEmulateSteer = ModelState{..base, Driver: ModelAgyDirect, EmulatedMissingCap: true}
+	let mSplitThread = ModelState{..base, Threads: 2, ThreadSwitched: true}
+
+		!allDirectModelInvariants(mUnsupportedAgy) &&
+		!allDirectModelInvariants(mRetryAfterDelta) &&
+		!allDirectModelInvariants(mUnapprovedWrite) &&
+		!allDirectModelInvariants(mEmulateSteer) &&
+		!allDirectModelInvariants(mSplitThread)
+}

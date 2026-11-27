@@ -1319,6 +1319,409 @@
       "killers": [
         "modules/atlas/queue:law:QueueFifoSteerAndCancelLaw"
       ]
+    },
+    {
+      "name": "atlas-direct-loop-guard-allows-rm-repo-root",
+      "origin": "ATLAS-DIRECT-LOOP",
+      "file": "modules/atlas/guard/rules_workspace.ergo",
+      "decl": "checkExpandedRmTarget",
+      "from": "\t\t\tif target == cr || (recursive && PosixWithin(cr, target)) {",
+      "to": "\t\t\tif false && (target == cr || (recursive && PosixWithin(cr, target))) {",
+      "rule": "Destructive rm guard must refuse deleting repository roots or containing ancestors.",
+      "killers": [
+        "modules/atlas/guard:law:WorkspaceGuardLaw"
+      ]
+    },
+    {
+      "name": "atlas-direct-loop-guard-unreadable-repos-fails-open",
+      "origin": "ATLAS-DIRECT-LOOP",
+      "file": "modules/atlas/guard/rules_workspace.ergo",
+      "decl": "checkExpandedRmTarget",
+      "from": "\tcase ReposUnreadable:\n\t\tif recursive {",
+      "to": "\tcase ReposUnreadable:\n\t\tif false && recursive {",
+      "rule": "Destructive rm guard must fail closed when repository roots are unreadable.",
+      "killers": [
+        "modules/atlas/guard:law:FailClosedWhenStateUnreadableLaw"
+      ]
+    },
+    {
+      "name": "atlas-direct-loop-guard-allows-git-reset-hard",
+      "origin": "ATLAS-DIRECT-LOOP",
+      "file": "modules/atlas/guard/rules_workspace.ergo",
+      "decl": "CheckGitCommand",
+      "from": "\t\t\tif w.Text == \"--hard\" {",
+      "to": "\t\t\tif false && w.Text == \"--hard\" {",
+      "rule": "Git guard must refuse git reset --hard.",
+      "killers": [
+        "modules/atlas/guard:law:WorkspaceGuardLaw"
+      ]
+    },
+    {
+      "name": "atlas-direct-loop-guard-allows-git-worktree-add",
+      "origin": "ATLAS-DIRECT-LOOP",
+      "file": "modules/atlas/guard/rules_workspace.ergo",
+      "decl": "checkoutRequiresCowWork",
+      "from": "\t\tif applies {\n\t\t\treturn option.Some[GuardError]{Value: FullCopy{Rule: RuleWorktreeAdd, Reason: \"repository uses CoW workspaces; use `work new <name>` instead of `git worktree add`\"}}",
+      "to": "\t\tif false && applies {\n\t\t\treturn option.Some[GuardError]{Value: FullCopy{Rule: RuleWorktreeAdd, Reason: \"repository uses CoW workspaces; use `work new <name>` instead of `git worktree add`\"}}",
+      "rule": "Workspace guard must refuse git worktree add with FullCopy where CoW workspaces apply.",
+      "killers": [
+        "modules/atlas/guard:law:WorkspaceGuardLaw"
+      ]
+    },
+    {
+      "name": "atlas-direct-loop-guard-allows-bare-work-gc",
+      "origin": "ATLAS-DIRECT-LOOP",
+      "file": "modules/atlas/guard/rules_workspace.ergo",
+      "decl": "checkWorkGc",
+      "from": "\t\tif ctx.RefuseBareWorkGc {",
+      "to": "\t\tif false && ctx.RefuseBareWorkGc {",
+      "rule": "Work guard must refuse bare work gc while permitting work rm <lane>.",
+      "killers": [
+        "modules/atlas/guard:law:WorkspaceGuardLaw"
+      ]
+    },
+    {
+      "name": "atlas-direct-loop-guard-allows-server-kill",
+      "origin": "ATLAS-DIRECT-LOOP",
+      "file": "modules/atlas/guard/rules_process.ergo",
+      "decl": "checkKillSingleTarget",
+      "from": "\tif prot {\n\t\treturn option.Some[GuardError]{Value: Destructive{Rule: RuleServerKill, Reason: \"refusing to kill protected \" + desc}}\n\t}",
+      "to": "\tif false && prot {\n\t\treturn option.Some[GuardError]{Value: Destructive{Rule: RuleServerKill, Reason: \"refusing to kill protected \" + desc}}\n\t}",
+      "rule": "Server-PID kill guard must refuse signals targeting protected server/daemon PIDs.",
+      "killers": [
+        "modules/atlas/guard:law:ProcessAndSleepGuardLaw"
+      ]
+    },
+    {
+      "name": "atlas-direct-loop-guard-allows-subagent-long-sleep",
+      "origin": "ATLAS-DIRECT-LOOP",
+      "file": "modules/atlas/guard/rules_process.ergo",
+      "decl": "CheckSleepCommand",
+      "from": "\tif totalMs >= SubagentSleepLimitMs() {",
+      "to": "\tif totalMs >= SubagentSleepLimitMs()*1000 {",
+      "rule": "Subagent foreground sleep >= 30s must be refused with Idle.",
+      "killers": [
+        "modules/atlas/guard:law:ProcessAndSleepGuardLaw"
+      ]
+    },
+    {
+      "name": "atlas-direct-loop-guard-allows-chrome-without-mock-keychain",
+      "origin": "ATLAS-DIRECT-LOOP",
+      "file": "modules/atlas/guard/rules_chrome.ergo",
+      "decl": "chromeWordSafe",
+      "from": "\tif hasMock && hasBasicStore {",
+      "to": "\tif hasMock || hasBasicStore {",
+      "rule": "Chrome launch guard must require BOTH --use-mock-keychain and --password-store=basic.",
+      "killers": [
+        "modules/atlas/guard:law:ChromeKeychainGuardLaw"
+      ]
+    },
+    {
+      "name": "atlas-direct-loop-tools-allows-blocking-question",
+      "origin": "ATLAS-DIRECT-LOOP",
+      "file": "modules/atlas/tools/schemas.ergo",
+      "decl": "ParseToolCall",
+      "from": "\tquestions.RequireAsyncOnly(role, name) catch {\n\tcase questions.BlockingQuestionForbidden as f:\n\t\treturn BlockingQuestionError{Cause: f}\n\t}",
+      "to": "\tlet _ = role",
+      "rule": "Tool parser must reject blocking question invocations with BlockingQuestionError.",
+      "killers": [
+        "modules/atlas/tools:law:ToolsIntegrationLaw"
+      ]
+    },
+    {
+      "name": "atlas-direct-loop-tools-yolo-bypasses-guard",
+      "origin": "ATLAS-DIRECT-LOOP",
+      "file": "modules/atlas/tools/policy.ergo",
+      "decl": "checkShellWithGuard",
+      "from": "\tcase guard.GuardError as ge:\n\t\treturn GuardBlockedError{Cause: ge}",
+      "to": "\tcase guard.GuardError as ge:\n\t\tlet _ = ge",
+      "rule": "Shell safety guard must remain non-bypassable even under PermissionMode yolo.",
+      "killers": [
+        "modules/atlas/tools:law:PermissionModesEnforceGuardAndGatesLaw",
+        "modules/atlas/tools:law:ToolsIntegrationLaw"
+      ]
+    },
+    {
+      "name": "atlas-direct-loop-tools-ask-auto-approves-edit",
+      "origin": "ATLAS-DIRECT-LOOP",
+      "file": "modules/atlas/tools/policy.ergo",
+      "decl": "checkEditPolicy",
+      "from": "\tcase adapter.ModeAsk, adapter.ModeSupervised:\n\t\tPolicyNeedsApproval{Request: ApprovalRequest{\n\t\t\tTool:       \"edit\",\n\t\t\tSummary:    \"edit workspace file\",\n\t\t\tTargetPath: resolved,\n\t\t\tCommand:    \"\",\n\t\t\tMode:       effMode,\n\t\t}}",
+      "to": "\tcase adapter.ModeAsk, adapter.ModeSupervised:\n\t\tPolicyAllow",
+      "rule": "PermissionMode ask and supervised must require confirmation for workspace edits.",
+      "killers": [
+        "modules/atlas/tools:law:PermissionModesEnforceGuardAndGatesLaw"
+      ]
+    },
+    {
+      "name": "atlas-direct-loop-tools-auto-edit-allows-shell",
+      "origin": "ATLAS-DIRECT-LOOP",
+      "file": "modules/atlas/tools/policy.ergo",
+      "decl": "checkShellWithGuard",
+      "from": "\tcase adapter.ModeAsk, adapter.ModeAutoEdit, adapter.ModeSupervised:",
+      "to": "\tcase adapter.ModeAutoEdit:\n\t\tPolicyAllow\n\tcase adapter.ModeAsk, adapter.ModeSupervised:",
+      "rule": "PermissionMode auto_edit must still ask confirmation before executing shell commands.",
+      "killers": [
+        "modules/atlas/tools:law:PermissionModesEnforceGuardAndGatesLaw",
+        "modules/atlas/tools:law:ToolsIntegrationLaw"
+      ]
+    },
+    {
+      "name": "atlas-direct-loop-tools-barrier-allows-stale-read-batch",
+      "origin": "ATLAS-DIRECT-LOOP",
+      "file": "modules/atlas/tools/dispatch.ergo",
+      "decl": "PartitionCallBatches",
+      "from": "\t\tif IsReadOnlyCall(role, c.Name, c.Arguments) {",
+      "to": "\t\tif true || IsReadOnlyCall(role, c.Name, c.Arguments) {",
+      "rule": "Read-only parallel batches must enforce ordered barriers before mutating tool calls.",
+      "killers": [
+        "modules/atlas/tools:law:ParallelBatchingBarrierLaw",
+        "modules/atlas/tools:law:ToolsIntegrationLaw"
+      ]
+    },
+    {
+      "name": "atlas-direct-loop-tools-subagent-allows-handback-open-handles",
+      "origin": "ATLAS-DIRECT-LOOP",
+      "file": "modules/atlas/tools/ops_runtime.ergo",
+      "decl": "runSubagentHandBack",
+      "from": "\tlet nextTree0 = subagent.FinalizeHandBack(state.Tree, childID) catch {\n\tcase subagent.SubagentRefusal as sr:\n\t\treturn ToolSubagentError{Cause: sr}\n\t}",
+      "to": "\tlet nextTree0 = state.Tree",
+      "rule": "Subagent hand_back must fail while child holds open handles or active descendants.",
+      "killers": [
+        "modules/atlas/tools:law:ToolsIntegrationLaw"
+      ]
+    },
+    {
+      "name": "atlas-direct-loop-direct-retries-after-first-delta",
+      "origin": "ATLAS-DIRECT-LOOP",
+      "file": "modules/atlas/direct/loop.ergo",
+      "decl": "streamWithPreDeltaRetry",
+      "from": "\t\t\tif seen.Len() > 0 {",
+      "to": "\t\t\tif false && seen.Len() > 0 {",
+      "rule": "Direct loop must never retry an LLM stream request after emitting >= 1 delta (NoRetryAfterFirstDelta).",
+      "killers": [
+        "modules/atlas/direct:law:DirectRetryAndNoRetryAfterDeltaLaw"
+      ]
+    },
+    {
+      "name": "atlas-direct-loop-direct-allows-unsupported-agy",
+      "origin": "ATLAS-DIRECT-LOOP",
+      "file": "modules/atlas/direct/loop.ergo",
+      "decl": "RunDirectLoop",
+      "from": "\tadapter.CanStartDriver(cfg.Driver, cfg.Capabilities) catch {\n\tcase adapter.AdapterRefusal as ar:\n\t\treturn UnsupportedDriverError{Cause: ar}\n\t}",
+      "to": "\tadapter.CanStartDriver(cfg.Driver, cfg.Capabilities) catch {\n\tcase adapter.AdapterRefusal as ar:\n\t\tlet _ = ar\n\t}",
+      "rule": "Direct loop must reject AntigravityDirect upfront when direct Antigravity is unsupported.",
+      "killers": [
+        "modules/atlas/direct:law:DirectSubagentAndDriverGateLaw"
+      ]
+    },
+    {
+      "name": "atlas-direct-loop-direct-compaction-splits-tool-group",
+      "origin": "ATLAS-DIRECT-LOOP",
+      "file": "modules/atlas/direct/compact.ergo",
+      "decl": "collectToolGroup",
+      "from": "\t\t\tif pos >= 0 {",
+      "to": "\t\t\tif false && pos >= 0 {",
+      "rule": "Branch compaction must keep Assistant tool calls paired atomically with their Result messages.",
+      "killers": [
+        "modules/atlas/direct:law:CompactionPreservesValidTranscriptLaw",
+        "modules/atlas/direct:law:DirectParallelBatchBarrierAndCompactionLaw"
+      ]
+    },
+    {
+      "name": "atlas-direct-loop-direct-drops-parent-thread-id",
+      "origin": "ATLAS-DIRECT-LOOP",
+      "file": "modules/atlas/direct/loop.ergo",
+      "decl": "SpawnAndRunSubagent",
+      "from": "\tlet childCfg = DirectConfig{\n\t\t..parentCfg,\n\t\tThreadID:       spec.ChildID,\n\t\tParentThreadID: option.Some[handle.ThreadID]{Value: parentCfg.ThreadID},",
+      "to": "\tlet childCfg = DirectConfig{\n\t\t..parentCfg,\n\t\tThreadID:       spec.ChildID,\n\t\tParentThreadID: option.None,",
+      "rule": "Spawned subagent child thread must carry ParentThreadID pointing to its spawning parent thread.",
+      "killers": [
+        "modules/atlas/direct:law:DirectSubagentAndDriverGateLaw"
+      ]
+    },
+    {
+      "name": "atlas-provider-direct-enables-antigravity-by-default",
+      "origin": "ATLAS-PROVIDER-DIRECT",
+      "file": "modules/atlas/providers/direct/policy.ergo",
+      "decl": "DefaultOfficialSupportGate",
+      "from": "\tOfficialSupportGate{AntigravityDirectSupported: false}",
+      "to": "\tOfficialSupportGate{AntigravityDirectSupported: true}",
+      "rule": "Default official support gate must keep Antigravity/Gemini direct explicitly gated off unless officially supported.",
+      "killers": [
+        "modules/atlas/providers/direct:law:AntigravityDirectGatedOffByDefault",
+        "modules/atlas/providers/direct:law:DirectClientWiresIntoDirectLoopWithoutEmulation"
+      ]
+    },
+    {
+      "name": "atlas-provider-direct-allows-proxy-origin-override",
+      "origin": "ATLAS-PROVIDER-DIRECT",
+      "file": "modules/atlas/providers/direct/policy.ergo",
+      "decl": "validateOriginOverride",
+      "from": "\t\tif trimmed == \"\" || !strings.EqualFold(trimmed, official) {",
+      "to": "\t\tif false && (trimmed == \"\" || !strings.EqualFold(trimmed, official)) {",
+      "rule": "Direct providers must never accept custom base URLs or proxy origins (spec §0 never proxy).",
+      "killers": [
+        "modules/atlas/providers/direct:law:ProxyAndBaseUrlOverridesRefused"
+      ]
+    },
+    {
+      "name": "atlas-provider-direct-allows-proxy-headers-and-env",
+      "origin": "ATLAS-PROVIDER-DIRECT",
+      "file": "modules/atlas/providers/direct/policy.ergo",
+      "decl": "validateExtraHeadersAndEnv",
+      "from": "\t\tif isForbiddenProxyHeader(h.Name) {",
+      "to": "\t\tif false && isForbiddenProxyHeader(h.Name) {",
+      "rule": "Direct providers must reject proxy forwarding, host-override, and raw credential headers.",
+      "killers": [
+        "modules/atlas/providers/direct:law:ProxyAndBaseUrlOverridesRefused"
+      ]
+    },
+    {
+      "name": "atlas-provider-direct-allows-account-rotation",
+      "origin": "ATLAS-PROVIDER-DIRECT",
+      "file": "modules/atlas/providers/direct/policy.ergo",
+      "decl": "VerifyPinnedAccount",
+      "from": "\tif pinned != requested {",
+      "to": "\tif false && pinned != requested {",
+      "rule": "Pinned direct sessions must never rotate or switch accounts mid-session (spec §0 never account rotation).",
+      "killers": [
+        "modules/atlas/providers/direct:law:PinnedSessionNeverRotatesAccount"
+      ]
+    },
+    {
+      "name": "atlas-provider-direct-conflates-opencode-go-and-console-paths",
+      "origin": "ATLAS-PROVIDER-DIRECT",
+      "file": "modules/atlas/providers/direct/policy.ergo",
+      "decl": "OfficialPath",
+      "from": "\tcase adapter.OpenCodeGoDirect:\n\t\t\"/zen/go/v1/chat/completions\"",
+      "to": "\tcase adapter.OpenCodeGoDirect:\n\t\t\"/zen/v1/chat/completions\"",
+      "rule": "OpenCode Go and OpenCode Console must retain distinct official subscription API paths.",
+      "killers": [
+        "modules/atlas/providers/direct:law:OpenCodeConsoleAndGoStayEndpointIsolated",
+        "modules/atlas/providers/direct:law:OfficialOriginsAcceptAllFourSupportedProviders"
+      ]
+    },
+    {
+      "name": "atlas-provider-direct-clears-rate-limit-reset-timestamp",
+      "origin": "ATLAS-PROVIDER-DIRECT",
+      "file": "modules/atlas/providers/direct/wire_common.ergo",
+      "decl": "ClassifyHTTPFailure",
+      "from": "\t\t\tTurn:      turn.FailureUsageLimit{ResetAtMs: resolveRateLimitResetMs(rate, nowMs)},",
+      "to": "\t\t\tTurn:      turn.FailureProvider,",
+      "rule": "HTTP 429 rate-limit failures must classify as FailureUsageLimit preserving computed future ResetAtMs.",
+      "killers": [
+        "modules/atlas/providers/direct:law:HTTPStatusClassificationMatchesSafetyAndReset"
+      ]
+    },
+    {
+      "name": "atlas-provider-direct-accepts-duplicate-tool-call-ids",
+      "origin": "ATLAS-PROVIDER-DIRECT",
+      "file": "modules/atlas/providers/direct/wire_common.ergo",
+      "decl": "ValidateCompletedTurn",
+      "from": "\t\tfor prev in seenIDs {\n\t\t\tif prev == c.Id {\n\t\t\t\treturn llm.InvalidResponse{Reason: \"duplicate tool call id: \\(c.Id)\"}\n\t\t\t}\n\t\t}",
+      "to": "\t\tfor prev in seenIDs {\n\t\t\tif false && prev == c.Id {\n\t\t\t\treturn llm.InvalidResponse{Reason: \"duplicate tool call id: \\(c.Id)\"}\n\t\t\t}\n\t\t}",
+      "rule": "Completed model turns must reject duplicate tool-call IDs.",
+      "killers": [
+        "modules/atlas/providers/direct:CompletedTurnValidationRejectsDuplicateCallIDs"
+      ]
+    },
+    {
+      "name": "atlas-provider-direct-codex-truncated-returns-empty-text",
+      "origin": "ATLAS-PROVIDER-DIRECT",
+      "file": "modules/atlas/providers/direct/wire_codex.ergo",
+      "decl": "FinishCodexStream",
+      "from": "\tif !st.Completed || draft.Open.Len() > 0 {\n\t\treturn llm.Truncated{Text: draft.Text}\n\t}",
+      "to": "\tif !st.Completed || draft.Open.Len() > 0 {\n\t\treturn llm.Truncated{Text: \"\"}\n\t}",
+      "rule": "Truncated Codex Responses streams must preserve partial delta text already emitted.",
+      "killers": [
+        "modules/atlas/providers/direct:law:CodexTruncatedStreamPreservesPartialText"
+      ]
+    },
+    {
+      "name": "atlas-provider-direct-anthropic-truncated-drops-partial-text",
+      "origin": "ATLAS-PROVIDER-DIRECT",
+      "file": "modules/atlas/providers/direct/wire_anthropic.ergo",
+      "decl": "FinishAnthropicStream",
+      "from": "\tif !st.Completed || draft.Open.Len() > 0 {\n\t\treturn llm.Truncated{Text: draft.Text}\n\t}",
+      "to": "\tif !st.Completed || draft.Open.Len() > 0 {\n\t\treturn llm.Truncated{Text: \"\"}\n\t}",
+      "rule": "Truncated Anthropic Messages streams must preserve partial delta text already emitted.",
+      "killers": [
+        "modules/atlas/providers/direct:law:AnthropicTruncatedStreamPreservesPartialText"
+      ]
+    },
+    {
+      "name": "atlas-provider-direct-openai-ignores-missing-done-truncation",
+      "origin": "ATLAS-PROVIDER-DIRECT",
+      "file": "modules/atlas/providers/direct/wire_openai.ergo",
+      "decl": "FinishOpenAIChatStream",
+      "from": "\tif !st.SawDone || !st.FinishReasonSeen || draft.Open.Len() > 0 {",
+      "to": "\tif false && (!st.SawDone || !st.FinishReasonSeen || draft.Open.Len() > 0) {",
+      "rule": "OpenAI Chat Completions streams without terminal [DONE] or finish_reason must fail Truncated.",
+      "killers": [
+        "modules/atlas/providers/direct:law:OpenCodeChatSSEChunkingAndDoneInvariant"
+      ]
+    },
+    {
+      "name": "atlas-provider-direct-pool-allows-non-usage-reset-timestamp",
+      "origin": "ATLAS-PROVIDER-DIRECT",
+      "file": "modules/atlas/providers/direct/pool_bridge.ergo",
+      "decl": "MapFailureToTurnClass",
+      "from": "\tcase llm.Overloaded, llm.Unauthorized, llm.Refused:\n\t\tturn.FailureProvider",
+      "to": "\tcase llm.Overloaded, llm.Unauthorized, llm.Refused:\n\t\tturn.FailureUsageLimit{ResetAtMs: nowMs + int64(60000)}",
+      "rule": "Non-usage failures must keep FailureResetAtMs as None per D8.",
+      "killers": [
+        "modules/atlas/providers/direct:law:NonUsageFailuresClearResetAtPerD8"
+      ]
+    },
+    {
+      "name": "atlas-provider-direct-pool-admission-rotates-to-standby",
+      "origin": "ATLAS-PROVIDER-DIRECT",
+      "file": "modules/atlas/providers/direct/pool_bridge.ergo",
+      "decl": "AdmitPinnedSessionTurn",
+      "from": "\tlet pinnedReg = pool.UpsertAccount(pool.NewRegistry(), entry)\n\tlet costPpm = if spec.EstimatedCostPpm > 0 { spec.EstimatedCostPpm } else { pool.DefaultCostPpm() }\n\tlet req = pool.PlacementRequest{\n\t\tProvider:         DriverPoolProviderName(spec.Driver),\n\t\tModel:            string(spec.Model),\n\t\tNowMs:            spec.NowMs,\n\t\tEstimatedCostPpm: costPpm,\n\t\tPreferredAccount: option.Some[session.AccountID]{Value: spec.PinnedAccount},",
+      "to": "\tlet _ = entry\n\tlet pinnedReg = spec.Registry\n\tlet costPpm = if spec.EstimatedCostPpm > 0 { spec.EstimatedCostPpm } else { pool.DefaultCostPpm() }\n\tlet req = pool.PlacementRequest{\n\t\tProvider:         DriverPoolProviderName(spec.Driver),\n\t\tModel:            string(spec.Model),\n\t\tNowMs:            spec.NowMs,\n\t\tEstimatedCostPpm: costPpm,\n\t\tPreferredAccount: option.None,",
+      "rule": "Pinned direct session admission must never leak standby accounts into pool placement.",
+      "killers": [
+        "modules/atlas/providers/direct:law:PinnedDirectAdmissionNeverRotatesToStandbyAccount"
+      ]
+    },
+    {
+      "name": "atlas-provider-direct-pool-drops-429-hold-until-ms",
+      "origin": "ATLAS-PROVIDER-DIRECT",
+      "file": "modules/atlas/providers/direct/pool_bridge.ergo",
+      "decl": "SettlePoolOnFailure",
+      "from": "\t\tnextReg = pool.SetAccountHold(nextReg, info.AccountID, untilMs)",
+      "to": "\t\tlet _ = untilMs",
+      "rule": "Usage-limit failure settlement must arm a concrete future pool hold on the pinned account.",
+      "killers": [
+        "modules/atlas/providers/direct:law:PoolRateLimitMappingPreservesFutureHoldAndD8Reset",
+        "modules/atlas/providers/direct:PoolSpendSettleAndHoldRecoveryLifecycle"
+      ]
+    },
+    {
+      "name": "atlas-provider-direct-retries-stream-after-first-delta",
+      "origin": "ATLAS-PROVIDER-DIRECT",
+      "file": "modules/atlas/providers/direct/client.ergo",
+      "decl": "StreamGuarded",
+      "from": "\t\t\tif seenDeltas.Len() > 0 {",
+      "to": "\t\t\tif false && seenDeltas.Len() > 0 {",
+      "rule": "Direct provider stream guard must never retry once >= 1 delta has reached the sink (NoRetryAfterFirstDelta).",
+      "killers": [
+        "modules/atlas/providers/direct:law:NoRetryAfterFirstDeltaAcrossAllProviders"
+      ]
+    },
+    {
+      "name": "atlas-provider-direct-emulates-unsupported-capabilities",
+      "origin": "ATLAS-PROVIDER-DIRECT",
+      "file": "modules/atlas/providers/direct/client.ergo",
+      "decl": "BuildDirectConfig",
+      "from": "\t\tCapabilities:       c.Capabilities(),",
+      "to": "\t\tCapabilities:       adapter.Capabilities{..c.Capabilities(), DynamicToolCallbacks: true},",
+      "rule": "Direct client wiring into modules/atlas/direct must preserve Adapter.Capabilities without capability emulation.",
+      "killers": [
+        "modules/atlas/providers/direct:law:DirectClientWiresIntoDirectLoopWithoutEmulation"
+      ]
     }
   ]
 }

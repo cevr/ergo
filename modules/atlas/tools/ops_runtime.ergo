@@ -1,0 +1,595 @@
+import exec
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/handles
+import github.com/cevr/ergo/modules/atlas/kernel
+import github.com/cevr/ergo/modules/atlas/questions
+import github.com/cevr/ergo/modules/atlas/subagent
+import github.com/cevr/ergo/modules/atlas/turn
+import option
+import strconv
+import strings
+
+func allocHandleID(state ToolState, prefix string) (ToolState, handle.HandleID) {
+	let seq = state.NextSeq
+	let nextState = ToolState{..state, NextSeq: seq + 1, NowMs: state.NowMs + 10}
+	(nextState, handle.HandleID(prefix + "-" + strconv.Itoa(seq)))
+}
+
+func runShellCommandText(command string, cwd string) (int, string) fails ToolError needs exec.Runner {
+	let base = exec.New("sh", []string{"-c", command})
+	let cmd = if cwd != "" { exec.WithDir(base, cwd) } else { base }
+	let res = exec.Runner.Run(cmd) catch {
+	case exec.NotFound as nf:
+		return ToolIoError{Tool: "shell", Reason: "executable not found: " + nf.Name}
+	case exec.Denied as dn:
+		return ToolIoError{Tool: "shell", Reason: "exec denied: " + dn.Name}
+	case exec.Failed as fl:
+		return ToolIoError{Tool: "shell", Reason: fl.Reason}
+	}
+	let body = res.Stdout + res.Stderr
+	(res.Status, boundedToolText(body))
+}
+
+// RunShell executes a guard-validated shell command synchronously or opens a KindShell DELIVERS handle in background.
+func RunShell(args ShellArgs, state ToolState, ctx ToolContext) (ToolState, ToolResult) fails ToolError needs exec.Runner {
+	let effCwd = if strings.TrimSpace(args.Cwd) == "" { ctx.WorkspaceRoot } else { resolveToolPath(ctx, args.Cwd) }
+	if !args.Background {
+		let (status, out) = try runShellCommandText(args.Command, effCwd)
+		if status != 0 {
+			return (state, ToolResult{Text: "exit \(status)\n\(out)", Failed: true})
+		}
+		return (state, ToolResult{Text: out, Failed: false})
+	}
+	let (s1, hid) = allocHandleID(state, "sh")
+	let spec = handle.OpenHandleSpec{
+		ID:      hid,
+		Kind:    handle.KindShell,
+		Owner:   ctx.Owner,
+		Session: ctx.SessionID,
+		Summary: args.Command,
+	}
+	let reg1 = handles.OpenHostHandle(s1.Handles, spec, ctx.ThreadID, args.Command) catch {
+	case handles.HandleServiceError as hs:
+		return ToolHandleError{Cause: hs}
+	}
+	let (status, out) = try runShellCommandText(args.Command, effCwd)
+	let disp = if status == 0 { handle.DispSucceeded } else { handle.DispFailed }
+	let req = handles.HostDeliveryReq{
+		ID:        hid,
+		Deliverer: handle.DelivererShellHost,
+		Disp:      disp,
+		Summary:   "shell background status \(status)",
+		NowMs:     s1.NowMs,
+	}
+	let (reg2, _) = handles.DeliverFromHost(reg1, req) catch {
+	case handles.HandleServiceError as hs:
+		return ToolHandleError{Cause: hs}
+	}
+	let s2 = ToolState{..s1, Handles: reg2}
+	(s2, ToolResult{Text: "background handle \(hid) status=\(status)\n\(out)", Failed: status != 0})
+}
+
+func formatHandleSummary(u handles.UnifiedHandle) string {
+	let kind = handle.HandleKindName(u.Kind)
+	let deliv = handle.DelivererName(u.Deliverer)
+	let disp = handle.DispositionName(u.Disposition)
+	"\(u.ID) kind=\(kind) deliverer=\(deliv) state=\(disp) thread=\(u.Thread) summary=\(u.Summary)"
+}
+
+// RunHandles lists, inspects, or cancels unified DELIVERS handles in ToolState.
+func RunHandles(args HandlesArgs, state ToolState, ctx ToolContext) (ToolState, ToolResult) fails ToolError {
+	let act = args.Action
+	if act == "list" {
+		let sess = if args.Session == "" { ctx.SessionID } else { handle.SessionID(args.Session) }
+		let items = handles.ListUnified(state.Handles, sess)
+		let mut lines = []string{}
+		for item in items {
+			lines = lines.Append(formatHandleSummary(item))
+		}
+		let txt = if lines.Len() == 0 { "(no handles)" } else { strings.Join(lines, "\n") }
+		return (state, ToolResult{Text: txt, Failed: false})
+	}
+	if act == "get" {
+		if strings.TrimSpace(args.ID) == "" {
+			return BadToolArgs{Tool: "handles", Field: "id", Reason: "id is required for get"}
+		}
+		match handles.GetUnified(state.Handles, handle.HandleID(args.ID)) {
+		case option.Some[handles.UnifiedHandle] as u:
+			return (state, ToolResult{Text: formatHandleSummary(u.Value), Failed: false})
+		case option.None:
+			return (state, ToolResult{Text: "handle not found: " + args.ID, Failed: true})
+		}
+	}
+	if act == "cancel" {
+		if strings.TrimSpace(args.ID) == "" {
+			return BadToolArgs{Tool: "handles", Field: "id", Reason: "id is required for cancel"}
+		}
+		let nextReg = handles.CancelHandle(state.Handles, handle.HandleID(args.ID))
+		return (ToolState{..state, Handles: nextReg}, ToolResult{Text: "cancelled " + args.ID, Failed: false})
+	}
+	BadToolArgs{Tool: "handles", Field: "action", Reason: "expected list | get | cancel"}
+}
+
+func activeCallHandles(reg handles.Registry, sess handle.SessionID) []handle.HandleID {
+	let mut out = []handle.HandleID{}
+	for u in handles.ListUnified(reg, sess) {
+		if u.Kind == handle.KindCall && handle.IsOpen(u.Disposition) {
+			out = out.Append(u.ID)
+		}
+	}
+	out
+}
+
+func evalStatusLabel(s kernel.EvalStatus) string {
+	match s {
+	case kernel.EvalCompleted:
+		"completed"
+	case kernel.EvalHanded:
+		"handed"
+	case kernel.EvalUnfinished:
+		"unfinished"
+	case kernel.EvalCut:
+		"cut"
+	case kernel.EvalKilled:
+		"killed"
+	case kernel.EvalFailed:
+		"failed"
+	}
+}
+
+// KernelPort abstracts persistent kernel evaluation and session snapshots as a capability.
+type KernelPort {
+	Name() string,
+	RunCell(reg handles.Registry, req kernel.EvalRequest) (handles.Registry, kernel.EvalResult) fails kernel.KernelError,
+	SnapshotSession(sessionID handle.SessionID) kernel.SnapshotBlob fails kernel.KernelError,
+	RestoreSession(sessionID handle.SessionID, blob kernel.SnapshotBlob) kernel.RestoreResult fails kernel.KernelError,
+	CutCell(cellID string, reason kernel.CutReason) kernel.CutReport fails kernel.KernelError,
+	KillCell(cellID string) fails kernel.KernelError,
+
+	// EngineNameNonEmpty verifies every KernelPort provider identifies its engine cleanly.
+	law EngineNameNonEmpty() {
+		strings.TrimSpace(Name()) != ""
+	},
+
+	// OversizedSnapshotRejected guarantees every KernelPort refuses snapshot payloads above MaxSnapshotBytes.
+	law OversizedSnapshotRejected() {
+		let oversized = kernel.SnapshotBlob{
+			Format:            2,
+			Engine:            Name(),
+			BuildID:           "port-law",
+			BindingsJSON:      strings.Repeat("x", kernel.MaxSnapshotBytes()+1),
+			LostBindings:      []string{},
+			EngineBytesBase64: "",
+		}
+		let mut refused = false
+		let _ = RestoreSession("sess-port-law", oversized) catch {
+		case kernel.KernelError as err:
+			match err {
+			case kernel.SnapshotTooLarge:
+				refused = true
+			case kernel.KernelBoundExceeded, kernel.RootWaitForbidden, kernel.QuestionPolicyError, kernel.UnfinishedCellError, kernel.SlotWaitExpired, kernel.EngineFailure, kernel.HandleBridgeFailure, kernel.StoreFailure:
+				refused = false
+			}
+			kernel.RestoreResult{Restored: false, LostBindings: []string{}, Notice: ""}
+		}
+		refused
+	},
+}
+
+// ScriptedKernelPort adapts kernel.ScriptedEngine to the KernelPort capability.
+type ScriptedKernelPort {
+	Engine kernel.ScriptedEngine,
+} implements KernelPort
+
+// Name returns the underlying scripted engine name.
+func Name(p ScriptedKernelPort) string { p.Engine.EngineName() }
+
+// RunCell executes one cell via kernel.RunCellWithEngine on the scripted engine.
+func RunCell(p ScriptedKernelPort, reg handles.Registry, req kernel.EvalRequest) (handles.Registry, kernel.EvalResult) fails kernel.KernelError {
+	kernel.RunCellWithEngine(p.Engine, reg, req)
+}
+
+// SnapshotSession captures bindings from the scripted engine.
+func SnapshotSession(p ScriptedKernelPort, sessionID handle.SessionID) kernel.SnapshotBlob fails kernel.KernelError {
+	p.Engine.Snapshot(sessionID)
+}
+
+// RestoreSession restores a snapshot on the scripted engine.
+func RestoreSession(p ScriptedKernelPort, sessionID handle.SessionID, blob kernel.SnapshotBlob) kernel.RestoreResult fails kernel.KernelError {
+	p.Engine.Restore(sessionID, blob)
+}
+
+// CutCell triggers a cut on the scripted engine.
+func CutCell(p ScriptedKernelPort, cellID string, reason kernel.CutReason) kernel.CutReport fails kernel.KernelError {
+	p.Engine.Cut(cellID, reason)
+}
+
+// KillCell kills a running cell on the scripted engine.
+func KillCell(p ScriptedKernelPort, cellID string) fails kernel.KernelError {
+	p.Engine.Kill(cellID)
+}
+
+// LuauKernelPort adapts kernel.LuauEngine to the KernelPort capability.
+type LuauKernelPort {
+	Engine kernel.LuauEngine,
+} implements KernelPort
+
+// Name returns the underlying Luau engine name.
+func Name(p LuauKernelPort) string { p.Engine.EngineName() }
+
+// RunCell executes one cell via kernel.RunCellWithEngine on the Luau engine.
+func RunCell(p LuauKernelPort, reg handles.Registry, req kernel.EvalRequest) (handles.Registry, kernel.EvalResult) fails kernel.KernelError {
+	kernel.RunCellWithEngine(p.Engine, reg, req)
+}
+
+// SnapshotSession captures bindings from the Luau engine.
+func SnapshotSession(p LuauKernelPort, sessionID handle.SessionID) kernel.SnapshotBlob fails kernel.KernelError {
+	p.Engine.Snapshot(sessionID)
+}
+
+// RestoreSession restores a snapshot on the Luau engine.
+func RestoreSession(p LuauKernelPort, sessionID handle.SessionID, blob kernel.SnapshotBlob) kernel.RestoreResult fails kernel.KernelError {
+	p.Engine.Restore(sessionID, blob)
+}
+
+// CutCell triggers a cut on the Luau engine.
+func CutCell(p LuauKernelPort, cellID string, reason kernel.CutReason) kernel.CutReport fails kernel.KernelError {
+	p.Engine.Cut(cellID, reason)
+}
+
+// KillCell kills a running cell on the Luau engine.
+func KillCell(p LuauKernelPort, cellID string) fails kernel.KernelError {
+	p.Engine.Kill(cellID)
+}
+
+type kernelEnv {
+	Args    KernelArgs,
+	State   ToolState,
+	Context ToolContext,
+}
+
+func runKernelEval(env kernelEnv) (ToolState, ToolResult) fails ToolError needs KernelPort {
+	let active = activeCallHandles(env.State.Handles, env.Context.SessionID)
+	let rawReq = kernel.EvalRequest{
+		CellID:        env.Args.CellID,
+		SessionID:     env.Context.SessionID,
+		ThreadID:      env.Context.ThreadID,
+		RootThreadID:  env.Context.RootThreadID,
+		Owner:         env.Context.Owner,
+		Role:          env.Context.Role,
+		Code:          env.Args.Code,
+		ComputeMs:     env.Args.ComputeMs,
+		WaitMs:        env.Args.WaitMs,
+		AskMs:         env.Args.AskMs,
+		IsAutomation:  false,
+		ToolNames:     questions.FilterVisibleTools(env.Context.Role, CoreToolNames()),
+		ActiveHandles: active,
+	}
+	let (nextReg, res) = KernelPort.RunCell(env.State.Handles, rawReq) catch {
+	case kernel.KernelError as ke:
+		return ToolKernelError{Cause: ke}
+	}
+	let failed = match res.Status {
+	case kernel.EvalFailed, kernel.EvalKilled:
+		true
+	case kernel.EvalCompleted, kernel.EvalHanded, kernel.EvalUnfinished, kernel.EvalCut:
+		false
+	}
+	let nextState = ToolState{..env.State, Handles: nextReg}
+	let label = evalStatusLabel(res.Status)
+	(nextState, ToolResult{Text: "status=\(label) value=\(res.ValueJSON) logs=\(res.Logs)", Failed: failed})
+}
+
+func runKernelRestore(env kernelEnv) (ToolState, ToolResult) fails ToolError needs KernelPort {
+	let blob = kernel.SnapshotBlob{
+		Format:            2,
+		Engine:            KernelPort.Name(),
+		BuildID:           "direct-loop-v1",
+		BindingsJSON:      env.Args.BindingsJSON,
+		LostBindings:      env.Args.LostBindings,
+		EngineBytesBase64: "",
+	}
+	let rr = KernelPort.RestoreSession(env.Context.SessionID, blob) catch {
+	case kernel.KernelError as ke:
+		return ToolKernelError{Cause: ke}
+	}
+	let txt = if rr.Notice != "" { rr.Notice } else { "restored clean" }
+	(env.State, ToolResult{Text: txt, Failed: false})
+}
+
+// RunKernel dispatches eval, cut, kill, snapshot, and restore against KernelPort.
+func RunKernel(args KernelArgs, state ToolState, ctx ToolContext) (ToolState, ToolResult) fails ToolError needs KernelPort {
+	let act = args.Action
+	let env = kernelEnv{Args: args, State: state, Context: ctx}
+	if act == "eval" {
+		return try runKernelEval(env)
+	}
+	if act == "cut" {
+		let cut = KernelPort.CutCell(args.CellID, kernel.CutWaiting) catch {
+		case kernel.KernelError as ke:
+			return ToolKernelError{Cause: ke}
+		}
+		return (state, ToolResult{Text: "cut \(args.CellID) started=\(cut.Started)", Failed: false})
+	}
+	if act == "kill" {
+		KernelPort.KillCell(args.CellID) catch {
+		case kernel.KernelError as ke:
+			return ToolKernelError{Cause: ke}
+		}
+		return (state, ToolResult{Text: "killed " + args.CellID, Failed: false})
+	}
+	if act == "snapshot" {
+		let snap = KernelPort.SnapshotSession(ctx.SessionID) catch {
+		case kernel.KernelError as ke:
+			return ToolKernelError{Cause: ke}
+		}
+		return (state, ToolResult{Text: snap.BindingsJSON, Failed: false})
+	}
+	if act == "restore" {
+		return try runKernelRestore(env)
+	}
+	BadToolArgs{Tool: "kernel", Field: "action", Reason: "expected eval | cut | kill | snapshot | restore"}
+}
+
+func parseChildRole(raw string) subagent.AgentRole fails ToolError {
+	let r = strings.ToLower(strings.TrimSpace(raw))
+	if r == "planner" {
+		return subagent.RolePlanner
+	}
+	if r == "implementor" {
+		return subagent.RoleImplementor
+	}
+	if r == "verifier" {
+		return subagent.RoleVerifier
+	}
+	if r == "reviewer" {
+		return subagent.RoleReviewer
+	}
+	if r == "worker" || r == "" {
+		return subagent.RoleWorker
+	}
+	BadToolArgs{Tool: "subagent", Field: "role", Reason: "unsupported child subagent role: " + raw}
+}
+
+func runSubagentList(state ToolState) ToolResult {
+	let mut lines = []string{}
+	for nid in state.Tree.Order {
+		match state.Tree.Nodes.Get(nid) {
+		case option.Some[subagent.SubagentNode] as n:
+			let node = n.Value
+			let parentTxt = match node.ParentThreadID {
+			case option.Some[handle.ThreadID] as p:
+				string(p.Value)
+			case option.None:
+				"none"
+			}
+			lines = lines.Append("\(node.ThreadID) parent=\(parentTxt) depth=\(node.Depth) open_handles=\(node.OpenHandles.Len())")
+		case option.None:
+		}
+	}
+	let txt = if lines.Len() == 0 { "(empty tree)" } else { strings.Join(lines, "\n") }
+	ToolResult{Text: txt, Failed: false}
+}
+
+func runSubagentSpawn(args SubagentArgs, state ToolState, ctx ToolContext) (ToolState, ToolResult) fails ToolError {
+	let role = try parseChildRole(args.Role)
+	let parentID = if strings.TrimSpace(args.ParentID) == "" { ctx.ThreadID } else { handle.ThreadID(args.ParentID) }
+	let (s1, hid) = allocHandleID(state, "sub")
+	let childID = if strings.TrimSpace(args.ChildID) == "" { handle.ThreadID("child-\(s1.NextSeq)") } else { handle.ThreadID(args.ChildID) }
+
+	let tree1 = subagent.SpawnChild(s1.Tree, parentID, childID, role) catch {
+	case subagent.SubagentRefusal as sr:
+		return ToolSubagentError{Cause: sr}
+	}
+	let spec = handle.OpenHandleSpec{
+		ID:      hid,
+		Kind:    handle.KindSubagent,
+		Owner:   ctx.Owner,
+		Session: ctx.SessionID,
+		Summary: "subagent " + string(childID),
+	}
+	let reg1 = handles.OpenHostHandle(s1.Handles, spec, parentID, string(childID)) catch {
+	case handles.HandleServiceError as hs:
+		return ToolHandleError{Cause: hs}
+	}
+	let tree2 = subagent.OpenHandleOnNode(tree1, parentID, hid) catch {
+	case subagent.SubagentRefusal as sr:
+		return ToolSubagentError{Cause: sr}
+	}
+	let mut children = s1.ChildThreads
+	children[childID] = ChildThreadRecord{
+		ThreadID:       childID,
+		ParentThreadID: parentID,
+		HandleID:       hid,
+		Role:           role,
+		HandedBack:     false,
+	}
+	let s2 = ToolState{..s1, Handles: reg1, Tree: tree2, ChildThreads: children}
+	(s2, ToolResult{Text: "spawned child=\(childID) parentThreadID=\(parentID) handle=\(hid)", Failed: false})
+}
+
+func runSubagentOpenOrSettleHandle(args SubagentArgs, isOpen bool, state ToolState) (ToolState, ToolResult) fails ToolError {
+	if strings.TrimSpace(args.ChildID) == "" || strings.TrimSpace(args.HandleID) == "" {
+		return BadToolArgs{Tool: "subagent", Field: "child_id", Reason: "child_id and handle_id are required"}
+	}
+	let nid = handle.ThreadID(args.ChildID)
+	let hid = handle.HandleID(args.HandleID)
+	let nextTree = if isOpen {
+		subagent.OpenHandleOnNode(state.Tree, nid, hid) catch {
+		case subagent.SubagentRefusal as sr:
+			return ToolSubagentError{Cause: sr}
+		}
+	} else {
+		subagent.SettleHandleOnNode(state.Tree, nid, hid) catch {
+		case subagent.SubagentRefusal as sr:
+			return ToolSubagentError{Cause: sr}
+		}
+	}
+	let verb = if isOpen { "opened" } else { "settled" }
+	(ToolState{..state, Tree: nextTree}, ToolResult{Text: "\(verb) handle \(hid) on \(nid)", Failed: false})
+}
+
+func runSubagentHandBack(args SubagentArgs, state ToolState) (ToolState, ToolResult) fails ToolError {
+	if strings.TrimSpace(args.ChildID) == "" {
+		return BadToolArgs{Tool: "subagent", Field: "child_id", Reason: "child_id is required for hand_back"}
+	}
+	let childID = handle.ThreadID(args.ChildID)
+	let nextTree0 = subagent.FinalizeHandBack(state.Tree, childID) catch {
+	case subagent.SubagentRefusal as sr:
+		return ToolSubagentError{Cause: sr}
+	}
+	let mut nextTree = nextTree0
+	let mut nextReg = state.Handles
+	let mut nextChildren = state.ChildThreads
+	match state.ChildThreads.Get(childID) {
+	case option.Some[ChildThreadRecord] as rec:
+		let r = rec.Value
+		nextTree = subagent.SettleHandleOnNode(nextTree, r.ParentThreadID, r.HandleID) catch {
+		case subagent.SubagentRefusal as sr:
+			return ToolSubagentError{Cause: sr}
+		}
+		let deliv = handles.HostDeliveryReq{
+			ID:        r.HandleID,
+			Deliverer: handle.DelivererSubagentHost,
+			Disp:      handle.DispSucceeded,
+			Summary:   "child \(childID) handed back cleanly",
+			NowMs:     state.NowMs,
+		}
+		let (regAfter, _) = handles.DeliverFromHost(nextReg, deliv) catch {
+		case handles.HandleServiceError as hs:
+			return ToolHandleError{Cause: hs}
+		}
+		nextReg = regAfter
+		nextChildren[childID] = ChildThreadRecord{..r, HandedBack: true}
+	case option.None:
+	}
+	(ToolState{..state, Tree: nextTree, Handles: nextReg, ChildThreads: nextChildren}, ToolResult{Text: "handed back " + string(childID), Failed: false})
+}
+
+// RunSubagent manages subtree inspection, child spawning with parentThreadID, open handle tracking, and guarded hand-back.
+func RunSubagent(args SubagentArgs, state ToolState, ctx ToolContext) (ToolState, ToolResult) fails ToolError {
+	let act = args.Action
+	if act == "list" {
+		return (state, runSubagentList(state))
+	}
+	if act == "spawn" {
+		return try runSubagentSpawn(args, state, ctx)
+	}
+	if act == "open_handle" {
+		return try runSubagentOpenOrSettleHandle(args, true, state)
+	}
+	if act == "settle_handle" {
+		return try runSubagentOpenOrSettleHandle(args, false, state)
+	}
+	if act == "hand_back" {
+		return try runSubagentHandBack(args, state)
+	}
+	BadToolArgs{Tool: "subagent", Field: "action", Reason: "expected list | spawn | open_handle | settle_handle | hand_back"}
+}
+
+// RunAskUserAsync records a non-blocking async question and working assumption on DelivererQuestions.
+func RunAskUserAsync(args AskUserAsyncArgs, state ToolState, ctx ToolContext) (ToolState, ToolResult) fails ToolError {
+	let (s1, hid) = allocHandleID(state, "ask")
+	let reqID = if strings.TrimSpace(args.ID) == "" { turn.RequestID("req-\(s1.NextSeq)") } else { turn.RequestID(args.ID) }
+	let input = questions.AskInput{
+		ID:         reqID,
+		ThreadID:   ctx.ThreadID,
+		HandleID:   hid,
+		Owner:      ctx.Owner,
+		Session:    ctx.SessionID,
+		Header:     args.Header,
+		Prompt:     args.Prompt,
+		Assumption: args.Assumption,
+		Options:    args.Options,
+		TargetRole: ctx.Role,
+		NowMs:      s1.NowMs,
+	}
+	let book = questions.QuestionBook{..s1.Questions, Registry: s1.Handles}
+	let (nextBook, outcome) = questions.AskAsync(book, input) catch {
+	case questions.QuestionError as qe:
+		return ToolQuestionError{Cause: qe}
+	}
+	let s2 = ToolState{..s1, Questions: nextBook, Handles: nextBook.Registry}
+	(s2, ToolResult{Text: "ask_user_async accepted id=\(outcome.ID) handle=\(outcome.HandleID) continuing_under_assumption=\(outcome.WorkingAssumption)", Failed: false})
+}
+
+func runJobStart(args JobArgs, state ToolState, ctx ToolContext) (ToolState, ToolResult) fails ToolError needs exec.Runner {
+	if strings.TrimSpace(args.Command) == "" {
+		return BadToolArgs{Tool: "job", Field: "command", Reason: "command is required for job start"}
+	}
+	let (s1, hid) = allocHandleID(state, "job")
+	let jobID = if strings.TrimSpace(args.ID) == "" { string(hid) } else { args.ID }
+	let jHandle = handle.HandleID(jobID)
+	let cwd = if strings.TrimSpace(args.Cwd) == "" { ctx.WorkspaceRoot } else { resolveToolPath(ctx, args.Cwd) }
+	let spec = handle.OpenHandleSpec{
+		ID:      jHandle,
+		Kind:    handle.KindJob,
+		Owner:   ctx.Owner,
+		Session: ctx.SessionID,
+		Summary: args.Command,
+	}
+	let reg1 = handles.OpenHostHandle(s1.Handles, spec, ctx.ThreadID, args.Command) catch {
+	case handles.HandleServiceError as hs:
+		return ToolHandleError{Cause: hs}
+	}
+	let (status, out) = try runShellCommandText(args.Command, cwd)
+	let disp = if status == 0 { handle.DispSucceeded } else { handle.DispFailed }
+	let req = handles.HostDeliveryReq{
+		ID:        jHandle,
+		Deliverer: handle.DelivererWakes,
+		Disp:      disp,
+		Summary:   "job \(jobID) finished status=\(status)",
+		NowMs:     s1.NowMs,
+	}
+	let (reg2, _) = handles.DeliverFromHost(reg1, req) catch {
+	case handles.HandleServiceError as hs:
+		return ToolHandleError{Cause: hs}
+	}
+	let mut jobs = s1.Jobs
+	jobs[jobID] = JobRecord{ID: jHandle, Command: args.Command, Cwd: cwd, Status: status, Output: out, Settled: true}
+	let s2 = ToolState{..s1, Handles: reg2, Jobs: jobs, JobOrder: s1.JobOrder.Append(jobID)}
+	(s2, ToolResult{Text: "job \(jobID) status=\(status)\n\(out)", Failed: status != 0})
+}
+
+func runJobRead(act string, id string, state ToolState) ToolResult fails ToolError {
+	if act == "list" {
+		let mut lines = []string{}
+		for jid in state.JobOrder {
+			match state.Jobs.Get(jid) {
+			case option.Some[JobRecord] as jr:
+				lines = lines.Append("\(jr.Value.ID) status=\(jr.Value.Status) settled=\(jr.Value.Settled) cmd=\(jr.Value.Command)")
+			case option.None:
+			}
+		}
+		let txt = if lines.Len() == 0 { "(no jobs)" } else { strings.Join(lines, "\n") }
+		return ToolResult{Text: txt, Failed: false}
+	}
+	if strings.TrimSpace(id) == "" {
+		return BadToolArgs{Tool: "job", Field: "id", Reason: "id is required for status"}
+	}
+	match state.Jobs.Get(id) {
+	case option.Some[JobRecord] as jr:
+		ToolResult{Text: "job \(jr.Value.ID) status=\(jr.Value.Status)\n\(jr.Value.Output)", Failed: jr.Value.Status != 0}
+	case option.None:
+		ToolResult{Text: "job not found: " + id, Failed: true}
+	}
+}
+
+// RunJob manages durable background jobs backed by KindJob handles and DelivererWakes.
+func RunJob(args JobArgs, state ToolState, ctx ToolContext) (ToolState, ToolResult) fails ToolError needs exec.Runner {
+	let act = args.Action
+	if act == "start" {
+		return try runJobStart(args, state, ctx)
+	}
+	if act == "list" || act == "status" {
+		return (state, try runJobRead(act, args.ID, state))
+	}
+	if act == "cancel" {
+		if strings.TrimSpace(args.ID) == "" {
+			return BadToolArgs{Tool: "job", Field: "id", Reason: "id is required for cancel"}
+		}
+		let reg = handles.CancelHandle(state.Handles, handle.HandleID(args.ID))
+		return (ToolState{..state, Handles: reg}, ToolResult{Text: "cancelled job " + args.ID, Failed: false})
+	}
+	BadToolArgs{Tool: "job", Field: "action", Reason: "expected start | status | list | cancel"}
+}

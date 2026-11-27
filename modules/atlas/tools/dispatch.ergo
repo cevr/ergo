@@ -1,0 +1,461 @@
+import exec
+import fs
+import fstest
+import github.com/cevr/ergo/modules/atlas/adapter
+import github.com/cevr/ergo/modules/atlas/guard
+import github.com/cevr/ergo/modules/atlas/handles
+import github.com/cevr/ergo/modules/atlas/kernel
+import github.com/cevr/ergo/modules/atlas/questions
+import github.com/cevr/ergo/modules/atlas/subagent
+import llm
+import option
+import tasks
+
+// BatchReadParallel denotes a contiguous run of read-only tool calls eligible for parallel execution.
+type BatchReadParallel {}
+
+// BatchWriteBarrier denotes a sequential barrier tool call (mutating, shell, kernel, subagent, async ask, or invalid).
+type BatchWriteBarrier {}
+
+// BatchKind classifies a partitioned tool execution group.
+type BatchKind = BatchReadParallel | BatchWriteBarrier
+
+// CallBatch groups consecutive read-only calls for parallel execution or a single barrier call.
+type CallBatch {
+	Kind  BatchKind,
+	Calls []llm.Call,
+}
+
+// ToolCallOutcome captures the formatted output, structured error (if any), and llm.Result message for one tool call.
+type ToolCallOutcome {
+	CallID string,
+	Name   string,
+	Text   string,
+	Failed bool,
+	Error  option.Option[ToolError],
+}
+
+func formatKernelError(ke kernel.KernelError) string {
+	match ke {
+	case kernel.KernelBoundExceeded as kb:
+		"kernel bound exceeded: \(kb.Kind) \(kb.RequestedMs)>\(kb.LimitMs)"
+	case kernel.RootWaitForbidden:
+		"kernel root wait forbidden"
+	case kernel.QuestionPolicyError as qp:
+		"kernel blocking question forbidden: " + qp.Cause.Tool
+	case kernel.UnfinishedCellError as uc:
+		"kernel unfinished cell handles=\(uc.Handles.Len())"
+	case kernel.SlotWaitExpired as sw:
+		"kernel slot wait expired: " + sw.Notice
+	case kernel.SnapshotTooLarge as st:
+		"kernel snapshot too large: \(st.Bytes)>\(st.Limit)"
+	case kernel.EngineFailure as ef:
+		"kernel engine failure: " + ef.Message
+	case kernel.HandleBridgeFailure as hb:
+		"kernel handle bridge: " + formatHandleError(hb.Cause)
+	case kernel.StoreFailure as sf:
+		"kernel store failure: " + sf.Message
+	}
+}
+
+func formatSubagentRefusal(sr subagent.SubagentRefusal) string {
+	match sr {
+	case subagent.ParentNodeNotFound:
+		"parent node not found"
+	case subagent.NodeNotFound as n:
+		"node not found: \(n.ID)"
+	case subagent.DuplicateSubagentID as d:
+		"duplicate subagent: \(d.ID)"
+	case subagent.MaxDepthExceeded as md:
+		"max depth exceeded: \(md.Depth)>\(md.Limit)"
+	case subagent.MaxFanOutExceeded as mf:
+		"max fan-out exceeded: \(mf.FanOut)>\(mf.Limit)"
+	case subagent.BudgetExhausted as b:
+		"budget exhausted: \(b.Used)>\(b.Limit)"
+	case subagent.OutsideSubtreeScope as os:
+		"outside subtree: \(os.Caller)->\(os.Target)"
+	case subagent.OpenHandlesBlockHandBack as oh:
+		"open handles block hand-back on \(oh.ID): count=\(oh.Count)"
+	case subagent.ActiveChildBlocksHandBack as ac:
+		"active descendant blocks hand-back on \(ac.ID)"
+	case subagent.InvalidSubagentState as iv:
+		"invalid subagent state for \(iv.Action) on \(iv.ID)"
+	}
+}
+
+func formatHandleError(hs handles.HandleServiceError) string {
+	match hs {
+	case handles.DelivererMismatch:
+		"deliverer mismatch"
+	case handles.DuplicateHandle as d:
+		"duplicate handle \(d.ID)"
+	case handles.UnknownHandle as u:
+		"unknown handle \(u.ID)"
+	case handles.AlreadyHanded as a:
+		"already handed \(a.ID)"
+	case handles.MetadataTooLarge as m:
+		"metadata too large \(m.Size)"
+	case handles.ValueUnavailable as v:
+		"value unavailable \(v.ID): \(v.Reason)"
+	case handles.SessionArchived as s:
+		"session archived \(s.Session)"
+	case handles.RegistryRefusal:
+		"handle registry refusal"
+	}
+}
+
+func formatQuestionError(qe questions.QuestionError) string {
+	match qe {
+	case questions.BlockingQuestionForbidden as bq:
+		"blocking question forbidden: " + bq.Tool
+	case questions.InvalidQuestionInput as iq:
+		"invalid question \(iq.Field): \(iq.Reason)"
+	case questions.DuplicateQuestion as dq:
+		"duplicate question \(dq.ID)"
+	case questions.UnknownQuestion as uq:
+		"unknown question \(uq.ID)"
+	case questions.QuestionAlreadyClosed as qc:
+		"question already closed \(qc.ID)"
+	case questions.QuestionHandleError as qh:
+		"question handle error: " + formatHandleError(qh.Cause)
+	case questions.QuestionStoreError as qs:
+		"question store error: " + qs.Message
+	}
+}
+
+// FormatToolError renders a readable diagnostic string for any ToolError variant.
+func FormatToolError(err ToolError) string {
+	match err {
+	case UnknownToolError as u:
+		"unknown tool: " + u.Name
+	case BadToolArgs as b:
+		"bad args for \(b.Tool).\(b.Field): \(b.Reason)"
+	case BlockingQuestionError as bq:
+		"forbidden tool '\(bq.Cause.Tool)': use '\(bq.Cause.Replacement)' instead"
+	case GuardBlockedError as gb:
+		match gb.Cause {
+		case guard.Destructive as d:
+			"guard refused (Destructive): " + d.Reason
+		case guard.FullCopy as f:
+			"guard refused (FullCopy): " + f.Reason
+		case guard.Idle as i:
+			"guard refused (Idle): " + i.Reason
+		case guard.KeychainPrompt as k:
+			"guard refused (KeychainPrompt): " + k.Reason
+		}
+	case ApprovalDeniedError as ad:
+		"approval denied for \(ad.Tool): \(ad.Reason)"
+	case ToolIoError as ioe:
+		"\(ioe.Tool) io error: \(ioe.Reason)"
+	case ToolKernelError as ke:
+		formatKernelError(ke.Cause)
+	case ToolSubagentError as se:
+		formatSubagentRefusal(se.Cause)
+	case ToolHandleError as he:
+		formatHandleError(he.Cause)
+	case ToolQuestionError as qe:
+		formatQuestionError(qe.Cause)
+	}
+}
+
+// PartitionCallBatches groups consecutive read-only calls together and inserts a barrier around every mutating/invalid call.
+func PartitionCallBatches(role subagent.AgentRole, calls []llm.Call) []CallBatch {
+	let mut batches = []CallBatch{}
+	let mut readBuf = []llm.Call{}
+	for c in calls {
+		if IsReadOnlyCall(role, c.Name, c.Arguments) {
+			readBuf = readBuf.Append(c)
+		} else {
+			if readBuf.Len() > 0 {
+				batches = batches.Append(CallBatch{Kind: BatchReadParallel, Calls: readBuf})
+				readBuf = []llm.Call{}
+			}
+			batches = batches.Append(CallBatch{Kind: BatchWriteBarrier, Calls: []llm.Call{c}})
+		}
+	}
+	if readBuf.Len() > 0 {
+		batches = batches.Append(CallBatch{Kind: BatchReadParallel, Calls: readBuf})
+	}
+	batches
+}
+
+func runReadOnlyParsed(parsed ParsedToolCall, state ToolState, ctx ToolContext) ToolResult fails ToolError needs fs.Files {
+	match parsed {
+	case ParsedRead as r:
+		return try RunRead(r.Args, ctx)
+	case ParsedSearch as s:
+		return try RunSearch(s.Args, ctx)
+	case ParsedHandles as h:
+		let (_, res) = try RunHandles(h.Args, state, ctx)
+		return res
+	case ParsedSubagent as sa:
+		let (_, res) = try RunSubagent(sa.Args, state, ctx)
+		return res
+	case ParsedJob as jb:
+		return try runJobRead(jb.Args.Action, jb.Args.ID, state)
+	case ParsedEdit, ParsedShell, ParsedKernel, ParsedAskUserAsync:
+		BadToolArgs{Tool: "dispatch", Field: "", Reason: "mutating tool dispatched into read-only batch"}
+	}
+}
+
+func executeReadSingle(call llm.Call, state ToolState, ctx ToolContext) ToolCallOutcome needs fs.Files {
+	let parsed = ParseToolCall(ctx.Role, call.Name, call.Arguments) catch {
+	case ToolError as e:
+		return ToolCallOutcome{CallID: call.Id, Name: call.Name, Text: FormatToolError(e), Failed: true, Error: option.Some[ToolError]{Value: e}}
+	}
+	let res = runReadOnlyParsed(parsed, state, ctx) catch {
+	case ToolError as e:
+		return ToolCallOutcome{CallID: call.Id, Name: call.Name, Text: FormatToolError(e), Failed: true, Error: option.Some[ToolError]{Value: e}}
+	}
+	ToolCallOutcome{CallID: call.Id, Name: call.Name, Text: res.Text, Failed: res.Failed, Error: option.None}
+}
+
+func runMutatingParsed(parsed ParsedToolCall, state ToolState, ctx ToolContext) (ToolState, ToolResult) fails ToolError needs fs.Files | fs.Writes | exec.Runner | KernelPort {
+	match parsed {
+	case ParsedRead, ParsedSearch:
+		let res = try runReadOnlyParsed(parsed, state, ctx)
+		(state, res)
+	case ParsedEdit as ed:
+		let res = try RunEdit(ed.Args, ctx)
+		(state, res)
+	case ParsedShell as sh:
+		try RunShell(sh.Args, state, ctx)
+	case ParsedHandles as ha:
+		try RunHandles(ha.Args, state, ctx)
+	case ParsedKernel as ka:
+		try RunKernel(ka.Args, state, ctx)
+	case ParsedSubagent as sa:
+		try RunSubagent(sa.Args, state, ctx)
+	case ParsedAskUserAsync as aq:
+		try RunAskUserAsync(aq.Args, state, ctx)
+	case ParsedJob as jb:
+		try RunJob(jb.Args, state, ctx)
+	}
+}
+
+// DispatchRequest bundles a turn's model tool calls with its parallel read concurrency limit.
+type DispatchRequest {
+	Calls       []llm.Call,
+	MaxParallel int,
+}
+
+// ExecuteBarrierCall parses, policy-checks, and executes one sequential barrier tool call against state.
+func ExecuteBarrierCall(call llm.Call, state ToolState, ctx ToolContext) (ToolState, ToolCallOutcome) needs fs.Files | fs.Writes | exec.Runner | Approver | KernelPort {
+	let parsed = ParseToolCall(ctx.Role, call.Name, call.Arguments) catch {
+	case ToolError as e:
+		return (state, ToolCallOutcome{CallID: call.Id, Name: call.Name, Text: FormatToolError(e), Failed: true, Error: option.Some[ToolError]{Value: e}})
+	}
+	AuthorizeCall(parsed, ctx) catch {
+	case ToolError as e:
+		return (state, ToolCallOutcome{CallID: call.Id, Name: call.Name, Text: FormatToolError(e), Failed: true, Error: option.Some[ToolError]{Value: e}})
+	}
+	let (nextState, res) = runMutatingParsed(parsed, state, ctx) catch {
+	case ToolError as e:
+		return (state, ToolCallOutcome{CallID: call.Id, Name: call.Name, Text: FormatToolError(e), Failed: true, Error: option.Some[ToolError]{Value: e}})
+	}
+	(nextState, ToolCallOutcome{CallID: call.Id, Name: call.Name, Text: res.Text, Failed: res.Failed, Error: option.None})
+}
+
+// ExecuteToolCalls runs read-only call runs concurrently via tasks.Transform while enforcing ordered barriers for writes.
+func ExecuteToolCalls(req DispatchRequest, state ToolState, ctx ToolContext) (ToolState, []ToolCallOutcome) needs fs.Files | fs.Writes | exec.Runner | Approver | KernelPort {
+	let limit = if req.MaxParallel <= 0 { 4 } else { req.MaxParallel }
+	let batches = PartitionCallBatches(ctx.Role, req.Calls)
+	let mut curState = state
+	let mut outcomes = []ToolCallOutcome{}
+
+	for batch in batches {
+		match batch.Kind {
+		case BatchReadParallel:
+			let snap = curState
+			let batchRes = tasks.Transform[llm.Call, ToolCallOutcome](batch.Calls, limit, func(c llm.Call) ToolCallOutcome needs fs.Files {
+				executeReadSingle(c, snap, ctx)
+			})
+			outcomes = outcomes.Concat(batchRes)
+		case BatchWriteBarrier:
+			for c in batch.Calls {
+				let (nextState, out) = ExecuteBarrierCall(c, curState, ctx)
+				curState = nextState
+				outcomes = outcomes.Append(out)
+			}
+		}
+	}
+	(curState, outcomes)
+}
+
+// ParallelBatchingBarrierLaw verifies consecutive reads group into parallel batches separated cleanly by write barriers.
+law ParallelBatchingBarrierLaw() {
+	let calls = []llm.Call{
+		llm.Call{Id: "c1", Name: "read", Arguments: "{\"path\":\"a.txt\"}"},
+		llm.Call{Id: "c2", Name: "search", Arguments: "{\"pattern\":\"foo\"}"},
+		llm.Call{Id: "c3", Name: "edit", Arguments: "{\"path\":\"a.txt\",\"old_string\":\"1\",\"new_string\":\"2\"}"},
+		llm.Call{Id: "c4", Name: "read", Arguments: "{\"path\":\"a.txt\"}"},
+		llm.Call{Id: "c5", Name: "shell", Arguments: "{\"command\":\"echo ok\"}"},
+	}
+	let batches = PartitionCallBatches(subagent.RoleRoot, calls)
+	if batches.Len() != 4 {
+		return false
+	}
+	let b0 = match batches[0].Kind {
+	case BatchReadParallel:
+		batches[0].Calls.Len() == 2
+	case BatchWriteBarrier:
+		false
+	}
+	let b1 = match batches[1].Kind {
+	case BatchWriteBarrier:
+		batches[1].Calls[0].Id == "c3"
+	case BatchReadParallel:
+		false
+	}
+	let b2 = match batches[2].Kind {
+	case BatchReadParallel:
+		batches[2].Calls[0].Id == "c4"
+	case BatchWriteBarrier:
+		false
+	}
+	let b3 = match batches[3].Kind {
+	case BatchWriteBarrier:
+		batches[3].Calls[0].Id == "c5"
+	case BatchReadParallel:
+		false
+	}
+	b0 && b1 && b2 && b3
+}
+
+func isBlockingQuestionOpt(errOpt option.Option[ToolError]) bool {
+	match errOpt {
+	case option.None:
+		false
+	case option.Some[ToolError] as te:
+		match te.Value {
+		case BlockingQuestionError:
+			true
+		case UnknownToolError, BadToolArgs, GuardBlockedError, ApprovalDeniedError, ToolIoError, ToolKernelError, ToolSubagentError, ToolHandleError, ToolQuestionError:
+			false
+		}
+	}
+}
+
+func isGuardBlockedOpt(errOpt option.Option[ToolError]) bool {
+	match errOpt {
+	case option.None:
+		false
+	case option.Some[ToolError] as te:
+		match te.Value {
+		case GuardBlockedError:
+			true
+		case UnknownToolError, BadToolArgs, BlockingQuestionError, ApprovalDeniedError, ToolIoError, ToolKernelError, ToolSubagentError, ToolHandleError, ToolQuestionError:
+			false
+		}
+	}
+}
+
+func isOpenHandlesSubagentOpt(errOpt option.Option[ToolError]) bool {
+	match errOpt {
+	case option.None:
+		false
+	case option.Some[ToolError] as te:
+		match te.Value {
+		case ToolSubagentError as se:
+			match se.Cause {
+			case subagent.OpenHandlesBlockHandBack:
+				true
+			case subagent.ParentNodeNotFound, subagent.NodeNotFound, subagent.DuplicateSubagentID, subagent.MaxDepthExceeded, subagent.MaxFanOutExceeded, subagent.BudgetExhausted, subagent.OutsideSubtreeScope, subagent.ActiveChildBlocksHandBack, subagent.InvalidSubagentState:
+				false
+			}
+		case UnknownToolError, BadToolArgs, BlockingQuestionError, GuardBlockedError, ApprovalDeniedError, ToolIoError, ToolKernelError, ToolHandleError, ToolQuestionError:
+			false
+		}
+	}
+}
+
+func checkToolsAutoEditPhase(initState ToolState, caps adapter.Capabilities) (ToolState, bool) needs fs.Files | fs.Writes | exec.Runner | Approver | KernelPort {
+	let ctxAuto = DefaultToolContext("/repo", adapter.ModeAutoEdit, caps)
+	let calls1 = []llm.Call{
+		llm.Call{Id: "1", Name: "read", Arguments: "{\"path\":\"src/a.txt\"}"},
+		llm.Call{Id: "2", Name: "search", Arguments: "{\"pattern\":\"alpha\"}"},
+		llm.Call{Id: "3", Name: "edit", Arguments: "{\"path\":\"src/a.txt\",\"old_string\":\"beta\",\"new_string\":\"BETA\"}"},
+		llm.Call{Id: "4", Name: "read", Arguments: "{\"path\":\"src/a.txt\"}"},
+		llm.Call{Id: "5", Name: "question", Arguments: "{\"question\":\"block?\"}"},
+		llm.Call{Id: "6", Name: "ask_user_async", Arguments: "{\"header\":\"Deploy target\",\"question\":\"Prod or staging?\",\"assumption\":\"staging\"}"},
+		llm.Call{Id: "7", Name: "shell", Arguments: "{\"command\":\"echo ran\"}"},
+	}
+	let (st1, res1) = ExecuteToolCalls(DispatchRequest{Calls: calls1, MaxParallel: 4}, initState, ctxAuto)
+	let ok1 = res1.Len() == 7 && !res1[0].Failed && !res1[1].Failed && !res1[2].Failed && !res1[3].Failed && isBlockingQuestionOpt(res1[4].Error) && !res1[5].Failed && res1[6].Failed && res1[0].Text != res1[3].Text
+	(st1, ok1)
+}
+
+func checkToolsYoloPhase(st1 ToolState, caps adapter.Capabilities) bool needs fs.Files | fs.Writes | exec.Runner | Approver | KernelPort {
+	let ctxYolo = DefaultToolContext("/repo", adapter.ModeYolo, caps)
+	let calls2 = []llm.Call{
+		llm.Call{Id: "20", Name: "shell", Arguments: "{\"command\":\"echo ran\"}"},
+		llm.Call{Id: "21", Name: "shell", Arguments: "{\"command\":\"rm -rf /\"}"},
+		llm.Call{Id: "22", Name: "job", Arguments: "{\"action\":\"start\",\"id\":\"job-1\",\"command\":\"echo job-done\"}"},
+		llm.Call{Id: "23", Name: "handles", Arguments: "{\"action\":\"list\"}"},
+		llm.Call{Id: "24", Name: "kernel", Arguments: "{\"action\":\"eval\",\"cell_id\":\"c1\",\"code\":\"1 + 1\"}"},
+		llm.Call{Id: "25", Name: "kernel", Arguments: "{\"action\":\"restore\",\"cell_id\":\"c1\",\"bindings_json\":\"{}\",\"lost_bindings\":[\"tempBuf\"]}"},
+		llm.Call{Id: "26", Name: "subagent", Arguments: "{\"action\":\"spawn\",\"child_id\":\"ch-1\",\"role\":\"implementor\"}"},
+		llm.Call{Id: "27", Name: "subagent", Arguments: "{\"action\":\"open_handle\",\"child_id\":\"ch-1\",\"handle_id\":\"sub-h1\"}"},
+		llm.Call{Id: "28", Name: "subagent", Arguments: "{\"action\":\"hand_back\",\"child_id\":\"ch-1\"}"},
+		llm.Call{Id: "29", Name: "subagent", Arguments: "{\"action\":\"settle_handle\",\"child_id\":\"ch-1\",\"handle_id\":\"sub-h1\"}"},
+		llm.Call{Id: "30", Name: "subagent", Arguments: "{\"action\":\"hand_back\",\"child_id\":\"ch-1\"}"},
+	}
+	let (st2, res2) = ExecuteToolCalls(DispatchRequest{Calls: calls2, MaxParallel: 4}, st1, ctxYolo)
+	let headOk = !res2[0].Failed && isGuardBlockedOpt(res2[1].Error) && !res2[2].Failed && !res2[3].Failed && !res2[4].Failed && !res2[5].Failed
+	let tailOk = !res2[6].Failed && !res2[7].Failed && isOpenHandlesSubagentOpt(res2[8].Error) && !res2[9].Failed && !res2[10].Failed
+	headOk && tailOk && st2.JobOrder.Len() == 1
+}
+
+func checkToolsIntegration() bool {
+	let fix = fstest.NewFixture(
+		[]string{"/repo", "/repo/src"},
+		Map[string, string]{
+			"/repo/src/a.txt": "alpha\nbeta\n",
+			"/repo/src/b.txt": "gamma\nalpha-two\n",
+		},
+	) catch {
+	case fstest.BadFixture:
+		return false
+	}
+	let mem = fstest.MemoryOf(fix)
+	let cmdRun = exec.New("sh", []string{"-c", "echo ran"})
+	let cmdJob = exec.New("sh", []string{"-c", "echo job-done"})
+	let script = exec.Script{Results: Map[string, exec.Result]{
+		exec.Key(exec.WithDir(cmdRun, "/repo")): exec.Result{Stdout: "ran\n", Stderr: "", Status: 0},
+		exec.Key(exec.WithDir(cmdJob, "/repo")): exec.Result{Stdout: "job-done\n", Stderr: "", Status: 0},
+	}}
+	let eng = kernel.NewScriptedEngine(Map[string, kernel.ScriptedOutcome]{
+		"1 + 1": kernel.ScriptedOutcome{
+			Status:        kernel.EvalCompleted,
+			ValueJSON:     "2",
+			Logs:          "",
+			ErrorKind:     "",
+			ErrorMessage:  "",
+			BindingsJSON:  "{\"x\":2}",
+			Cut:           option.None,
+			LostOnRestore: []string{"tempBuf"},
+		},
+	})
+
+	let caps = adapter.CapabilitiesFor(adapter.CodexDirect, false)
+	let initState = NewToolState("th-root", subagent.TreeBounds{MaxDepth: 3, MaxFanOut: 4, MaxBudget: 8}, 1000)
+	let kport = ScriptedKernelPort{Engine: eng}
+	let deny = AlwaysDeny{Reason: "deny-in-test"}
+	with context { fs.Files: mem, fs.Writes: mem, exec.Runner: script, Approver: deny, KernelPort: kport } {
+		let (st1, ok1) = checkToolsAutoEditPhase(initState, caps)
+		if !ok1 {
+			return false
+		}
+		checkToolsYoloPhase(st1, caps)
+	}
+}
+
+// ToolsIntegrationLaw proves all 9 surgical tools, question blocking, parallel read batching, barriers, guard, subagents, kernel, and async ask.
+law ToolsIntegrationLaw() {
+	checkToolsIntegration()
+}
+
+// ToolsIntegrationSuite tests all 9 surgical tools, question blocking, parallel reads, barrier ordering, guard, subagents, kernel, and async ask.
+test ToolsIntegrationSuite {
+	assert checkToolsIntegration()
+}
