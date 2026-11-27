@@ -38,8 +38,8 @@ func matchPrepare(st fnb, binds mut localBinds, p mut controlPlan, m syntax.Type
 		true
 	case UnionSealed:
 		false
-	case UnionUnproved:
-		return stop("match: unproved union layout")
+	case UnionUnproved as u:
+		return stop("match: unproved union layout: " + u.Why)
 	}
 	match syntax.ViewOf(st.p.Tree, unparen(st, subj)) {
 	case syntax.Name:
@@ -144,7 +144,7 @@ func matchPrepare(st fnb, binds mut localBinds, p mut controlPlan, m syntax.Type
 		a.span = try controlListYield(st, binds, p, clause.Body, tail, loops, yieldSlot)
 		for j in a.span.lo..a.span.hi {
 			match p.stmts[j].op {
-			case CWhile, CRange, CCollectionRange:
+			case CWhile, CRange, CCount, CCollectionRange:
 				return stop("match: loop in case")
 			case _:
 			}
@@ -236,7 +236,7 @@ func valueMatchPrepare(st fnb, binds mut localBinds, p mut controlPlan, m syntax
 		let span = try controlListYield(st, binds, p, clause.Body, tail, loops, yieldSlot)
 		for j in span.lo..span.hi {
 			match p.stmts[j].op {
-			case CWhile, CRange, CCollectionRange:
+			case CWhile, CRange, CCount, CCollectionRange:
 				return stop("match: loop in case")
 			case _:
 			}
