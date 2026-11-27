@@ -1,0 +1,989 @@
+import compiler/check/expr
+import compiler/check/load
+import compiler/check/store
+import compiler/check/types
+import compiler/syntax
+import dense
+import option
+import strings
+
+// OpConst pushes constant A from Program.Consts.
+let OpConst = uint8(1)
+
+// OpUnit pushes the unit value.
+let OpUnit = uint8(2)
+
+// OpBool pushes boolean literal (A != 0).
+let OpBool = uint8(3)
+
+// OpZero pushes the zero value for type A.
+let OpZero = uint8(4)
+
+// OpPop pops and releases the top stack value.
+let OpPop = uint8(5)
+
+// OpDup duplicates and retains the top stack value.
+let OpDup = uint8(6)
+
+// OpSwap swaps the top two stack values.
+let OpSwap = uint8(7)
+
+// OpLoadLocal pushes local variable slot A onto the stack.
+let OpLoadLocal = uint8(10)
+
+// OpTakeLocal moves local variable slot A onto the stack leaving unit in its cell.
+let OpTakeLocal = uint8(11)
+
+// OpStoreLocal pops top of stack into local variable slot A.
+let OpStoreLocal = uint8(12)
+
+// OpRebindCell allocates a fresh cell for local variable slot A.
+let OpRebindCell = uint8(13)
+
+// OpAddrLocal pushes a mutable reference to local variable slot A.
+let OpAddrLocal = uint8(14)
+
+// OpLoadCap pushes closure capture A onto the stack.
+let OpLoadCap = uint8(15)
+
+// OpStoreCap pops top of stack into closure capture A.
+let OpStoreCap = uint8(16)
+
+// OpAddrCap pushes a mutable reference to closure capture A.
+let OpAddrCap = uint8(17)
+
+// OpLoadGlobal lazily initializes and pushes package global A.
+let OpLoadGlobal = uint8(18)
+
+// OpStoreGlobal pops top of stack into package global A.
+let OpStoreGlobal = uint8(19)
+
+// OpDeref dereferences the top TagRef value onto the stack.
+let OpDeref = uint8(20)
+
+// OpStoreDeref pops value and TagRef target, storing value into the target cell.
+let OpStoreDeref = uint8(21)
+
+// OpUnary applies prefix operator Aux to the top stack value.
+let OpUnary = uint8(25)
+
+// OpBinary applies binary operator Aux with result type A to the top two stack values.
+let OpBinary = uint8(26)
+
+// OpConvert converts the top stack value to type A.
+let OpConvert = uint8(27)
+
+// OpToString converts the top stack value to a string via StringifyVal.
+let OpToString = uint8(28)
+
+// OpTestType checks whether the top stack value matches type A.
+let OpTestType = uint8(29)
+
+// OpConcatStrs pops A string values and pushes their concatenation.
+let OpConcatStrs = uint8(30)
+
+// OpMakeTuple pops B values and constructs a tuple of type A.
+let OpMakeTuple = uint8(32)
+
+// OpMakeRecord pops B field values in order and constructs a record of type A.
+let OpMakeRecord = uint8(33)
+
+// OpSpreadRecord updates a base record using B fields indexed by Program.UpdateFields[C..].
+let OpSpreadRecord = uint8(34)
+
+// OpMakeSlice pops B values and constructs a slice of type A.
+let OpMakeSlice = uint8(35)
+
+// OpMakeArray pops B values and constructs a fixed-size array of type A.
+let OpMakeArray = uint8(36)
+
+// OpMakeMap pops 2*B key-value pairs and constructs an ordered map of type A.
+let OpMakeMap = uint8(37)
+
+// OpMakeClosure constructs a closure for FnIdx A using template B and typeArg run C.
+let OpMakeClosure = uint8(38)
+
+// OpGetField reads field index A (or name string B when Aux==1) from top record/tuple/builder.
+let OpGetField = uint8(40)
+
+// OpGetIndex indexes target by key/index from the stack.
+let OpGetIndex = uint8(41)
+
+// OpSlice slices target using optional lo, hi, max operands indicated by bitmask Aux.
+let OpSlice = uint8(42)
+
+// OpPlaceLoad reads a nested place root+path without consuming stacked index keys.
+let OpPlaceLoad = uint8(43)
+
+// OpPlaceStore consumes stacked value and path keys to write back a nested place with COW.
+let OpPlaceStore = uint8(44)
+
+// OpJump jumps unconditionally to instruction A.
+let OpJump = uint8(50)
+
+// OpJumpIfFalse pops boolean TOS and jumps to A when false.
+let OpJumpIfFalse = uint8(51)
+
+// OpJumpIfTrue pops boolean TOS and jumps to A when true.
+let OpJumpIfTrue = uint8(52)
+
+// OpJumpIfFalsePeek jumps to A keeping false on stack when false, else pops true.
+let OpJumpIfFalsePeek = uint8(53)
+
+// OpJumpIfTruePeek jumps to A keeping true on stack when true, else pops false.
+let OpJumpIfTruePeek = uint8(54)
+
+// OpRangeInit initializes an integer or collection iterator on VM.Iters.
+let OpRangeInit = uint8(55)
+
+// OpRangeNext advances top iterator and pushes bindings or jumps to A when exhausted.
+let OpRangeNext = uint8(56)
+
+// OpRangePop pops B active iterators when leaving a loop early.
+let OpRangePop = uint8(57)
+
+// OpMatchPat matches PatNode A against TOS without popping TOS, pushing match bool.
+let OpMatchPat = uint8(58)
+
+// OpBindPat pops TOS, matches PatNode A, and defects if pattern fails.
+let OpBindPat = uint8(59)
+
+// OpCall invokes compiled function A with B arguments and typeArg run C.
+let OpCall = uint8(65)
+
+// OpCallVal invokes closure/function value with B arguments and typeArg run C.
+let OpCallVal = uint8(66)
+
+// OpCallNative invokes builtin/std native A with B arguments and typeArg run C.
+let OpCallNative = uint8(67)
+
+// OpCallMethod invokes method name string A on receiver+B arguments with typeArg run C.
+let OpCallMethod = uint8(68)
+
+// OpMakeMethodVal binds receiver TOS with method name string A into a callable closure.
+let OpMakeMethodVal = uint8(69)
+
+// OpReturn returns unit from current frame.
+let OpReturn = uint8(70)
+
+// OpReturnVal pops TOS and returns it from current frame, propagating fails errors when typed.
+let OpReturnVal = uint8(71)
+
+// OpReturnFail pops TOS and raises ctlFail/ctlEscape out of current frame.
+let OpReturnFail = uint8(72)
+
+// OpPushCatch pushes a catch handler at PC A (partial when Aux==1).
+let OpPushCatch = uint8(75)
+
+// OpPushTryBarrier pushes a non-tail try barrier that converts ctlFail to ctlEscape.
+let OpPushTryBarrier = uint8(76)
+
+// OpPopCatch pops the top catch or try-barrier entry.
+let OpPopCatch = uint8(77)
+
+// OpLoadErr pushes the active error value onto the stack.
+let OpLoadErr = uint8(78)
+
+// OpUncaughtFail converts an unmatched catch failure into ctlEscape (Aux==1) or ctlDefect (Aux==0).
+let OpUncaughtFail = uint8(79)
+
+// OpAssert pops bool and refutes if false.
+let OpAssert = uint8(80)
+
+// OpAlways pops bool and refutes if false.
+let OpAlways = uint8(81)
+
+// OpSometimes pops bool and records observation if true.
+let OpSometimes = uint8(82)
+
+// OpSkip terminates execution as skipped with optional reason constant A.
+let OpSkip = uint8(83)
+
+// OpDie pops message value and terminates execution as a defect.
+let OpDie = uint8(84)
+
+// OpCheckEq pops two values and pushes their runtime equality boolean.
+let OpCheckEq = uint8(85)
+
+// FnKindFunc marks an ordinary function or method.
+let FnKindFunc = uint8(1)
+
+// FnKindInit marks a package variable initializer.
+let FnKindInit = uint8(2)
+
+// FnKindTest marks a top-level test declaration.
+let FnKindTest = uint8(3)
+
+// FnKindLaw marks a top-level law declaration.
+let FnKindLaw = uint8(4)
+
+// FnKindClosure marks an anonymous function literal.
+let FnKindClosure = uint8(5)
+
+// PatWild matches any value without binding.
+let PatWild = uint8(1)
+
+// PatBind matches any value and binds it into local Slot.
+let PatBind = uint8(2)
+
+// PatType matches runtime value type TypeIdx (or BareName).
+let PatType = uint8(3)
+
+// PatConst matches runtime equality with constant ConstIdx.
+let PatConst = uint8(4)
+
+// PatTuple matches tuple elements recursively against ChildStart..ChildStart+ChildCount.
+let PatTuple = uint8(5)
+
+// PatRecord matches record type TypeIdx and fields in PatFields.
+let PatRecord = uint8(6)
+
+// PatAs matches subpattern ChildStart and binds local Slot.
+let PatAs = uint8(7)
+
+// PatOr matches any alternative in ChildStart..ChildStart+ChildCount.
+let PatOr = uint8(8)
+
+// PlaceFieldIdx navigates a known record field index.
+let PlaceFieldIdx = uint8(1)
+
+// PlaceFieldName navigates a dynamic field name string index.
+let PlaceFieldName = uint8(2)
+
+// PlaceIndex navigates an index or map key popped from stack.
+let PlaceIndex = uint8(3)
+
+// PlaceDeref dereferences a TagRef along the path.
+let PlaceDeref = uint8(4)
+
+// Insn encodes one fixed-size VM bytecode instruction.
+type Insn {
+	Op   uint8,
+	Aux  uint8,
+	A    uint32,
+	B    uint32,
+	C    uint32,
+	Node uint32,
+	File uint32,
+}
+
+// RunSpan locates a slice span in a flat backing column.
+type RunSpan {
+	Start uint32,
+	Len   uint32,
+}
+
+// ClosureCapRef specifies how one closure capture binds from its enclosing frame.
+type ClosureCapRef {
+	FromUpval bool,
+	Idx       uint32,
+}
+
+// PlaceStep encodes one step in a mutable COW path assignment chain.
+type PlaceStep {
+	Kind     uint8,
+	FieldIdx uint32,
+	NameStr  uint32,
+}
+
+// PatNode encodes one compiled pattern tree node in flat table form.
+type PatNode {
+	Kind       uint8,
+	TypeIdx    uint32,
+	ConstIdx   uint32,
+	Slot       uint32,
+	ChildStart uint32,
+	ChildCount uint32,
+	FieldStart uint32,
+	FieldCount uint32,
+	PkgIdx     uint32,
+	BareName   string,
+}
+
+// PatField encodes one keyed field matcher inside a compiled record pattern.
+type PatField {
+	Name     string,
+	FieldIdx uint32,
+	PatIdx   uint32,
+}
+
+// FnMeta stores metadata and code bounds for one compiled function, test, law, or closure.
+type FnMeta {
+	Name       string,
+	Pkg        uint32,
+	Kind       uint8,
+	TypeIdx    uint32,
+	ParamCount uint32,
+	ParamStart uint32,
+	CapCount   uint32,
+	SlotCount  uint32,
+	CodeStart  uint32,
+	CodeLen    uint32,
+	FailsType  uint32,
+	ReturnType uint32,
+	File       uint32,
+	Node       uint32,
+	Line       uint32,
+	Col        uint32,
+	FileName   string,
+	IsNative   bool,
+	NativeID   uint32,
+	IsMethod   bool,
+	RecvName   string,
+	IsEqLaw    bool,
+	GuardNode  uint32,
+	HasGuard   bool,
+	HasParams  bool,
+}
+
+// GlobalMeta stores metadata for one package-level let binding.
+type GlobalMeta {
+	Pkg      uint32,
+	Name     string,
+	TypeIdx  uint32,
+	InitFn   uint32,
+	Slot     uint32,
+	DefPNode uint32,
+}
+
+// Program holds all compiled bytecode, types, literals, functions, and source mappings.
+type Program {
+	Insns         []Insn,
+	Consts        []Val,
+	Fns           []FnMeta,
+	ParamTypes    []uint32,
+	ParamMut      []bool,
+	ParamNames    []string,
+	CapRefs       []ClosureCapRef,
+	ClosureTpls   []RunSpan,
+	Globals       []GlobalMeta,
+	Pats          []PatNode,
+	PatFields     []PatField,
+	PatChildren   []uint32,
+	Places        []PlaceStep,
+	UpdateFields  []uint32,
+	TypeArgPool   []uint32,
+	TypeArgRuns   []RunSpan,
+	Types         TypePool,
+	Arena         ValArena,
+	PkgPaths      []string,
+	FileNames     [][]string,
+	FileLines     [][]syntax.Lines,
+	FnByKey       Map[string, uint32],
+	FnByDefNode   Map[string, uint32],
+	GlobalByDef   Map[string, uint32],
+	RefinedTypes  []uint32,
+	RefinedParses []uint32,
+	RootPkg       uint32,
+}
+
+// NewProgram constructs an empty compiled bytecode program container.
+func NewProgram() Program {
+	Program{
+		Insns:         []Insn{},
+		Consts:        []Val{},
+		Fns:           []FnMeta{},
+		ParamTypes:    []uint32{},
+		ParamMut:      []bool{},
+		ParamNames:    []string{},
+		CapRefs:       []ClosureCapRef{},
+		ClosureTpls:   []RunSpan{},
+		Globals:       []GlobalMeta{},
+		Pats:          []PatNode{},
+		PatFields:     []PatField{},
+		PatChildren:   []uint32{},
+		Places:        []PlaceStep{},
+		UpdateFields:  []uint32{},
+		TypeArgPool:   []uint32{},
+		TypeArgRuns:   []RunSpan{RunSpan{Start: uint32(0), Len: uint32(0)}},
+		Types:         NewTypePool(),
+		Arena:         NewValArena(),
+		PkgPaths:      []string{},
+		FileNames:     [][]string{},
+		FileLines:     [][]syntax.Lines{},
+		FnByKey:       Map[string, uint32]{},
+		FnByDefNode:   Map[string, uint32]{},
+		GlobalByDef:   Map[string, uint32]{},
+		RefinedTypes:  []uint32{},
+		RefinedParses: []uint32{},
+		RootPkg:       uint32(0),
+	}
+}
+
+// AddConst appends constant value v to Program.Consts and returns its pool index.
+func AddConst(prog mut Program, v Val) uint32 {
+	let idx = uint32(prog.Consts.Len())
+	prog.Consts = prog.Consts.Append(v)
+	idx
+}
+
+// AddTypeArgRun appends type argument indices to TypeArgPool and returns its run index.
+func AddTypeArgRun(prog mut Program, args []uint32) uint32 {
+	if args.Len() == 0 {
+		return uint32(0)
+	}
+	let start = uint32(prog.TypeArgPool.Len())
+	for a in args {
+		prog.TypeArgPool = prog.TypeArgPool.Append(a)
+	}
+	let idx = uint32(prog.TypeArgRuns.Len())
+	prog.TypeArgRuns = prog.TypeArgRuns.Append(RunSpan{Start: start, Len: uint32(args.Len())})
+	idx
+}
+
+// AddTypeResolver holds contextual state needed when converting store.TKey values into TypePool indices.
+type TypeImportCtx {
+	PkgIdx  uint32,
+	PkgPath string,
+	S       store.Store,
+	K       expr.Pkg,
+	Visited Map[string, uint32],
+	PkgMap  Map[string, uint32],
+}
+
+func importTypeArgs(prog mut Program, ctx mut TypeImportCtx, t dense.ID[store.TKey], typeParams []uint32) []uint32 {
+	let ops = store.OperandsOf(ctx.S, t)
+	let mut out = []uint32{}
+	for o in ops {
+		out = out.Append(ImportStoreType(prog, ctx, o, typeParams))
+	}
+	out
+}
+
+func findPkgByPath(prog Program, path string) uint32 {
+	for i, p in prog.PkgPaths {
+		if p == path {
+			return uint32(i)
+		}
+	}
+	uint32(0)
+}
+
+func resolveForeignPkgAndName(ctx TypeImportCtx, foreignIdx int) (uint32, string, string) {
+	if foreignIdx < 0 || foreignIdx >= ctx.K.Foreign.Len() {
+		return (ctx.PkgIdx, "", "")
+	}
+	let f = ctx.K.Foreign[foreignIdx]
+	(uint32(0), f.Path, f.Name)
+}
+
+// ImportStoreType converts a checked store.TKey into a runtime TypePool index.
+func ImportStoreType(prog mut Program, ctx mut TypeImportCtx, t dense.ID[store.TKey], typeParams []uint32) uint32 {
+	let kind = store.KindOfType(ctx.S, t)
+	if kind == store.KBasic {
+		let ord = store.ArgOf(ctx.S, t)
+		return StoreBasicType(ord)
+	}
+	if kind == store.KParam {
+		let pIdx = store.ArgOf(ctx.S, t)
+		if pIdx >= 0 && pIdx < typeParams.Len() {
+			return typeParams[pIdx]
+		}
+		return InternParam(&prog.Types, uint32(pIdx))
+	}
+	if kind == store.KOwn {
+		let ops = store.OperandsOf(ctx.S, t)
+		if ops.Len() > 0 {
+			return ImportStoreType(prog, ctx, ops[0], typeParams)
+		}
+		return TypeVoid
+	}
+	if kind == store.KPointer {
+		let ops = store.OperandsOf(ctx.S, t)
+		if ops.Len() > 0 {
+			return InternPointer(&prog.Types, ImportStoreType(prog, ctx, ops[0], typeParams))
+		}
+		return TypeVoid
+	}
+	if kind == store.KSlice {
+		let ops = store.OperandsOf(ctx.S, t)
+		if ops.Len() > 0 {
+			return InternSlice(&prog.Types, ImportStoreType(prog, ctx, ops[0], typeParams))
+		}
+		return TypeVoid
+	}
+	if kind == store.KArray {
+		let ops = store.OperandsOf(ctx.S, t)
+		let length = uint32(store.ArrayLen(ctx.S, t))
+		let elem = if ops.Len() > 0 { ImportStoreType(prog, ctx, ops[ops.Len()-1], typeParams) } else { TypeVoid }
+		return InternArray(&prog.Types, length, elem)
+	}
+	if kind == store.KMap {
+		let ops = store.OperandsOf(ctx.S, t)
+		if ops.Len() >= 2 {
+			let kt = ImportStoreType(prog, ctx, ops[0], typeParams)
+			let vt = ImportStoreType(prog, ctx, ops[1], typeParams)
+			return InternMap(&prog.Types, kt, vt)
+		}
+		return TypeVoid
+	}
+	if kind == store.KTuple {
+		let ops = store.OperandsOf(ctx.S, t)
+		if ops.Len() == 0 {
+			return TypeVoid
+		}
+		let mut elems = []uint32{}
+		for o in ops {
+			elems = elems.Append(ImportStoreType(prog, ctx, o, typeParams))
+		}
+		return InternTuple(&prog.Types, elems)
+	}
+	if kind == store.KSig {
+		let ops = store.OperandsOf(ctx.S, t)
+		if ops.Len() >= 3 {
+			let n = ops.Len()
+			let mut ps = []uint32{}
+			for i in 0..n-3 {
+				ps = ps.Append(ImportStoreType(prog, ctx, ops[i], typeParams))
+			}
+			let resT = ImportStoreType(prog, ctx, ops[n-3], typeParams)
+			let errT = ImportStoreType(prog, ctx, ops[n-2], typeParams)
+			return InternFunc(&prog.Types, ps, resT, errT)
+		}
+		return TypeVoid
+	}
+	if kind == store.KRow {
+		let ops = store.OperandsOf(ctx.S, t)
+		if ops.Len() == 0 {
+			return TypeVoid
+		}
+		if ops.Len() == 1 {
+			return ImportStoreType(prog, ctx, ops[0], typeParams)
+		}
+		let mut vs = []uint32{}
+		for o in ops {
+			vs = vs.Append(ImportStoreType(prog, ctx, o, typeParams))
+		}
+		let u = AllocNamedType(&prog.Types, KindUnion, ctx.PkgIdx, "", uint32(0))
+		SetUnionVariants(&prog.Types, u, vs)
+		return u
+	}
+	if kind == store.KEntry {
+		let ops = store.OperandsOf(ctx.S, t)
+		if ops.Len() > 0 {
+			return ImportStoreType(prog, ctx, ops[0], typeParams)
+		}
+		return TypeVoid
+	}
+	if kind == store.KForeign {
+		let fIdx = store.ArgOf(ctx.S, t)
+		let (_, fPath, fName) = resolveForeignPkgAndName(*ctx, fIdx)
+		if fPath == "-" || fPath == "" {
+			let b = BasicFromName(fName)
+			if b != TypeVoid {
+				return b
+			}
+		}
+		let pkgNum = match ctx.PkgMap.Get(fPath) {
+		case option.Some{Value: pi}:
+			pi
+		case option.None:
+			ctx.PkgIdx
+		}
+		let key = LookupDeclKey(pkgNum, fName, []uint32{})
+		let existing = LookupTypeByKey(prog.Types, key)
+		if existing != TypeVoid {
+			return existing
+		}
+		return AllocNamedType(&prog.Types, KindRecord, pkgNum, fName, uint32(0))
+	}
+	if kind == store.KNamed {
+		let name = store.TypeNameText(ctx.S, store.ArgOf(ctx.S, t))
+		let key = LookupDeclKey(ctx.PkgIdx, name, []uint32{})
+		let existing = LookupTypeByKey(prog.Types, key)
+		if existing != TypeVoid {
+			return existing
+		}
+		return AllocNamedType(&prog.Types, KindRecord, ctx.PkgIdx, name, uint32(0))
+	}
+	if kind == store.KInstance {
+		let origin = store.OriginOfType(ctx.S, t)
+		let args = importTypeArgs(prog, ctx, t, typeParams)
+		let mut targetPkg = ctx.PkgIdx
+		let mut targetName = ""
+		if int(origin.Import) == store.ForeignBit {
+			let fIdx = int(origin.Decl)
+			if fIdx >= 0 && fIdx < ctx.K.Foreign.Len() {
+				let ff = ctx.K.Foreign[fIdx]
+				targetName = ff.Name
+				targetPkg = match ctx.PkgMap.Get(ff.Path) {
+				case option.Some{Value: pi}:
+					pi
+				case option.None:
+					uint32(0)
+				}
+			}
+		} else if origin.Import == uint32(0) {
+			targetPkg = ctx.PkgIdx
+			targetName = store.DeclText(ctx.S, int(origin.Decl))
+		} else {
+			let depIdx = int(origin.Import) - 1
+			if depIdx >= 0 && depIdx < ctx.K.Ifaces.Len() {
+				let ifc = ctx.K.Ifaces[depIdx]
+				if int(origin.Decl) < ifc.Decls.Len() {
+					targetName = ifc.Decls[int(origin.Decl)].Name
+				}
+				targetPkg = match ctx.PkgMap.Get(ifc.Path) {
+				case option.Some{Value: pi}:
+					pi
+				case option.None:
+					uint32(0)
+				}
+			}
+		}
+		if targetName != "" {
+			let key = LookupDeclKey(targetPkg, targetName, args)
+			let existing = LookupTypeByKey(prog.Types, key)
+			if existing != TypeVoid {
+				return existing
+			}
+			let baseKey = LookupDeclKey(targetPkg, targetName, []uint32{})
+			let baseIdx = LookupTypeByKey(prog.Types, baseKey)
+			if baseIdx != TypeVoid && args.Len() == 0 {
+				return baseIdx
+			}
+			let instantiated = instantiateNamedType(prog, targetPkg, targetName, args, baseIdx)
+			prog.Types.DeclToType[key] = instantiated
+			return instantiated
+		}
+	}
+	TypeVoid
+}
+
+func substGenericRuntimeType(tp mut TypePool, t uint32, args []uint32) uint32 {
+	if int(t) >= tp.Kind.Len() {
+		return t
+	}
+	let k = tp.Kind[int(t)]
+	if k == KindParam {
+		let pos = int(tp.Aux[int(t)])
+		if pos >= 0 && pos < args.Len() {
+			return args[pos]
+		}
+		return t
+	}
+	if k == KindSlice {
+		return InternSlice(tp, substGenericRuntimeType(tp, tp.Elem[int(t)], args))
+	}
+	if k == KindArray {
+		return InternArray(tp, tp.Aux[int(t)], substGenericRuntimeType(tp, tp.Elem[int(t)], args))
+	}
+	if k == KindMap {
+		return InternMap(tp, substGenericRuntimeType(tp, tp.Elem[int(t)], args), substGenericRuntimeType(tp, tp.Aux[int(t)], args))
+	}
+	if k == KindPointer {
+		return InternPointer(tp, substGenericRuntimeType(tp, tp.Elem[int(t)], args))
+	}
+	if k == KindTuple {
+		let start = int(tp.Aux[int(t)])
+		let cnt = int(tp.Count[int(t)])
+		let mut elems = []uint32{}
+		for i in 0..cnt {
+			elems = elems.Append(substGenericRuntimeType(tp, tp.FieldType[start+i], args))
+		}
+		return InternTuple(tp, elems)
+	}
+	if k == KindRecord {
+		let start = int(tp.Aux[int(t)])
+		let cnt = int(tp.Count[int(t)])
+		if cnt == 0 {
+			return t
+		}
+		let mut changed = false
+		let mut names = []string{}
+		let mut fts = []uint32{}
+		for i in 0..cnt {
+			let oldT = tp.FieldType[start+i]
+			let newT = substGenericRuntimeType(tp, oldT, args)
+			if newT != oldT {
+				changed = true
+			}
+			names = names.Append(tp.FieldName[start+i])
+			fts = fts.Append(newT)
+		}
+		if !changed {
+			return t
+		}
+		let nt = AllocNamedType(tp, KindRecord, tp.Pkg[int(t)], tp.Name[int(t)], uint32(0))
+		SetRecordFields(tp, nt, names, fts)
+		return nt
+	}
+	t
+}
+
+func instantiateNamedType(prog mut Program, pkg uint32, name string, args []uint32, baseIdx uint32) uint32 {
+	let mut argNames = []string{}
+	for a in args {
+		argNames = argNames.Append(prog.Types.Name[int(a)])
+	}
+	let disp = if args.Len() == 0 { name } else { name + "[" + strings.Join(argNames, ", ") + "]" }
+	if baseIdx == TypeVoid || int(baseIdx) >= prog.Types.Kind.Len() {
+		return AllocNamedType(&prog.Types, KindRecord, pkg, disp, uint32(0))
+	}
+	let bk = prog.Types.Kind[int(baseIdx)]
+	if bk == KindRecord {
+		let nt = AllocNamedType(&prog.Types, KindRecord, pkg, disp, uint32(0))
+		let start = int(prog.Types.Aux[int(baseIdx)])
+		let cnt = int(prog.Types.Count[int(baseIdx)])
+		let mut names = []string{}
+		let mut fts = []uint32{}
+		for i in 0..cnt {
+			names = names.Append(prog.Types.FieldName[start+i])
+			fts = fts.Append(substGenericRuntimeType(&prog.Types, prog.Types.FieldType[start+i], args))
+		}
+		SetRecordFields(&prog.Types, nt, names, fts)
+		return nt
+	}
+	if bk == KindUnion {
+		let nt = AllocNamedType(&prog.Types, KindUnion, pkg, disp, uint32(0))
+		let start = int(prog.Types.Aux[int(baseIdx)])
+		let cnt = int(prog.Types.Count[int(baseIdx)])
+		let mut vs = []uint32{}
+		for i in 0..cnt {
+			let vt = prog.Types.FieldType[start+i]
+			let vname = prog.Types.Name[int(vt)]
+			if vname != "" {
+				let vkey = LookupDeclKey(prog.Types.Pkg[int(vt)], vname, args)
+				let existingV = LookupTypeByKey(prog.Types, vkey)
+				if existingV != TypeVoid {
+					vs = vs.Append(existingV)
+					continue
+				}
+			}
+			vs = vs.Append(substGenericRuntimeType(&prog.Types, vt, args))
+		}
+		SetUnionVariants(&prog.Types, nt, vs)
+		return nt
+	}
+	if bk == KindDefined {
+		let under = substGenericRuntimeType(&prog.Types, prog.Types.Elem[int(baseIdx)], args)
+		return AllocNamedType(&prog.Types, KindDefined, pkg, disp, under)
+	}
+	AllocNamedType(&prog.Types, bk, pkg, disp, uint32(0))
+}
+
+func registerPreludeOptionTypes(prog mut Program, ctx TypeImportCtx) {
+	let optPkg = match ctx.PkgMap.Get("option") {
+	case option.Some{Value: pi}:
+		pi
+	case option.None:
+		uint32(0)
+	}
+	let someKey = LookupDeclKey(optPkg, "Some", []uint32{})
+	if LookupTypeByKey(prog.Types, someKey) == TypeVoid {
+		let someT = AllocNamedType(&prog.Types, KindRecord, optPkg, "Some", uint32(0))
+		let t0 = InternParam(&prog.Types, uint32(0))
+		SetRecordFields(&prog.Types, someT, []string{"Value"}, []uint32{t0})
+		prog.Types.DeclToType[someKey] = someT
+		let noneT = AllocNamedType(&prog.Types, KindRecord, optPkg, "None", uint32(0))
+		SetRecordFields(&prog.Types, noneT, []string{}, []uint32{})
+		prog.Types.DeclToType[LookupDeclKey(optPkg, "None", []uint32{})] = noneT
+		let optT = AllocNamedType(&prog.Types, KindUnion, optPkg, "Option", uint32(0))
+		SetUnionVariants(&prog.Types, optT, []uint32{someT, noneT})
+		prog.Types.DeclToType[LookupDeclKey(optPkg, "Option", []uint32{})] = optT
+	}
+	let unsatKey = LookupDeclKey(uint32(0), "Unsatisfied", []uint32{})
+	if LookupTypeByKey(prog.Types, unsatKey) == TypeVoid {
+		let uT = AllocNamedType(&prog.Types, KindRecord, uint32(0), "Unsatisfied", uint32(0))
+		SetRecordFields(&prog.Types, uT, []string{"Type", "Where"}, []uint32{TypeString, TypeString})
+		prog.Types.DeclToType[unsatKey] = uT
+		let nmT = AllocNamedType(&prog.Types, KindRecord, uint32(0), "NoMatch", uint32(0))
+		SetRecordFields(&prog.Types, nmT, []string{"Type", "At"}, []uint32{TypeString, TypeInt})
+		prog.Types.DeclToType[LookupDeclKey(uint32(0), "NoMatch", []uint32{})] = nmT
+	}
+}
+
+// RegisterPackageTypes imports all named records, unions, variants, and defined types of pkg into prog.
+func RegisterPackageTypes(prog mut Program, pkgIdx uint32, pkgPath string, d load.Typed, pkgMap Map[string, uint32]) {
+	let mut ctx = TypeImportCtx{
+		PkgIdx:  pkgIdx,
+		PkgPath: pkgPath,
+		S:       d.S,
+		K:       d.K,
+		Visited: Map[string, uint32]{},
+		PkgMap:  pkgMap,
+	}
+	registerPreludeOptionTypes(prog, ctx)
+	for f in 0..d.K.Parsed.Len() {
+		let p = d.K.Parsed[f]
+		if p.Failed {
+			continue
+		}
+		let root = syntax.Root(p.Tree)
+		if syntax.KindOf(p.Tree, root) != syntax.KFile {
+			continue
+		}
+		let decls = syntax.FileOf(p.Tree, root).Decls
+		for i in 0..syntax.Len(decls) {
+			let dc = syntax.Item(p.Tree, decls, i)
+			if syntax.KindOf(p.Tree, dc) != syntax.KTypeDecl {
+				continue
+			}
+			let td = syntax.TypeDeclOf(p.Tree, dc)
+			let tname = syntax.TokText(p, syntax.TokStartingAt(p, syntax.NodePos(p, td.Name)))
+			let key = LookupDeclKey(pkgIdx, tname, []uint32{})
+			if LookupTypeByKey(prog.Types, key) != TypeVoid {
+				continue
+			}
+			match dense.Unpack(td.Spec) {
+			case option.Some{Value: sp}:
+				let spKind = syntax.KindOf(p.Tree, sp)
+				if spKind == syntax.KStructType {
+					let id = AllocNamedType(&prog.Types, KindRecord, pkgIdx, tname, uint32(0))
+					prog.Types.DeclToType[key] = id
+				} else if spKind == syntax.KInterfaceType {
+					let it = syntax.InterfaceTypeOf(p.Tree, sp)
+					let mut isOp = false
+					let mut varNames = []string{}
+					for j in 0..syntax.Len(it.Members) {
+						let m = syntax.Item(p.Tree, it.Members, j)
+						let mk = syntax.KindOf(p.Tree, m)
+						if mk == syntax.KField {
+							isOp = true
+						} else if mk == syntax.KVariantSpec {
+							let vs = syntax.VariantSpecOf(p.Tree, m)
+							let vname = syntax.TokText(p, syntax.TokStartingAt(p, syntax.NodePos(p, vs.Name)))
+							let vkey = LookupDeclKey(pkgIdx, vname, []uint32{})
+							if LookupTypeByKey(prog.Types, vkey) == TypeVoid {
+								let vid = AllocNamedType(&prog.Types, KindRecord, pkgIdx, vname, uint32(0))
+								prog.Types.DeclToType[vkey] = vid
+							}
+							varNames = varNames.Append(vname)
+						}
+					}
+					let kind = if isOp { KindOp } else { KindUnion }
+					let uid = AllocNamedType(&prog.Types, kind, pkgIdx, tname, uint32(0))
+					prog.Types.DeclToType[key] = uid
+					let _ = varNames
+				} else {
+					let did = AllocNamedType(&prog.Types, KindDefined, pkgIdx, tname, uint32(0))
+					prog.Types.DeclToType[key] = did
+				}
+			case option.None:
+			}
+		}
+	}
+	for r in d.K.Recs {
+		let key = LookupDeclKey(pkgIdx, r.Name, []uint32{})
+		let mut rt = LookupTypeByKey(prog.Types, key)
+		if rt == TypeVoid {
+			rt = AllocNamedType(&prog.Types, if r.Op { KindOp } else { KindRecord }, pkgIdx, r.Name, uint32(0))
+			prog.Types.DeclToType[key] = rt
+		}
+		if !r.Op {
+			let mut fnames = []string{}
+			let mut ftypes = []uint32{}
+			for fd in r.Fields {
+				fnames = fnames.Append(fd.Name)
+				ftypes = ftypes.Append(ImportStoreType(prog, &ctx, fd.T, []uint32{}))
+			}
+			SetRecordFields(&prog.Types, rt, fnames, ftypes)
+		}
+	}
+	for f in 0..d.K.Parsed.Len() {
+		let p = d.K.Parsed[f]
+		if p.Failed {
+			continue
+		}
+		let root = syntax.Root(p.Tree)
+		if syntax.KindOf(p.Tree, root) != syntax.KFile {
+			continue
+		}
+		let decls = syntax.FileOf(p.Tree, root).Decls
+		for i in 0..syntax.Len(decls) {
+			let dc = syntax.Item(p.Tree, decls, i)
+			if syntax.KindOf(p.Tree, dc) != syntax.KTypeDecl {
+				continue
+			}
+			let td = syntax.TypeDeclOf(p.Tree, dc)
+			let tname = syntax.TokText(p, syntax.TokStartingAt(p, syntax.NodePos(p, td.Name)))
+			let tid = LookupTypeByKey(prog.Types, LookupDeclKey(pkgIdx, tname, []uint32{}))
+			if tid == TypeVoid {
+				continue
+			}
+			match dense.Unpack(td.Spec) {
+			case option.Some{Value: sp}:
+				let mut tparamNames = []string{}
+				let mut tparamIDs = []uint32{}
+				match dense.Unpack(td.TypeParams) {
+				case option.Some{Value: tpNode}:
+					let fl = syntax.FieldListOf(p.Tree, tpNode).List
+					for ti in 0..syntax.Len(fl) {
+						let fd = syntax.FieldOf(p.Tree, syntax.Item(p.Tree, fl, ti))
+						for nj in 0..syntax.Len(fd.Names) {
+							let pn = syntax.TokText(p, syntax.TokStartingAt(p, syntax.NodePos(p, syntax.Item(p.Tree, fd.Names, nj))))
+							tparamIDs = tparamIDs.Append(InternParam(&prog.Types, uint32(tparamNames.Len())))
+							tparamNames = tparamNames.Append(pn)
+						}
+					}
+				case option.None:
+				}
+				if syntax.KindOf(p.Tree, sp) == syntax.KInterfaceType && prog.Types.Kind[int(tid)] == KindUnion {
+					let it = syntax.InterfaceTypeOf(p.Tree, sp)
+					let env = types.NewEnv(d.S, d.K.Parsed, p, tparamNames, d.K.Kinds, d.K.Ext, d.K.Foreign, d.K.Ifaces)
+					let mut sMut = d.S
+					let mut vts = []uint32{}
+					for j in 0..syntax.Len(it.Members) {
+						let m = syntax.Item(p.Tree, it.Members, j)
+						let mk = syntax.KindOf(p.Tree, m)
+						if mk == syntax.KVariantSpec {
+							let vs = syntax.VariantSpecOf(p.Tree, m)
+							let vname = syntax.TokText(p, syntax.TokStartingAt(p, syntax.NodePos(p, vs.Name)))
+							let vid = LookupTypeByKey(prog.Types, LookupDeclKey(pkgIdx, vname, []uint32{}))
+							if vid != TypeVoid {
+								vts = vts.Append(vid)
+							}
+						} else if mk != syntax.KLawDecl && mk != syntax.KTestDecl && mk != syntax.KField {
+							let rt = types.Resolve(&sMut, env, m)
+							let vid = ImportStoreType(prog, &ctx, rt, tparamIDs)
+							if vid != TypeVoid {
+								vts = vts.Append(vid)
+							}
+						}
+					}
+					SetUnionVariants(&prog.Types, tid, vts)
+				} else if prog.Types.Kind[int(tid)] == KindDefined {
+					let env = types.NewEnv(d.S, d.K.Parsed, p, tparamNames, d.K.Kinds, d.K.Ext, d.K.Foreign, d.K.Ifaces)
+					let mut sMut = d.S
+					let resolved = types.Resolve(&sMut, env, sp)
+					let under = ImportStoreType(prog, &ctx, resolved, tparamIDs)
+					prog.Types.Elem[int(tid)] = under
+				}
+			case option.None:
+			}
+		}
+	}
+	for f in 0..d.K.Parsed.Len() {
+		let p = d.K.Parsed[f]
+		if p.Failed {
+			continue
+		}
+		let root = syntax.Root(p.Tree)
+		if syntax.KindOf(p.Tree, root) != syntax.KFile {
+			continue
+		}
+		let decls = syntax.FileOf(p.Tree, root).Decls
+		for i in 0..syntax.Len(decls) {
+			let dc = syntax.Item(p.Tree, decls, i)
+			if syntax.KindOf(p.Tree, dc) != syntax.KTypeDecl {
+				continue
+			}
+			let td = syntax.TypeDeclOf(p.Tree, dc)
+			let tname = syntax.TokText(p, syntax.TokStartingAt(p, syntax.NodePos(p, td.Name)))
+			let tid = LookupTypeByKey(prog.Types, LookupDeclKey(pkgIdx, tname, []uint32{}))
+			if tid == TypeVoid || prog.Types.Kind[int(tid)] != KindDefined {
+				continue
+			}
+			let under = prog.Types.Elem[int(tid)]
+			if under != TypeVoid && int(under) < prog.Types.Width.Len() {
+				prog.Types.Width[int(tid)] = prog.Types.Width[int(under)]
+				prog.Types.Signed[int(tid)] = prog.Types.Signed[int(under)]
+			}
+		}
+	}
+}
+
+law ProgramInitPreallocatesTypeArgZero() {
+	let p = NewProgram()
+	p.TypeArgRuns.Len() == 1 && p.Arena.Strs.Len() == 1 && p.Types.Kind.Len() >= 18
+}

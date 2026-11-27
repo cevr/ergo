@@ -1,0 +1,159 @@
+{
+  "about": "Mutants for compiler/eval (Tier-0 pure-Ergo SoA bytecode evaluator), killed by compiler/eval unit tests and laws.",
+  "mutants": [
+    {
+      "name": "selfhost-eval-core-signed-div-sign",
+      "origin": "wf10 SELFHOST-EVAL-CORE",
+      "file": "compiler/eval/ops.ergo",
+      "decl": "signedDivMod",
+      "from": "\tlet q = if aNeg != bNeg { signedNegBits(uq) } else { uq }",
+      "to": "\tlet q = uq",
+      "rule": "Signed division negates quotient magnitude whenever dividend and divisor have opposite signs.",
+      "killers": ["compiler/eval:law:SignedDivisionWrapsMinOverMinusOne"],
+      "anchor": {"tests": ["compiler/eval:law:SignedDivisionWrapsMinOverMinusOne"]}
+    },
+    {
+      "name": "selfhost-eval-core-div-zero-ok",
+      "origin": "wf10 SELFHOST-EVAL-CORE",
+      "file": "compiler/eval/ops.ergo",
+      "decl": "EvalBinary",
+      "from": "\t\t\tif y.Data == uint64(0) {\n\t\t\t\treturn (UnitVal(), \"runtime error: integer divide by zero\")\n\t\t\t}",
+      "to": "\t\t\tif false && y.Data == uint64(0) {\n\t\t\t\treturn (UnitVal(), \"runtime error: integer divide by zero\")\n\t\t\t}",
+      "rule": "Integer division and remainder by zero must produce a runtime defect.",
+      "killers": ["compiler/eval:law:NegativeShiftAndZeroDivProduceDefects"],
+      "anchor": {"tests": ["compiler/eval:law:NegativeShiftAndZeroDivProduceDefects"]}
+    },
+    {
+      "name": "selfhost-eval-core-neg-shift-ok",
+      "origin": "wf10 SELFHOST-EVAL-CORE",
+      "file": "compiler/eval/ops.ergo",
+      "decl": "EvalBinary",
+      "from": "\t\tif y.Tag == TagInt && SignedBitsLT(y.Data, uint64(0)) {\n\t\t\treturn (UnitVal(), \"runtime error: negative shift amount\")\n\t\t}",
+      "to": "\t\tif false && y.Tag == TagInt && SignedBitsLT(y.Data, uint64(0)) {\n\t\t\treturn (UnitVal(), \"runtime error: negative shift amount\")\n\t\t}",
+      "rule": "A negative shift amount must produce a runtime defect.",
+      "killers": ["compiler/eval:law:NegativeShiftAndZeroDivProduceDefects"],
+      "anchor": {"tests": ["compiler/eval:law:NegativeShiftAndZeroDivProduceDefects"]}
+    },
+    {
+      "name": "selfhost-eval-core-signed-rshift-logical",
+      "origin": "wf10 SELFHOST-EVAL-CORE",
+      "file": "compiler/eval/ops.ergo",
+      "decl": "shiftRightBits",
+      "from": "\tlet fill = if neg { u64AllOnes << (uint64(64) - cnt) } else { uint64(0) }",
+      "to": "\tlet fill = uint64(0)",
+      "rule": "Signed right shift sign-extends negative operands while unsigned right shift fills with zero bits.",
+      "killers": ["compiler/eval:law:RightShiftRespectsSignedness"],
+      "anchor": {"tests": ["compiler/eval:law:RightShiftRespectsSignedness"]}
+    },
+    {
+      "name": "selfhost-eval-core-wrap-int8-unsigned",
+      "origin": "wf10 SELFHOST-EVAL-CORE",
+      "file": "compiler/eval/value.ergo",
+      "decl": "WrapIntBits",
+      "from": "\t\tif signed && (lo&uint64(0x80)) != uint64(0) {\n\t\t\treturn lo | u64Ext8\n\t\t}",
+      "to": "\t\tif false && signed && (lo&uint64(0x80)) != uint64(0) {\n\t\t\treturn lo | u64Ext8\n\t\t}",
+      "rule": "WrapIntBits sign-extends signed narrow integers to 64-bit two's complement representation.",
+      "killers": ["compiler/eval:law:WrapIntBitsMatchesBitWidths"],
+      "anchor": {"tests": ["compiler/eval:law:WrapIntBitsMatchesBitWidths"]}
+    },
+    {
+      "name": "selfhost-eval-core-cow-slice-write-aliases",
+      "origin": "wf10 SELFHOST-EVAL-CORE",
+      "file": "compiler/eval/value.ergo",
+      "decl": "WriteSliceElemCOW",
+      "from": "\tif b.Refs <= uint32(1) {\n\t\tlet slot = int(b.Start + h.Off + idx)",
+      "to": "\tif true {\n\t\tlet slot = int(b.Start + h.Off + idx)",
+      "rule": "Copy-on-write slice element mutation must clone shared backing storage so aliases observe original elements.",
+      "killers": ["compiler/eval:law:SliceAppendLeavesOriginalUntouched"],
+      "anchor": {"tests": ["compiler/eval:law:SliceAppendLeavesOriginalUntouched"]}
+    },
+    {
+      "name": "selfhost-eval-core-float-nan-eq-true",
+      "origin": "wf10 SELFHOST-EVAL-CORE",
+      "file": "compiler/eval/value.ergo",
+      "decl": "EqualVals",
+      "from": "\t\tlet fx = math.Float64frombits(x.Data)\n\t\tlet fy = math.Float64frombits(y.Data)\n\t\treturn fx == fy",
+      "to": "\t\treturn x.Data == y.Data",
+      "rule": "IEEE 754 NaN values are never equal to themselves under value equality.",
+      "killers": ["compiler/eval:law:FloatNaNEqualityFalse"],
+      "anchor": {"tests": ["compiler/eval:law:FloatNaNEqualityFalse"]}
+    },
+    {
+      "name": "selfhost-eval-core-union-match-skipped",
+      "origin": "wf10 SELFHOST-EVAL-CORE",
+      "file": "compiler/eval/types.ergo",
+      "decl": "MatchesType",
+      "from": "\tif int(patType) < tp.Kind.Len() && tp.Kind[int(patType)] == KindUnion {",
+      "to": "\tif false && int(patType) < tp.Kind.Len() && tp.Kind[int(patType)] == KindUnion {",
+      "rule": "MatchesType recurses into sealed union variants when matching a value type against a union pattern type.",
+      "killers": ["compiler/eval:law:MatchesTypeIsReflexiveAndMatchesUnion"],
+      "anchor": {"tests": ["compiler/eval:law:MatchesTypeIsReflexiveAndMatchesUnion"]}
+    },
+    {
+      "name": "selfhost-eval-core-record-match-ignored",
+      "origin": "wf10 SELFHOST-EVAL-CORE",
+      "file": "compiler/eval/types.ergo",
+      "decl": "MatchesType",
+      "from": "\tif tp.Name[int(valType)] != \"\" && tp.Name[int(valType)] == tp.Name[int(patType)] && tp.Pkg[int(valType)] == tp.Pkg[int(patType)] && tp.Kind[int(valType)] == tp.Kind[int(patType)] {",
+      "to": "\tif false && tp.Name[int(valType)] != \"\" {",
+      "rule": "MatchesType matches named record types across pool entries by identical package, kind, and canonical name.",
+      "killers": ["compiler/eval:law:RecordMatchesByPkgAndName"],
+      "anchor": {"tests": ["compiler/eval:law:RecordMatchesByPkgAndName"]}
+    },
+    {
+      "name": "selfhost-eval-core-budget-steps-never-exhausts",
+      "origin": "wf10 SELFHOST-EVAL-CORE",
+      "file": "compiler/eval/vm.ergo",
+      "decl": "chargeSteps",
+      "from": "\tif vm.Budget.Steps > uint64(0) && vm.StepsUsed+cost > vm.Budget.Steps {",
+      "to": "\tif false && vm.Budget.Steps > uint64(0) && vm.StepsUsed+cost > vm.Budget.Steps {",
+      "rule": "Deterministic step-budget exhaustion halts execution with CtlIncomplete before exceeding Budget.Steps.",
+      "killers": ["compiler/eval:law:StepBudgetExhaustsBeforeInfiniteProgress"],
+      "anchor": {"tests": ["compiler/eval:law:StepBudgetExhaustsBeforeInfiniteProgress"]}
+    },
+    {
+      "name": "selfhost-eval-core-unwind-falls-through",
+      "origin": "wf10 SELFHOST-EVAL-CORE",
+      "file": "compiler/eval/vm.ergo",
+      "decl": "runVMLoop",
+      "from": "\t\t\tif !handleVMControl(prog, vm, stopFrames) {\n\t\t\t\treturn\n\t\t\t}\n\t\t\tcontinue",
+      "to": "\t\t\tif !handleVMControl(prog, vm, stopFrames) {\n\t\t\t\treturn\n\t\t\t}\n\t\t\tif vm.Frames.Len() <= stopFrames {\n\t\t\t\treturn\n\t\t\t}",
+      "rule": "Control transitions like CtlEscape -> CtlFail must restart the VM dispatch loop instead of falling through to the next caller instruction.",
+      "killers": ["compiler/eval:VMCatchHandlesEscapeAndRefutesEscapedFailure"],
+      "anchor": {"tests": ["compiler/eval:VMCatchHandlesEscapeAndRefutesEscapedFailure"]}
+    },
+    {
+      "name": "selfhost-eval-core-escaped-failure-defect",
+      "origin": "wf10 SELFHOST-EVAL-CORE",
+      "file": "compiler/eval/vm.ergo",
+      "decl": "handleVMControl",
+      "from": "\tif vm.Ctl == CtlEscape {\n\t\tlet fr = vm.Frames[vm.Frames.Len()-1]\n\t\tpopTopFrame(prog, vm)\n\t\tif vm.Frames.Len() == 0 {\n\t\t\tlet fm = prog.Fns[int(fr.FnIdx)]\n\t\t\tsetVMFault(vm, CtlFail, \"a failure escaped: \"+DescribeVal(prog.Types, prog.Arena, vm.ErrVal), fm.File, fm.Node)",
+      "to": "\tif vm.Ctl == CtlEscape {\n\t\tlet fr = vm.Frames[vm.Frames.Len()-1]\n\t\tpopTopFrame(prog, vm)\n\t\tif vm.Frames.Len() == 0 {\n\t\t\tlet fm = prog.Fns[int(fr.FnIdx)]\n\t\t\tsetVMFault(vm, CtlDefect, \"a failure escaped: \"+DescribeVal(prog.Types, prog.Arena, vm.ErrVal), fm.File, fm.Node)",
+      "rule": "An uncaught typed failure escaping an obligation must report StatusRefuted via CtlFail, never StatusDefect.",
+      "killers": ["compiler/eval:VMCatchHandlesEscapeAndRefutesEscapedFailure"],
+      "anchor": {"tests": ["compiler/eval:VMCatchHandlesEscapeAndRefutesEscapedFailure"]}
+    },
+    {
+      "name": "selfhost-eval-core-decl-key-drops-pkg",
+      "origin": "wf10 SELFHOST-EVAL-CORE",
+      "file": "compiler/eval/compile.ergo",
+      "decl": "DefNodeKeyAt",
+      "from": "\t\"\\(pkgIdx):\\(nodeIdx)\"",
+      "to": "\t\"\\(nodeIdx)\"",
+      "rule": "Declaration lookup keys must qualify definition indices with package index so distinct packages never collide.",
+      "killers": ["compiler/eval:law:DeclNodeKeysUniquePerPkg"],
+      "anchor": {"tests": ["compiler/eval:law:DeclNodeKeysUniquePerPkg"]}
+    },
+    {
+      "name": "selfhost-eval-core-std-native-drops-slices",
+      "origin": "wf10 SELFHOST-EVAL-CORE",
+      "file": "compiler/eval/builtins.ergo",
+      "decl": "ResolveStdNativeID",
+      "from": "\tif pkgPath == \"slices\" {",
+      "to": "\tif pkgPath == \"none\" {",
+      "rule": "ResolveStdNativeID must recognize pure std/slices helpers for VM intrinsic dispatch.",
+      "killers": ["compiler/eval:law:StdNativeLookupRecognizesCoreAndStdlib"],
+      "anchor": {"tests": ["compiler/eval:law:StdNativeLookupRecognizesCoreAndStdlib"]}
+    }
+  ]
+}
