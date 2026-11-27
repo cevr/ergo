@@ -113,7 +113,7 @@ func closeIgnoring(db sqlite.DB) needs go.Foreign {
 	}
 }
 
-func executeOn(opt option.Option[sqlite.DB], err string, env orchestrate.Envelope) orchestrate.ExecuteResult fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed needs go.Foreign {
+func executeOn(opt option.Option[sqlite.DB], err string, env orchestrate.Envelope) orchestrate.ExecuteResult fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed needs go.Foreign {
 	let db = try openDB(opt, err)
 	with context { sql.DB: db } {
 		sqlite.WriteTransaction() {
@@ -129,6 +129,16 @@ func executeOn(opt option.Option[sqlite.DB], err string, env orchestrate.Envelop
 	case orchestrate.Unverified as e:
 		return e
 	case orchestrate.NotAcceptedHead as e:
+		return e
+	case orchestrate.LaneHeld as e:
+		return e
+	case orchestrate.NotOwner as e:
+		return e
+	case orchestrate.LandingBusy as e:
+		return e
+	case orchestrate.StaleHead as e:
+		return e
+	case orchestrate.NoLease as e:
 		return e
 	case orchestrate.CommandReused as e:
 		return e
@@ -153,17 +163,17 @@ func executeOn(opt option.Option[sqlite.DB], err string, env orchestrate.Envelop
 
 // Execute runs pure orchestrate.Decide and persists all emitted events and projection
 // rows atomically inside one BEGIN IMMEDIATE SQLite transaction.
-func Execute(s Store, env orchestrate.Envelope) orchestrate.ExecuteResult fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed needs go.Foreign {
+func Execute(s Store, env orchestrate.Envelope) orchestrate.ExecuteResult fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed needs go.Foreign {
 	try executeOn(s.db, s.err, env)
 }
 
 // Execute runs pure orchestrate.Decide and persists all emitted events and projection
 // rows atomically inside one BEGIN IMMEDIATE SQLite WAL transaction.
-func Execute(w WALStore, env orchestrate.Envelope) orchestrate.ExecuteResult fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed needs go.Foreign {
+func Execute(w WALStore, env orchestrate.Envelope) orchestrate.ExecuteResult fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed needs go.Foreign {
 	try executeOn(w.db, w.err, env)
 }
 
-func executeTx(env orchestrate.Envelope) orchestrate.ExecuteResult fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed needs sql.Tx {
+func executeTx(env orchestrate.Envelope) orchestrate.ExecuteResult fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed needs sql.Tx {
 	let payloadJSON = encodeCommand(env.Command)
 	let digest = commandDigest(payloadJSON)
 	let seenRows = try queryTx(
@@ -198,7 +208,7 @@ func executeTx(env orchestrate.Envelope) orchestrate.ExecuteResult fails orchest
 	orchestrate.ExecuteResult{Seq: seq, Events: events, Duplicate: events.Len() == 0}
 }
 
-func decideForTx(state orchestrate.State, env orchestrate.Envelope) []orchestrate.Event fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead {
+func decideForTx(state orchestrate.State, env orchestrate.Envelope) []orchestrate.Event fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease {
 	orchestrate.Decide(state, env) catch {
 	case orchestrate.NotFound as e:
 		return e
@@ -209,6 +219,16 @@ func decideForTx(state orchestrate.State, env orchestrate.Envelope) []orchestrat
 	case orchestrate.Unverified as e:
 		return e
 	case orchestrate.NotAcceptedHead as e:
+		return e
+	case orchestrate.LaneHeld as e:
+		return e
+	case orchestrate.NotOwner as e:
+		return e
+	case orchestrate.LandingBusy as e:
+		return e
+	case orchestrate.StaleHead as e:
+		return e
+	case orchestrate.NoLease as e:
 		return e
 	case orchestrate.CommandReused as e:
 		return e
@@ -470,6 +490,7 @@ func resetStoreData(st Store) Store fails orchestrate.StoreFailed needs go.Forei
 				"DELETE FROM queue",
 				"DELETE FROM questions",
 				"DELETE FROM run_meta",
+				"DELETE FROM landing_leases",
 				"DELETE FROM decisions",
 				"DELETE FROM landings",
 				"DELETE FROM event_log",

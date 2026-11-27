@@ -175,6 +175,20 @@ func applyEventSQL(ev orchestrate.Event, seq int) fails orchestrate.StoreFailed 
 				sql.Text{S: e.UpdatedAt},
 			},
 		)
+	case orchestrate.UnitOwnerChanged as e:
+		let _ = try execTx(
+			"UPDATE units SET owner = ?, updated_at = ? WHERE repo = ? AND run = ? AND id = ?",
+			[]sql.Value{sql.Text{S: e.To}, sql.Text{S: e.At}, sql.Text{S: e.Unit.Repo}, sql.Text{S: e.Unit.Run}, sql.Text{S: e.Unit.ID}},
+		)
+	case orchestrate.LandingLeaseTaken as e:
+		let l = e.Lease
+		let _ = try execTx(
+			"INSERT INTO landing_leases (repo, run, actor, base_head, since, until) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(repo, run) DO UPDATE SET actor = excluded.actor, base_head = excluded.base_head, since = excluded.since, until = excluded.until",
+			[]sql.Value{sql.Text{S: l.Repo}, sql.Text{S: l.Run}, sql.Text{S: l.Actor}, sql.Text{S: l.BaseHead}, sql.Text{S: l.Since}, sql.Text{S: l.Until}},
+		)
+	case orchestrate.LandingLeaseTakenOver:
+	case orchestrate.LandingLeaseEnded as e:
+		let _ = try execTx("DELETE FROM landing_leases WHERE repo = ? AND run = ?", []sql.Value{sql.Text{S: e.Repo}, sql.Text{S: e.Run}})
 	case orchestrate.DecisionRecorded as e:
 		let d = e.Decision
 		let childRows = try queryTx(
@@ -256,7 +270,7 @@ func setUnitStatusTx(key orchestrate.UnitKey, status string, head sql.Value, at 
 	)
 }
 
-let unitColumns = "SELECT repo, run, id, title, requires_json, lane, branch, status, head, created_at, updated_at FROM units"
+let unitColumns = "SELECT repo, run, id, title, requires_json, lane, branch, status, head, created_at, updated_at, owner FROM units"
 
 let receiptColumns = "SELECT id, repo, run, unit_id, kind, command, head, exit_code, exit_lines, recorded_at, recorded_by FROM receipts"
 
@@ -336,6 +350,7 @@ func loadStateTx() orchestrate.State fails orchestrate.StoreFailed needs sql.Tx 
 		QuestionByCommand:  questionByCommand,
 		NextQuestionID:     try nextQuestionIDTx(),
 		RunMetas:           runMetas,
+		Leases:             try queryLeasesTx(option.None),
 		Decisions:          decisions,
 		Landings:           landings,
 		EventLog:           eventLog,
@@ -365,15 +380,32 @@ func loadScopeTx(env orchestrate.Envelope) orchestrate.State fails orchestrate.S
 	let out = orchestrate.State{..orchestrate.EmptyState(), NextQuestionID: try nextQuestionIDTx(), NextEventID: try nextEventIDTx()}
 	match env.Command {
 	case orchestrate.OpenUnit as c:
-		try scopeUnitTx(out, c.Key, option.None)
+		let withUnit = try scopeUnitTx(out, c.Key, option.None)
+		match c.Lane {
+		case option.Some[string] as lane:
+			let mut units = withUnit.Units
+			for row in try queryTx(unitColumns+" WHERE repo = ? AND lane = ? AND status IN ('open', 'accepted')", []sql.Value{sql.Text{S: c.Key.Repo}, sql.Text{S: lane.Value}}) {
+				let u = try scanUnit(row)
+				units = units.Put(u.Key, u)
+			}
+			orchestrate.State{..withUnit, Units: units}
+		case option.None:
+			withUnit
+		}
 	case orchestrate.RecordReceipt as c:
 		try scopeUnitTx(out, c.Unit, option.None)
 	case orchestrate.AcceptUnit as c:
 		try scopeUnitTx(out, c.Unit, option.Some[string]{Value: c.Head})
 	case orchestrate.LandUnit as c:
-		try scopeUnitTx(out, c.Unit, option.Some[string]{Value: c.Head})
+		try scopeRunTx(try scopeUnitTx(out, c.Unit, option.Some[string]{Value: c.Head}), c.Unit.Repo, c.Unit.Run)
 	case orchestrate.CloseUnit as c:
 		try scopeUnitTx(out, c.Unit, option.None)
+	case orchestrate.TransferUnit as c:
+		try scopeUnitTx(out, c.Unit, option.None)
+	case orchestrate.BeginLanding as c:
+		try scopeRunTx(out, c.Repo, c.Run)
+	case orchestrate.EndLanding as c:
+		try scopeRunTx(out, c.Repo, c.Run)
 	case orchestrate.AddCommitment as c:
 		try scopeCommitmentTx(out, c.ID)
 	case orchestrate.AssignCommitment as c:
@@ -399,7 +431,7 @@ func loadScopeTx(env orchestrate.Envelope) orchestrate.State fails orchestrate.S
 		case option.None:
 			out
 		}
-	case orchestrate.SetRunHead, orchestrate.RecordDecision, orchestrate.RecordLanding:
+	case orchestrate.RecordDecision, orchestrate.RecordLanding:
 		out
 	case orchestrate.RecordLedgerEvent as c:
 		match c.SourceKey {
@@ -427,8 +459,42 @@ func loadScopeTx(env orchestrate.Envelope) orchestrate.State fails orchestrate.S
 			let eid = try intAt(row, 1, "id")
 			keys = keys.Put(orchestrate.EventSourceKey{Repo: c.Repo, Run: c.Run, SourceKey: sk}, eid)
 		}
-		orchestrate.State{..out, EventLogSourceKeys: keys}
+		try scopeRunTx(orchestrate.State{..out, EventLogSourceKeys: keys}, c.Repo, c.Run)
 	}
+}
+
+func scopeRunTx(out orchestrate.State, repo string, run string) orchestrate.State fails orchestrate.StoreFailed needs sql.Tx {
+	let rk = orchestrate.RunKey{Repo: repo, Run: run}
+	let metas = match try queryRunMetaTx(repo, run) {
+	case option.Some[orchestrate.RunMeta] as m:
+		out.RunMetas.Put(rk, m.Value)
+	case option.None:
+		out.RunMetas
+	}
+	orchestrate.State{..out, RunMetas: metas, Leases: try queryLeasesTx(option.Some[orchestrate.RunKey]{Value: rk})}
+}
+
+func queryLeasesTx(only option.Option[orchestrate.RunKey]) Map[orchestrate.RunKey, orchestrate.LandingLease] fails orchestrate.StoreFailed needs sql.Tx {
+	let cols = "SELECT repo, run, actor, base_head, since, until FROM landing_leases"
+	let rows = match only {
+	case option.Some[orchestrate.RunKey] as k:
+		try queryTx(cols+" WHERE repo = ? AND run = ?", []sql.Value{sql.Text{S: k.Value.Repo}, sql.Text{S: k.Value.Run}})
+	case option.None:
+		try queryTx(cols, []sql.Value{})
+	}
+	let mut out = Map[orchestrate.RunKey, orchestrate.LandingLease]{}
+	for row in rows {
+		let l = orchestrate.LandingLease{
+			Repo:     try textAt(row, 0, "repo"),
+			Run:      try textAt(row, 1, "run"),
+			Actor:    try textAt(row, 2, "actor"),
+			BaseHead: try textAt(row, 3, "base_head"),
+			Since:    try textAt(row, 4, "since"),
+			Until:    try textAt(row, 5, "until"),
+		}
+		out = out.Put(orchestrate.RunKey{Repo: l.Repo, Run: l.Run}, l)
+	}
+	out
 }
 
 func scopeUnitTx(out orchestrate.State, key orchestrate.UnitKey, head option.Option[string]) orchestrate.State fails orchestrate.StoreFailed needs sql.Tx {
@@ -607,6 +673,7 @@ func scanUnit(row sql.Row) orchestrate.Unit fails orchestrate.StoreFailed {
 	}
 	orchestrate.Unit{
 		Key:       orchestrate.UnitKey{Repo: try textAt(row, 0, "repo"), Run: try textAt(row, 1, "run"), ID: try textAt(row, 2, "id")},
+		Owner:     try textAt(row, 11, "owner"),
 		Title:     try textAt(row, 3, "title"),
 		Requires:  try decodeTags(try textAt(row, 4, "requires_json")),
 		Lane:      try optTextAt(row, 5, "lane"),

@@ -291,6 +291,15 @@ func ProjectStoredEvent(stored StoredEvent) option.Option[EventStreamEntry] {
 		option.Some[EventStreamEntry]{Value: makeTransitionEntry(seq, "global", "global", "question-withdrawn", option.None, "question #\(e.ID) withdrawn", e.AnsweredBy, e.AnsweredAt)}
 	case RunHeadUpdated as e:
 		option.Some[EventStreamEntry]{Value: makeTransitionEntry(seq, e.Repo, e.Run, "run-head-updated", option.None, "main head set to \(e.Head)", "ledger", e.UpdatedAt)}
+	case UnitOwnerChanged as e:
+		option.Some[EventStreamEntry]{Value: makeTransitionEntry(seq, e.Unit.Repo, e.Unit.Run, "unit-owner-changed", option.Some[string]{Value: e.Unit.ID}, "unit \(e.Unit.ID) owner \(e.From) -> \(e.To)", e.To, e.At)}
+	case LandingLeaseTaken as e:
+		let l = e.Lease
+		option.Some[EventStreamEntry]{Value: makeTransitionEntry(seq, l.Repo, l.Run, "landing-lease-taken", option.None, "landing lease taken from \(l.BaseHead) until \(l.Until)", l.Actor, l.Since)}
+	case LandingLeaseTakenOver as e:
+		option.Some[EventStreamEntry]{Value: makeTransitionEntry(seq, e.Repo, e.Run, "landing-lease-taken-over", option.None, "expired landing lease of \(e.From) (since \(e.FromSince)) taken over", e.To, e.At)}
+	case LandingLeaseEnded as e:
+		option.Some[EventStreamEntry]{Value: makeTransitionEntry(seq, e.Repo, e.Run, "landing-lease-ended", option.None, "landing lease ended", e.Actor, e.At)}
 	case DecisionRecorded as e:
 		let d = e.Decision
 		option.Some[EventStreamEntry]{Value: makeTransitionEntry(seq, d.Repo, d.Run, "decision-recorded", d.UnitID, "\(d.ID): \(d.Title)", d.Actor, d.CreatedAt)}
@@ -479,7 +488,7 @@ law ProjectStoredEventCoversDomainTransitions(tag int) {
 	let mut state = EmptyState()
 	let envs = []Envelope{
 		Envelope{ID: CommandID("pe-1-\(tag)"), Actor: "root", At: "2026-11-26T00:00:00Z", Command: OpenUnit{Key: key, Title: "One", Requires: []string{"test"}, Lane: option.None, Branch: option.None}},
-		Envelope{ID: CommandID("pe-2-\(tag)"), Actor: "w", At: "2026-11-26T00:01:00Z", Command: RecordReceipt{Unit: key, Kind: "test", Command: "ergo test", Head: "h1", ExitCode: 0, ExitLines: "ok"}},
+		Envelope{ID: CommandID("pe-2-\(tag)"), Actor: "root", At: "2026-11-26T00:01:00Z", Command: RecordReceipt{Unit: key, Kind: "test", Command: "ergo test", Head: "h1", ExitCode: 0, ExitLines: "ok"}},
 		Envelope{ID: CommandID("pe-3-\(tag)"), Actor: "root", At: "2026-11-26T00:02:00Z", Command: AcceptUnit{Unit: key, Head: "h1"}},
 		Envelope{ID: CommandID("pe-4-\(tag)"), Actor: "root", At: "2026-11-26T00:03:00Z", Command: RecordLedgerEvent{Repo: "repo", Run: "p-\(tag)", Kind: "hand-back", UnitID: option.Some[string]{Value: "u1"}, Summary: "ready", SourceKey: option.None, CreatedAt: option.None}},
 	}
@@ -502,7 +511,7 @@ law ProjectStoredEventCoversDomainTransitions(tag int) {
 		case option.None:
 		}
 	}
-	let mut ordered = projected.Len() == 4
+	let mut ordered = projected.Len() == 5
 	let mut prev = 0
 	for p in projected {
 		if p.Cursor <= prev {
@@ -512,7 +521,8 @@ law ProjectStoredEventCoversDomainTransitions(tag int) {
 	}
 		ordered &&
 		projected[0].Kind == "unit-opened" &&
-		projected[1].Kind == "receipt-recorded" &&
-		projected[2].Kind == "unit-accepted" &&
-		projected[3].Kind == "hand-back"
+		projected[1].Kind == "unit-owner-changed" &&
+		projected[2].Kind == "receipt-recorded" &&
+		projected[3].Kind == "unit-accepted" &&
+		projected[4].Kind == "hand-back"
 }

@@ -35,7 +35,7 @@ func untagged(v json.Value) json.Value {
 }
 
 // Names are the tools' names, one per operation of orchestrate.Api, in its order.
-let Names = []string{"unit-open", "receipt-record", "unit-state", "unit-accept", "unit-land", "unit-close", "commitment-add", "commitment-assign", "commitment-land", "commitment-decide", "commitment-list", "queue-upsert", "queue-remove", "queue-list", "question-ask", "question-answer", "question-list", "run-head-set", "run-summary", "unit-list", "decision-record", "decision-list", "landing-record", "landing-list", "event-record", "event-log", "import-plan", "host-status", "host-processes", "host-readiness", "events-since"}
+let Names = []string{"unit-open", "receipt-record", "unit-state", "unit-accept", "unit-land", "unit-close", "commitment-add", "commitment-assign", "commitment-land", "commitment-decide", "commitment-list", "queue-upsert", "queue-remove", "queue-list", "question-ask", "question-answer", "question-list", "unit-transfer", "landing-begin", "landing-end", "run-summary", "unit-list", "decision-record", "decision-list", "landing-record", "landing-list", "event-record", "event-log", "import-plan", "host-status", "host-processes", "host-readiness", "events-since"}
 
 // Description is what the tool name does: its operation's doc comment,
 // or its signature (the hub's Doc).
@@ -75,8 +75,12 @@ func Description(name string) string {
 		orchestrateapi.Doc(orchestrateapi.QuestionAnswerOp)
 	case "question-list":
 		orchestrateapi.Doc(orchestrateapi.QuestionListOp)
-	case "run-head-set":
-		orchestrateapi.Doc(orchestrateapi.RunHeadSetOp)
+	case "unit-transfer":
+		orchestrateapi.Doc(orchestrateapi.UnitTransferOp)
+	case "landing-begin":
+		orchestrateapi.Doc(orchestrateapi.LandingBeginOp)
+	case "landing-end":
+		orchestrateapi.Doc(orchestrateapi.LandingEndOp)
 	case "run-summary":
 		orchestrateapi.Doc(orchestrateapi.RunSummaryOp)
 	case "unit-list":
@@ -147,8 +151,12 @@ func Input(name string) json.Value {
 		orchestrateapi.Schema(orchestrateapi.QuestionAnswerOp)
 	case "question-list":
 		orchestrateapi.Schema(orchestrateapi.QuestionListOp)
-	case "run-head-set":
-		orchestrateapi.Schema(orchestrateapi.RunHeadSetOp)
+	case "unit-transfer":
+		orchestrateapi.Schema(orchestrateapi.UnitTransferOp)
+	case "landing-begin":
+		orchestrateapi.Schema(orchestrateapi.LandingBeginOp)
+	case "landing-end":
+		orchestrateapi.Schema(orchestrateapi.LandingEndOp)
 	case "run-summary":
 		orchestrateapi.Schema(orchestrateapi.RunSummaryOp)
 	case "unit-list":
@@ -219,8 +227,12 @@ func Call(name string, arguments json.Value) Request fails mcp.ToolError | mcp.U
 		rpc.Tagged("QuestionAnswerRequest", "{\"input\":"+textOf(arguments)+"}")
 	case "question-list":
 		rpc.Tagged("QuestionListRequest", "{\"input\":"+textOf(arguments)+"}")
-	case "run-head-set":
-		rpc.Tagged("RunHeadSetRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "unit-transfer":
+		rpc.Tagged("UnitTransferRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "landing-begin":
+		rpc.Tagged("LandingBeginRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "landing-end":
+		rpc.Tagged("LandingEndRequest", "{\"input\":"+textOf(arguments)+"}")
 	case "run-summary":
 		rpc.Tagged("RunSummaryRequest", "{\"input\":"+textOf(arguments)+"}")
 	case "unit-list":
@@ -294,8 +306,12 @@ func Arguments(r Request) (string, json.Value) {
 		("question-answer", untagged(valueOf(rpc.Encode(x.Input))))
 	case orchestrateapi.QuestionListRequest as x:
 		("question-list", untagged(valueOf(rpc.Encode(x.Input))))
-	case orchestrateapi.RunHeadSetRequest as x:
-		("run-head-set", untagged(valueOf(rpc.Encode(x.Input))))
+	case orchestrateapi.UnitTransferRequest as x:
+		("unit-transfer", untagged(valueOf(rpc.Encode(x.Input))))
+	case orchestrateapi.LandingBeginRequest as x:
+		("landing-begin", untagged(valueOf(rpc.Encode(x.Input))))
+	case orchestrateapi.LandingEndRequest as x:
+		("landing-end", untagged(valueOf(rpc.Encode(x.Input))))
 	case orchestrateapi.RunSummaryRequest as x:
 		("run-summary", untagged(valueOf(rpc.Encode(x.Input))))
 	case orchestrateapi.UnitListRequest as x:
@@ -366,7 +382,11 @@ func Show(o orchestrateapi.Outcome) json.Value fails mcp.ToolError {
 			valueOf(rpc.Encode(reply.Value))
 		case orchestrateapi.QuestionListReply as reply:
 			valueOf(rpc.Encode(reply.Value))
-		case orchestrateapi.RunHeadSetReply as reply:
+		case orchestrateapi.UnitTransferReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case orchestrateapi.LandingBeginReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case orchestrateapi.LandingEndReply as reply:
 			valueOf(rpc.Encode(reply.Value))
 		case orchestrateapi.RunSummaryReply as reply:
 			valueOf(rpc.Encode(reply.Value))
@@ -411,6 +431,16 @@ func Show(o orchestrateapi.Outcome) json.Value fails mcp.ToolError {
 			return mcp.ToolError{Message: rpc.Tagged("Unverified", rpc.Encode(failure.E))}
 		case orchestrateapi.NotAcceptedHead as failure:
 			return mcp.ToolError{Message: rpc.Tagged("NotAcceptedHead", rpc.Encode(failure.E))}
+		case orchestrateapi.LaneHeld as failure:
+			return mcp.ToolError{Message: rpc.Tagged("LaneHeld", rpc.Encode(failure.E))}
+		case orchestrateapi.NotOwner as failure:
+			return mcp.ToolError{Message: rpc.Tagged("NotOwner", rpc.Encode(failure.E))}
+		case orchestrateapi.LandingBusy as failure:
+			return mcp.ToolError{Message: rpc.Tagged("LandingBusy", rpc.Encode(failure.E))}
+		case orchestrateapi.StaleHead as failure:
+			return mcp.ToolError{Message: rpc.Tagged("StaleHead", rpc.Encode(failure.E))}
+		case orchestrateapi.NoLease as failure:
+			return mcp.ToolError{Message: rpc.Tagged("NoLease", rpc.Encode(failure.E))}
 		case orchestrateapi.StoreFailed as failure:
 			return mcp.ToolError{Message: rpc.Tagged("StoreFailed", rpc.Encode(failure.E))}
 		case orchestrateapi.Unavailable as failure:
@@ -489,9 +519,15 @@ func ReadAnswer(r Request, result mcp.Called) orchestrateapi.Outcome fails rpc.T
 		case orchestrateapi.QuestionListRequest:
 			let v = try rpc.Decode[[]orchestrate.Question]("value", text)
 			orchestrateapi.Done{Reply: orchestrateapi.QuestionListReply{Value: v}}
-		case orchestrateapi.RunHeadSetRequest:
+		case orchestrateapi.UnitTransferRequest:
+			let v = try rpc.Decode[orchestrate.Unit]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.UnitTransferReply{Value: v}}
+		case orchestrateapi.LandingBeginRequest:
+			let v = try rpc.Decode[orchestrate.LandingLease]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.LandingBeginReply{Value: v}}
+		case orchestrateapi.LandingEndRequest:
 			let v = try rpc.Decode[orchestrate.RunMeta]("value", text)
-			orchestrateapi.Done{Reply: orchestrateapi.RunHeadSetReply{Value: v}}
+			orchestrateapi.Done{Reply: orchestrateapi.LandingEndReply{Value: v}}
 		case orchestrateapi.RunSummaryRequest:
 			let v = try rpc.Decode[orchestrate.RunOverview]("value", text)
 			orchestrateapi.Done{Reply: orchestrateapi.RunSummaryReply{Value: v}}
@@ -557,6 +593,21 @@ func ReadAnswer(r Request, result mcp.Called) orchestrateapi.Outcome fails rpc.T
 			case "NotAcceptedHead":
 				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "LaneHeld":
+				let e = try rpc.Decode[orchestrate.LaneHeld]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LaneHeld{E: e}}
+			case "NotOwner":
+				let e = try rpc.Decode[orchestrate.NotOwner]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotOwner{E: e}}
+			case "LandingBusy":
+				let e = try rpc.Decode[orchestrate.LandingBusy]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LandingBusy{E: e}}
+			case "StaleHead":
+				let e = try rpc.Decode[orchestrate.StaleHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StaleHead{E: e}}
+			case "NoLease":
+				let e = try rpc.Decode[orchestrate.NoLease]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NoLease{E: e}}
 			case "StoreFailed":
 				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
@@ -586,6 +637,21 @@ func ReadAnswer(r Request, result mcp.Called) orchestrateapi.Outcome fails rpc.T
 			case "NotAcceptedHead":
 				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "LaneHeld":
+				let e = try rpc.Decode[orchestrate.LaneHeld]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LaneHeld{E: e}}
+			case "NotOwner":
+				let e = try rpc.Decode[orchestrate.NotOwner]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotOwner{E: e}}
+			case "LandingBusy":
+				let e = try rpc.Decode[orchestrate.LandingBusy]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LandingBusy{E: e}}
+			case "StaleHead":
+				let e = try rpc.Decode[orchestrate.StaleHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StaleHead{E: e}}
+			case "NoLease":
+				let e = try rpc.Decode[orchestrate.NoLease]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NoLease{E: e}}
 			case "StoreFailed":
 				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
@@ -629,6 +695,21 @@ func ReadAnswer(r Request, result mcp.Called) orchestrateapi.Outcome fails rpc.T
 			case "NotAcceptedHead":
 				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "LaneHeld":
+				let e = try rpc.Decode[orchestrate.LaneHeld]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LaneHeld{E: e}}
+			case "NotOwner":
+				let e = try rpc.Decode[orchestrate.NotOwner]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotOwner{E: e}}
+			case "LandingBusy":
+				let e = try rpc.Decode[orchestrate.LandingBusy]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LandingBusy{E: e}}
+			case "StaleHead":
+				let e = try rpc.Decode[orchestrate.StaleHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StaleHead{E: e}}
+			case "NoLease":
+				let e = try rpc.Decode[orchestrate.NoLease]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NoLease{E: e}}
 			case "StoreFailed":
 				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
@@ -658,6 +739,21 @@ func ReadAnswer(r Request, result mcp.Called) orchestrateapi.Outcome fails rpc.T
 			case "NotAcceptedHead":
 				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "LaneHeld":
+				let e = try rpc.Decode[orchestrate.LaneHeld]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LaneHeld{E: e}}
+			case "NotOwner":
+				let e = try rpc.Decode[orchestrate.NotOwner]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotOwner{E: e}}
+			case "LandingBusy":
+				let e = try rpc.Decode[orchestrate.LandingBusy]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LandingBusy{E: e}}
+			case "StaleHead":
+				let e = try rpc.Decode[orchestrate.StaleHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StaleHead{E: e}}
+			case "NoLease":
+				let e = try rpc.Decode[orchestrate.NoLease]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NoLease{E: e}}
 			case "StoreFailed":
 				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
@@ -687,6 +783,21 @@ func ReadAnswer(r Request, result mcp.Called) orchestrateapi.Outcome fails rpc.T
 			case "NotAcceptedHead":
 				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "LaneHeld":
+				let e = try rpc.Decode[orchestrate.LaneHeld]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LaneHeld{E: e}}
+			case "NotOwner":
+				let e = try rpc.Decode[orchestrate.NotOwner]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotOwner{E: e}}
+			case "LandingBusy":
+				let e = try rpc.Decode[orchestrate.LandingBusy]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LandingBusy{E: e}}
+			case "StaleHead":
+				let e = try rpc.Decode[orchestrate.StaleHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StaleHead{E: e}}
+			case "NoLease":
+				let e = try rpc.Decode[orchestrate.NoLease]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NoLease{E: e}}
 			case "StoreFailed":
 				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
@@ -716,6 +827,21 @@ func ReadAnswer(r Request, result mcp.Called) orchestrateapi.Outcome fails rpc.T
 			case "NotAcceptedHead":
 				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "LaneHeld":
+				let e = try rpc.Decode[orchestrate.LaneHeld]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LaneHeld{E: e}}
+			case "NotOwner":
+				let e = try rpc.Decode[orchestrate.NotOwner]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotOwner{E: e}}
+			case "LandingBusy":
+				let e = try rpc.Decode[orchestrate.LandingBusy]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LandingBusy{E: e}}
+			case "StaleHead":
+				let e = try rpc.Decode[orchestrate.StaleHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StaleHead{E: e}}
+			case "NoLease":
+				let e = try rpc.Decode[orchestrate.NoLease]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NoLease{E: e}}
 			case "StoreFailed":
 				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
@@ -745,6 +871,21 @@ func ReadAnswer(r Request, result mcp.Called) orchestrateapi.Outcome fails rpc.T
 			case "NotAcceptedHead":
 				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "LaneHeld":
+				let e = try rpc.Decode[orchestrate.LaneHeld]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LaneHeld{E: e}}
+			case "NotOwner":
+				let e = try rpc.Decode[orchestrate.NotOwner]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotOwner{E: e}}
+			case "LandingBusy":
+				let e = try rpc.Decode[orchestrate.LandingBusy]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LandingBusy{E: e}}
+			case "StaleHead":
+				let e = try rpc.Decode[orchestrate.StaleHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StaleHead{E: e}}
+			case "NoLease":
+				let e = try rpc.Decode[orchestrate.NoLease]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NoLease{E: e}}
 			case "StoreFailed":
 				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
@@ -774,6 +915,21 @@ func ReadAnswer(r Request, result mcp.Called) orchestrateapi.Outcome fails rpc.T
 			case "NotAcceptedHead":
 				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "LaneHeld":
+				let e = try rpc.Decode[orchestrate.LaneHeld]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LaneHeld{E: e}}
+			case "NotOwner":
+				let e = try rpc.Decode[orchestrate.NotOwner]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotOwner{E: e}}
+			case "LandingBusy":
+				let e = try rpc.Decode[orchestrate.LandingBusy]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LandingBusy{E: e}}
+			case "StaleHead":
+				let e = try rpc.Decode[orchestrate.StaleHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StaleHead{E: e}}
+			case "NoLease":
+				let e = try rpc.Decode[orchestrate.NoLease]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NoLease{E: e}}
 			case "StoreFailed":
 				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
@@ -803,6 +959,21 @@ func ReadAnswer(r Request, result mcp.Called) orchestrateapi.Outcome fails rpc.T
 			case "NotAcceptedHead":
 				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "LaneHeld":
+				let e = try rpc.Decode[orchestrate.LaneHeld]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LaneHeld{E: e}}
+			case "NotOwner":
+				let e = try rpc.Decode[orchestrate.NotOwner]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotOwner{E: e}}
+			case "LandingBusy":
+				let e = try rpc.Decode[orchestrate.LandingBusy]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LandingBusy{E: e}}
+			case "StaleHead":
+				let e = try rpc.Decode[orchestrate.StaleHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StaleHead{E: e}}
+			case "NoLease":
+				let e = try rpc.Decode[orchestrate.NoLease]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NoLease{E: e}}
 			case "StoreFailed":
 				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
@@ -843,6 +1014,21 @@ func ReadAnswer(r Request, result mcp.Called) orchestrateapi.Outcome fails rpc.T
 			case "NotAcceptedHead":
 				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "LaneHeld":
+				let e = try rpc.Decode[orchestrate.LaneHeld]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LaneHeld{E: e}}
+			case "NotOwner":
+				let e = try rpc.Decode[orchestrate.NotOwner]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotOwner{E: e}}
+			case "LandingBusy":
+				let e = try rpc.Decode[orchestrate.LandingBusy]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LandingBusy{E: e}}
+			case "StaleHead":
+				let e = try rpc.Decode[orchestrate.StaleHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StaleHead{E: e}}
+			case "NoLease":
+				let e = try rpc.Decode[orchestrate.NoLease]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NoLease{E: e}}
 			case "StoreFailed":
 				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
@@ -872,6 +1058,21 @@ func ReadAnswer(r Request, result mcp.Called) orchestrateapi.Outcome fails rpc.T
 			case "NotAcceptedHead":
 				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "LaneHeld":
+				let e = try rpc.Decode[orchestrate.LaneHeld]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LaneHeld{E: e}}
+			case "NotOwner":
+				let e = try rpc.Decode[orchestrate.NotOwner]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotOwner{E: e}}
+			case "LandingBusy":
+				let e = try rpc.Decode[orchestrate.LandingBusy]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LandingBusy{E: e}}
+			case "StaleHead":
+				let e = try rpc.Decode[orchestrate.StaleHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StaleHead{E: e}}
+			case "NoLease":
+				let e = try rpc.Decode[orchestrate.NoLease]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NoLease{E: e}}
 			case "StoreFailed":
 				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
@@ -912,6 +1113,21 @@ func ReadAnswer(r Request, result mcp.Called) orchestrateapi.Outcome fails rpc.T
 			case "NotAcceptedHead":
 				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "LaneHeld":
+				let e = try rpc.Decode[orchestrate.LaneHeld]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LaneHeld{E: e}}
+			case "NotOwner":
+				let e = try rpc.Decode[orchestrate.NotOwner]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotOwner{E: e}}
+			case "LandingBusy":
+				let e = try rpc.Decode[orchestrate.LandingBusy]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LandingBusy{E: e}}
+			case "StaleHead":
+				let e = try rpc.Decode[orchestrate.StaleHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StaleHead{E: e}}
+			case "NoLease":
+				let e = try rpc.Decode[orchestrate.NoLease]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NoLease{E: e}}
 			case "StoreFailed":
 				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
@@ -941,6 +1157,21 @@ func ReadAnswer(r Request, result mcp.Called) orchestrateapi.Outcome fails rpc.T
 			case "NotAcceptedHead":
 				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "LaneHeld":
+				let e = try rpc.Decode[orchestrate.LaneHeld]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LaneHeld{E: e}}
+			case "NotOwner":
+				let e = try rpc.Decode[orchestrate.NotOwner]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotOwner{E: e}}
+			case "LandingBusy":
+				let e = try rpc.Decode[orchestrate.LandingBusy]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LandingBusy{E: e}}
+			case "StaleHead":
+				let e = try rpc.Decode[orchestrate.StaleHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StaleHead{E: e}}
+			case "NoLease":
+				let e = try rpc.Decode[orchestrate.NoLease]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NoLease{E: e}}
 			case "StoreFailed":
 				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
@@ -955,7 +1186,7 @@ func ReadAnswer(r Request, result mcp.Called) orchestrateapi.Outcome fails rpc.T
 			case _:
 				return rpc.Transport{Reason: "the tool question-list answered an undeclared failure: " + text}
 			}
-		case orchestrateapi.RunHeadSetRequest:
+		case orchestrateapi.UnitTransferRequest:
 			match rpc.TagOf(text) {
 			case "NotFound":
 				let e = try rpc.Decode[orchestrate.NotFound]("failure", text)
@@ -978,11 +1209,114 @@ func ReadAnswer(r Request, result mcp.Called) orchestrateapi.Outcome fails rpc.T
 			case "NotAcceptedHead":
 				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "LaneHeld":
+				let e = try rpc.Decode[orchestrate.LaneHeld]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LaneHeld{E: e}}
+			case "NotOwner":
+				let e = try rpc.Decode[orchestrate.NotOwner]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotOwner{E: e}}
+			case "LandingBusy":
+				let e = try rpc.Decode[orchestrate.LandingBusy]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LandingBusy{E: e}}
+			case "StaleHead":
+				let e = try rpc.Decode[orchestrate.StaleHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StaleHead{E: e}}
+			case "NoLease":
+				let e = try rpc.Decode[orchestrate.NoLease]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NoLease{E: e}}
 			case "StoreFailed":
 				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
 			case _:
-				return rpc.Transport{Reason: "the tool run-head-set answered an undeclared failure: " + text}
+				return rpc.Transport{Reason: "the tool unit-transfer answered an undeclared failure: " + text}
+			}
+		case orchestrateapi.LandingBeginRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[orchestrate.NotFound]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[orchestrate.AlreadyExists]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[orchestrate.InvalidTransition]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[orchestrate.CommandReused]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "Unverified":
+				let e = try rpc.Decode[orchestrate.Unverified]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.Unverified{E: e}}
+			case "NotAcceptedHead":
+				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "LaneHeld":
+				let e = try rpc.Decode[orchestrate.LaneHeld]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LaneHeld{E: e}}
+			case "NotOwner":
+				let e = try rpc.Decode[orchestrate.NotOwner]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotOwner{E: e}}
+			case "LandingBusy":
+				let e = try rpc.Decode[orchestrate.LandingBusy]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LandingBusy{E: e}}
+			case "StaleHead":
+				let e = try rpc.Decode[orchestrate.StaleHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StaleHead{E: e}}
+			case "NoLease":
+				let e = try rpc.Decode[orchestrate.NoLease]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NoLease{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool landing-begin answered an undeclared failure: " + text}
+			}
+		case orchestrateapi.LandingEndRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[orchestrate.NotFound]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[orchestrate.AlreadyExists]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[orchestrate.InvalidTransition]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[orchestrate.CommandReused]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "Unverified":
+				let e = try rpc.Decode[orchestrate.Unverified]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.Unverified{E: e}}
+			case "NotAcceptedHead":
+				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "LaneHeld":
+				let e = try rpc.Decode[orchestrate.LaneHeld]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LaneHeld{E: e}}
+			case "NotOwner":
+				let e = try rpc.Decode[orchestrate.NotOwner]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotOwner{E: e}}
+			case "LandingBusy":
+				let e = try rpc.Decode[orchestrate.LandingBusy]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LandingBusy{E: e}}
+			case "StaleHead":
+				let e = try rpc.Decode[orchestrate.StaleHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StaleHead{E: e}}
+			case "NoLease":
+				let e = try rpc.Decode[orchestrate.NoLease]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NoLease{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool landing-end answered an undeclared failure: " + text}
 			}
 		case orchestrateapi.RunSummaryRequest:
 			match rpc.TagOf(text) {
@@ -1029,6 +1363,21 @@ func ReadAnswer(r Request, result mcp.Called) orchestrateapi.Outcome fails rpc.T
 			case "NotAcceptedHead":
 				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "LaneHeld":
+				let e = try rpc.Decode[orchestrate.LaneHeld]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LaneHeld{E: e}}
+			case "NotOwner":
+				let e = try rpc.Decode[orchestrate.NotOwner]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotOwner{E: e}}
+			case "LandingBusy":
+				let e = try rpc.Decode[orchestrate.LandingBusy]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LandingBusy{E: e}}
+			case "StaleHead":
+				let e = try rpc.Decode[orchestrate.StaleHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StaleHead{E: e}}
+			case "NoLease":
+				let e = try rpc.Decode[orchestrate.NoLease]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NoLease{E: e}}
 			case "StoreFailed":
 				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
@@ -1069,6 +1418,21 @@ func ReadAnswer(r Request, result mcp.Called) orchestrateapi.Outcome fails rpc.T
 			case "NotAcceptedHead":
 				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "LaneHeld":
+				let e = try rpc.Decode[orchestrate.LaneHeld]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LaneHeld{E: e}}
+			case "NotOwner":
+				let e = try rpc.Decode[orchestrate.NotOwner]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotOwner{E: e}}
+			case "LandingBusy":
+				let e = try rpc.Decode[orchestrate.LandingBusy]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LandingBusy{E: e}}
+			case "StaleHead":
+				let e = try rpc.Decode[orchestrate.StaleHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StaleHead{E: e}}
+			case "NoLease":
+				let e = try rpc.Decode[orchestrate.NoLease]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NoLease{E: e}}
 			case "StoreFailed":
 				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
@@ -1109,6 +1473,21 @@ func ReadAnswer(r Request, result mcp.Called) orchestrateapi.Outcome fails rpc.T
 			case "NotAcceptedHead":
 				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "LaneHeld":
+				let e = try rpc.Decode[orchestrate.LaneHeld]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LaneHeld{E: e}}
+			case "NotOwner":
+				let e = try rpc.Decode[orchestrate.NotOwner]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotOwner{E: e}}
+			case "LandingBusy":
+				let e = try rpc.Decode[orchestrate.LandingBusy]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LandingBusy{E: e}}
+			case "StaleHead":
+				let e = try rpc.Decode[orchestrate.StaleHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StaleHead{E: e}}
+			case "NoLease":
+				let e = try rpc.Decode[orchestrate.NoLease]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NoLease{E: e}}
 			case "StoreFailed":
 				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
@@ -1149,6 +1528,21 @@ func ReadAnswer(r Request, result mcp.Called) orchestrateapi.Outcome fails rpc.T
 			case "NotAcceptedHead":
 				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "LaneHeld":
+				let e = try rpc.Decode[orchestrate.LaneHeld]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LaneHeld{E: e}}
+			case "NotOwner":
+				let e = try rpc.Decode[orchestrate.NotOwner]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotOwner{E: e}}
+			case "LandingBusy":
+				let e = try rpc.Decode[orchestrate.LandingBusy]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LandingBusy{E: e}}
+			case "StaleHead":
+				let e = try rpc.Decode[orchestrate.StaleHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StaleHead{E: e}}
+			case "NoLease":
+				let e = try rpc.Decode[orchestrate.NoLease]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NoLease{E: e}}
 			case "StoreFailed":
 				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}

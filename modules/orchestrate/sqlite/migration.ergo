@@ -41,6 +41,7 @@ func CheckMigrationV2ToV3(_ livePersistence) bool needs go.Foreign {
 			let _ = try execTx("INSERT INTO events (seq, command_id, payload_digest, event_json) VALUES (2, 'v2-c1', ?, ?)", []sql.Value{sql.Text{S: commandDigest(p1)}, sql.Text{S: ev2}})
 			let _ = try execTx("INSERT INTO units (repo, run, id, title, requires_json, lane, branch, status, head, created_at, updated_at) VALUES ('repo', 'v2run', 'u-open', 'Open v2 unit', '[\"test\"]', '/lane/1', 'b1', 'open', NULL, '2026-11-25T00:00:00Z', '2026-11-25T00:00:00Z')", []sql.Value{})
 			let _ = try execTx("INSERT INTO units (repo, run, id, title, requires_json, lane, branch, status, head, created_at, updated_at) VALUES ('repo', 'v2run', 'u-landed', 'Landed v2 unit', '[\"test\"]', NULL, NULL, 'landed', 'abc1234', '2026-11-25T00:01:00Z', '2026-11-25T00:02:00Z')", []sql.Value{})
+			let _ = try execTx("INSERT INTO units (repo, run, id, title, requires_json, lane, branch, status, head, created_at, updated_at) VALUES ('repo', 'v2run', 'u-orphan', 'Unit with no events', '[\"test\"]', '/lane/2', NULL, 'open', NULL, '2026-11-25T00:03:00Z', '2026-11-25T00:03:00Z')", []sql.Value{})
 			let _ = try execTx("INSERT INTO receipts (id, seq_order, repo, run, unit_id, kind, command, head, exit_code, exit_lines, recorded_at, recorded_by) VALUES ('rec-v2-1', 1, 'repo', 'v2run', 'u-landed', 'test', 'ergo test', 'abc1234', 0, 'PASS (1 test)', '2026-11-25T00:01:30Z', 'worker')", []sql.Value{})
 			let _ = try execTx("INSERT INTO commitments (id, title, kind, status, owner, lane, landed_sha, decision_note, created_at, updated_at) VALUES ('cm-v2', 'Keep v2 rows', 'migration', 'assigned', 'w1', '/lane/1', NULL, NULL, '2026-11-25T00:00:00Z', '2026-11-25T00:00:00Z')", []sql.Value{})
 			let _ = try execTx("INSERT INTO queue (key, priority, title, body, status, tags_json, updated_at) VALUES ('q-v2', 1, 'Queued v2', 'survives migration', 'open', '[\"v2\"]', '2026-11-25T00:00:00Z')", []sql.Value{})
@@ -165,6 +166,27 @@ func CheckMigrationV2ToV3(_ livePersistence) bool needs go.Foreign {
 		cleanupVerifyDB(dir, name)
 		return false
 	}
+	let orphanKey = orchestrate.UnitKey{Repo: "repo", Run: "v2run", ID: "u-orphan"}
+	let claimed = st.Execute(orchestrate.Envelope{ID: orchestrate.CommandID("v4-claim"), Actor: "agy-neon", At: "2026-11-26T10:02:00Z", Command: orchestrate.TransferUnit{Unit: orphanKey, To: "agy-neon"}}) catch {
+	case _:
+		st.Close() catch {
+		case orchestrate.StoreFailed:
+		}
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let mut claimedTwice = false
+	let _ = st.Execute(orchestrate.Envelope{ID: orchestrate.CommandID("v4-claim-again"), Actor: "opencode-root", At: "2026-11-26T10:03:00Z", Command: orchestrate.TransferUnit{Unit: orphanKey, To: "opencode-root"}}) catch {
+	case orchestrate.NotOwner as e:
+		claimedTwice = e.Owner == "agy-neon" && e.Actor == "opencode-root"
+		claimed
+	case _:
+		claimed
+	}
+	let orphan = st.Unit(orphanKey) catch {
+	case orchestrate.StoreFailed:
+		option.None
+	}
 	let dbHandle = openDB(st.db, st.err) catch {
 	case orchestrate.StoreFailed:
 		st.Close() catch {
@@ -227,24 +249,30 @@ func CheckMigrationV2ToV3(_ livePersistence) bool needs go.Foreign {
 	cleanupVerifyDB(dir, name)
 	let u1OK = match u1 {
 	case option.Some[orchestrate.Unit] as found:
-		found.Value.Status == orchestrate.UnitOpen && found.Value.Lane == (option.Some[string]{Value: "/lane/1"})
+		found.Value.Status == orchestrate.UnitOpen && found.Value.Lane == (option.Some[string]{Value: "/lane/1"}) && found.Value.Owner == "root"
 	case option.None:
 		false
 	}
 	let u2OK = match u2 {
 	case option.Some[orchestrate.Unit] as found:
-		found.Value.Status == orchestrate.UnitLanded && found.Value.Head == (option.Some[string]{Value: "abc1234"})
+		found.Value.Status == orchestrate.UnitLanded && found.Value.Head == (option.Some[string]{Value: "abc1234"}) && found.Value.Owner == orchestrate.UnknownOwner
 	case option.None:
 		false
 	}
-		u1OK && u2OK &&
+	let orphanOK = match orphan {
+	case option.Some[orchestrate.Unit] as found:
+		found.Value.Owner == "agy-neon"
+	case option.None:
+		false
+	}
+		u1OK && u2OK && orphanOK && claimedTwice &&
 		recs.Len() == 1 && recs[0].ID == "rec-v2-1" &&
 		cms.Len() == 1 && cms[0].ID == "cm-v2" &&
 		qs.Len() == 1 && qs[0].Key == "q-v2" &&
 		qns.Len() == 1 && qns[0].ID == 4 &&
-		evs.Len() == 2 &&
-		upage.Total == 2 &&
-		sumBefore.OpenUnits == 1 && sumBefore.LandedUnits == 1 && sumBefore.OpenQuestions == 1 && sumBefore.OpenCommitments == 1 &&
+		evs.Len() == 3 &&
+		upage.Total == 3 &&
+		sumBefore.OpenUnits == 2 && sumBefore.LandedUnits == 1 && sumBefore.OpenQuestions == 1 && sumBefore.OpenCommitments == 1 &&
 		uvAfter == CurrentSchemaVersion && metaVer == CurrentSchemaVersion &&
 		hasDecisions && hasLandings && hasEventLog && hasRunMeta &&
 		q5 != option.None &&

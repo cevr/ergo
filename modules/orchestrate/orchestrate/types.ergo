@@ -32,8 +32,26 @@ type Unverified { Unit UnitKey, Head string, Missing []string, Red []string }
 // NotAcceptedHead refuses landing a unit at a head other than the one it was accepted at.
 type NotAcceptedHead { Unit UnitKey, Accepted string, Head string }
 
+// LaneHeld refuses opening a unit on a lane that Unit, owned by Actor, holds while it is neither landed nor closed.
+type LaneHeld { Lane string, Unit UnitKey, Actor string }
+
+// NotOwner refuses a mutation of Unit by Actor, who is not its Owner.
+type NotOwner { Unit UnitKey, Owner string, Actor string }
+
+// LandingBusy refuses a landing step while Actor holds the run's live landing lease, taken at Since.
+type LandingBusy { Actor string, Since string }
+
+// StaleHead refuses a landing begun from Have while the run head is Want.
+type StaleHead { Have string, Want string }
+
+// NoLease refuses a landing step by Actor, who holds no live landing lease on the run (Repo, Run).
+type NoLease { Repo string, Run string, Actor string }
+
 // Refusal is the closed union of pure domain command refusals.
-type Refusal = NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead
+type Refusal = NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | LaneHeld | NotOwner | LandingBusy | StaleHead | NoLease
+
+// UnknownOwner is the owner of a unit whose opening actor is not recorded; any actor may claim it once by TransferUnit.
+let UnknownOwner = "unknown"
 
 // StoreFailed reports a persistence or transaction failure outside pure domain logic.
 type StoreFailed { Reason string }
@@ -88,9 +106,10 @@ law UnitStatusNameRoundTrips(s UnitStatus) {
 	ParseUnitStatus(UnitStatusName(s)) == option.Some[UnitStatus]{Value: s}
 }
 
-// Unit is the projected state of one orchestrated work unit: the receipt kinds its verdict requires, its lane path and branch as facts, and the head it was accepted or landed at.
+// Unit is the projected state of one orchestrated work unit: its owner (the actor that opened it or took it over), the receipt kinds its verdict requires, its lane path and branch as facts, and the head it was accepted or landed at.
 type Unit {
 	Key       UnitKey,
+	Owner     string,
 	Title     string,
 	Requires  []string,
 	Lane      option.Option[string],
@@ -264,6 +283,7 @@ type State {
 	QuestionByCommand  Map[CommandID, int],
 	NextQuestionID     int,
 	RunMetas           Map[RunKey, RunMeta],
+	Leases             Map[RunKey, LandingLease],
 	Decisions          Map[DecisionKey, Decision],
 	Landings           Map[LandingKey, Landing],
 	EventLog           []LedgerEvent,
@@ -284,6 +304,7 @@ func EmptyState() State {
 		QuestionByCommand:  Map[CommandID, int]{},
 		NextQuestionID:     1,
 		RunMetas:           Map[RunKey, RunMeta]{},
+		Leases:             Map[RunKey, LandingLease]{},
 		Decisions:          Map[DecisionKey, Decision]{},
 		Landings:           Map[LandingKey, Landing]{},
 		EventLog:           []LedgerEvent{},
