@@ -1,0 +1,1000 @@
+import dense
+import slices
+import strconv
+import strings
+
+// BindingFailure reports a validation or ABI compatibility error during Bind.
+type BindingFailure {
+	Msg string,
+}
+
+// Rule names recorded in Position.By.
+let RuleHandle = "handle"
+let RuleCreate = "create"
+let RuleOut = "out"
+let RuleValue = "value"
+let RuleInBuffer = "in_buffer"
+let RuleOutBuffer = "out_buffer"
+let RuleOutCount = "out_count"
+let RuleInBufferBytes = "in_buffer_bytes"
+let RuleCallback = "callback"
+let RuleToken = "token"
+let RuleCbKey = "key"
+let RuleCbScalar = "scalar"
+let RuleCbLength = "length"
+let RuleException = "exception"
+
+func classForRule(rule string) uint8 {
+	match rule {
+	case "handle":
+		ClassHandle
+	case "create", "out":
+		ClassOut
+	case "value":
+		ClassValue
+	case "in_buffer", "in_buffer_bytes":
+		ClassInBuffer
+	case "out_buffer":
+		ClassOutBuffer
+	case "out_count":
+		ClassOutCount
+	case "callback":
+		ClassCallback
+	case "token", "key":
+		ClassKey
+	case "scalar":
+		ClassScalar
+	case "length":
+		ClassLength
+	case _:
+		ClassRaw
+	}
+}
+
+// Position records the classified role of one pointer parameter or result.
+type Position {
+	Param  uint32,
+	IsRes  bool,
+	Class  uint8,
+	By     string,
+	Length uint32,
+	Count  uint32,
+	Bytes  bool,
+	Array  uint32,
+	Reason string,
+}
+
+// FieldPosition records a pointer or callback field of a C struct.
+type FieldPosition {
+	Struct string,
+	Field  uint32,
+	Name   string,
+	Class  uint8,
+	Reason string,
+}
+
+// Classifier holds flat SoA lookup tables for model and contract classification.
+type Classifier {
+	M              Model,
+	C              ContractTable,
+	DeclByName     []uint32,
+	FuncByName     []uint32,
+	ConstByName    []uint32,
+	Skipped        []bool,
+	Excluded       []bool,
+	HandleByType   []uint32,
+	CreateByFn     []uint32,
+	DestroyByFn    []uint32,
+	AutofillVal    []uint32,
+	CbRuleByType   []uint32,
+	CbByType       []uint32,
+	FuncExcHead    []uint32,
+	FuncExcNext    []uint32,
+	FuncExcParam   []uint32,
+	FuncExcRow     []uint32,
+	CbExcHead      []uint32,
+	CbExcNext      []uint32,
+	CbExcParam     []uint32,
+	CbExcRow       []uint32,
+	LengthStrs     []string,
+	ByteLengthStrs []string,
+	CapacityStrs   []string,
+	CountStrs      []string,
+	OutPrefix      string,
+}
+
+// BoundCallback summarizes the binding state of one callback typedef.
+type BoundCallback {
+	DeclIdx   uint32,
+	Name      string,
+	GoName    string,
+	RuleIdx   uint32,
+	HasRule   bool,
+	Shape     string,
+	Token     bool,
+	Positions []Position,
+	RawOnly   string,
+	Index     uint32,
+	Bound     bool,
+	Sig       GoCallbackSig,
+	HasSig    bool,
+}
+
+func kDeclIdx(k Classifier, name string) uint32 {
+	let sid = FindStr(k.M.Strings, name)
+	if sid == NoID || int(sid) >= k.DeclByName.Len() {
+		return NoID
+	}
+	k.DeclByName[int(sid)]
+}
+
+func kFuncIdx(k Classifier, name string) uint32 {
+	let sid = FindStr(k.M.Strings, name)
+	if sid == NoID || int(sid) >= k.FuncByName.Len() {
+		return NoID
+	}
+	k.FuncByName[int(sid)]
+}
+
+func kConstIdx(k Classifier, name string) uint32 {
+	let sid = FindStr(k.M.Strings, name)
+	if sid == NoID || int(sid) >= k.ConstByName.Len() {
+		return NoID
+	}
+	k.ConstByName[int(sid)]
+}
+
+func kIsSkipped(k Classifier, name string) bool {
+	let sid = FindStr(k.M.Strings, name)
+	sid != NoID && int(sid) < k.Skipped.Len() && k.Skipped[int(sid)]
+}
+
+func kHandleIdxForType(k Classifier, typeName string) uint32 {
+	let sid = FindStr(k.M.Strings, typeName)
+	if sid == NoID || int(sid) >= k.HandleByType.Len() {
+		return NoID
+	}
+	k.HandleByType[int(sid)]
+}
+
+func kCreateHandleForFn(k Classifier, fnName string) uint32 {
+	let sid = FindStr(k.M.Strings, fnName)
+	if sid == NoID || int(sid) >= k.CreateByFn.Len() {
+		return NoID
+	}
+	k.CreateByFn[int(sid)]
+}
+
+func kCbRuleForType(k Classifier, typeName string) uint32 {
+	let sid = FindStr(k.M.Strings, typeName)
+	if sid == NoID || int(sid) >= k.CbRuleByType.Len() {
+		return NoID
+	}
+	k.CbRuleByType[int(sid)]
+}
+
+func kFuncExc(k Classifier, fnIdx uint32, paramIdx uint32) uint32 {
+	if int(fnIdx) >= k.FuncExcHead.Len() {
+		return NoID
+	}
+	let mut cur = k.FuncExcHead[int(fnIdx)]
+	for cur != NoID {
+		if k.FuncExcParam[int(cur)] == paramIdx {
+			return k.FuncExcRow[int(cur)]
+		}
+		cur = k.FuncExcNext[int(cur)]
+	}
+	NoID
+}
+
+func kCbExc(k Classifier, declIdx uint32, paramIdx uint32) uint32 {
+	if int(declIdx) >= k.CbExcHead.Len() {
+		return NoID
+	}
+	let mut cur = k.CbExcHead[int(declIdx)]
+	for cur != NoID {
+		if k.CbExcParam[int(cur)] == paramIdx {
+			return k.CbExcRow[int(cur)]
+		}
+		cur = k.CbExcNext[int(cur)]
+	}
+	NoID
+}
+
+func kIsPointerPos(k Classifier, typeID uint32) bool {
+	let tid = TypeAt(k.M.Types, typeID)
+	let kind = dense.Of(k.M.Types.Kind, tid)
+	if kind == TypePointer {
+		return true
+	}
+	if kind == TypeNamed {
+		let dname = StrText(k.M.Strings, dense.Of(k.M.Types.Name, tid))
+		let didx = kDeclIdx(k, dname)
+		return didx != NoID && dense.Of(k.M.Decls.Kind, dense.IDAt(k.M.Decls.Ids, int(didx))) == DeclCallback
+	}
+	false
+}
+
+func kScalarOf(k Classifier, typeID uint32) (uint8, bool) {
+	let tid = TypeAt(k.M.Types, typeID)
+	let kind = dense.Of(k.M.Types.Kind, tid)
+	if kind == TypeScalar {
+		return (dense.Of(k.M.Types.Scalar, tid), true)
+	}
+	if kind == TypeNamed {
+		let dname = StrText(k.M.Strings, dense.Of(k.M.Types.Name, tid))
+		let didx = kDeclIdx(k, dname)
+		if didx != NoID {
+			let did = dense.IDAt(k.M.Decls.Ids, int(didx))
+			if dense.Of(k.M.Decls.Kind, did) == DeclScalar {
+				return (dense.Of(k.M.Decls.Scalar, did), true)
+			}
+		}
+	}
+	(ScalarNone, false)
+}
+
+func isUnsignedScalar(s uint8) bool {
+	s == ScalarUint8 || s == ScalarUint16 || s == ScalarUint32 || s == ScalarUint64
+}
+
+func kUnsigned(k Classifier, typeID uint32) bool {
+	let (s, ok) = kScalarOf(k, typeID)
+	ok && isUnsignedScalar(s)
+}
+
+func kSameScalar(k Classifier, a uint32, b uint32) bool {
+	let (sx, ok1) = kScalarOf(k, a)
+	let (sy, ok2) = kScalarOf(k, b)
+	ok1 && ok2 && sx == sy
+}
+
+func kStorable(k Classifier, typeID uint32) bool {
+	let tid = TypeAt(k.M.Types, typeID)
+	let kind = dense.Of(k.M.Types.Kind, tid)
+	if kind == TypeScalar {
+		return true
+	}
+	if kind == TypeArray {
+		return kStorable(k, dense.Of(k.M.Types.Elem, tid))
+	}
+	if kind == TypeNamed {
+		let dname = StrText(k.M.Strings, dense.Of(k.M.Types.Name, tid))
+		return kStorableDecl(k, dname)
+	}
+	false
+}
+
+func kStorableDecl(k Classifier, declName string) bool {
+	let didx = kDeclIdx(k, declName)
+	if didx == NoID {
+		return false
+	}
+	let did = dense.IDAt(k.M.Decls.Ids, int(didx))
+	let dk = dense.Of(k.M.Decls.Kind, did)
+	if dk == DeclScalar {
+		return true
+	}
+	if dk != DeclStruct {
+		return false
+	}
+	let fStart = dense.Of(k.M.Decls.FieldsStart, did)
+	let fLen = dense.Of(k.M.Decls.FieldsLen, did)
+	let mut i uint32 = 0
+	for i < fLen {
+		let fid = dense.IDAt(k.M.Fields.Ids, int(fStart+i))
+		if !kStorable(k, dense.Of(k.M.Fields.Type, fid)) {
+			return false
+		}
+		i = i + 1
+	}
+	true
+}
+
+func kPointerFree(k Classifier, name string) bool {
+	let didx = kDeclIdx(k, name)
+	if didx == NoID {
+		return false
+	}
+	let did = dense.IDAt(k.M.Decls.Ids, int(didx))
+	dense.Of(k.M.Decls.Kind, did) == DeclStruct && kStorableDecl(k, name)
+}
+
+func kElement(k Classifier, typeID uint32) bool {
+	let tid = TypeAt(k.M.Types, typeID)
+	let kind = dense.Of(k.M.Types.Kind, tid)
+	kind != TypeArray && kind != TypeVoid && kStorable(k, typeID)
+}
+
+func kHoldsPointer(k Classifier, typeID uint32) string {
+	let tid = TypeAt(k.M.Types, typeID)
+	if dense.Of(k.M.Types.Kind, tid) == TypeNamed {
+		let name = StrText(k.M.Strings, dense.Of(k.M.Types.Name, tid))
+		let didx = kDeclIdx(k, name)
+		if didx != NoID && dense.Of(k.M.Decls.Kind, dense.IDAt(k.M.Decls.Ids, int(didx))) == DeclStruct && !kPointerFree(k, name) {
+			return name
+		}
+	}
+	""
+}
+
+func kIsHandleType(k Classifier, typeID uint32) bool {
+	let tid = TypeAt(k.M.Types, typeID)
+	if dense.Of(k.M.Types.Kind, tid) != TypeNamed {
+		return false
+	}
+	let name = StrText(k.M.Strings, dense.Of(k.M.Types.Name, tid))
+	kHandleIdxForType(k, name) != NoID
+}
+
+func kNonConstPtr(k Classifier, typeID uint32) bool {
+	let tid = TypeAt(k.M.Types, typeID)
+	if dense.Of(k.M.Types.Kind, tid) != TypePointer {
+		return false
+	}
+	!dense.Of(k.M.Types.Const, TypeAt(k.M.Types, dense.Of(k.M.Types.Elem, tid)))
+}
+
+func kConstPtr(k Classifier, typeID uint32) bool {
+	let tid = TypeAt(k.M.Types, typeID)
+	if dense.Of(k.M.Types.Kind, tid) != TypePointer {
+		return false
+	}
+	dense.Of(k.M.Types.Const, TypeAt(k.M.Types, dense.Of(k.M.Types.Elem, tid)))
+}
+
+type paramRange {
+	fnName string,
+	pStart uint32,
+	pLen   uint32,
+	res    uint32,
+}
+
+func funcRange(k Classifier, funcIdx uint32) paramRange {
+	let fid = dense.IDAt(k.M.Funcs.Ids, int(funcIdx))
+	paramRange{
+		fnName: StrText(k.M.Strings, dense.Of(k.M.Funcs.Name, fid)),
+		pStart: dense.Of(k.M.Funcs.ParamsStart, fid),
+		pLen:   dense.Of(k.M.Funcs.ParamsLen, fid),
+		res:    dense.Of(k.M.Funcs.Result, fid),
+	}
+}
+
+func cbFuncRange(k Classifier, declIdx uint32) paramRange {
+	let did = dense.IDAt(k.M.Decls.Ids, int(declIdx))
+	paramRange{
+		fnName: StrText(k.M.Strings, dense.Of(k.M.Decls.Name, did)),
+		pStart: dense.Of(k.M.Decls.ParamsStart, did),
+		pLen:   dense.Of(k.M.Decls.ParamsLen, did),
+		res:    dense.Of(k.M.Decls.Result, did),
+	}
+}
+
+func prParamName(k Classifier, pr paramRange, i uint32) string {
+	let pid = dense.IDAt(k.M.Params.Ids, int(pr.pStart+i))
+	StrText(k.M.Strings, dense.Of(k.M.Params.Name, pid))
+}
+
+func prParamType(k Classifier, pr paramRange, i uint32) uint32 {
+	let pid = dense.IDAt(k.M.Params.Ids, int(pr.pStart+i))
+	dense.Of(k.M.Params.Type, pid)
+}
+
+// PositionNameRange formats a position label ("param 2 (node)", "param 0 (#0)", or "result").
+func PositionNameRange(m Model, pStart uint32, i uint32, isRes bool) string {
+	if isRes {
+		return "result"
+	}
+	let pid = dense.IDAt(m.Params.Ids, int(pStart+i))
+	let pn = StrText(m.Strings, dense.Of(m.Params.Name, pid))
+	let n = if pn == "" { "#" + strconv.Itoa(int(i)) } else { pn }
+	"param " + strconv.Itoa(int(i)) + " (" + n + ")"
+}
+
+// ParamRef resolves a parameter name or "#N" reference against [pStart, pStart+pLen).
+func ParamRef(m Model, pStart uint32, pLen uint32, ref string) (uint32, bool) {
+	if strings.HasPrefix(ref, "#") {
+		let numStr = strings.Slice(ref, 1, ref.Len())
+		let parsed = strconv.ParseInt(numStr, 10, 64) catch {
+		case _:
+			return (0, false)
+		}
+		if parsed < 0 || uint64(parsed) >= uint64(pLen) || strconv.Itoa(int(parsed)) != numStr {
+			return (0, false)
+		}
+		return (uint32(parsed), true)
+	}
+	let mut i uint32 = 0
+	for i < pLen {
+		let pid = dense.IDAt(m.Params.Ids, int(pStart+i))
+		let pn = StrText(m.Strings, dense.Of(m.Params.Name, pid))
+		if pn != "" && pn == ref {
+			return (i, true)
+		}
+		i = i + 1
+	}
+	(0, false)
+}
+
+func kLengthUnits(k Classifier, pr paramRange, bufIdx uint32, lenIdx uint32) (bool, bool) {
+	let qType = prParamType(k, pr, lenIdx)
+	let qName = prParamName(k, pr, lenIdx)
+	if !kUnsigned(k, qType) || qName == "" {
+		return (false, false)
+	}
+	let pName = prParamName(k, pr, bufIdx)
+	let mut el = false
+	for templ in k.LengthStrs {
+		let (n, ok) = ExpandTemplate(templ, pName)
+		if ok && n == qName {
+			el = true
+			break
+		}
+	}
+	let mut by = false
+	for templ in k.ByteLengthStrs {
+		let (n, ok) = ExpandTemplate(templ, pName)
+		if ok && n == qName {
+			by = true
+			break
+		}
+	}
+	(el, by)
+}
+
+func kCapacityParam(k Classifier, pr paramRange, i uint32) bool {
+	let qName = prParamName(k, pr, i)
+	qName != "" && kUnsigned(k, prParamType(k, pr, i)) && slices.Contains(k.CapacityStrs, qName)
+}
+
+func kLengthLike(k Classifier, name string) bool {
+	if name == "" {
+		return false
+	}
+	for templ in k.LengthStrs {
+		if TemplateMatches(templ, name) {
+			return true
+		}
+	}
+	for templ in k.ByteLengthStrs {
+		if TemplateMatches(templ, name) {
+			return true
+		}
+	}
+	false
+}
+
+func kLoneParam(k Classifier, pr paramRange, i uint32) bool {
+	if i+1 < pr.pLen {
+		let qName = prParamName(k, pr, i+1)
+		let qType = prParamType(k, pr, i+1)
+		if kCapacityParam(k, pr, i+1) || (kUnsigned(k, qType) && kLengthLike(k, qName)) {
+			return false
+		}
+	}
+	i == 0 || !kCapacityParam(k, pr, i-1)
+}
+
+func kCountOf(k Classifier, pr paramRange, capIdx uint32, cntIdx uint32) bool {
+	let pType = prParamType(k, pr, cntIdx)
+	let pName = prParamName(k, pr, cntIdx)
+	let pTID = TypeAt(k.M.Types, pType)
+	if !kNonConstPtr(k, pType) || dense.Of(k.M.Types.LenExpr, pTID) != 0 || pName == "" || !slices.Contains(k.CountStrs, pName) {
+		return false
+	}
+	let pElem = dense.Of(k.M.Types.Elem, pTID)
+	kUnsigned(k, pElem) && kSameScalar(k, pElem, prParamType(k, pr, capIdx))
+}
+
+func kFuncRules(k Classifier, pr paramRange, cbs []BoundCallback, isCallback bool, i uint32) []string {
+	let pName = prParamName(k, pr, i)
+	let t = prParamType(k, pr, i)
+	let tid = TypeAt(k.M.Types, t)
+	let kind = dense.Of(k.M.Types.Kind, tid)
+	let mut out = []string{}
+	if kind == TypeNamed && kIsPointerPos(k, t) {
+		if !isCallback && kCallbackParam(k, cbs, pr, i) == "" {
+			out = out.Append(RuleCallback)
+		}
+		return out
+	}
+	if kind != TypePointer {
+		return out
+	}
+	if !isCallback && kTokenOf(k, cbs, pr, i) != NoID {
+		out = out.Append(RuleToken)
+	}
+	let elem = dense.Of(k.M.Types.Elem, tid)
+	let elemID = TypeAt(k.M.Types, elem)
+	let elemKind = dense.Of(k.M.Types.Kind, elemID)
+	let elemConst = dense.Of(k.M.Types.Const, elemID)
+	let ptr = dense.Of(k.M.Types.LenExpr, tid) == 0
+	if ptr && kIsHandleType(k, elem) {
+		out = out.Append(RuleHandle)
+	}
+	let chIdx = kCreateHandleForFn(k, pr.fnName)
+	if chIdx != NoID && ptr {
+		let hid = dense.IDAt(k.C.Handles.Ids, int(chIdx))
+		let hOut = StrText(k.C.Strings, dense.Of(k.C.Handles.Out, hid))
+		let hType = StrText(k.C.Strings, dense.Of(k.C.Handles.Type, hid))
+		if pName == hOut && !elemConst && elemKind == TypePointer {
+			let ee = dense.Of(k.M.Types.Elem, elemID)
+			let eeID = TypeAt(k.M.Types, ee)
+			if dense.Of(k.M.Types.Kind, eeID) == TypeNamed && StrText(k.M.Strings, dense.Of(k.M.Types.Name, eeID)) == hType && !dense.Of(k.M.Types.Const, eeID) {
+				out = out.Append(RuleCreate)
+			}
+		}
+	}
+	if ptr && !elemConst && pName != "" && strings.HasPrefix(pName, k.OutPrefix) && kElement(k, elem) && kLoneParam(k, pr, i) {
+		out = out.Append(RuleOut)
+	}
+	let mut elemIsPtrFreeStruct = false
+	if elemKind == TypeNamed {
+		let eName = StrText(k.M.Strings, dense.Of(k.M.Types.Name, elemID))
+		let dIdx = kDeclIdx(k, eName)
+		if dIdx != NoID && dense.Of(k.M.Decls.Kind, dense.IDAt(k.M.Decls.Ids, int(dIdx))) == DeclStruct && kPointerFree(k, eName) {
+			elemIsPtrFreeStruct = true
+		}
+	}
+	if elemConst && kLoneParam(k, pr, i) && ((ptr && elemIsPtrFreeStruct) || (!ptr && kElement(k, elem))) {
+		out = out.Append(RuleValue)
+	}
+	if ptr && elemConst && kElement(k, elem) && i+1 < pr.pLen {
+		let (el, by) = kLengthUnits(k, pr, i, i+1)
+		if el {
+			out = out.Append(RuleInBuffer)
+		}
+		if by {
+			out = out.Append(RuleInBufferBytes)
+		}
+	}
+	if ptr && !elemConst && kElement(k, elem) && i+2 < pr.pLen && kCapacityParam(k, pr, i+1) && kCountOf(k, pr, i+1, i+2) {
+		out = out.Append(RuleOutBuffer)
+	}
+	if i >= 2 && kCountOf(k, pr, i-1, i) && kCapacityParam(k, pr, i-1) {
+		let b = prParamType(k, pr, i-2)
+		let bID = TypeAt(k.M.Types, b)
+		if kNonConstPtr(k, b) && dense.Of(k.M.Types.LenExpr, bID) == 0 && kElement(k, dense.Of(k.M.Types.Elem, bID)) {
+			out = out.Append(RuleOutCount)
+		}
+	}
+	out
+}
+
+func ruledPosition(m Model, pr paramRange, i uint32, rs []string) Position {
+	let mut q = Position{
+		Param:  i,
+		IsRes:  false,
+		Class:  ClassRaw,
+		By:     "",
+		Length: NoID,
+		Count:  NoID,
+		Bytes:  false,
+		Array:  0,
+		Reason: "",
+	}
+	if rs.Len() == 0 {
+		return q
+	}
+	if rs.Len() > 1 {
+		let mut notes = []string{}
+		for r in rs {
+			if r == RuleInBuffer {
+				notes = notes.Append(r + " (" + StrText(m.Strings, dense.Of(m.Params.Name, dense.IDAt(m.Params.Ids, int(pr.pStart+i+1)))) + " counts elements)")
+			} else if r == RuleInBufferBytes {
+				notes = notes.Append(r + " (" + StrText(m.Strings, dense.Of(m.Params.Name, dense.IDAt(m.Params.Ids, int(pr.pStart+i+1)))) + " counts bytes)")
+			} else {
+				notes = notes.Append(r)
+			}
+		}
+		q.Class = ClassRaw
+		q.Reason = "rules " + strings.Join(notes, " and ") + " both cover it"
+		return q
+	}
+	let r0 = rs[0]
+	q.Class = classForRule(r0)
+	q.By = r0
+	if r0 == RuleInBuffer || r0 == RuleInBufferBytes {
+		q.Length = i + 1
+		q.Bytes = r0 == RuleInBufferBytes
+	} else if r0 == RuleOutBuffer {
+		q.Length = i + 1
+		q.Count = i + 2
+	} else if r0 == RuleOutCount {
+		q.Length = i - 1
+		q.Count = i - 2
+	} else if r0 == RuleCbLength {
+		q.Length = i - 1
+	}
+	q
+}
+
+func kNoRuleReason(k Classifier, cbs []BoundCallback, pr paramRange, i uint32) string {
+	let t = prParamType(k, pr, i)
+	let tid = TypeAt(k.M.Types, t)
+	if dense.Of(k.M.Types.Kind, tid) == TypeNamed {
+		return "callback parameter: " + kCallbackParam(k, cbs, pr, i)
+	}
+	let s = kHoldsPointer(k, dense.Of(k.M.Types.Elem, tid))
+	if s != "" {
+		return s + " holds a pointer (Go memory that holds Go pointers must not reach C)"
+	}
+	"no rule covers it"
+}
+
+func kFromRules(k Classifier, cbs []BoundCallback, pr paramRange, i uint32) Position {
+	let mut q = ruledPosition(k.M, pr, i, kFuncRules(k, pr, cbs, false, i))
+	if q.Class == ClassRaw && q.Reason == "" {
+		q.Reason = kNoRuleReason(k, cbs, pr, i)
+	}
+	q
+}
+
+func kFromException(k Classifier, pr paramRange, i uint32, excRow uint32) Position {
+	let eid = dense.IDAt(k.C.Exceptions.Ids, int(excRow))
+	let cls = dense.Of(k.C.Exceptions.Class, eid)
+	let mut q = Position{
+		Param:  i,
+		IsRes:  false,
+		Class:  cls,
+		By:     RuleException,
+		Length: NoID,
+		Count:  NoID,
+		Bytes:  false,
+		Array:  0,
+		Reason: "",
+	}
+	if cls == ClassRaw {
+		q.Reason = "exception: " + StrText(k.C.Strings, dense.Of(k.C.Exceptions.Why, eid))
+	} else if cls == ClassInBuffer {
+		let lenRef = StrText(k.C.Strings, dense.Of(k.C.Exceptions.Length, eid))
+		let (li, _) = ParamRef(k.M, pr.pStart, pr.pLen, lenRef)
+		q.Length = li
+		q.Bytes = StrText(k.C.Strings, dense.Of(k.C.Exceptions.Unit, eid)) == "bytes"
+	} else if cls == ClassOutBuffer {
+		let lenRef = StrText(k.C.Strings, dense.Of(k.C.Exceptions.Length, eid))
+		let cntRef = StrText(k.C.Strings, dense.Of(k.C.Exceptions.Count, eid))
+		let (li, _) = ParamRef(k.M, pr.pStart, pr.pLen, lenRef)
+		let (ci, _) = ParamRef(k.M, pr.pStart, pr.pLen, cntRef)
+		q.Length = li
+		q.Count = ci
+	}
+	q
+}
+
+func kCheckRefParam(k Classifier, pr paramRange, bufIdx uint32, refName string, what string) (uint32, string) {
+	let (j, ok) = ParamRef(k.M, pr.pStart, pr.pLen, refName)
+	if !ok {
+		return (0, what + " " + strconv.Quote(refName) + " is not a parameter")
+	}
+	if j == bufIdx {
+		return (0, what + " is the buffer itself")
+	}
+	if !kUnsigned(k, prParamType(k, pr, j)) {
+		return (0, what + " " + strconv.Quote(refName) + " is not an unsigned integer")
+	}
+	(j, "")
+}
+
+func kCheckException(k Classifier, fnIdx uint32, isCb bool, declIdx uint32, pr paramRange, i uint32, excRow uint32) string {
+	let t = prParamType(k, pr, i)
+	if !kIsPointerPos(k, t) {
+		return "the parameter is not a pointer"
+	}
+	let tid = TypeAt(k.M.Types, t)
+	let isPtr = dense.Of(k.M.Types.Kind, tid) == TypePointer
+	let eid = dense.IDAt(k.C.Exceptions.Ids, int(excRow))
+	let cls = dense.Of(k.C.Exceptions.Class, eid)
+	if cls == ClassRaw {
+		return ""
+	}
+	if cls == ClassValue {
+		if isPtr && kConstPtr(k, t) {
+			let elem = dense.Of(k.M.Types.Elem, tid)
+			if dense.Of(k.M.Types.LenExpr, tid) != 0 && kElement(k, elem) {
+				return ""
+			}
+			let eID = TypeAt(k.M.Types, elem)
+			if dense.Of(k.M.Types.LenExpr, tid) == 0 && dense.Of(k.M.Types.Kind, eID) == TypeNamed {
+				let eName = StrText(k.M.Strings, dense.Of(k.M.Types.Name, eID))
+				let dIdx = kDeclIdx(k, eName)
+				if dIdx != NoID && dense.Of(k.M.Decls.Kind, dense.IDAt(k.M.Decls.Ids, int(dIdx))) == DeclStruct && kPointerFree(k, eName) {
+					return ""
+				}
+			}
+		}
+		return "a value is a `const S *` (S a struct without pointers) or a `const T name[N]`"
+	}
+	if cls == ClassOptional {
+		if isPtr && kConstPtr(k, t) && dense.Of(k.M.Types.LenExpr, tid) == 0 {
+			let elem = dense.Of(k.M.Types.Elem, tid)
+			let eID = TypeAt(k.M.Types, elem)
+			if dense.Of(k.M.Types.Kind, eID) == TypeNamed {
+				let eName = StrText(k.M.Strings, dense.Of(k.M.Types.Name, eID))
+				let dIdx = kDeclIdx(k, eName)
+				if dIdx != NoID && dense.Of(k.M.Decls.Kind, dense.IDAt(k.M.Decls.Ids, int(dIdx))) == DeclStruct && kPointerFree(k, eName) {
+					return ""
+				}
+			}
+		}
+		return "an optional value is a `const S *` (S a struct without pointers)"
+	}
+	if cls == ClassOut {
+		if isPtr && kNonConstPtr(k, t) && dense.Of(k.M.Types.LenExpr, tid) == 0 && kElement(k, dense.Of(k.M.Types.Elem, tid)) {
+			return ""
+		}
+		return "an out-parameter is a `T *` to a scalar or a struct without pointers"
+	}
+	if cls == ClassInBuffer {
+		if !(isPtr && kConstPtr(k, t) && dense.Of(k.M.Types.LenExpr, tid) == 0 && kElement(k, dense.Of(k.M.Types.Elem, tid))) {
+			return "an in_buffer is a `const T *` to a scalar or a struct without pointers"
+		}
+		let lenRef = StrText(k.C.Strings, dense.Of(k.C.Exceptions.Length, eid))
+		let (_, msg) = kCheckRefParam(k, pr, i, lenRef, "length")
+		return msg
+	}
+	if cls == ClassOutBuffer {
+		if !(isPtr && kNonConstPtr(k, t) && dense.Of(k.M.Types.LenExpr, tid) == 0 && kElement(k, dense.Of(k.M.Types.Elem, tid))) {
+			return "an out_buffer is a `T *` to a scalar or a struct without pointers"
+		}
+		let lenRef = StrText(k.C.Strings, dense.Of(k.C.Exceptions.Length, eid))
+		let (capIdx, msg) = kCheckRefParam(k, pr, i, lenRef, "capacity")
+		if msg != "" {
+			return msg
+		}
+		let cntRef = StrText(k.C.Strings, dense.Of(k.C.Exceptions.Count, eid))
+		let (j, ok) = ParamRef(k.M, pr.pStart, pr.pLen, cntRef)
+		let mut validCnt = false
+		if ok && j != i {
+			let jType = prParamType(k, pr, j)
+			let jTID = TypeAt(k.M.Types, jType)
+			let jElem = dense.Of(k.M.Types.Elem, jTID)
+			if kNonConstPtr(k, jType) && dense.Of(k.M.Types.LenExpr, jTID) == 0 && kUnsigned(k, jElem) && kSameScalar(k, jElem, prParamType(k, pr, capIdx)) {
+				validCnt = true
+			}
+		}
+		if !validCnt {
+			return "count " + strconv.Quote(cntRef) + " is not a pointer to the capacity's type"
+		}
+		let hasOwn = if isCb { kCbExc(k, declIdx, j) != NoID } else { kFuncExc(k, fnIdx, j) != NoID }
+		if hasOwn {
+			return "count " + strconv.Quote(cntRef) + " has its own exception"
+		}
+		return ""
+	}
+	"unknown class"
+}
+
+func kFieldPointer(k Classifier, typeID uint32) string {
+	let mut cur = typeID
+	let mut isArr = false
+	for dense.Of(k.M.Types.Kind, TypeAt(k.M.Types, cur)) == TypeArray {
+		isArr = true
+		cur = dense.Of(k.M.Types.Elem, TypeAt(k.M.Types, cur))
+	}
+	if !kIsPointerPos(k, cur) {
+		return ""
+	}
+	let what = if dense.Of(k.M.Types.Kind, TypeAt(k.M.Types, cur)) == TypeNamed { "callback" } else { "pointer" }
+	if isArr {
+		return "array of " + what + "s"
+	}
+	what + " field"
+}
+
+// ClassifyFields records every raw pointer or callback struct field in model order.
+func ClassifyFields(k Classifier) []FieldPosition {
+	let mut out = []FieldPosition{}
+	let nDecls = dense.Total(k.M.Decls.Ids)
+	let mut di = 0
+	for di < nDecls {
+		let did = dense.IDAt(k.M.Decls.Ids, di)
+		if dense.Of(k.M.Decls.Kind, did) != DeclStruct {
+			di = di + 1
+			continue
+		}
+		let sName = StrText(k.M.Strings, dense.Of(k.M.Decls.Name, did))
+		let fStart = dense.Of(k.M.Decls.FieldsStart, did)
+		let fLen = dense.Of(k.M.Decls.FieldsLen, did)
+		let mut fi uint32 = 0
+		for fi < fLen {
+			let fid = dense.IDAt(k.M.Fields.Ids, int(fStart+fi))
+			let fName = StrText(k.M.Strings, dense.Of(k.M.Fields.Name, fid))
+			let fType = dense.Of(k.M.Fields.Type, fid)
+			let what = kFieldPointer(k, fType)
+			if what != "" {
+				let reason = what + " (a struct that holds a pointer reaches C only through the raw layer: Go memory that holds Go pointers must not reach C)"
+				out = out.Append(FieldPosition{Struct: sName, Field: fi, Name: fName, Class: ClassRaw, Reason: reason})
+			}
+			fi = fi + 1
+		}
+		di = di + 1
+	}
+	out
+}
+
+func kCoherent(k Classifier, cbs []BoundCallback, pr paramRange, pos []Position, byParam []uint32) string {
+	let n = int(pr.pLen)
+	let mut used = []uint32{}
+	let mut tokens = []uint32{}
+	let mut k0 = 0
+	for k0 < n {
+		used = used.Append(NoID)
+		tokens = tokens.Append(NoID)
+		k0 = k0 + 1
+	}
+	let nDecls = dense.Total(k.M.Decls.Ids)
+	let mut handles = []uint32{}
+	let mut d0 = 0
+	for d0 < nDecls {
+		handles = handles.Append(NoID)
+		d0 = d0 + 1
+	}
+	for q in pos {
+		if q.Class != ClassCallback {
+			continue
+		}
+		let j = kTokenSource(k, cbs, pr, q.Param)
+		if j != NoID {
+			if tokens[int(j)] != NoID {
+				let c = tokens[int(j)]
+				return PositionNameRange(k.M, pr.pStart, q.Param, false) + ": its key " + PositionNameRange(k.M, pr.pStart, j, false) + " also serves " + PositionNameRange(k.M, pr.pStart, c, false)
+			}
+			tokens[int(j)] = q.Param
+			continue
+		}
+		let cbTypeID = TypeAt(k.M.Types, prParamType(k, pr, q.Param))
+		let cbName = StrText(k.M.Strings, dense.Of(k.M.Types.Name, cbTypeID))
+		let cbIdx = k.CbByType[int(FindStr(k.M.Strings, cbName))]
+		let bc = cbs[int(cbIdx)]
+		if handles[int(bc.DeclIdx)] != NoID {
+			let c = handles[int(bc.DeclIdx)]
+			let (kj, _) = kKeySource(k, bc.DeclIdx, bc.RuleIdx, pr)
+			return PositionNameRange(k.M, pr.pStart, q.Param, false) + ": its handle key " + PositionNameRange(k.M, pr.pStart, kj, false) + " also serves " + PositionNameRange(k.M, pr.pStart, c, false) + ", so one registry entry would serve both"
+		}
+		handles[int(bc.DeclIdx)] = q.Param
+	}
+	for q in pos {
+		if q.Class == ClassKey && tokens[int(q.Param)] == NoID {
+			return PositionNameRange(k.M, pr.pStart, q.Param, false) + ": a key without its callback"
+		}
+	}
+	for q in pos {
+		if q.Class == ClassInBuffer || q.Class == ClassOutBuffer {
+			if used[int(q.Length)] != NoID {
+				let b = used[int(q.Length)]
+				return PositionNameRange(k.M, pr.pStart, q.Param, false) + ": its length " + PositionNameRange(k.M, pr.pStart, q.Length, false) + " also serves " + PositionNameRange(k.M, pr.pStart, b, false)
+			}
+			used[int(q.Length)] = q.Param
+		}
+		if q.Class == ClassOutBuffer {
+			let j = if int(q.Count) < byParam.Len() { byParam[int(q.Count)] } else { NoID }
+			if j == NoID || pos[int(j)].Class != ClassOutCount || pos[int(j)].Count != q.Param {
+				return PositionNameRange(k.M, pr.pStart, q.Param, false) + ": its count is not its out_count"
+			}
+		} else if q.Class == ClassOutCount {
+			let j = if int(q.Count) < byParam.Len() { byParam[int(q.Count)] } else { NoID }
+			if j == NoID || pos[int(j)].Class != ClassOutBuffer || pos[int(j)].Count != q.Param {
+				return PositionNameRange(k.M, pr.pStart, q.Param, false) + ": an out_count without its out_buffer"
+			}
+		}
+	}
+	let mut i uint32 = 0
+	for i < pr.pLen {
+		if byParam[int(i)] != NoID || used[int(i)] != NoID {
+			i = i + 1
+			continue
+		}
+		if !kStorable(k, prParamType(k, pr, i)) {
+			return PositionNameRange(k.M, pr.pStart, i, false) + ": a struct by value that holds a pointer"
+		}
+		i = i + 1
+	}
+	let resID = TypeAt(k.M.Types, pr.res)
+	if dense.Of(k.M.Types.Kind, resID) != TypeVoid && !kIsPointerPos(k, pr.res) && !kStorable(k, pr.res) {
+		return "result: a struct by value that holds a pointer"
+	}
+	""
+}
+
+// ClassifyFunction assigns a class to every pointer position of funcIdx and returns (positions, rawReason).
+func ClassifyFunction(k Classifier, cbs []BoundCallback, funcIdx uint32) ([]Position, string) {
+	let pr = funcRange(k, funcIdx)
+	let mut pos = []Position{}
+	let mut byParam = []uint32{}
+	let mut k0 uint32 = 0
+	for k0 < pr.pLen {
+		byParam = byParam.Append(NoID)
+		k0 = k0 + 1
+	}
+	let mut i uint32 = 0
+	for i < pr.pLen {
+		let pt = prParamType(k, pr, i)
+		if !kIsPointerPos(k, pt) {
+			i = i + 1
+			continue
+		}
+		byParam[int(i)] = uint32(pos.Len())
+		let erow = kFuncExc(k, funcIdx, i)
+		if erow != NoID {
+			pos = pos.Append(kFromException(k, pr, i, erow))
+		} else {
+			pos = pos.Append(kFromRules(k, cbs, pr, i))
+		}
+		i = i + 1
+	}
+	let mut qi = 0
+	for qi < pos.Len() {
+		let q = pos[qi]
+		if q.Class == ClassOutBuffer && q.By == RuleException {
+			let j = byParam[int(q.Count)]
+			pos[int(j)] = Position{
+				Param:  q.Count,
+				IsRes:  false,
+				Class:  ClassOutCount,
+				By:     RuleException,
+				Length: q.Length,
+				Count:  q.Param,
+				Bytes:  false,
+				Array:  0,
+				Reason: "",
+			}
+		}
+		qi = qi + 1
+	}
+	if kIsPointerPos(k, pr.res) {
+		let resID = TypeAt(k.M.Types, pr.res)
+		let reason = if dense.Of(k.M.Types.Kind, resID) == TypeNamed {
+			"callback result (the typed layer does not call a C function pointer that C returns)"
+		} else {
+			"pointer result"
+		}
+		pos = pos.Append(Position{
+			Param:  NoID,
+			IsRes:  true,
+			Class:  ClassRaw,
+			By:     "",
+			Length: NoID,
+			Count:  NoID,
+			Bytes:  false,
+			Array:  0,
+			Reason: reason,
+		})
+	}
+	let mut raw = []string{}
+	for q in pos {
+		if q.Class == ClassRaw {
+			raw = raw.Append(PositionNameRange(k.M, pr.pStart, q.Param, q.IsRes) + ": " + q.Reason)
+		}
+	}
+	if raw.Len() > 0 {
+		return (pos, strings.Join(raw, "; "))
+	}
+	(pos, kCoherent(k, cbs, pr, pos, byParam))
+}
+
+// ClassifyInBufferRequiresConstElement verifies const buffers classify as ClassInBuffer while mutable buffers fail without capacity.
+law ClassifyInBufferRequiresConstElement(x uint8) {
+	let hdr = "#include <stdint.h>\nvoid t_good(const uint8_t *buf, uint32_t buf_len);\nvoid t_bad(uint8_t *buf, uint32_t buf_len);\n"
+	let sha = "0000000000000000000000000000000000000000000000000000000000000000"
+	let cjson = "{\"header\":\"t.h\",\"header_sha256\":\"" + sha + "\",\"go\":{\"package\":\"tlib\",\"import_path\":\"example.com/tlib\"},\"prefixes\":{\"function\":\"t_\",\"macro\":\"T_\",\"type\":\"t_\"},\"status\":{\"type\":\"t_status\",\"macro_prefix\":\"ERR_\",\"success\":\"ERR_OK\",\"exclude\":[]},\"abi\":{\"function\":\"t_abi\",\"macro\":\"ABI_V\"},\"handles\":[],\"autofill\":[],\"buffers\":{\"length_names\":[\"{name}_len\"],\"byte_length_names\":[],\"capacity_names\":[],\"count_names\":[],\"out_prefix\":\"out_\"},\"callbacks\":[],\"exceptions\":[],\"skips\":[]}"
+	let mut ok = true
+	let m = Parse("t.h", hdr) catch {
+	case ParseFailure:
+		ok = false
+		NewModel("t.h")
+	}
+	let ct = DecodeContract(cjson) catch {
+	case ContractFailure:
+		ok = false
+		newEmptyContractTable()
+	}
+	if !ok {
+		return false
+	}
+	let k = initClassifier(m, ct)
+	let cbs = []BoundCallback{}
+	let (posGood, rawGood) = ClassifyFunction(k, cbs, 0)
+	let (_, rawBad) = ClassifyFunction(k, cbs, 1)
+	rawGood == "" && posGood.Len() == 1 && posGood[0].Class == ClassInBuffer && rawBad != "" && x >= 0
+}

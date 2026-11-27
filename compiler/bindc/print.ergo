@@ -1,0 +1,448 @@
+import dense
+import strings
+
+func printParams(m Model, pStart uint32, pLen uint32) string {
+	if pLen == 0 {
+		return "void"
+	}
+	let mut parts = []string{}
+	let mut k uint32 = 0
+	for k < pLen {
+		let pid = dense.IDAt(m.Params.Ids, int(pStart+k))
+		let pname = StrText(m.Strings, dense.Of(m.Params.Name, pid))
+		let ptype = dense.Of(m.Params.Type, pid)
+		parts = parts.Append(TypeDeclare(m.Types, m.Strings, ptype, pname))
+		k = k + 1
+	}
+	strings.Join(parts, ", ")
+}
+
+// Print renders m as canonical subset C header text.
+func Print(m Model) string {
+	let mut b = strings.NewBuilder()
+	if m.Guard != "" {
+		strings.WriteString(&b, "#ifndef "+m.Guard+"\n#define "+m.Guard+"\n\n")
+	}
+	for incID in m.Includes {
+		strings.WriteString(&b, "#include <"+StrText(m.Strings, incID)+">\n")
+	}
+	if m.Includes.Len() > 0 {
+		strings.WriteByte(&b, '\n')
+	}
+	if m.CPlusPlus {
+		strings.WriteString(&b, "#ifdef __cplusplus\nextern \"C\" {\n#endif\n\n")
+	}
+	let nConsts = dense.Total(m.Consts.Ids)
+	let mut ci = 0
+	for ci < nConsts {
+		let cid = dense.IDAt(m.Consts.Ids, ci)
+		strings.WriteString(&b, "#define "+StrText(m.Strings, dense.Of(m.Consts.Name, cid))+" "+StrText(m.Strings, dense.Of(m.Consts.Expr, cid))+"\n")
+		ci = ci + 1
+	}
+	if nConsts > 0 {
+		strings.WriteByte(&b, '\n')
+	}
+	let nDecls = dense.Total(m.Decls.Ids)
+	let mut di = 0
+	for di < nDecls {
+		let did = dense.IDAt(m.Decls.Ids, di)
+		let kind = dense.Of(m.Decls.Kind, did)
+		let dname = StrText(m.Strings, dense.Of(m.Decls.Name, did))
+		let dtag = StrText(m.Strings, dense.Of(m.Decls.Tag, did))
+		if kind == DeclScalar {
+			strings.WriteString(&b, "typedef "+ScalarName(dense.Of(m.Decls.Scalar, did))+" "+dname+";\n")
+		} else if kind == DeclOpaque {
+			strings.WriteString(&b, "typedef struct "+dtag+" "+dname+";\n")
+		} else if kind == DeclStruct {
+			strings.WriteString(&b, "typedef struct ")
+			if dtag != "" {
+				strings.WriteString(&b, dtag+" ")
+			}
+			strings.WriteString(&b, "{\n")
+			let fStart = dense.Of(m.Decls.FieldsStart, did)
+			let fLen = dense.Of(m.Decls.FieldsLen, did)
+			let mut fi uint32 = 0
+			for fi < fLen {
+				let fid = dense.IDAt(m.Fields.Ids, int(fStart+fi))
+				let fname = StrText(m.Strings, dense.Of(m.Fields.Name, fid))
+				let ftype = dense.Of(m.Fields.Type, fid)
+				strings.WriteString(&b, "    "+TypeDeclare(m.Types, m.Strings, ftype, fname)+";\n")
+				fi = fi + 1
+			}
+			strings.WriteString(&b, "} "+dname+";\n")
+		} else if kind == DeclCallback {
+			let res = dense.Of(m.Decls.Result, did)
+			let pStart = dense.Of(m.Decls.ParamsStart, did)
+			let pLen = dense.Of(m.Decls.ParamsLen, did)
+			strings.WriteString(&b, "typedef "+TypeSpell(m.Types, m.Strings, res)+" (*"+dname+")("+printParams(m, pStart, pLen)+");\n")
+		}
+		di = di + 1
+	}
+	if nDecls > 0 {
+		strings.WriteByte(&b, '\n')
+	}
+	let nFuncs = dense.Total(m.Funcs.Ids)
+	let mut fi = 0
+	for fi < nFuncs {
+		let fid = dense.IDAt(m.Funcs.Ids, fi)
+		let fname = StrText(m.Strings, dense.Of(m.Funcs.Name, fid))
+		let res = dense.Of(m.Funcs.Result, fid)
+		let pStart = dense.Of(m.Funcs.ParamsStart, fid)
+		let pLen = dense.Of(m.Funcs.ParamsLen, fid)
+		strings.WriteString(&b, TypeDeclare(m.Types, m.Strings, res, fname)+"("+printParams(m, pStart, pLen)+");\n")
+		fi = fi + 1
+	}
+	if nFuncs > 0 {
+		strings.WriteByte(&b, '\n')
+	}
+	if m.CPlusPlus {
+		strings.WriteString(&b, "#ifdef __cplusplus\n}\n#endif\n")
+	}
+	if m.Guard != "" {
+		strings.WriteString(&b, "\n#endif\n")
+	}
+	strings.String(b)
+}
+
+func writeJSONIndent(b mut strings.Builder, depth int) {
+	let mut i = 0
+	for i < depth {
+		strings.WriteString(&b, "  ")
+		i = i + 1
+	}
+}
+
+func writeJSONStr(b mut strings.Builder, s string, escapeHTML bool) {
+	strings.WriteByte(&b, '"')
+	let n = s.Len()
+	let mut i = 0
+	for i < n {
+		let c = s[i]
+		if c == '"' {
+			strings.WriteString(&b, "\\\"")
+		} else if c == '\\' {
+			strings.WriteString(&b, "\\\\")
+		} else if c == '\n' {
+			strings.WriteString(&b, "\\n")
+		} else if c == '\r' {
+			strings.WriteString(&b, "\\r")
+		} else if c == '\t' {
+			strings.WriteString(&b, "\\t")
+		} else if escapeHTML && c == '<' {
+			strings.WriteString(&b, "\\u003c")
+		} else if escapeHTML && c == '>' {
+			strings.WriteString(&b, "\\u003e")
+		} else if escapeHTML && c == '&' {
+			strings.WriteString(&b, "\\u0026")
+		} else if c < 0x20 {
+			strings.WriteString(&b, "\\u00"+hexByte2(c))
+		} else {
+			strings.WriteByte(&b, c)
+		}
+		i = i + 1
+	}
+	strings.WriteByte(&b, '"')
+}
+
+func writeJSONParamList(b mut strings.Builder, m Model, pStart uint32, pLen uint32, depth int) {
+	strings.WriteString(&b, "[\n")
+	let mut i uint32 = 0
+	for i < pLen {
+		let pid = dense.IDAt(m.Params.Ids, int(pStart+i))
+		let pname = StrText(m.Strings, dense.Of(m.Params.Name, pid))
+		let ptype = dense.Of(m.Params.Type, pid)
+		writeJSONIndent(&b, depth+1)
+		strings.WriteString(&b, "{\n")
+		if pname != "" {
+			writeJSONIndent(&b, depth+2)
+			strings.WriteString(&b, "\"name\": ")
+			writeJSONStr(&b, pname, false)
+			strings.WriteString(&b, ",\n")
+		}
+		writeJSONIndent(&b, depth+2)
+		strings.WriteString(&b, "\"type\": ")
+		writeJSONStr(&b, TypeSpell(m.Types, m.Strings, ptype), true)
+		strings.WriteByte(&b, '\n')
+		writeJSONIndent(&b, depth+1)
+		strings.WriteByte(&b, '}')
+		if i+1 < pLen {
+			strings.WriteByte(&b, ',')
+		}
+		strings.WriteByte(&b, '\n')
+		i = i + 1
+	}
+	writeJSONIndent(&b, depth)
+	strings.WriteByte(&b, ']')
+}
+
+// ModelJSON renders m in indented JSON matching encoding/json Model output, including Constant HTML escaping.
+func ModelJSON(m Model) string {
+	let mut b = strings.NewBuilder()
+	strings.WriteString(&b, "{\n")
+	writeJSONIndent(&b, 1)
+	strings.WriteString(&b, "\"header\": ")
+	writeJSONStr(&b, m.Header, false)
+	strings.WriteString(&b, ",\n")
+	if m.Guard != "" {
+		writeJSONIndent(&b, 1)
+		strings.WriteString(&b, "\"guard\": ")
+		writeJSONStr(&b, m.Guard, false)
+		strings.WriteString(&b, ",\n")
+	}
+	if m.CPlusPlus {
+		writeJSONIndent(&b, 1)
+		strings.WriteString(&b, "\"cplusplus\": true,\n")
+	}
+	writeJSONIndent(&b, 1)
+	strings.WriteString(&b, "\"includes\": ")
+	if m.Includes.Len() == 0 {
+		strings.WriteString(&b, "[]")
+	} else {
+		strings.WriteString(&b, "[\n")
+		let mut i = 0
+		for i < m.Includes.Len() {
+			writeJSONIndent(&b, 2)
+			writeJSONStr(&b, StrText(m.Strings, m.Includes[i]), false)
+			if i+1 < m.Includes.Len() {
+				strings.WriteByte(&b, ',')
+			}
+			strings.WriteByte(&b, '\n')
+			i = i + 1
+		}
+		writeJSONIndent(&b, 1)
+		strings.WriteByte(&b, ']')
+	}
+	strings.WriteString(&b, ",\n")
+	let nConsts = dense.Total(m.Consts.Ids)
+	writeJSONIndent(&b, 1)
+	strings.WriteString(&b, "\"constants\": ")
+	if nConsts == 0 {
+		strings.WriteString(&b, "null")
+	} else {
+		strings.WriteString(&b, "[\n")
+		let mut i = 0
+		for i < nConsts {
+			let cid = dense.IDAt(m.Consts.Ids, i)
+			let cname = StrText(m.Strings, dense.Of(m.Consts.Name, cid))
+			let cscalar = dense.Of(m.Consts.Scalar, cid)
+			let cval = ConstantValue(cscalar, dense.Of(m.Consts.Bits, cid))
+			let cexpr = StrText(m.Strings, dense.Of(m.Consts.Expr, cid))
+			writeJSONIndent(&b, 2)
+			strings.WriteString(&b, "{\n")
+			writeJSONIndent(&b, 3)
+			strings.WriteString(&b, "\"name\": ")
+			writeJSONStr(&b, cname, true)
+			strings.WriteString(&b, ",\n")
+			writeJSONIndent(&b, 3)
+			strings.WriteString(&b, "\"type\": ")
+			writeJSONStr(&b, ScalarName(cscalar), true)
+			strings.WriteString(&b, ",\n")
+			writeJSONIndent(&b, 3)
+			strings.WriteString(&b, "\"value\": ")
+			writeJSONStr(&b, cval, true)
+			strings.WriteString(&b, ",\n")
+			writeJSONIndent(&b, 3)
+			strings.WriteString(&b, "\"expr\": ")
+			writeJSONStr(&b, cexpr, true)
+			strings.WriteByte(&b, '\n')
+			writeJSONIndent(&b, 2)
+			strings.WriteByte(&b, '}')
+			if i+1 < nConsts {
+				strings.WriteByte(&b, ',')
+			}
+			strings.WriteByte(&b, '\n')
+			i = i + 1
+		}
+		writeJSONIndent(&b, 1)
+		strings.WriteByte(&b, ']')
+	}
+	strings.WriteString(&b, ",\n")
+	let nDecls = dense.Total(m.Decls.Ids)
+	writeJSONIndent(&b, 1)
+	strings.WriteString(&b, "\"types\": ")
+	if nDecls == 0 {
+		strings.WriteString(&b, "null")
+	} else {
+		strings.WriteString(&b, "[\n")
+		let mut i = 0
+		for i < nDecls {
+			let did = dense.IDAt(m.Decls.Ids, i)
+			let kind = dense.Of(m.Decls.Kind, did)
+			let dname = StrText(m.Strings, dense.Of(m.Decls.Name, did))
+			let dtag = StrText(m.Strings, dense.Of(m.Decls.Tag, did))
+			writeJSONIndent(&b, 2)
+			strings.WriteString(&b, "{\n")
+			writeJSONIndent(&b, 3)
+			strings.WriteString(&b, "\"kind\": ")
+			writeJSONStr(&b, DeclKindName(kind), false)
+			strings.WriteString(&b, ",\n")
+			writeJSONIndent(&b, 3)
+			strings.WriteString(&b, "\"name\": ")
+			writeJSONStr(&b, dname, false)
+			if kind == DeclScalar {
+				strings.WriteString(&b, ",\n")
+				writeJSONIndent(&b, 3)
+				strings.WriteString(&b, "\"scalar\": ")
+				writeJSONStr(&b, ScalarName(dense.Of(m.Decls.Scalar, did)), false)
+			} else if kind == DeclOpaque {
+				if dtag != "" {
+					strings.WriteString(&b, ",\n")
+					writeJSONIndent(&b, 3)
+					strings.WriteString(&b, "\"tag\": ")
+					writeJSONStr(&b, dtag, false)
+				}
+			} else if kind == DeclStruct {
+				if dtag != "" {
+					strings.WriteString(&b, ",\n")
+					writeJSONIndent(&b, 3)
+					strings.WriteString(&b, "\"tag\": ")
+					writeJSONStr(&b, dtag, false)
+				}
+				let fStart = dense.Of(m.Decls.FieldsStart, did)
+				let fLen = dense.Of(m.Decls.FieldsLen, did)
+				if fLen > 0 {
+					strings.WriteString(&b, ",\n")
+					writeJSONIndent(&b, 3)
+					strings.WriteString(&b, "\"fields\": [\n")
+					let mut j uint32 = 0
+					for j < fLen {
+						let fid = dense.IDAt(m.Fields.Ids, int(fStart+j))
+						let fname = StrText(m.Strings, dense.Of(m.Fields.Name, fid))
+						let ftype = dense.Of(m.Fields.Type, fid)
+						writeJSONIndent(&b, 4)
+						strings.WriteString(&b, "{\n")
+						writeJSONIndent(&b, 5)
+						strings.WriteString(&b, "\"name\": ")
+						writeJSONStr(&b, fname, false)
+						strings.WriteString(&b, ",\n")
+						writeJSONIndent(&b, 5)
+						strings.WriteString(&b, "\"type\": ")
+						writeJSONStr(&b, TypeSpell(m.Types, m.Strings, ftype), true)
+						strings.WriteString(&b, ",\n")
+						writeJSONIndent(&b, 5)
+						strings.WriteString(&b, "\"offset\": "+FormatUint64(dense.Of(m.Fields.Offset, fid))+",\n")
+						writeJSONIndent(&b, 5)
+						strings.WriteString(&b, "\"size\": "+FormatUint64(dense.Of(m.Fields.Size, fid))+",\n")
+						writeJSONIndent(&b, 5)
+						strings.WriteString(&b, "\"align\": "+FormatUint64(dense.Of(m.Fields.Align, fid))+"\n")
+						writeJSONIndent(&b, 4)
+						strings.WriteByte(&b, '}')
+						if j+1 < fLen {
+							strings.WriteByte(&b, ',')
+						}
+						strings.WriteByte(&b, '\n')
+						j = j + 1
+					}
+					writeJSONIndent(&b, 3)
+					strings.WriteByte(&b, ']')
+				}
+				let dsize = dense.Of(m.Decls.Size, did)
+				if dsize != 0 {
+					strings.WriteString(&b, ",\n")
+					writeJSONIndent(&b, 3)
+					strings.WriteString(&b, "\"size\": "+FormatUint64(dsize))
+				}
+				let dalign = dense.Of(m.Decls.Align, did)
+				if dalign != 0 {
+					strings.WriteString(&b, ",\n")
+					writeJSONIndent(&b, 3)
+					strings.WriteString(&b, "\"align\": "+FormatUint64(dalign))
+				}
+			} else if kind == DeclCallback {
+				let res = dense.Of(m.Decls.Result, did)
+				if res != NoID {
+					strings.WriteString(&b, ",\n")
+					writeJSONIndent(&b, 3)
+					strings.WriteString(&b, "\"result\": ")
+					writeJSONStr(&b, TypeSpell(m.Types, m.Strings, res), true)
+				}
+				let pStart = dense.Of(m.Decls.ParamsStart, did)
+				let pLen = dense.Of(m.Decls.ParamsLen, did)
+				if pLen > 0 {
+					strings.WriteString(&b, ",\n")
+					writeJSONIndent(&b, 3)
+					strings.WriteString(&b, "\"params\": ")
+					writeJSONParamList(&b, m, pStart, pLen, 3)
+				}
+			}
+			strings.WriteByte(&b, '\n')
+			writeJSONIndent(&b, 2)
+			strings.WriteByte(&b, '}')
+			if i+1 < nDecls {
+				strings.WriteByte(&b, ',')
+			}
+			strings.WriteByte(&b, '\n')
+			i = i + 1
+		}
+		writeJSONIndent(&b, 1)
+		strings.WriteByte(&b, ']')
+	}
+	strings.WriteString(&b, ",\n")
+	let nFuncs = dense.Total(m.Funcs.Ids)
+	writeJSONIndent(&b, 1)
+	strings.WriteString(&b, "\"functions\": ")
+	if nFuncs == 0 {
+		strings.WriteString(&b, "null")
+	} else {
+		strings.WriteString(&b, "[\n")
+		let mut i = 0
+		for i < nFuncs {
+			let fid = dense.IDAt(m.Funcs.Ids, i)
+			let fname = StrText(m.Strings, dense.Of(m.Funcs.Name, fid))
+			let res = dense.Of(m.Funcs.Result, fid)
+			let pStart = dense.Of(m.Funcs.ParamsStart, fid)
+			let pLen = dense.Of(m.Funcs.ParamsLen, fid)
+			writeJSONIndent(&b, 2)
+			strings.WriteString(&b, "{\n")
+			writeJSONIndent(&b, 3)
+			strings.WriteString(&b, "\"name\": ")
+			writeJSONStr(&b, fname, false)
+			strings.WriteString(&b, ",\n")
+			writeJSONIndent(&b, 3)
+			strings.WriteString(&b, "\"result\": ")
+			writeJSONStr(&b, TypeSpell(m.Types, m.Strings, res), true)
+			strings.WriteString(&b, ",\n")
+			writeJSONIndent(&b, 3)
+			strings.WriteString(&b, "\"params\": ")
+			if pLen == 0 {
+				strings.WriteString(&b, "null")
+			} else {
+				writeJSONParamList(&b, m, pStart, pLen, 3)
+			}
+			strings.WriteByte(&b, '\n')
+			writeJSONIndent(&b, 2)
+			strings.WriteByte(&b, '}')
+			if i+1 < nFuncs {
+				strings.WriteByte(&b, ',')
+			}
+			strings.WriteByte(&b, '\n')
+			i = i + 1
+		}
+		writeJSONIndent(&b, 1)
+		strings.WriteByte(&b, ']')
+	}
+	strings.WriteString(&b, "\n}\n")
+	strings.String(b)
+}
+
+// PrintIsParseFixedPoint verifies that Print(Parse(src)) is a fixed point of Parse and Print.
+law PrintIsParseFixedPoint(n uint8) {
+	let shift = FormatUint64(uint64(n % 16))
+	let src = "#ifndef T_H\n#define T_H\n#include <stdint.h>\n#ifdef __cplusplus\nextern \"C\" {\n#endif\n#define FLAG (UINT32_C(1) << " + shift + ")\ntypedef struct ot_ctx ot_ctx;\ntypedef struct {\n    const ot_ctx *ctx;\n    uint16_t color[4];\n} cell;\ntypedef uint32_t (*cb)(const void *u, int32_t k);\nuint32_t draw(cell *out, const void *buf, uint16_t c[4]);\n#ifdef __cplusplus\n}\n#endif\n#endif\n"
+	let mut ok = true
+	let m1 = Parse("t.h", src) catch {
+	case ParseFailure:
+		ok = false
+		NewModel("t.h")
+	}
+	if !ok {
+		return false
+	}
+	let p1 = Print(m1)
+	let m2 = Parse("t.h", p1) catch {
+	case ParseFailure:
+		ok = false
+		NewModel("t.h")
+	}
+	ok && ModelJSON(m1) == ModelJSON(m2) && Print(m2) == p1 && strings.Contains(ModelJSON(m1), "\\u003c\\u003c")
+}

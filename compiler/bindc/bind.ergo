@@ -1,0 +1,1166 @@
+import dense
+import hex
+import sha256
+import slices
+import strconv
+import strings
+
+// BoundFunc summarizes one non-skipped function prototype after binding and classification.
+type BoundFunc {
+	FuncIdx    uint32,
+	Name       string,
+	GoName     string,
+	Positions  []Position,
+	RawOnly    string,
+	Sig        GoSig,
+	HasSig     bool,
+	ErgoParams []string,
+	HasDestroy bool,
+	DestroyIdx uint32,
+}
+
+// BoundFuncCallbacks returns the C typedef names of callback parameters on a typed function.
+func BoundFuncCallbacks(b Binding, bf BoundFunc) []string {
+	let pr = funcRange(b.K, bf.FuncIdx)
+	let mut out = []string{}
+	for q in bf.Positions {
+		if q.Class == ClassCallback {
+			let pID = TypeAt(b.M.Types, prParamType(b.K, pr, q.Param))
+			out = out.Append(StrText(b.M.Strings, dense.Of(b.M.Types.Name, pID)))
+		}
+	}
+	out
+}
+
+// ErgoUnboundReason returns "" if bf has a typed Ergo extern binding, else the raw-only reason.
+func ErgoUnboundReason(bf BoundFunc) string {
+	if !bf.HasSig {
+		return bf.RawOnly
+	}
+	""
+}
+
+// Binding holds a C model validated and classified against its binding contract.
+type Binding {
+	M              Model,
+	C              ContractTable,
+	HeaderSHA256   string,
+	ContractSHA256 string,
+	Funcs          []BoundFunc,
+	Fields         []FieldPosition,
+	Callbacks      []BoundCallback,
+	Codes          []uint32,
+	HasSuccess     bool,
+	SuccessConst   uint32,
+	ABIWant        uint64,
+	Constants      []uint32,
+	GoTypes        []string,
+	Autofill       []uint32,
+	FieldNameStart []uint32,
+	FieldNameLen   []uint32,
+	FieldNamePool  []string,
+	RecordFlags    []bool,
+	UnionFlags     []bool,
+	KindStart      []uint32,
+	KindLen        []uint32,
+	KindPool       []uint32,
+	K              Classifier,
+}
+
+// CodeGoName returns the Go constant name ("Status" + CamelCase) for status constant cIdx.
+func CodeGoName(b Binding, cIdx uint32) string {
+	let cid = dense.IDAt(b.M.Consts.Ids, int(cIdx))
+	let cname = StrText(b.M.Strings, dense.Of(b.M.Consts.Name, cid))
+	let pref = StrText(b.C.Strings, b.C.StatusMacroPrefix)
+	"Status" + GoCamel(strings.TrimPrefix(cname, pref))
+}
+
+func statusConstType(s uint8) uint8 {
+	if s == ScalarInt8 || s == ScalarInt16 || s == ScalarInt32 || s == ScalarUint8 || s == ScalarUint16 {
+		return ScalarInt32
+	}
+	if s == ScalarUint32 {
+		return ScalarUint32
+	}
+	if s == ScalarInt64 {
+		return ScalarInt64
+	}
+	ScalarUint64
+}
+
+func fitsScalarConst(scalar uint8, bits uint64, target uint8) bool {
+	let w = 8 * ScalarSize(target)
+	let tSigned = ScalarIsSigned(target)
+	if ConstantSigned(scalar) {
+		let v = ConstantInt64(scalar, bits)
+		if tSigned {
+			if w == 64 {
+				return true
+			}
+			let half = int64(1) << (w - 1)
+			return v >= -half && v <= half-1
+		}
+		if v < 0 {
+			return false
+		}
+		return w == 64 || (uint64(v)>>w) == 0
+	}
+	if tSigned {
+		return (bits >> (w - 1)) == 0
+	}
+	w == 64 || (bits>>w) == 0
+}
+
+func initClassifier(mIn Model, c ContractTable) Classifier {
+	let mut m = mIn
+	let nT = c.Strings.Texts.Len()
+	let mut ti = 0
+	for ti < nT {
+		let _ = InternModelStr(&m, c.Strings.Texts[ti])
+		ti = ti + 1
+	}
+	let nDecls = dense.Total(m.Decls.Ids)
+	let nFuncs = dense.Total(m.Funcs.Ids)
+	let nConsts = dense.Total(m.Consts.Ids)
+	let slots = m.Strings.Texts.Len() + 16
+	let mut funcByName = GrowIndexSlots([]uint32{}, uint32(slots))
+	let mut fi = 0
+	for fi < nFuncs {
+		let fid = dense.IDAt(m.Funcs.Ids, fi)
+		let fsid = dense.Of(m.Funcs.Name, fid)
+		funcByName[int(fsid)] = uint32(fi)
+		fi = fi + 1
+	}
+	let mut handleByType = GrowIndexSlots([]uint32{}, uint32(slots))
+	let mut createByFn = GrowIndexSlots([]uint32{}, uint32(slots))
+	let mut destroyByFn = GrowIndexSlots([]uint32{}, uint32(slots))
+	let nHandles = dense.Total(c.Handles.Ids)
+	let mut hi = 0
+	for hi < nHandles {
+		let hid = dense.IDAt(c.Handles.Ids, hi)
+		let hType = StrText(c.Strings, dense.Of(c.Handles.Type, hid))
+		let hCreate = StrText(c.Strings, dense.Of(c.Handles.Create, hid))
+		let hDestroy = StrText(c.Strings, dense.Of(c.Handles.Destroy, hid))
+		let tSid = FindStr(m.Strings, hType)
+		let cSid = FindStr(m.Strings, hCreate)
+		let dSid = FindStr(m.Strings, hDestroy)
+		if tSid != NoID && handleByType[int(tSid)] == NoID {
+			handleByType[int(tSid)] = uint32(hi)
+		}
+		if cSid != NoID {
+			createByFn[int(cSid)] = uint32(hi)
+		}
+		if dSid != NoID {
+			destroyByFn[int(dSid)] = uint32(hi)
+		}
+		hi = hi + 1
+	}
+	let mut skipped = []bool{}
+	let mut excluded = []bool{}
+	let mut autofillVal = []uint32{}
+	let mut si = 0
+	for si < slots+16 {
+		skipped = skipped.Append(false)
+		excluded = excluded.Append(false)
+		autofillVal = autofillVal.Append(0)
+		si = si + 1
+	}
+	let mut lenStrs = []string{}
+	for sid in c.LengthNames {
+		lenStrs = lenStrs.Append(StrText(c.Strings, sid))
+	}
+	let mut byteLenStrs = []string{}
+	for sid in c.ByteLengthNames {
+		byteLenStrs = byteLenStrs.Append(StrText(c.Strings, sid))
+	}
+	let mut capStrs = []string{}
+	for sid in c.CapacityNames {
+		capStrs = capStrs.Append(StrText(c.Strings, sid))
+	}
+	let mut cntStrs = []string{}
+	for sid in c.CountNames {
+		cntStrs = cntStrs.Append(StrText(c.Strings, sid))
+	}
+	let mut funcExcHead = []uint32{}
+	let mut fei = 0
+	for fei < nFuncs {
+		funcExcHead = funcExcHead.Append(NoID)
+		fei = fei + 1
+	}
+	let mut cbExcHead = []uint32{}
+	let mut cei = 0
+	for cei < nDecls {
+		cbExcHead = cbExcHead.Append(NoID)
+		cei = cei + 1
+	}
+	let cbRules = GrowIndexSlots([]uint32{}, uint32(slots))
+	let cbByType = GrowIndexSlots([]uint32{}, uint32(slots))
+	let declByName = GrowIndexSlots(m.DeclByName, uint32(slots))
+	let constByName = GrowIndexSlots(m.ConstByName, uint32(slots))
+	let _ = nConsts
+	Classifier{
+		M:              m,
+		C:              c,
+		DeclByName:     declByName,
+		FuncByName:     funcByName,
+		ConstByName:    constByName,
+		Skipped:        skipped,
+		Excluded:       excluded,
+		HandleByType:   handleByType,
+		CreateByFn:     createByFn,
+		DestroyByFn:    destroyByFn,
+		AutofillVal:    autofillVal,
+		CbRuleByType:   cbRules,
+		CbByType:       cbByType,
+		FuncExcHead:    funcExcHead,
+		FuncExcNext:    []uint32{},
+		FuncExcParam:   []uint32{},
+		FuncExcRow:     []uint32{},
+		CbExcHead:      cbExcHead,
+		CbExcNext:      []uint32{},
+		CbExcParam:     []uint32{},
+		CbExcRow:       []uint32{},
+		LengthStrs:     lenStrs,
+		ByteLengthStrs: byteLenStrs,
+		CapacityStrs:   capStrs,
+		CountStrs:      cntStrs,
+		OutPrefix:      StrText(c.Strings, c.OutPrefix),
+	}
+}
+
+func sizeFieldForStruct(k Classifier, autofill []uint32, declIdx uint32) int {
+	let did = dense.IDAt(k.M.Decls.Ids, int(declIdx))
+	let fStart = dense.Of(k.M.Decls.FieldsStart, did)
+	let fLen = dense.Of(k.M.Decls.FieldsLen, did)
+	let mut fi uint32 = 0
+	for fi < fLen {
+		let fNameID = dense.Of(k.M.Fields.Name, dense.IDAt(k.M.Fields.Ids, int(fStart+fi)))
+		if int(fNameID) < autofill.Len() && autofill[int(fNameID)] != 0 && StrText(k.C.Strings, autofill[int(fNameID)]) == "size" {
+			return int(fi)
+		}
+		fi = fi + 1
+	}
+	-1
+}
+
+func computeRecordKinds(k Classifier, funcs []BoundFunc, autofill []uint32) ([]uint32, []uint32, []uint32) {
+	let nDecls = dense.Total(k.M.Decls.Ids)
+	let mut candidate = []bool{}
+	let mut di = 0
+	for di < nDecls {
+		candidate = candidate.Append(false)
+		di = di + 1
+	}
+	for bf in funcs {
+		if bf.RawOnly != "" {
+			continue
+		}
+		let pr = funcRange(k, bf.FuncIdx)
+		for q in bf.Positions {
+			if q.Class != ClassValue || q.IsRes {
+				continue
+			}
+			let pt = prParamType(k, pr, q.Param)
+			let pID = TypeAt(k.M.Types, pt)
+			if dense.Of(k.M.Types.LenExpr, pID) == 0 {
+				let eID = TypeAt(k.M.Types, dense.Of(k.M.Types.Elem, pID))
+				let eName = StrText(k.M.Strings, dense.Of(k.M.Types.Name, eID))
+				let eDecl = kDeclIdx(k, eName)
+				if eDecl != NoID {
+					candidate[int(eDecl)] = true
+				}
+			}
+		}
+	}
+	let mut kindStart = []uint32{}
+	let mut kindLen = []uint32{}
+	let mut kindPool = []uint32{}
+	di = 0
+	for di < nDecls {
+		kindStart = kindStart.Append(0)
+		kindLen = kindLen.Append(0)
+		di = di + 1
+	}
+	let mut hIdx = 0
+	for hIdx < nDecls {
+		if !candidate[hIdx] || sizeFieldForStruct(k, autofill, uint32(hIdx)) < 0 {
+			hIdx = hIdx + 1
+			continue
+		}
+		let hName = StrText(k.M.Strings, dense.Of(k.M.Decls.Name, dense.IDAt(k.M.Decls.Ids, hIdx)))
+		let mut members = []uint32{uint32(hIdx)}
+		let mut dj = 0
+		for dj < nDecls {
+			let djd = dense.IDAt(k.M.Decls.Ids, dj)
+			if dj != hIdx && dense.Of(k.M.Decls.Kind, djd) == DeclStruct && dense.Of(k.M.Decls.FieldsLen, djd) > 0 {
+				let f0 = dense.IDAt(k.M.Fields.Ids, int(dense.Of(k.M.Decls.FieldsStart, djd)))
+				let f0ID = TypeAt(k.M.Types, dense.Of(k.M.Fields.Type, f0))
+				if dense.Of(k.M.Types.Kind, f0ID) == TypeNamed && StrText(k.M.Strings, dense.Of(k.M.Types.Name, f0ID)) == hName {
+					let djName = StrText(k.M.Strings, dense.Of(k.M.Decls.Name, djd))
+					if kPointerFree(k, djName) {
+						members = members.Append(uint32(dj))
+					}
+				}
+			}
+			dj = dj + 1
+		}
+		if members.Len() > 1 {
+			kindStart[hIdx] = uint32(kindPool.Len())
+			kindLen[hIdx] = uint32(members.Len())
+			for mb in members {
+				kindPool = kindPool.Append(mb)
+			}
+		}
+		hIdx = hIdx + 1
+	}
+	(kindStart, kindLen, kindPool)
+}
+
+func markStructTree(k Classifier, declIdx uint32, recFlags []bool) []bool {
+	if declIdx == NoID || recFlags[int(declIdx)] {
+		return recFlags
+	}
+	let did = dense.IDAt(k.M.Decls.Ids, int(declIdx))
+	if dense.Of(k.M.Decls.Kind, did) != DeclStruct {
+		return recFlags
+	}
+	let mut out = recFlags
+	out[int(declIdx)] = true
+	let fStart = dense.Of(k.M.Decls.FieldsStart, did)
+	let fLen = dense.Of(k.M.Decls.FieldsLen, did)
+	let mut fi uint32 = 0
+	for fi < fLen {
+		let fType = dense.Of(k.M.Fields.Type, dense.IDAt(k.M.Fields.Ids, int(fStart+fi)))
+		out = markTypeStructs(k, fType, out)
+		fi = fi + 1
+	}
+	out
+}
+
+func markTypeStructs(k Classifier, typeID uint32, recFlags []bool) []bool {
+	let mut cur = typeID
+	for cur != NoID {
+		let tid = TypeAt(k.M.Types, cur)
+		let kind = dense.Of(k.M.Types.Kind, tid)
+		if kind == TypeArray || kind == TypePointer {
+			cur = dense.Of(k.M.Types.Elem, tid)
+			continue
+		}
+		if kind == TypeNamed {
+			let name = StrText(k.M.Strings, dense.Of(k.M.Types.Name, tid))
+			let dIdx = kDeclIdx(k, name)
+			return markStructTree(k, dIdx, recFlags)
+		}
+		return recFlags
+	}
+	recFlags
+}
+
+func computeRecordAndUnionFlags(k Classifier, funcs []BoundFunc, cbs []BoundCallback, kindStart []uint32, kindLen []uint32, kindPool []uint32) ([]bool, []bool) {
+	let nDecls = dense.Total(k.M.Decls.Ids)
+	let mut recFlags = []bool{}
+	let mut unionFlags = []bool{}
+	let mut i = 0
+	for i < nDecls {
+		recFlags = recFlags.Append(false)
+		unionFlags = unionFlags.Append(false)
+		i = i + 1
+	}
+	for bf in funcs {
+		if ErgoUnboundReason(bf) != "" {
+			continue
+		}
+		let pr = funcRange(k, bf.FuncIdx)
+		for p in bf.Sig.Params {
+			let pt = prParamType(k, pr, p.C)
+			recFlags = markTypeStructs(k, pt, recFlags)
+			if p.Class == ClassCallback {
+				let ptID = TypeAt(k.M.Types, pt)
+				let cbName = StrText(k.M.Strings, dense.Of(k.M.Types.Name, ptID))
+				let sid = FindStr(k.M.Strings, cbName)
+				if sid != NoID && int(sid) < k.CbByType.Len() && k.CbByType[int(sid)] != NoID {
+					let bc = cbs[int(k.CbByType[int(sid)])]
+					if bc.HasSig {
+						let cbPr = cbFuncRange(k, bc.DeclIdx)
+						for cp in bc.Sig.Params {
+							recFlags = markTypeStructs(k, prParamType(k, cbPr, cp.C), recFlags)
+						}
+						for cr in bc.Sig.Results {
+							if cr.IsRet {
+								recFlags = markTypeStructs(k, cbPr.res, recFlags)
+							} else {
+								recFlags = markTypeStructs(k, prParamType(k, cbPr, cr.C), recFlags)
+							}
+						}
+					}
+				}
+			}
+			let ptID = TypeAt(k.M.Types, pt)
+			if p.Class == ClassValue && dense.Of(k.M.Types.LenExpr, ptID) == 0 {
+				let eID = TypeAt(k.M.Types, dense.Of(k.M.Types.Elem, ptID))
+				let eName = StrText(k.M.Strings, dense.Of(k.M.Types.Name, eID))
+				let eDecl = kDeclIdx(k, eName)
+				if eDecl != NoID && kindLen[int(eDecl)] > 0 {
+					unionFlags[int(eDecl)] = true
+					let ks = kindStart[int(eDecl)]
+					let kl = kindLen[int(eDecl)]
+					let mut ki uint32 = 0
+					for ki < kl {
+						recFlags = markStructTree(k, kindPool[int(ks+ki)], recFlags)
+						ki = ki + 1
+					}
+				}
+			}
+		}
+		for r in bf.Sig.Results {
+			if r.IsRet {
+				recFlags = markTypeStructs(k, pr.res, recFlags)
+			} else {
+				recFlags = markTypeStructs(k, prParamType(k, pr, r.C), recFlags)
+			}
+		}
+	}
+	(recFlags, unionFlags)
+}
+
+func checkBindingNames(
+	k Classifier,
+	goTypes []string,
+	autofill []uint32,
+	funcs []BoundFunc,
+	codes []uint32,
+	constants []uint32,
+	kindLen []uint32,
+) ([]uint32, []uint32, []string) fails BindingFailure {
+	let mut sa = NewScopeArena()
+	let pkgScope = NewGoPackageScope(&sa)
+	let mut errs = []string{}
+	let nDecls = dense.Total(k.M.Decls.Ids)
+	let mut fnStart = []uint32{}
+	let mut fnLen = []uint32{}
+	let mut fnPool = []string{}
+	let mut di = 0
+	for di < nDecls {
+		fnStart = fnStart.Append(0)
+		fnLen = fnLen.Append(0)
+		let did = dense.IDAt(k.M.Decls.Ids, di)
+		if dense.Of(k.M.Decls.Kind, did) != DeclStruct {
+			di = di + 1
+			continue
+		}
+		let dName = StrText(k.M.Strings, dense.Of(k.M.Decls.Name, did))
+		let sc = NewGoStructScope(&sa)
+		let fStart = dense.Of(k.M.Decls.FieldsStart, did)
+		let fLen = dense.Of(k.M.Decls.FieldsLen, did)
+		fnStart[di] = uint32(fnPool.Len())
+		let mut fi uint32 = 0
+		for fi < fLen {
+			let fid = dense.IDAt(k.M.Fields.Ids, int(fStart+fi))
+			let fNameID = dense.Of(k.M.Fields.Name, fid)
+			let fName = StrText(k.M.Strings, fNameID)
+			if int(fNameID) < autofill.Len() && autofill[int(fNameID)] != 0 {
+				let n = LowerCamel(fName)
+				if n == "" {
+					errs = errs.Append(dName + ": field " + fName + " has no Go name")
+					fi = fi + 1
+					continue
+				}
+				fnPool = fnPool.Append(ScopeAlloc(&sa, sc, n, fName))
+				fnLen[di] = fnLen[di] + 1
+				fi = fi + 1
+				continue
+			}
+			let n = GoCamel(fName)
+			fnPool = fnPool.Append(n)
+			fnLen[di] = fnLen[di] + 1
+			if !IsGoIdent(n) || !IsExportedIdent(n) {
+				errs = errs.Append(dName + ": field " + fName + ": Go name " + strconv.Quote(n) + " is not an exported identifier")
+			} else {
+				let (taken, prev) = ScopeTaken(&sa, sc, n)
+				if taken {
+					errs = errs.Append(dName + ": fields " + prev + " and " + fName + " have the Go name " + n)
+				} else {
+					let _ = ScopeClaim(&sa, sc, n, fName)
+				}
+			}
+			fi = fi + 1
+		}
+		di = di + 1
+	}
+	for bf in funcs {
+		let msg = ScopeClaim(&sa, pkgScope, RawName(bf.Name), "the raw function of "+bf.Name)
+		if msg != "" {
+			errs = errs.Append(msg)
+		}
+	}
+	let stType = StrText(k.C.Strings, k.C.StatusType)
+	let stPref = StrText(k.C.Strings, k.C.StatusMacroPrefix)
+	di = 0
+	for di < nDecls {
+		let dName = StrText(k.M.Strings, dense.Of(k.M.Decls.Name, dense.IDAt(k.M.Decls.Ids, di)))
+		if dName == stType {
+			di = di + 1
+			continue
+		}
+		let gName = goTypes[di]
+		if !IsGoIdent(gName) || !IsExportedIdent(gName) {
+			errs = errs.Append(dName + ": Go name " + strconv.Quote(gName) + " is not an exported identifier")
+		} else {
+			let msg = ScopeClaim(&sa, pkgScope, gName, dName)
+			if msg != "" {
+				errs = errs.Append(msg)
+			}
+		}
+		if kindLen[di] > 0 {
+			let rName = gName + "Record"
+			let rSrc = "the record kinds of " + dName
+			if !IsGoIdent(rName) || !IsExportedIdent(rName) {
+				errs = errs.Append(rSrc + ": Go name " + strconv.Quote(rName) + " is not an exported identifier")
+			} else {
+				let msg = ScopeClaim(&sa, pkgScope, rName, rSrc)
+				if msg != "" {
+					errs = errs.Append(msg)
+				}
+			}
+		}
+		di = di + 1
+	}
+	for bf in funcs {
+		if !IsGoIdent(bf.GoName) || !IsExportedIdent(bf.GoName) {
+			errs = errs.Append(bf.Name + ": Go name " + strconv.Quote(bf.GoName) + " is not an exported identifier")
+		} else {
+			let msg = ScopeClaim(&sa, pkgScope, bf.GoName, bf.Name)
+			if msg != "" {
+				errs = errs.Append(msg)
+			}
+		}
+	}
+	for xIdx in codes {
+		let cname = StrText(k.M.Strings, dense.Of(k.M.Consts.Name, dense.IDAt(k.M.Consts.Ids, int(xIdx))))
+		let cg = "Status" + GoCamel(strings.TrimPrefix(cname, stPref))
+		if !IsGoIdent(cg) || !IsExportedIdent(cg) {
+			errs = errs.Append(cname + ": Go name " + strconv.Quote(cg) + " is not an exported identifier")
+		} else {
+			let msg = ScopeClaim(&sa, pkgScope, cg, cname)
+			if msg != "" {
+				errs = errs.Append(msg)
+			}
+		}
+	}
+	for xIdx in constants {
+		let cname = StrText(k.M.Strings, dense.Of(k.M.Consts.Name, dense.IDAt(k.M.Consts.Ids, int(xIdx))))
+		if !IsGoIdent(cname) || !IsExportedIdent(cname) {
+			errs = errs.Append(cname + ": Go name " + strconv.Quote(cname) + " is not an exported identifier")
+		} else {
+			let msg = ScopeClaim(&sa, pkgScope, cname, cname)
+			if msg != "" {
+				errs = errs.Append(msg)
+			}
+		}
+	}
+	if errs.Len() > 0 {
+		return BindingFailure{Msg: contractErrorMsg(slices.Sort(errs))}
+	}
+	(fnStart, fnLen, fnPool)
+}
+
+func assignErgoNames(
+	k Classifier,
+	goTypes []string,
+	cbs []BoundCallback,
+	codes []uint32,
+	recFlags []bool,
+	unionFlags []bool,
+	funcs []BoundFunc,
+) []BoundFunc fails BindingFailure {
+	let mut sa = NewScopeArena()
+	let impPath = StrText(k.C.Strings, k.C.GoImportPath)
+	let (pkgScope, initErrs) = NewErgoPackageScope(&sa, impPath)
+	let mut errs = initErrs
+	for cb in cbs {
+		if cb.Bound {
+			let msg = ScopeClaim(&sa, pkgScope, "LiveCallbacks", "generated callback counter LiveCallbacks")
+			if msg != "" {
+				errs = errs.Append(msg)
+			}
+			break
+		}
+	}
+	let stPref = StrText(k.C.Strings, k.C.StatusMacroPrefix)
+	for xIdx in codes {
+		let cname = StrText(k.M.Strings, dense.Of(k.M.Consts.Name, dense.IDAt(k.M.Consts.Ids, int(xIdx))))
+		let gn = strings.TrimPrefix("Status"+GoCamel(strings.TrimPrefix(cname, stPref)), "Status")
+		let src = "status code " + cname
+		if !IsGoIdent(gn) || !IsExportedIdent(gn) {
+			errs = errs.Append(src + ": Ergo name " + strconv.Quote(gn) + " is not an exported identifier")
+		} else {
+			let msg = ScopeClaim(&sa, pkgScope, gn, src)
+			if msg != "" {
+				errs = errs.Append(msg)
+			}
+		}
+	}
+	let stType = StrText(k.C.Strings, k.C.StatusType)
+	let nDecls = dense.Total(k.M.Decls.Ids)
+	let mut di = 0
+	for di < nDecls {
+		let did = dense.IDAt(k.M.Decls.Ids, di)
+		let dk = dense.Of(k.M.Decls.Kind, did)
+		let dName = StrText(k.M.Strings, dense.Of(k.M.Decls.Name, did))
+		let gn = goTypes[di]
+		if dk == DeclScalar && dName != stType {
+			let src = "typedef " + dName
+			if !IsGoIdent(gn) || !IsExportedIdent(gn) {
+				errs = errs.Append(src + ": Ergo name " + strconv.Quote(gn) + " is not an exported identifier")
+			} else {
+				let msg = ScopeClaim(&sa, pkgScope, gn, src)
+				if msg != "" {
+					errs = errs.Append(msg)
+				}
+			}
+		}
+		if recFlags[di] {
+			let src = "struct " + dName
+			if !IsGoIdent(gn) || !IsExportedIdent(gn) {
+				errs = errs.Append(src + ": Ergo name " + strconv.Quote(gn) + " is not an exported identifier")
+			} else {
+				let msg = ScopeClaim(&sa, pkgScope, gn, src)
+				if msg != "" {
+					errs = errs.Append(msg)
+				}
+			}
+		}
+		if unionFlags[di] {
+			let rn = gn + "Record"
+			let src = "the record kinds of " + dName
+			if !IsGoIdent(rn) || !IsExportedIdent(rn) {
+				errs = errs.Append(src + ": Ergo name " + strconv.Quote(rn) + " is not an exported identifier")
+			} else {
+				let msg = ScopeClaim(&sa, pkgScope, rn, src)
+				if msg != "" {
+					errs = errs.Append(msg)
+				}
+			}
+		}
+		di = di + 1
+	}
+	for bf in funcs {
+		if ErgoUnboundReason(bf) == "" {
+			let src = "function " + bf.Name
+			if !IsGoIdent(bf.GoName) || !IsExportedIdent(bf.GoName) {
+				errs = errs.Append(src + ": Ergo name " + strconv.Quote(bf.GoName) + " is not an exported identifier")
+			} else {
+				let msg = ScopeClaim(&sa, pkgScope, bf.GoName, src)
+				if msg != "" {
+					errs = errs.Append(msg)
+				}
+			}
+		}
+	}
+	if errs.Len() > 0 {
+		return BindingFailure{Msg: contractErrorMsg(slices.Sort(errs))}
+	}
+	let mut outFuncs = slices.Clone(funcs)
+	let mut fi = 0
+	for fi < outFuncs.Len() {
+		if ErgoUnboundReason(outFuncs[fi]) == "" {
+			let pr = funcRange(k, outFuncs[fi].FuncIdx)
+			let sc = NewErgoFuncScope(&sa, pkgScope)
+			let mut eparams = []string{}
+			for gp in outFuncs[fi].Sig.Params {
+				eparams = eparams.Append(ScopeAlloc(&sa, sc, ParamWant(k, pr, gp.C), paramSourceDesc(k, pr, gp.C)))
+			}
+			outFuncs[fi].ErgoParams = eparams
+		}
+		fi = fi + 1
+	}
+	outFuncs
+}
+
+// Bind validates contractText against headerModel and headerSrc, and computes all classifications, plans, and names.
+func Bind(mIn Model, headerSrc string, contractText string) Binding fails ContractFailure | BindingFailure {
+	let ct = try DecodeContract(contractText)
+	let headerSHA = hex.Encode(sha256.Sum(headerSrc))
+	let contractSHA = hex.Encode(sha256.Sum(contractText))
+	let mut k = initClassifier(mIn, ct)
+	let mut errs = []string{}
+	let cHeader = StrText(ct.Strings, ct.Header)
+	let cSHA = StrText(ct.Strings, ct.HeaderSHA256)
+	if cHeader != k.M.Header {
+		errs = errs.Append("header is " + strconv.Quote(cHeader) + ", but the model is of " + strconv.Quote(k.M.Header))
+	}
+	if cSHA != headerSHA {
+		errs = errs.Append("header_sha256 is " + cSHA + ", but the header's sha256 is " + headerSHA)
+	}
+	let nSkips = dense.Total(ct.Skips.Ids)
+	let mut si = 0
+	for si < nSkips {
+		let sid = dense.IDAt(ct.Skips.Ids, si)
+		if !dense.Of(ct.Skips.IsExclude, sid) {
+			let sName = StrText(ct.Strings, dense.Of(ct.Skips.Name, sid))
+			let strID = FindStr(k.M.Strings, sName)
+			if k.Skipped[int(strID)] {
+				errs = errs.Append("skips: " + sName + " appears twice")
+			} else if kFuncIdx(k, sName) == NoID && kConstIdx(k, sName) == NoID {
+				errs = errs.Append("skips: " + sName + " is not a function or a constant of the header")
+			}
+			k.Skipped[int(strID)] = true
+		}
+		si = si + 1
+	}
+
+	let mut codes = []uint32{}
+	let mut hasSuccess = false
+	let mut successConst uint32 = NoID
+	let stType = StrText(ct.Strings, ct.StatusType)
+	let stPref = StrText(ct.Strings, ct.StatusMacroPrefix)
+	let stSucc = StrText(ct.Strings, ct.StatusSuccess)
+	let stDeclIdx = kDeclIdx(k, stType)
+	let stDeclKind = if stDeclIdx != NoID { dense.Of(k.M.Decls.Kind, dense.IDAt(k.M.Decls.Ids, int(stDeclIdx))) } else { uint8(0) }
+	let stScalar = if stDeclIdx != NoID { dense.Of(k.M.Decls.Scalar, dense.IDAt(k.M.Decls.Ids, int(stDeclIdx))) } else { ScalarNone }
+	let stIsInt = stScalar == ScalarInt8 || stScalar == ScalarInt16 || stScalar == ScalarInt32 || stScalar == ScalarInt64 || stScalar == ScalarUint8 || stScalar == ScalarUint16 || stScalar == ScalarUint32 || stScalar == ScalarUint64
+	if stDeclIdx == NoID || stDeclKind != DeclScalar || !stIsInt {
+		errs = errs.Append("status.type " + stType + " is not an integer typedef of the header")
+	} else {
+		let expectType = statusConstType(stScalar)
+		si = 0
+		for si < nSkips {
+			let sid = dense.IDAt(ct.Skips.Ids, si)
+			if dense.Of(ct.Skips.IsExclude, sid) {
+				let eName = StrText(ct.Strings, dense.Of(ct.Skips.Name, sid))
+				let eStrID = FindStr(k.M.Strings, eName)
+				let xIdx = kConstIdx(k, eName)
+				if k.Excluded[int(eStrID)] {
+					errs = errs.Append("status.exclude: " + eName + " appears twice")
+				} else if xIdx == NoID || !strings.HasPrefix(eName, stPref) || dense.Of(k.M.Consts.Scalar, dense.IDAt(k.M.Consts.Ids, int(xIdx))) != expectType {
+					errs = errs.Append("status.exclude: " + eName + " is not a constant with the status prefix and type")
+				}
+				k.Excluded[int(eStrID)] = true
+			}
+			si = si + 1
+		}
+		let mut stVals = []uint64{}
+		let mut stNames = []string{}
+		let nConsts = dense.Total(k.M.Consts.Ids)
+		let mut ci = 0
+		for ci < nConsts {
+			let cid = dense.IDAt(k.M.Consts.Ids, ci)
+			let cStrID = dense.Of(k.M.Consts.Name, cid)
+			let cName = StrText(k.M.Strings, cStrID)
+			let cScalar = dense.Of(k.M.Consts.Scalar, cid)
+			let cBits = dense.Of(k.M.Consts.Bits, cid)
+			if !strings.HasPrefix(cName, stPref) || cScalar != expectType || k.Excluded[int(cStrID)] || k.Skipped[int(cStrID)] {
+				ci = ci + 1
+				continue
+			}
+			if !fitsScalarConst(cScalar, cBits, stScalar) {
+				errs = errs.Append("status code " + cName + " = " + ConstantValue(cScalar, cBits) + " does not fit " + ScalarName(stScalar))
+				ci = ci + 1
+				continue
+			}
+			let mut dupIdx = -1
+			let mut vi = 0
+			for vi < stVals.Len() {
+				if stVals[vi] == cBits {
+					dupIdx = vi
+					break
+				}
+				vi = vi + 1
+			}
+			if dupIdx >= 0 {
+				errs = errs.Append("status codes " + stNames[dupIdx] + " and " + cName + " have the value " + ConstantValue(cScalar, cBits) + "; exclude one")
+				ci = ci + 1
+				continue
+			}
+			stVals = stVals.Append(cBits)
+			stNames = stNames.Append(cName)
+			if cName == stSucc {
+				hasSuccess = true
+				successConst = uint32(ci)
+			} else {
+				codes = codes.Append(uint32(ci))
+			}
+			ci = ci + 1
+		}
+		if !hasSuccess {
+			errs = errs.Append("status.success " + stSucc + " is not a status code of the header")
+		}
+	}
+
+	let abiFnName = StrText(ct.Strings, ct.ABIFunction)
+	let abiMacroName = StrText(ct.Strings, ct.ABIMacro)
+	let mut abiWant uint64 = 0
+	let abiFnIdx = kFuncIdx(k, abiFnName)
+	if abiFnIdx == NoID || kIsSkipped(k, abiFnName) {
+		if abiFnIdx == NoID {
+			errs = errs.Append("abi.function " + abiFnName + " is not in the header")
+		} else {
+			errs = errs.Append("abi.function " + abiFnName + " is skipped")
+		}
+	} else {
+		let apr = funcRange(k, abiFnIdx)
+		let (ascal, aok) = kScalarOf(k, apr.res)
+		if apr.pLen != 0 || !aok || !isUnsignedScalar(ascal) {
+			errs = errs.Append("abi.function " + abiFnName + " is not an unsigned integer function of no parameters")
+		} else {
+			let abiConstIdx = kConstIdx(k, abiMacroName)
+			if abiConstIdx == NoID || kIsSkipped(k, abiMacroName) {
+				if abiConstIdx == NoID {
+					errs = errs.Append("abi.macro " + abiMacroName + " is not in the header")
+				} else {
+					errs = errs.Append("abi.macro " + abiMacroName + " is skipped")
+				}
+			} else {
+				let acid = dense.IDAt(k.M.Consts.Ids, int(abiConstIdx))
+				let acScalar = dense.Of(k.M.Consts.Scalar, acid)
+				let acBits = dense.Of(k.M.Consts.Bits, acid)
+				if (ConstantSigned(acScalar) && ConstantInt64(acScalar, acBits) < 0) || !fitsScalarConst(acScalar, acBits, ascal) {
+					errs = errs.Append("abi.macro " + abiMacroName + " = " + ConstantValue(acScalar, acBits) + " does not fit the result of " + abiFnName)
+				} else {
+					abiWant = acBits
+				}
+			}
+		}
+	}
+
+	let nHandles = dense.Total(ct.Handles.Ids)
+	let mut seenHandles = []string{}
+	let mut hi = 0
+	for hi < nHandles {
+		let hid = dense.IDAt(ct.Handles.Ids, hi)
+		let hType = StrText(ct.Strings, dense.Of(ct.Handles.Type, hid))
+		let hCreate = StrText(ct.Strings, dense.Of(ct.Handles.Create, hid))
+		let hOut = StrText(ct.Strings, dense.Of(ct.Handles.Out, hid))
+		let hDestroy = StrText(ct.Strings, dense.Of(ct.Handles.Destroy, hid))
+		if slices.Contains(seenHandles, hType) {
+			errs = errs.Append("handles: " + hType + " appears twice")
+		}
+		seenHandles = seenHandles.Append(hType)
+		let hdIdx = kDeclIdx(k, hType)
+		if hdIdx == NoID || dense.Of(k.M.Decls.Kind, dense.IDAt(k.M.Decls.Ids, int(hdIdx))) != DeclOpaque {
+			errs = errs.Append("handles: " + hType + " is not an opaque type of the header")
+			hi = hi + 1
+			continue
+		}
+		let crIdx = kFuncIdx(k, hCreate)
+		if crIdx == NoID {
+			errs = errs.Append("handles: create " + hCreate + " is not in the header")
+		} else if kIsSkipped(k, hCreate) {
+			errs = errs.Append("handles: create " + hCreate + " is skipped")
+		} else {
+			let cpr = funcRange(k, crIdx)
+			let (j, ok) = ParamRef(k.M, cpr.pStart, cpr.pLen, hOut)
+			if !ok || prParamName(k, cpr, j) != hOut {
+				errs = errs.Append("handles: " + hCreate + " has no parameter " + hOut)
+			} else {
+				let pt = TypeAt(k.M.Types, prParamType(k, cpr, j))
+				let mut isPtrPtr = false
+				if dense.Of(k.M.Types.Kind, pt) == TypePointer && dense.Of(k.M.Types.LenExpr, pt) == 0 {
+					let eID = TypeAt(k.M.Types, dense.Of(k.M.Types.Elem, pt))
+					if !dense.Of(k.M.Types.Const, eID) && dense.Of(k.M.Types.Kind, eID) == TypePointer {
+						let eeID = TypeAt(k.M.Types, dense.Of(k.M.Types.Elem, eID))
+						if dense.Of(k.M.Types.Kind, eeID) == TypeNamed && StrText(k.M.Strings, dense.Of(k.M.Types.Name, eeID)) == hType && !dense.Of(k.M.Types.Const, eeID) {
+							isPtrPtr = true
+						}
+					}
+				}
+				if !isPtrPtr {
+					errs = errs.Append("handles: " + hCreate + " " + hOut + " is not a `" + hType + " **`")
+				}
+			}
+		}
+		let deIdx = kFuncIdx(k, hDestroy)
+		if deIdx == NoID {
+			errs = errs.Append("handles: destroy " + hDestroy + " is not in the header")
+		} else if kIsSkipped(k, hDestroy) {
+			errs = errs.Append("handles: destroy " + hDestroy + " is skipped")
+		} else {
+			let dpr = funcRange(k, deIdx)
+			let mut isSinglePtr = false
+			if dpr.pLen == 1 {
+				let pt = TypeAt(k.M.Types, prParamType(k, dpr, 0))
+				if dense.Of(k.M.Types.Kind, pt) == TypePointer {
+					let elem = dense.Of(k.M.Types.Elem, pt)
+					let eID = TypeAt(k.M.Types, elem)
+					if kIsHandleType(k, elem) && dense.Of(k.M.Types.Kind, eID) == TypeNamed && StrText(k.M.Strings, dense.Of(k.M.Types.Name, eID)) == hType && !dense.Of(k.M.Types.Const, eID) {
+						isSinglePtr = true
+					}
+				}
+			}
+			if !isSinglePtr {
+				errs = errs.Append("handles: " + hDestroy + " does not take one `" + hType + " *`")
+			}
+		}
+		if crIdx != NoID && deIdx != NoID && crIdx == deIdx {
+			errs = errs.Append("handles: " + hCreate + " creates and destroys")
+		}
+		hi = hi + 1
+	}
+
+	let nDecls = dense.Total(k.M.Decls.Ids)
+	let nAuto = dense.Total(ct.Autofills.Ids)
+	let mut ai = 0
+	for ai < nAuto {
+		let aid = dense.IDAt(ct.Autofills.Ids, ai)
+		let aField = StrText(ct.Strings, dense.Of(ct.Autofills.Field, aid))
+		let aValID = dense.Of(ct.Autofills.Value, aid)
+		let aVal = StrText(ct.Strings, aValID)
+		let fStrID = FindStr(k.M.Strings, aField)
+		if k.AutofillVal[int(fStrID)] != 0 {
+			errs = errs.Append("autofill: " + aField + " appears twice")
+		}
+		k.AutofillVal[int(fStrID)] = aValID
+		let mut found = false
+		let mut di = 0
+		for di < nDecls {
+			let did = dense.IDAt(k.M.Decls.Ids, di)
+			let dName = StrText(k.M.Strings, dense.Of(k.M.Decls.Name, did))
+			let fStart = dense.Of(k.M.Decls.FieldsStart, did)
+			let fLen = dense.Of(k.M.Decls.FieldsLen, did)
+			let mut fi uint32 = 0
+			for fi < fLen {
+				let fid = dense.IDAt(k.M.Fields.Ids, int(fStart+fi))
+				let fName = StrText(k.M.Strings, dense.Of(k.M.Fields.Name, fid))
+				if fName != aField {
+					fi = fi + 1
+					continue
+				}
+				found = true
+				let (s, ok) = kScalarOf(k, dense.Of(k.M.Fields.Type, fid))
+				let abiOverflow = aVal == "abi" && ((abiWant>>(8*ScalarSize(s)-1))>>1) != 0
+				if !ok || !isUnsignedScalar(s) || (aVal == "size" && ScalarSize(s) < 4) || abiOverflow {
+					errs = errs.Append("autofill: " + dName + "." + fName + " is not an unsigned integer that holds the " + aVal)
+				}
+				fi = fi + 1
+			}
+			di = di + 1
+		}
+		if !found {
+			errs = errs.Append("autofill: no struct has a field " + aField)
+		}
+		ai = ai + 1
+	}
+
+	let (k2, errs2) = kCheckCallbacks(k, errs)
+	let (k3, errs3) = kCheckCallbackExceptions(k2, errs2)
+	k = k3
+	errs = errs3
+
+	let nExc = dense.Total(ct.Exceptions.Ids)
+	let mut ei = 0
+	for ei < nExc {
+		let eid = dense.IDAt(ct.Exceptions.Ids, ei)
+		let fnName = StrText(ct.Strings, dense.Of(ct.Exceptions.Function, eid))
+		if fnName == "" {
+			ei = ei + 1
+			continue
+		}
+		let fnIdx = kFuncIdx(k, fnName)
+		if fnIdx == NoID || kIsSkipped(k, fnName) {
+			if fnIdx == NoID {
+				errs = errs.Append("exceptions: function " + fnName + " is not in the header")
+			} else {
+				errs = errs.Append("exceptions: function " + fnName + " is skipped")
+			}
+			ei = ei + 1
+			continue
+		}
+		let pr = funcRange(k, fnIdx)
+		let posRef = StrText(ct.Strings, dense.Of(ct.Exceptions.Position, eid))
+		let (j, ok) = ParamRef(k.M, pr.pStart, pr.pLen, posRef)
+		if !ok {
+			errs = errs.Append("exceptions: " + fnName + " has no parameter " + posRef)
+			ei = ei + 1
+			continue
+		}
+		let pName = prParamName(k, pr, j)
+		if pName != "" && strings.HasPrefix(posRef, "#") {
+			errs = errs.Append("exceptions: " + fnName + " " + posRef + " has the name " + pName + "; use it")
+			ei = ei + 1
+			continue
+		}
+		if kFuncExc(k, fnIdx, j) != NoID {
+			errs = errs.Append("exceptions: " + fnName + " " + posRef + " has two exceptions")
+			ei = ei + 1
+			continue
+		}
+		let nodeIdx = uint32(k.FuncExcNext.Len())
+		k.FuncExcNext = k.FuncExcNext.Append(k.FuncExcHead[int(fnIdx)])
+		k.FuncExcParam = k.FuncExcParam.Append(j)
+		k.FuncExcRow = k.FuncExcRow.Append(uint32(ei))
+		k.FuncExcHead[int(fnIdx)] = nodeIdx
+		ei = ei + 1
+	}
+
+	ei = 0
+	for ei < nExc {
+		let eid = dense.IDAt(ct.Exceptions.Ids, ei)
+		let fnName = StrText(ct.Strings, dense.Of(ct.Exceptions.Function, eid))
+		if fnName == "" {
+			ei = ei + 1
+			continue
+		}
+		let fnIdx = kFuncIdx(k, fnName)
+		let posRef = StrText(ct.Strings, dense.Of(ct.Exceptions.Position, eid))
+		let mut j uint32 = 0
+		let mut ok = false
+		if fnIdx != NoID {
+			let pr = funcRange(k, fnIdx)
+			let (jj, jok) = ParamRef(k.M, pr.pStart, pr.pLen, posRef)
+			j = jj
+			ok = jok
+		}
+		if !ok || kFuncExc(k, fnIdx, j) != uint32(ei) {
+			ei = ei + 1
+			continue
+		}
+		let pr = funcRange(k, fnIdx)
+		let msg = kCheckException(k, fnIdx, false, 0, pr, j, uint32(ei))
+		if msg != "" {
+			errs = errs.Append("exceptions: " + fnName + " " + posRef + ": " + msg)
+			ei = ei + 1
+			continue
+		}
+		let r = kFromRules(k, []BoundCallback{}, pr, j)
+		let x = kFromException(k, pr, j, uint32(ei))
+		let cls = dense.Of(ct.Exceptions.Class, eid)
+		if r.Class == cls && r.Class != ClassRaw && r.Length == x.Length && r.Count == x.Count && r.Bytes == x.Bytes {
+			errs = errs.Append("exceptions: " + fnName + " " + posRef + " repeats the rule " + r.By + "; remove it")
+		}
+		ei = ei + 1
+	}
+	if errs.Len() > 0 {
+		return BindingFailure{Msg: contractErrorMsg(errs)}
+	}
+
+	let mut constants = []uint32{}
+	let nConsts = dense.Total(k.M.Consts.Ids)
+	let mut ci = 0
+	for ci < nConsts {
+		let cid = dense.IDAt(k.M.Consts.Ids, ci)
+		if !k.Skipped[int(dense.Of(k.M.Consts.Name, cid))] {
+			constants = constants.Append(uint32(ci))
+		}
+		ci = ci + 1
+	}
+	let mut goTypes = []string{}
+	let prefType = StrText(ct.Strings, ct.PrefixType)
+	let mut di = 0
+	for di < nDecls {
+		let dName = StrText(k.M.Strings, dense.Of(k.M.Decls.Name, dense.IDAt(k.M.Decls.Ids, di)))
+		if dName == stType {
+			goTypes = goTypes.Append("Status")
+		} else {
+			goTypes = goTypes.Append(GoCamel(strings.TrimPrefix(dName, prefType)))
+		}
+		di = di + 1
+	}
+
+	let (k4, cbs0) = buildBoundCallbacks(k, goTypes)
+	k = k4
+	let mut cbs = cbs0
+	let mut boundCbCount = 0
+	for cb in cbs {
+		if cb.Bound {
+			boundCbCount = boundCbCount + 1
+		}
+	}
+	if boundCbCount > MaxBoundCallbacks {
+		return BindingFailure{Msg: contractErrorMsg([]string{"callbacks: " + strconv.Itoa(boundCbCount) + " bound callback typedefs, above the bound of " + strconv.Itoa(MaxBoundCallbacks) + " per binding (each takes one of purego's 2000 callback slots per process, and purego never frees one)"})}
+	}
+
+	let mut funcs = []BoundFunc{}
+	let mut planErrs = []string{}
+	let prefFn = StrText(ct.Strings, ct.PrefixFunc)
+	let nFuncs = dense.Total(k.M.Funcs.Ids)
+	let mut fi = 0
+	for fi < nFuncs {
+		let fid = dense.IDAt(k.M.Funcs.Ids, fi)
+		let fNameID = dense.Of(k.M.Funcs.Name, fid)
+		let fName = StrText(k.M.Strings, fNameID)
+		if k.Skipped[int(fNameID)] {
+			fi = fi + 1
+			continue
+		}
+		let dh = k.DestroyByFn[int(fNameID)]
+		let (positions, rawOnly) = ClassifyFunction(k, cbs, uint32(fi))
+		let plan = CallPlan(k, uint32(fi))
+		if plan != "" {
+			planErrs = planErrs.Append("function " + fName + ": " + plan)
+		}
+		funcs = funcs.Append(BoundFunc{
+			FuncIdx:    uint32(fi),
+			Name:       fName,
+			GoName:     GoCamel(strings.TrimPrefix(fName, prefFn)),
+			Positions:  positions,
+			RawOnly:    rawOnly,
+			Sig:        GoSig{Params: []GoParam{}, Results: []GoResult{}, Status: false},
+			HasSig:     false,
+			ErgoParams: []string{},
+			HasDestroy: dh != NoID,
+			DestroyIdx: dh,
+		})
+		fi = fi + 1
+	}
+	if planErrs.Len() > 0 {
+		return BindingFailure{Msg: contractErrorMsg(planErrs)}
+	}
+
+	let fields = ClassifyFields(k)
+	let (kindStart, kindLen, kindPool) = computeRecordKinds(k, funcs, k.AutofillVal)
+	let (fnStart, fnLen, fnPool) = try checkBindingNames(k, goTypes, k.AutofillVal, funcs, codes, constants, kindLen)
+
+	let mut hasRecordUnion = []bool{}
+	di = 0
+	for di < nDecls {
+		hasRecordUnion = hasRecordUnion.Append(kindLen[di] > 0)
+		di = di + 1
+	}
+	let mut sigSA = NewScopeArena()
+	let sigPkgScope = NewGoPackageScope(&sigSA)
+	let mut bfi = 0
+	for bfi < funcs.Len() {
+		if funcs[bfi].RawOnly == "" {
+			let pr = funcRange(k, funcs[bfi].FuncIdx)
+			funcs[bfi].Sig = buildGoSig(k, goTypes, hasRecordUnion, pr, funcs[bfi].Positions, &sigSA, sigPkgScope)
+			funcs[bfi].HasSig = true
+		}
+		bfi = bfi + 1
+	}
+	let mut cbi = 0
+	for cbi < cbs.Len() {
+		if cbs[cbi].Bound {
+			cbs[cbi].Sig = buildGoCallbackSig(k, goTypes, cbs[cbi].DeclIdx, cbs[cbi].Positions, &sigSA, sigPkgScope)
+			cbs[cbi].HasSig = true
+		}
+		cbi = cbi + 1
+	}
+	let (recFlags, unionFlags) = computeRecordAndUnionFlags(k, funcs, cbs, kindStart, kindLen, kindPool)
+	let finalFuncs = try assignErgoNames(k, goTypes, cbs, codes, recFlags, unionFlags, funcs)
+
+	Binding{
+		M:              k.M,
+		C:              ct,
+		HeaderSHA256:   headerSHA,
+		ContractSHA256: contractSHA,
+		Funcs:          finalFuncs,
+		Fields:         fields,
+		Callbacks:      cbs,
+		Codes:          codes,
+		HasSuccess:     hasSuccess,
+		SuccessConst:   successConst,
+		ABIWant:        abiWant,
+		Constants:      constants,
+		GoTypes:        goTypes,
+		Autofill:       k.AutofillVal,
+		FieldNameStart: fnStart,
+		FieldNameLen:   fnLen,
+		FieldNamePool:  fnPool,
+		RecordFlags:    recFlags,
+		UnionFlags:     unionFlags,
+		KindStart:      kindStart,
+		KindLen:        kindLen,
+		KindPool:       kindPool,
+		K:              k,
+	}
+}

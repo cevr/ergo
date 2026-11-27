@@ -1,0 +1,331 @@
+import dense
+import option
+import slices
+import strconv
+import strings
+
+// CodeSyntax and following values identify C header parsing diagnostics.
+let CodeSyntax uint8 = 1
+let CodeUnknownType uint8 = 2
+let CodeLexical uint8 = 3
+let CodeImplicitWidth uint8 = 4
+let CodeEnum uint8 = 5
+let CodeUnion uint8 = 6
+let CodeBitField uint8 = 7
+let CodeVarargs uint8 = 8
+let CodeFlexibleArray uint8 = 9
+let CodeNestedStruct uint8 = 10
+let CodeStructTag uint8 = 11
+let CodeStorageClass uint8 = 12
+let CodeAttribute uint8 = 13
+let CodeConditional uint8 = 14
+let CodeFunctionMacro uint8 = 15
+let CodeKAndR uint8 = 16
+let CodeDirective uint8 = 17
+let CodeMacroBody uint8 = 18
+let CodeConstantRange uint8 = 19
+let CodeDuplicate uint8 = 20
+let CodeQualifier uint8 = 21
+let CodeDeclarator uint8 = 22
+let CodeVariable uint8 = 23
+let CodeStructure uint8 = 24
+let CodeMacroIdentifier uint8 = 25
+let CodeMissingInclude uint8 = 26
+
+let codeNames = []string{
+	"",
+	"BC001",
+	"BC002",
+	"BC003",
+	"BC010",
+	"BC011",
+	"BC012",
+	"BC013",
+	"BC014",
+	"BC015",
+	"BC016",
+	"BC017",
+	"BC018",
+	"BC019",
+	"BC020",
+	"BC021",
+	"BC022",
+	"BC023",
+	"BC024",
+	"BC025",
+	"BC026",
+	"BC027",
+	"BC028",
+	"BC029",
+	"BC030",
+	"BC031",
+	"BC032",
+}
+
+let codeDescs = []string{
+	"",
+	"syntax error",
+	"unknown type name",
+	"character or token outside the subset (digraph, trigraph, line continuation, unterminated comment or literal, non-ASCII byte)",
+	"integer type with an implementation-defined width (int, char, short, long, signed, unsigned); use a fixed-width type",
+	"enum is outside the subset",
+	"union is outside the subset",
+	"bit field is outside the subset",
+	"variadic function is outside the subset",
+	"flexible array member is outside the subset",
+	"struct definition inside a struct is outside the subset",
+	"struct named by its tag outside `typedef struct`; use the typedef name",
+	"storage class, function specifier or function definition is outside the subset",
+	"attribute or compiler extension is outside the subset",
+	"conditional directive other than the include guard and `#ifdef __cplusplus`",
+	"function-like macro is outside the subset",
+	"K&R declaration; write a prototype (use `(void)` for no parameters)",
+	"directive or include outside the subset",
+	"macro body outside the integer constant subset",
+	"constant out of range or with undefined behavior",
+	"duplicate name",
+	"qualifier outside the subset (only `const T *`)",
+	"type or declarator outside the subset",
+	"variable declaration is outside the subset",
+	"header structure outside the subset (include guard, extern \"C\" block)",
+	"macro name used as an identifier",
+	"type or macro used before its standard header is included",
+}
+
+// CodeName returns the stable string code ("BC001".."BC032") for a diagnostic code.
+func CodeName(code uint8) string {
+	let idx = int(code)
+	if idx < 0 || idx >= codeNames.Len() {
+		return ""
+	}
+	codeNames[idx]
+}
+
+// CodeDesc returns the human-readable description for a diagnostic code.
+func CodeDesc(code uint8) string {
+	let idx = int(code)
+	if idx < 0 || idx >= codeDescs.Len() {
+		return ""
+	}
+	codeDescs[idx]
+}
+
+// Pos is a position in a header: 1-based line and byte column.
+type Pos {
+	File string,
+	Line uint32,
+	Col  uint32,
+}
+
+// PosString formats p as "file:line:col".
+func PosString(p Pos) string {
+	p.File + ":" + strconv.Itoa(int(p.Line)) + ":" + strconv.Itoa(int(p.Col))
+}
+
+// PosBefore reports whether p comes strictly before q in line/column order.
+func PosBefore(p Pos, q Pos) bool {
+	p.Line < q.Line || (p.Line == q.Line && p.Col < q.Col)
+}
+
+// Diagnostic is one positioned error.
+type Diagnostic {
+	File string,
+	Line uint32,
+	Col  uint32,
+	Code uint8,
+	Msg  string,
+}
+
+// DiagnosticString formats d as "file:line:col: BCxxx msg".
+func DiagnosticString(d Diagnostic) string {
+	PosString(Pos{File: d.File, Line: d.Line, Col: d.Col}) + ": " + CodeName(d.Code) + " " + d.Msg
+}
+
+// DiagnosticsString formats diagnostics joined by newlines.
+func DiagnosticsString(ds []Diagnostic) string {
+	let mut lines = []string{}
+	for d in ds {
+		lines = lines.Append(DiagnosticString(d))
+	}
+	strings.Join(lines, "\n")
+}
+
+// StrTable interns strings to dense uint32 IDs where 0 is always "".
+type StrTable {
+	Intern dense.Strings,
+	Texts  []string,
+}
+
+// NewStrTable constructs a StrTable with "" interned at ID 0.
+func NewStrTable() StrTable {
+	let mut st = dense.NewStrings()
+	let _ = dense.InternText(&st, "")
+	StrTable{Intern: st, Texts: []string{""}}
+}
+
+// InternStr returns the dense uint32 ID for s.
+func InternStr(t mut StrTable, s string) uint32 {
+	let id = dense.InternText(&t.Intern, s)
+	let idx = dense.Index(id)
+	if idx == t.Texts.Len() {
+		t.Texts = t.Texts.Append(s)
+	}
+	uint32(idx)
+}
+
+// FindStr returns the dense uint32 ID for s if already interned, or 0xffffffff.
+func FindStr(t StrTable, s string) uint32 {
+	match dense.FindText(t.Intern, s) {
+	case option.Some[dense.ID[dense.Str]] as id:
+		uint32(dense.Index(id.Value))
+	case option.None:
+		0xffffffff
+	}
+}
+
+// StrText returns the text for a valid dense string ID.
+func StrText(t StrTable, id uint32) string {
+	let idx = int(id)
+	if idx < 0 || idx >= t.Texts.Len() {
+		return ""
+	}
+	t.Texts[idx]
+}
+
+// DiagTag identifies one row in DiagTable.
+type DiagTag {}
+
+// DiagTable stores positioned diagnostics in flat Structure-of-Arrays columns.
+type DiagTable {
+	Ids  dense.Count[DiagTag],
+	File dense.Col[DiagTag, uint32],
+	Line dense.Col[DiagTag, uint32],
+	Col  dense.Col[DiagTag, uint32],
+	Code dense.Col[DiagTag, uint8],
+	Msg  dense.Col[DiagTag, uint32],
+}
+
+// NewDiagTable creates an empty DiagTable.
+func NewDiagTable() DiagTable {
+	DiagTable{
+		Ids:  dense.NewCount[DiagTag](),
+		File: dense.NewCol[DiagTag, uint32](),
+		Line: dense.NewCol[DiagTag, uint32](),
+		Col:  dense.NewCol[DiagTag, uint32](),
+		Code: dense.NewCol[DiagTag, uint8](),
+		Msg:  dense.NewCol[DiagTag, uint32](),
+	}
+}
+
+// AddDiag appends a diagnostic to dt, interning file and msg in st.
+func AddDiag(dt mut DiagTable, st mut StrTable, file string, line uint32, col uint32, code uint8, msg string) {
+	let _ = dense.Next(&dt.Ids)
+	let fid = InternStr(&st, file)
+	let mid = InternStr(&st, msg)
+	dense.Push(&dt.File, fid)
+	dense.Push(&dt.Line, line)
+	dense.Push(&dt.Col, col)
+	dense.Push(&dt.Code, code)
+	dense.Push(&dt.Msg, mid)
+}
+
+// DiagCount returns the number of recorded diagnostics.
+func DiagCount(dt DiagTable) int {
+	dense.Total(dt.Ids)
+}
+
+func cmpDiag(a Diagnostic, b Diagnostic) int {
+	if a.Line < b.Line {
+		return -1
+	}
+	if a.Line > b.Line {
+		return 1
+	}
+	if a.Col < b.Col {
+		return -1
+	}
+	if a.Col > b.Col {
+		return 1
+	}
+	0
+}
+
+// CollectDiags extracts all diagnostics from dt in stable line/column order.
+func CollectDiags(dt DiagTable, st StrTable) []Diagnostic {
+	let n = dense.Total(dt.Ids)
+	let mut out = slices.WithCapacity[Diagnostic](n)
+	let mut i = 0
+	for i < n {
+		let id = dense.IDAt(dt.Ids, i)
+		out = out.Append(Diagnostic{
+			File: StrText(st, dense.Of(dt.File, id)),
+			Line: dense.Of(dt.Line, id),
+			Col:  dense.Of(dt.Col, id),
+			Code: dense.Of(dt.Code, id),
+			Msg:  StrText(st, dense.Of(dt.Msg, id)),
+		})
+		i = i + 1
+	}
+	slices.SortStableFunc(out, cmpDiag)
+}
+
+// StrTableInternsEmptyZero checks that StrTable interns "" at 0 and round-trips strings.
+law StrTableInternsEmptyZero(xs []string) {
+	let mut st = NewStrTable()
+	if StrText(st, 0) != "" {
+		return false
+	}
+	let mut ok = true
+	for s in xs {
+		let a = InternStr(&st, s)
+		let b = InternStr(&st, s)
+		if a != b || StrText(st, a) != s {
+			ok = false
+		}
+	}
+	ok
+}
+
+// DiagSortedPreservesTies verifies that sorting diagnostics by line and column preserves order for identical positions.
+law DiagSortedPreservesTies(lines []uint32, cols []uint32) {
+	let mut dt = NewDiagTable()
+	let mut st = NewStrTable()
+	let mut i = 0
+	for i < lines.Len() && i < cols.Len() {
+		AddDiag(&dt, &st, "a.h", lines[i]%4+1, cols[i]%4+1, CodeSyntax, strconv.Itoa(i))
+		i = i + 1
+	}
+	let ds = CollectDiags(dt, st)
+	let mut ok = ds.Len() == i
+	let mut j = 1
+	for j < ds.Len() {
+		let prev = ds[j-1]
+		let cur = ds[j]
+		if prev.Line > cur.Line || (prev.Line == cur.Line && prev.Col > cur.Col) {
+			ok = false
+		}
+		if prev.Line == cur.Line && prev.Col == cur.Col {
+			let a = int(strconv.ParseInt(prev.Msg, 10, 64) catch {
+			case _:
+				ok = false
+				0
+			})
+			let b = int(strconv.ParseInt(cur.Msg, 10, 64) catch {
+			case _:
+				ok = false
+				0
+			})
+			if a >= b {
+				ok = false
+			}
+		}
+		j = j + 1
+	}
+	let mut dt2 = NewDiagTable()
+	let mut st2 = NewStrTable()
+	AddDiag(&dt2, &st2, "t.h", 2, 3, CodeSyntax, "10")
+	AddDiag(&dt2, &st2, "t.h", 2, 1, CodeSyntax, "11")
+	AddDiag(&dt2, &st2, "t.h", 2, 3, CodeSyntax, "12")
+	let ds2 = CollectDiags(dt2, st2)
+	ok && ds2.Len() == 3 && ds2[0].Col == 1 && ds2[0].Msg == "11" && ds2[1].Col == 3 && ds2[1].Msg == "10" && ds2[2].Col == 3 && ds2[2].Msg == "12"
+}

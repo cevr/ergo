@@ -1,0 +1,407 @@
+import dense
+import strings
+
+// ABI form kinds.
+let ABIKindWords uint8 = 0
+let ABIKindHFA uint8 = 1
+
+let amd64IntRegs = 6
+let amd64FloatRegs = 8
+let arm64IntRegs = 8
+let arm64FloatRegs = 8
+
+let puregoMaxArgs = 32
+let amd64StackWords = puregoMaxArgs - amd64IntRegs
+let arm64StackWords = puregoMaxArgs - arm64IntRegs
+let darwinStackBytes uint64 = uint64(8 * arm64StackWords)
+
+let callPlanRemedy = "skip it in the contract"
+let stackStructRemedy = "a by-value struct in a call that uses the stack is not supported in v1; skip it in the contract or pass a pointer"
+
+// ABIForm describes how a C struct crosses purego.
+type ABIForm {
+	Kind  uint8,
+	N     int,
+	Float uint8,
+	Size  uint64,
+	Why   string,
+}
+
+type abiLeaf {
+	off    uint64,
+	size   uint64,
+	isFlt  bool,
+	scalar uint8,
+}
+
+func kStructLeaves(k Classifier, name string, off uint64, acc []abiLeaf) []abiLeaf {
+	let dIdx = kDeclIdx(k, name)
+	if dIdx == NoID {
+		return acc
+	}
+	let did = dense.IDAt(k.M.Decls.Ids, int(dIdx))
+	let dk = dense.Of(k.M.Decls.Kind, did)
+	if dk == DeclCallback {
+		return acc.Append(abiLeaf{off: off, size: PointerSize, isFlt: false, scalar: ScalarNone})
+	}
+	if dk != DeclStruct {
+		return acc
+	}
+	let fStart = dense.Of(k.M.Decls.FieldsStart, did)
+	let fLen = dense.Of(k.M.Decls.FieldsLen, did)
+	let mut out = acc
+	let mut fi uint32 = 0
+	for fi < fLen {
+		let fid = dense.IDAt(k.M.Fields.Ids, int(fStart+fi))
+		out = kLeaves(k, dense.Of(k.M.Fields.Type, fid), off+dense.Of(k.M.Fields.Offset, fid), out)
+		fi = fi + 1
+	}
+	out
+}
+
+func kLeaves(k Classifier, typeID uint32, off uint64, acc []abiLeaf) []abiLeaf {
+	let tid = TypeAt(k.M.Types, typeID)
+	let kind = dense.Of(k.M.Types.Kind, tid)
+	if kind == TypePointer {
+		return acc.Append(abiLeaf{off: off, size: PointerSize, isFlt: false, scalar: ScalarNone})
+	}
+	if kind == TypeArray {
+		let elem = dense.Of(k.M.Types.Elem, tid)
+		let es = TypeSize(k.M, elem).Size
+		let cnt = dense.Of(k.M.Types.Len, tid)
+		let mut out = acc
+		let mut i uint64 = 0
+		for i < cnt {
+			out = kLeaves(k, elem, off+i*es, out)
+			i = i + 1
+		}
+		return out
+	}
+	let (s, isScal) = kScalarOf(k, typeID)
+	if isScal {
+		return acc.Append(abiLeaf{off: off, size: ScalarSize(s), isFlt: s == ScalarFloat32 || s == ScalarFloat64, scalar: s})
+	}
+	if kind == TypeNamed {
+		let name = StrText(k.M.Strings, dense.Of(k.M.Types.Name, tid))
+		return kStructLeaves(k, name, off, acc)
+	}
+	acc
+}
+
+func kIsByValueStruct(k Classifier, typeID uint32) (bool, string) {
+	let tid = TypeAt(k.M.Types, typeID)
+	if dense.Of(k.M.Types.Kind, tid) != TypeNamed {
+		return (false, "")
+	}
+	let name = StrText(k.M.Strings, dense.Of(k.M.Types.Name, tid))
+	let dIdx = kDeclIdx(k, name)
+	if dIdx != NoID && dense.Of(k.M.Decls.Kind, dense.IDAt(k.M.Decls.Ids, int(dIdx))) == DeclStruct {
+		return (true, name)
+	}
+	(false, "")
+}
+
+func kStructForm(k Classifier, name string) ABIForm {
+	let dIdx = kDeclIdx(k, name)
+	let dSize = dense.Of(k.M.Decls.Size, dense.IDAt(k.M.Decls.Ids, int(dIdx)))
+	let mut fm = ABIForm{Kind: ABIKindWords, N: 0, Float: ScalarNone, Size: dSize, Why: ""}
+	let ls = kStructLeaves(k, name, 0, []abiLeaf{})
+	let mut hfa = ls.Len() >= 1 && ls.Len() <= 4
+	for l in ls {
+		if !l.isFlt || l.scalar != ls[0].scalar {
+			hfa = false
+		}
+	}
+	let words = int((dSize + 7) / 8)
+	if hfa {
+		fm.Kind = ABIKindHFA
+		fm.N = ls.Len()
+		fm.Float = ls[0].scalar
+		return fm
+	}
+	if dSize > 16 {
+		fm.Kind = ABIKindWords
+		fm.N = words
+		return fm
+	}
+	fm.Kind = ABIKindWords
+	fm.N = words
+	let mut e uint64 = 0
+	for e < uint64(words) {
+		let mut integer = false
+		for l in ls {
+			if !l.isFlt && l.off < 8*e+8 && l.off+l.size > 8*e {
+				integer = true
+			}
+		}
+		if !integer {
+			fm.Why = "by-value struct " + name + ": bytes " + FormatUint64(8*e) + " to " + FormatUint64(8*e+7) + " hold only floating-point fields and it is not an HFA, so amd64 passes them in an SSE register and arm64 in a general one; purego v0.11.3 has no single call form for both"
+			return fm
+		}
+		e = e + 1
+	}
+	fm
+}
+
+type abiTarget {
+	goos      string,
+	goarch    string,
+	intRegs   int,
+	floatRegs int,
+}
+
+let abiTargets = []abiTarget{
+	abiTarget{goos: "linux", goarch: "amd64", intRegs: amd64IntRegs, floatRegs: amd64FloatRegs},
+	abiTarget{goos: "linux", goarch: "arm64", intRegs: arm64IntRegs, floatRegs: arm64FloatRegs},
+	abiTarget{goos: "darwin", goarch: "amd64", intRegs: amd64IntRegs, floatRegs: amd64FloatRegs},
+	abiTarget{goos: "darwin", goarch: "arm64", intRegs: arm64IntRegs, floatRegs: arm64FloatRegs},
+}
+
+let bankInt = 0
+let bankFloat = 1
+
+func bankLabel(bank int) string {
+	if bank == bankFloat {
+		return "floating-point"
+	}
+	"general"
+}
+
+func kStructRegs(k Classifier, goarch string, name string, isResult bool) (int, int, string) {
+	let fm = kStructForm(k, name)
+	if goarch == "amd64" {
+		if fm.Size > 16 {
+			let verb = if isResult { "returns" } else { "passes" }
+			return (0, 0, "by-value struct " + name + " is " + FormatUint64(fm.Size) + " bytes, so amd64 " + verb + " it in memory")
+		}
+		if fm.Kind == ABIKindHFA {
+			return (bankFloat, int((fm.Size + 7) / 8), "")
+		}
+		return (bankInt, fm.N, "")
+	}
+	if goarch == "arm64" {
+		if fm.Kind == ABIKindHFA {
+			return (bankFloat, fm.N, "")
+		}
+		if fm.Size > 16 {
+			if isResult {
+				return (0, 0, "by-value struct " + name + " is " + FormatUint64(fm.Size) + " bytes and not an HFA, so arm64 returns it in memory")
+			}
+			return (0, 0, "by-value struct " + name + " is " + FormatUint64(fm.Size) + " bytes and not an HFA, so arm64 passes a pointer to a copy")
+		}
+		return (bankInt, fm.N, "")
+	}
+	(0, 0, "no calling convention is known")
+}
+
+func kRegisters(k Classifier, tgt abiTarget, pr paramRange) string {
+	let (resIsStruct, resName) = kIsByValueStruct(k, pr.res)
+	if resIsStruct {
+		let (_, _, why) = kStructRegs(k, tgt.goarch, resName, true)
+		if why != "" {
+			return "result: " + why
+		}
+	}
+	let mut usedInt = 0
+	let mut usedFloat = 0
+	let mut i uint32 = 0
+	for i < pr.pLen {
+		let pt = prParamType(k, pr, i)
+		let mut bank = bankInt
+		let mut n = 1
+		let mut what = "it"
+		let (isStruct, sName) = kIsByValueStruct(k, pt)
+		if isStruct {
+			let (b, cnt, why) = kStructRegs(k, tgt.goarch, sName, false)
+			if why != "" {
+				return PositionNameRange(k.M, pr.pStart, i, false) + ": " + why
+			}
+			bank = b
+			n = cnt
+			what = "by-value struct " + sName
+		} else {
+			let (s, isScal) = kScalarOf(k, pt)
+			if isScal && (s == ScalarFloat32 || s == ScalarFloat64) {
+				bank = bankFloat
+			}
+		}
+		let left = if bank == bankFloat { tgt.floatRegs - usedFloat } else { tgt.intRegs - usedInt }
+		if n > left {
+			return PositionNameRange(k.M, pr.pStart, i, false) + ": " + what + " needs " + FormatUint64(uint64(n)) + " " + bankLabel(bank) + " registers and " + FormatUint64(uint64(left)) + " are left, so it goes on the stack"
+		}
+		if bank == bankFloat {
+			usedFloat = usedFloat + n
+		} else {
+			usedInt = usedInt + n
+		}
+		i = i + 1
+	}
+	""
+}
+
+func kStructPlan(k Classifier, pr paramRange) string {
+	let (resIsStruct, resName) = kIsByValueStruct(k, pr.res)
+	if resIsStruct {
+		let r = kStructForm(k, resName)
+		if r.Why != "" {
+			return "result: " + r.Why + "; " + callPlanRemedy
+		}
+	}
+	let mut i uint32 = 0
+	for i < pr.pLen {
+		let (isStruct, sName) = kIsByValueStruct(k, prParamType(k, pr, i))
+		if isStruct {
+			let fm = kStructForm(k, sName)
+			if fm.Why != "" {
+				return PositionNameRange(k.M, pr.pStart, i, false) + ": " + fm.Why + "; " + callPlanRemedy
+			}
+		}
+		i = i + 1
+	}
+	let mut whys = []string{}
+	let mut targetLists = [][]string{}
+	for tgt in abiTargets {
+		let r = kRegisters(k, tgt, pr)
+		if r != "" {
+			let tStr = tgt.goos + "/" + tgt.goarch
+			let mut foundIdx = -1
+			let mut j = 0
+			for j < whys.Len() {
+				if whys[j] == r {
+					foundIdx = j
+					break
+				}
+				j = j + 1
+			}
+			if foundIdx < 0 {
+				whys = whys.Append(r)
+				targetLists = targetLists.Append([]string{tStr})
+			} else {
+				targetLists[foundIdx] = targetLists[foundIdx].Append(tStr)
+			}
+		}
+	}
+	if whys.Len() == 0 {
+		return ""
+	}
+	let mut parts = []string{}
+	let mut j = 0
+	for j < whys.Len() {
+		parts = parts.Append("on " + strings.Join(targetLists[j], ", ") + ": " + whys[j])
+		j = j + 1
+	}
+	strings.Join(parts, "; ") + "; " + stackStructRemedy
+}
+
+type stackArg {
+	isFloat bool,
+	goSize  uint64,
+}
+
+func kPuregoStack(k Classifier, pr paramRange) string {
+	let mut args = []stackArg{}
+	let mut i uint32 = 0
+	for i < pr.pLen {
+		let pt = prParamType(k, pr, i)
+		let (s, isScal) = kScalarOf(k, pt)
+		if isScal {
+			args = args.Append(stackArg{isFloat: s == ScalarFloat32 || s == ScalarFloat64, goSize: ScalarSize(s)})
+		} else {
+			args = args.Append(stackArg{isFloat: false, goSize: PointerSize})
+		}
+		i = i + 1
+	}
+	let mut ints = 0
+	let mut floats = 0
+	let mut stack = 0
+	for a in args {
+		if a.isFloat && floats < amd64FloatRegs {
+			floats = floats + 1
+		} else if !a.isFloat && ints < amd64IntRegs {
+			ints = ints + 1
+		} else {
+			stack = stack + 1
+		}
+	}
+	if stack > amd64StackWords {
+		return "purego v0.11.3 passes at most " + FormatUint64(uint64(amd64StackWords)) + " stack words on amd64, and this call needs " + FormatUint64(uint64(stack))
+	}
+	ints = 0
+	floats = 0
+	stack = 0
+	for a in args {
+		if a.isFloat && floats < arm64FloatRegs {
+			floats = floats + 1
+		} else if !a.isFloat && ints < arm64IntRegs {
+			ints = ints + 1
+		} else {
+			stack = stack + 1
+		}
+	}
+	if stack > arm64StackWords {
+		return "purego v0.11.3 passes at most " + FormatUint64(uint64(arm64StackWords)) + " stack words on arm64, and this call needs " + FormatUint64(uint64(stack))
+	}
+	ints = 0
+	floats = 0
+	let mut bytes uint64 = 0
+	for a in args {
+		if a.isFloat && floats < arm64FloatRegs {
+			floats = floats + 1
+		} else if !a.isFloat && ints < arm64IntRegs {
+			ints = ints + 1
+		} else {
+			bytes = bytes + a.goSize
+		}
+	}
+	let aligned = ((bytes + 7) / 8) * 8
+	if aligned > darwinStackBytes {
+		return "purego v0.11.3 passes at most " + FormatUint64(darwinStackBytes) + " stack bytes on darwin arm64, and this call needs " + FormatUint64(aligned)
+	}
+	""
+}
+
+// CallPlan checks whether funcIdx can cross purego identically on all four tier-1 targets.
+func CallPlan(k Classifier, funcIdx uint32) string {
+	let pr = funcRange(k, funcIdx)
+	let (hasRes, _) = kIsByValueStruct(k, pr.res)
+	let mut has = hasRes
+	let mut i uint32 = 0
+	for i < pr.pLen {
+		let (pStruct, _) = kIsByValueStruct(k, prParamType(k, pr, i))
+		if pStruct {
+			has = true
+		}
+		i = i + 1
+	}
+	if has {
+		return kStructPlan(k, pr)
+	}
+	let r = kPuregoStack(k, pr)
+	if r != "" {
+		return r + "; " + callPlanRemedy
+	}
+	""
+}
+
+// ABICallPlanChecksStructBounds verifies CallPlan rejects 24-byte non-HFA by-value structs while allowing 12-byte float HFAs.
+law ABICallPlanChecksStructBounds(x uint8) {
+	let hdr = "#include <stdint.h>\ntypedef struct { uint64_t a; uint64_t b; uint64_t c; } big24;\ntypedef struct { float x; float y; float z; } hfa12;\ntypedef struct { double x; double y; double z; } hfa24;\nvoid t_big(big24 s);\nvoid t_hfa(hfa12 s);\nvoid t_d3(hfa24 s);\n"
+	let sha = "0000000000000000000000000000000000000000000000000000000000000000"
+	let cjson = "{\"header\":\"t.h\",\"header_sha256\":\"" + sha + "\",\"go\":{\"package\":\"tlib\",\"import_path\":\"example.com/tlib\"},\"prefixes\":{\"function\":\"t_\",\"macro\":\"T_\",\"type\":\"t_\"},\"status\":{\"type\":\"t_status\",\"macro_prefix\":\"ERR_\",\"success\":\"ERR_OK\",\"exclude\":[]},\"abi\":{\"function\":\"t_abi\",\"macro\":\"ABI_V\"},\"handles\":[],\"autofill\":[],\"buffers\":{\"length_names\":[],\"byte_length_names\":[],\"capacity_names\":[],\"count_names\":[],\"out_prefix\":\"out_\"},\"callbacks\":[],\"exceptions\":[],\"skips\":[]}"
+	let mut ok = true
+	let m = Parse("t.h", hdr) catch {
+	case ParseFailure:
+		ok = false
+		NewModel("t.h")
+	}
+	let ct = DecodeContract(cjson) catch {
+	case ContractFailure:
+		ok = false
+		newEmptyContractTable()
+	}
+	if !ok {
+		return false
+	}
+	let k = initClassifier(m, ct)
+	CallPlan(k, 0) != "" && CallPlan(k, 1) == "" && CallPlan(k, 2) != "" && x >= 0
+}

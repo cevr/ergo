@@ -1,0 +1,566 @@
+import dense
+import strconv
+import strings
+
+// MacroTag identifies one macro entry in MacroTable.
+type MacroTag {}
+
+// MacroTable stores preprocessor macro metadata in flat Structure-of-Arrays columns.
+type MacroTable {
+	Ids      dense.Count[MacroTag],
+	Name     dense.Col[MacroTag, uint32],
+	Line     dense.Col[MacroTag, uint32],
+	Col      dense.Col[MacroTag, uint32],
+	IsConst  dense.Col[MacroTag, bool],
+	ConstIdx dense.Col[MacroTag, uint32],
+	ExpStart dense.Col[MacroTag, uint32],
+	ExpLen   dense.Col[MacroTag, uint32],
+}
+
+// NewMacroTable creates an empty MacroTable.
+func NewMacroTable() MacroTable {
+	MacroTable{
+		Ids:      dense.NewCount[MacroTag](),
+		Name:     dense.NewCol[MacroTag, uint32](),
+		Line:     dense.NewCol[MacroTag, uint32](),
+		Col:      dense.NewCol[MacroTag, uint32](),
+		IsConst:  dense.NewCol[MacroTag, bool](),
+		ConstIdx: dense.NewCol[MacroTag, uint32](),
+		ExpStart: dense.NewCol[MacroTag, uint32](),
+		ExpLen:   dense.NewCol[MacroTag, uint32](),
+	}
+}
+
+func pushMacro(mt mut MacroTable, byName []uint32, nameID uint32, line uint32, col uint32, isConst bool, constIdx uint32, expStart uint32, expLen uint32) []uint32 {
+	let id = dense.Next(&mt.Ids)
+	let idx = uint32(dense.Index(id))
+	dense.Push(&mt.Name, nameID)
+	dense.Push(&mt.Line, line)
+	dense.Push(&mt.Col, col)
+	dense.Push(&mt.IsConst, isConst)
+	dense.Push(&mt.ConstIdx, constIdx)
+	dense.Push(&mt.ExpStart, expStart)
+	dense.Push(&mt.ExpLen, expLen)
+	let mut out = GrowIndexSlots(byName, nameID)
+	out[int(nameID)] = idx
+	out
+}
+
+func isUpperAZ(c byte) bool {
+	c >= 'A' && c <= 'Z'
+}
+
+func isUpperAlnumUS(s string, from int) bool {
+	if from >= s.Len() {
+		return false
+	}
+	let mut i = from
+	for i < s.Len() {
+		let c = s[i]
+		if !isUpperAZ(c) && !isDigit(c) && c != '_' {
+			return false
+		}
+		i = i + 1
+	}
+	true
+}
+
+func allDigits(s string, from int, to int) bool {
+	if from >= to {
+		return false
+	}
+	let mut i = from
+	for i < to {
+		if !isDigit(s[i]) {
+			return false
+		}
+		i = i + 1
+	}
+	true
+}
+
+func matchesReservedMacroRegex(s string) bool {
+	let n = s.Len()
+	if n >= 2 && s[0] == '_' && (isUpperAZ(s[1]) || s[1] == '_') {
+		return true
+	}
+	match s {
+	case "linux", "unix", "i386", "OBJC_NEW_PROPERTIES", "TARGET_IPHONE_SIMULATOR",
+		"size_t", "rsize_t", "ptrdiff_t", "wchar_t", "max_align_t", "nullptr_t",
+		"intptr_t", "uintptr_t", "intmax_t", "uintmax_t",
+		"INTPTR_C", "INTPTR_MAX", "INTPTR_MIN", "UINTPTR_C", "UINTPTR_MAX", "UINTPTR_MIN",
+		"INTMAX_C", "INTMAX_MAX", "INTMAX_MIN", "UINTMAX_C", "UINTMAX_MAX", "UINTMAX_MIN",
+		"SIZE_MAX", "SIZE_MIN", "RSIZE_MAX", "RSIZE_MIN", "PTRDIFF_MAX", "PTRDIFF_MIN",
+		"SIG_ATOMIC_MAX", "SIG_ATOMIC_MIN", "WCHAR_MAX", "WCHAR_MIN", "WINT_MAX", "WINT_MIN",
+		"NULL", "offsetof", "unreachable", "bool", "true", "false", "defined", "typeof_unqual":
+		return true
+	case _:
+	}
+	if strings.HasPrefix(s, "TARGET_OS_") && isUpperAlnumUS(s, 10) {
+		return true
+	}
+	if (strings.HasPrefix(s, "INT") || strings.HasPrefix(s, "UINT")) && (strings.HasSuffix(s, "_C") || strings.HasSuffix(s, "_MAX") || strings.HasSuffix(s, "_MIN")) {
+		let midStart = if s[0] == 'U' { 4 } else { 3 }
+		let sfxLen = if strings.HasSuffix(s, "_C") { 2 } else { 4 }
+		let midEnd = n - sfxLen
+		if allDigits(s, midStart, midEnd) {
+			return true
+		}
+		if sfxLen == 4 {
+			if hasPrefixAt(s, midStart, "_LEAST") && allDigits(s, midStart+6, midEnd) {
+				return true
+			}
+			if hasPrefixAt(s, midStart, "_FAST") && allDigits(s, midStart+5, midEnd) {
+				return true
+			}
+		}
+	}
+	if (strings.HasPrefix(s, "int") || strings.HasPrefix(s, "uint")) && strings.HasSuffix(s, "_t") {
+		let mut midStart = if s[0] == 'u' { 4 } else { 3 }
+		let midEnd = n - 2
+		if hasPrefixAt(s, midStart, "_least") {
+			midStart = midStart + 6
+		} else if hasPrefixAt(s, midStart, "_fast") {
+			midStart = midStart + 5
+		}
+		if allDigits(s, midStart, midEnd) {
+			return true
+		}
+	}
+	false
+}
+
+// KeywordCode maps a C keyword or compiler extension to its refusal diagnostic code, or 0 if not a keyword.
+func KeywordCode(name string) uint8 {
+	match name {
+	case "int", "char", "short", "long", "signed", "unsigned", "__int128":
+		CodeImplicitWidth
+	case "enum":
+		CodeEnum
+	case "union":
+		CodeUnion
+	case "static", "inline", "extern", "register", "auto", "_Thread_local", "_Noreturn", "__inline", "__inline__", "thread_local":
+		CodeStorageClass
+	case "__attribute__", "__attribute", "__declspec", "_Alignas", "alignas", "__asm__", "__asm", "asm", "__extension__", "_Pragma":
+		CodeAttribute
+	case "volatile", "restrict", "__restrict", "__restrict__", "_Atomic", "__volatile__", "__const", "_Nonnull", "_Nullable":
+		CodeQualifier
+	case "_Bool", "_Complex", "_Imaginary", "sizeof", "_Alignof", "alignof", "_Generic", "_Static_assert", "static_assert", "typeof", "__typeof__", "_BitInt", "_Float16", "__fp16", "_Decimal32":
+		CodeDeclarator
+	case "break", "case", "continue", "default", "do", "else", "for", "goto", "if", "return", "switch", "while", "nullptr", "constexpr", "true", "false":
+		CodeSyntax
+	case _:
+		0
+	}
+}
+
+// IsSubsetKeyword reports whether name is any C keyword or scalar name forbidden as a macro or decl identifier.
+func IsSubsetKeyword(name string) bool {
+	if KeywordCode(name) != 0 {
+		return true
+	}
+	match name {
+	case "const", "void", "float", "double", "struct", "typedef", "bool":
+		true
+	case _:
+		false
+	}
+}
+
+// IsReservedMacroName reports whether a macro or typedef may not use name.
+func IsReservedMacroName(name string) bool {
+	IsSubsetKeyword(name) || ScalarByName(name) != ScalarNone || matchesReservedMacroRegex(name)
+}
+
+// PreResult holds the output of preprocessing directives before declaration parsing.
+type PreResult {
+	Guard        string,
+	GuardLine    uint32,
+	GuardCol     uint32,
+	CPlusPlus    bool,
+	StdintFound  bool,
+	StdintLine   uint32,
+	StdintCol    uint32,
+	StdboolFound bool,
+	StdboolLine  uint32,
+	StdboolCol   uint32,
+	StddefFound  bool,
+	StddefLine   uint32,
+	StddefCol    uint32,
+	Macros       MacroTable,
+	MacroByName  []uint32,
+	ExpToks      TokTable,
+	CTokIdx      []uint32,
+}
+
+func isDirectiveStart(tt TokTable, st StrTable, idx uint32) bool {
+	TokBol(tt, idx) && TokIs(tt, st, idx, "#")
+}
+
+func directiveSlice(tt TokTable, nToks int, start uint32) ([]uint32, uint32) {
+	let mut j = start + 1
+	for int(j) < nToks && TokKind(tt, j) != TokEOF && !TokBol(tt, j) {
+		j = j + 1
+	}
+	let mut out = []uint32{}
+	let mut k = start + 1
+	for k < j {
+		out = out.Append(k)
+		k = k + 1
+	}
+	(out, j)
+}
+
+func joinTokensSpace(tt TokTable, st StrTable, idxs []uint32) string {
+	let mut parts = []string{}
+	for tid in idxs {
+		parts = parts.Append(TokText(tt, st, tid))
+	}
+	strings.Join(parts, " ")
+}
+
+func skipConditionalBlock(tt TokTable, st StrTable, nToks int, start uint32) uint32 {
+	let mut depth = 0
+	let mut i = start
+	for int(i) < nToks && TokKind(tt, i) != TokEOF {
+		if !isDirectiveStart(tt, st, i) {
+			i = i + 1
+			continue
+		}
+		let (dir, j) = directiveSlice(tt, nToks, i)
+		if dir.Len() > 0 {
+			let word = TokText(tt, st, dir[0])
+			if word == "if" || word == "ifdef" || word == "ifndef" {
+				depth = depth + 1
+			} else if word == "endif" {
+				depth = depth - 1
+				if depth == 0 {
+					return j
+				}
+			}
+		}
+		i = j
+	}
+	i
+}
+
+// IncludedBefore reports whether standard header ("stdint.h", "stdbool.h", "stddef.h") was included before (line, col).
+func IncludedBefore(pr PreResult, header string, line uint32, col uint32) bool {
+	let mut found = false
+	let mut il uint32 = 0
+	let mut ic uint32 = 0
+	if header == "stdint.h" {
+		found = pr.StdintFound
+		il = pr.StdintLine
+		ic = pr.StdintCol
+	} else if header == "stdbool.h" {
+		found = pr.StdboolFound
+		il = pr.StdboolLine
+		ic = pr.StdboolCol
+	} else if header == "stddef.h" {
+		found = pr.StddefFound
+		il = pr.StddefLine
+		ic = pr.StddefCol
+	}
+	found && (il < line || (il == line && ic < col))
+}
+
+func handleInclude(pr mut PreResult, m mut Model, tt TokTable, dt mut DiagTable, file string, hashTok uint32, dir []uint32) {
+	let mut name = ""
+	let n = dir.Len()
+	let mut ok = n >= 3 && TokIs(tt, m.Strings, dir[1], "<") && TokIs(tt, m.Strings, dir[n-1], ">")
+	if ok {
+		let mut k = 2
+		for k < n-1 {
+			let prevID = TokAt(tt, dir[k-1])
+			let curID = TokAt(tt, dir[k])
+			let prevLine = dense.Of(tt.Line, prevID)
+			let prevCol = dense.Of(tt.Col, prevID)
+			let prevText = StrText(m.Strings, dense.Of(tt.Text, prevID))
+			let curLine = dense.Of(tt.Line, curID)
+			let curCol = dense.Of(tt.Col, curID)
+			if curLine != prevLine || curCol != prevCol+uint32(prevText.Len()) {
+				ok = false
+			}
+			name = name + StrText(m.Strings, dense.Of(tt.Text, curID))
+			k = k + 1
+		}
+		let lastID = TokAt(tt, dir[n-2])
+		let endID = TokAt(tt, dir[n-1])
+		let lastText = StrText(m.Strings, dense.Of(tt.Text, lastID))
+		if dense.Of(tt.Col, endID) != dense.Of(tt.Col, lastID)+uint32(lastText.Len()) {
+			ok = false
+		}
+	}
+	let hID = TokAt(tt, hashTok)
+	let hLine = dense.Of(tt.Line, hID)
+	let hCol = dense.Of(tt.Col, hID)
+	if !ok || (name != "stdint.h" && name != "stdbool.h" && name != "stddef.h") {
+		AddDiag(&dt, &m.Strings, file, hLine, hCol, CodeDirective, "`#"+joinTokensSpace(tt, m.Strings, dir)+"` is outside the subset (only <stdint.h>, <stdbool.h> and <stddef.h>)")
+		return
+	}
+	let already = if name == "stdint.h" {
+		pr.StdintFound
+	} else if name == "stdbool.h" {
+		pr.StdboolFound
+	} else {
+		pr.StddefFound
+	}
+	if already {
+		AddDiag(&dt, &m.Strings, file, hLine, hCol, CodeDuplicate, "<"+name+"> is included twice")
+		return
+	}
+	if name == "stdint.h" {
+		pr.StdintFound = true
+		pr.StdintLine = hLine
+		pr.StdintCol = hCol
+	} else if name == "stdbool.h" {
+		pr.StdboolFound = true
+		pr.StdboolLine = hLine
+		pr.StdboolCol = hCol
+	} else {
+		pr.StddefFound = true
+		pr.StddefLine = hLine
+		pr.StddefCol = hCol
+	}
+	let incStrID = InternModelStr(&m, name)
+	m.Includes = m.Includes.Append(incStrID)
+}
+
+func handleDefine(pr mut PreResult, m mut Model, tt TokTable, dt mut DiagTable, file string, hashTok uint32, dir []uint32, endLine uint32, endCol uint32) {
+	let hID = TokAt(tt, hashTok)
+	let hLine = dense.Of(tt.Line, hID)
+	let hCol = dense.Of(tt.Col, hID)
+	if dir.Len() < 2 || TokKind(tt, dir[1]) != TokIdent {
+		AddDiag(&dt, &m.Strings, file, hLine, hCol, CodeDirective, "`#define` needs a name")
+		return
+	}
+	let nameTok = dir[1]
+	let nID = TokAt(tt, nameTok)
+	let nameStrID = dense.Of(tt.Text, nID)
+	let name = StrText(m.Strings, nameStrID)
+	let nLine = dense.Of(tt.Line, nID)
+	let nCol = dense.Of(tt.Col, nID)
+	let body = dir.Slice(2, dir.Len())
+	if body.Len() > 0 && TokIs(tt, m.Strings, body[0], "(") {
+		let b0 = TokAt(tt, body[0])
+		if dense.Of(tt.Line, b0) == nLine && dense.Of(tt.Col, b0) == nCol+uint32(name.Len()) {
+			AddDiag(&dt, &m.Strings, file, nLine, nCol, CodeFunctionMacro, "function-like macro "+name)
+			return
+		}
+	}
+	if IsReservedMacroName(name) {
+		AddDiag(&dt, &m.Strings, file, nLine, nCol, CodeMacroIdentifier, "macro "+name+" redefines a keyword, a standard type or a reserved name")
+		return
+	}
+	if int(nameStrID) < pr.MacroByName.Len() && pr.MacroByName[int(nameStrID)] != NoID {
+		let prevIdx = pr.MacroByName[int(nameStrID)]
+		let prevID = dense.IDAt(pr.Macros.Ids, int(prevIdx))
+		let ppos = PosString(Pos{File: file, Line: dense.Of(pr.Macros.Line, prevID), Col: dense.Of(pr.Macros.Col, prevID)})
+		AddDiag(&dt, &m.Strings, file, nLine, nCol, CodeDuplicate, "macro "+name+" is already defined at "+ppos)
+		return
+	}
+	if body.Len() == 0 {
+		AddDiag(&dt, &m.Strings, file, nLine, nCol, CodeMacroBody, "macro "+name+" has no body")
+		return
+	}
+	let mut failed = false
+	let ce = ParseConstExpr(
+		tt,
+		pr.ExpToks,
+		m.Strings,
+		body,
+		endLine,
+		endCol,
+		pr.Macros,
+		pr.MacroByName,
+		pr.StdintFound,
+		pr.StdintLine,
+		pr.StdintCol,
+	) catch {
+	case ExprFailure as e:
+		AddDiag(&dt, &m.Strings, file, e.Line, e.Col, e.Code, e.Msg)
+		failed = true
+		ConstEval{Expr: "", Scalar: ScalarNone, Bits: 0, ExpStart: 0, ExpLen: 0, ExpToks: pr.ExpToks}
+	}
+	if failed {
+		return
+	}
+	pr.ExpToks = ce.ExpToks
+	let cidx = uint32(dense.Total(m.Consts.Ids))
+	pr.MacroByName = pushMacro(&pr.Macros, pr.MacroByName, nameStrID, nLine, nCol, true, cidx, ce.ExpStart, ce.ExpLen)
+	let exprID = InternModelStr(&m, ce.Expr)
+	let _ = PushConst(&m, nameStrID, ce.Scalar, ce.Bits, exprID)
+}
+
+// RunDirectives processes preprocessor directives, populates Model constants/includes/guard/cplusplus, and returns remaining C token indices.
+func RunDirectives(file string, tt TokTable, m mut Model, dt mut DiagTable) PreResult {
+	let mut pr = PreResult{
+		Guard:        "",
+		GuardLine:    0,
+		GuardCol:     0,
+		CPlusPlus:    false,
+		StdintFound:  false,
+		StdintLine:   0,
+		StdintCol:    0,
+		StdboolFound: false,
+		StdboolLine:  0,
+		StdboolCol:   0,
+		StddefFound:  false,
+		StddefLine:   0,
+		StddefCol:    0,
+		Macros:       NewMacroTable(),
+		MacroByName:  []uint32{},
+		ExpToks:      NewTokTable(),
+		CTokIdx:      []uint32{},
+	}
+	let nToks = TokCount(tt)
+	let mut i uint32 = 0
+	let mut guardOpen = false
+	if nToks > 0 && isDirectiveStart(tt, m.Strings, 0) {
+		let (a, j) = directiveSlice(tt, nToks, 0)
+		if a.Len() == 2 && TokIs(tt, m.Strings, a[0], "ifndef") && TokKind(tt, a[1]) == TokIdent && int(j) < nToks && isDirectiveStart(tt, m.Strings, j) {
+			let (b, k) = directiveSlice(tt, nToks, j)
+			let guardName = TokText(tt, m.Strings, a[1])
+			if b.Len() == 2 && TokIs(tt, m.Strings, b[0], "define") && TokIs(tt, m.Strings, b[1], guardName) {
+				let hID = TokAt(tt, 0)
+				pr.Guard = guardName
+				pr.GuardLine = dense.Of(tt.Line, hID)
+				pr.GuardCol = dense.Of(tt.Col, hID)
+				guardOpen = true
+				let gID = TokAt(tt, a[1])
+				if IsReservedMacroName(guardName) {
+					AddDiag(&dt, &m.Strings, file, dense.Of(tt.Line, gID), dense.Of(tt.Col, gID), CodeMacroIdentifier, "include guard "+guardName+" is a keyword, a standard name or a reserved name; a C compiler may define it")
+				} else {
+					let b1ID = TokAt(tt, b[1])
+					pr.MacroByName = pushMacro(&pr.Macros, pr.MacroByName, dense.Of(tt.Text, gID), dense.Of(tt.Line, b1ID), dense.Of(tt.Col, b1ID), false, NoID, 0, 0)
+				}
+				i = k
+			}
+		}
+	}
+	let mut cppOpen = false
+	let mut cppClosed = false
+	let mut cppOpenLine uint32 = 0
+	let mut cppOpenCol uint32 = 0
+	let mut sawC = false
+	let mut closedAt = ""
+	for int(i) < nToks && TokKind(tt, i) != TokEOF {
+		if !isDirectiveStart(tt, m.Strings, i) {
+			if closedAt != "" {
+				let pos = TokPos(tt, file, i)
+				AddDiag(&dt, &m.Strings, file, pos.Line, pos.Col, CodeStructure, "declaration after the close of the "+closedAt)
+				for int(i) < nToks && TokKind(tt, i) != TokEOF && !isDirectiveStart(tt, m.Strings, i) {
+					i = i + 1
+				}
+				continue
+			}
+			pr.CTokIdx = pr.CTokIdx.Append(i)
+			sawC = true
+			i = i + 1
+			continue
+		}
+		let hashTok = i
+		let hID = TokAt(tt, hashTok)
+		let hLine = dense.Of(tt.Line, hID)
+		let hCol = dense.Of(tt.Col, hID)
+		let (dir, j) = directiveSlice(tt, nToks, i)
+		let name = if dir.Len() > 0 { TokText(tt, m.Strings, dir[0]) } else { "" }
+		if name == "endif" && dir.Len() == 1 && guardOpen && closedAt != "guard" {
+			if cppOpen && !cppClosed {
+				AddDiag(&dt, &m.Strings, file, hLine, hCol, CodeStructure, "the include guard closes before the extern \"C\" block")
+			}
+			closedAt = "guard"
+			i = j
+		} else if name == "ifdef" && dir.Len() == 2 && TokIs(tt, m.Strings, dir[1], "__cplusplus") {
+			let mut body = []uint32{}
+			let mut k = j
+			for int(k) < nToks && TokKind(tt, k) != TokEOF && !isDirectiveStart(tt, m.Strings, k) {
+				body = body.Append(k)
+				k = k + 1
+			}
+			let mut end = []uint32{}
+			let mut after = k
+			if int(k) < nToks && isDirectiveStart(tt, m.Strings, k) {
+				let (end2, after2) = directiveSlice(tt, nToks, k)
+				end = end2
+				after = after2
+			}
+			let okEnd = end.Len() == 1 && TokIs(tt, m.Strings, end[0], "endif")
+			let isOpen = okEnd && body.Len() == 3 && TokIs(tt, m.Strings, body[0], "extern") && TokKind(tt, body[1]) == TokString && TokText(tt, m.Strings, body[1]) == "\"C\"" && TokIs(tt, m.Strings, body[2], "{")
+			let isCloser = okEnd && body.Len() == 1 && TokIs(tt, m.Strings, body[0], "}")
+			if isOpen && !cppOpen && !sawC && closedAt == "" {
+				cppOpen = true
+				cppOpenLine = hLine
+				cppOpenCol = hCol
+			} else if isCloser && cppOpen && !cppClosed && closedAt == "" {
+				cppClosed = true
+				closedAt = "extern \"C\" block"
+			} else if isOpen || isCloser {
+				AddDiag(&dt, &m.Strings, file, hLine, hCol, CodeStructure, "the extern \"C\" block opens once before every declaration and closes once after them")
+			} else {
+				AddDiag(&dt, &m.Strings, file, hLine, hCol, CodeConditional, "`#ifdef __cplusplus` holds only `extern \"C\" {` or `}`")
+				after = skipConditionalBlock(tt, m.Strings, nToks, i)
+			}
+			i = after
+		} else if name == "if" || name == "ifdef" || name == "ifndef" {
+			AddDiag(&dt, &m.Strings, file, hLine, hCol, CodeConditional, "`#"+name+"` is outside the subset")
+			i = skipConditionalBlock(tt, m.Strings, nToks, i)
+		} else if name == "elif" || name == "else" || name == "endif" || name == "elifdef" || name == "elifndef" {
+			AddDiag(&dt, &m.Strings, file, hLine, hCol, CodeConditional, "`#"+name+"` without an accepted `#if`")
+			i = j
+		} else if name == "include" {
+			handleInclude(&pr, &m, tt, &dt, file, hashTok, dir)
+			i = j
+		} else if name == "define" {
+			if closedAt == "guard" {
+				AddDiag(&dt, &m.Strings, file, hLine, hCol, CodeStructure, "macro after the close of the include guard")
+			} else {
+				let lastTok = if dir.Len() > 0 { dir[dir.Len()-1] } else { hashTok }
+				let lID = TokAt(tt, lastTok)
+				let lText = StrText(m.Strings, dense.Of(tt.Text, lID))
+				handleDefine(&pr, &m, tt, &dt, file, hashTok, dir, dense.Of(tt.Line, lID), dense.Of(tt.Col, lID)+uint32(lText.Len()))
+			}
+			i = j
+		} else {
+			AddDiag(&dt, &m.Strings, file, hLine, hCol, CodeDirective, "`#"+joinTokensSpace(tt, m.Strings, dir)+"` is outside the subset")
+			i = j
+		}
+	}
+	if guardOpen && closedAt != "guard" {
+		AddDiag(&dt, &m.Strings, file, pr.GuardLine, pr.GuardCol, CodeStructure, "the include guard has no #endif")
+	}
+	if cppOpen && !cppClosed {
+		AddDiag(&dt, &m.Strings, file, cppOpenLine, cppOpenCol, CodeStructure, "the extern \"C\" block is not closed")
+	}
+	pr.CPlusPlus = cppOpen
+	m.Guard = pr.Guard
+	m.CPlusPlus = cppOpen
+	if nToks > 0 {
+		pr.CTokIdx = pr.CTokIdx.Append(uint32(nToks - 1))
+	}
+	pr
+}
+
+// ConstExprEvalFollowsMacroExpansion verifies preprocessor token-stream rescan precedence (`#define A 1 + 2` + `#define B A * 3` == 7).
+law ConstExprEvalFollowsMacroExpansion(x uint8) {
+	let extra = int(x % 5)
+	let src = "#define A 1 + 2\n#define B A * " + strconv.Itoa(3+extra) + "\n"
+	let mut m = NewModel("t.h")
+	let mut dt = NewDiagTable()
+	let tt = Lex("t.h", src, &m.Strings, &dt)
+	let _ = RunDirectives("t.h", tt, &m, &dt)
+	let ok0 = DiagCount(dt) == 0 && dense.Total(m.Consts.Ids) == 2
+	let bID = dense.IDAt(m.Consts.Ids, 1)
+	ok0 && dense.Of(m.Consts.Bits, bID) == uint64(1+2*(3+extra))
+}
+
+// ReservedMacroNamesRefusesStandardAndReserved checks standard typedef/macro names and reserved patterns.
+law ReservedMacroNamesRefusesStandardAndReserved(suffix uint8) {
+	let dig = strconv.Itoa(int(suffix%64 + 1))
+	let a = IsReservedMacroName("_Reserved") && IsReservedMacroName("__builtin") && IsReservedMacroName("linux")
+	let b = IsReservedMacroName("TARGET_OS_MAC") && IsReservedMacroName("UINT32_C") && IsReservedMacroName("INT"+dig+"_MAX") && IsReservedMacroName("INT_FAST8_MIN")
+	let c = IsReservedMacroName("uint_least"+dig+"_t") && IsReservedMacroName("uint_fast32_t") && IsReservedMacroName("size_t") && IsReservedMacroName("bool")
+	let d = !IsReservedMacroName("ot_my_flag") && !IsReservedMacroName("_private_lowercase") && !IsReservedMacroName("INT_FAST_MAX")
+	a && b && c && d
+}
