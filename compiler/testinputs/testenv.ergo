@@ -1,0 +1,112 @@
+import option
+import slices
+import strings
+
+// ToolDigest names the environment variable carrying the gate's digest of
+// external test tools and allowed environment variables.
+let ToolDigest string = "ERGO_TOOL_VERSIONS"
+
+// Names returns every environment variable name a cached Go test may receive,
+// in canonical order.
+func Names() []string {
+	[]string{
+		"PATH",
+		"HOME",
+		"TMPDIR",
+		"XDG_CACHE_HOME",
+		"XDG_CONFIG_HOME",
+		"AR",
+		"CC",
+		"CXX",
+		"GCCGO",
+		"PKG_CONFIG",
+		"CGO_CFLAGS",
+		"CGO_CPPFLAGS",
+		"CGO_CXXFLAGS",
+		"CGO_ENABLED",
+		"CGO_FFLAGS",
+		"CGO_LDFLAGS",
+		"GO111MODULE",
+		"GOAMD64",
+		"GOARCH",
+		"GOARM64",
+		"GOAUTH",
+		"GOBIN",
+		"GOCACHE",
+		"GOCACHEPROG",
+		"GOENV",
+		"GOEXPERIMENT",
+		"GOFIPS140",
+		"GOFLAGS",
+		"GOINSECURE",
+		"GOMODCACHE",
+		"GONOPROXY",
+		"GONOSUMDB",
+		"GOOS",
+		"GOPATH",
+		"GOPRIVATE",
+		"GOPROXY",
+		"GOROOT",
+		"GOSUMDB",
+		"GOTELEMETRY",
+		"GOTELEMETRYDIR",
+		"GOTMPDIR",
+		"GOTOOLCHAIN",
+		"GOVCS",
+		"GOWORK",
+		"GODEBUG",
+		"GOGC",
+		"GOMAXPROCS",
+		"GOMEMLIMIT",
+		"GOTRACEBACK",
+		"GIT_OPTIONAL_LOCKS",
+		"ERGO_GO",
+		ToolDigest,
+	}
+}
+
+// IsAllowedEnv reports whether variable name is permitted in a cached test
+// environment.
+func IsAllowedEnv(name string) bool {
+	slices.Contains(Names(), name)
+}
+
+// Environment returns the KEY=VALUE entries of environ whose names are
+// permitted, preserving input order.
+func Environment(environ []string) []string {
+	let allowed = Names()
+	let mut kept = []string{}
+	for _, entry in environ {
+		let key = match strings.Cut(entry, "=") {
+		case option.Some{Value: h}:
+			h.Before
+		case option.None:
+			entry
+		}
+		if slices.Contains(allowed, key) {
+			kept = kept.Append(entry)
+		}
+	}
+	kept
+}
+
+law EnvironmentFilterIdempotent(environ []string) {
+	let once = Environment(environ)
+	slices.Equal(Environment(once), once)
+}
+
+test EnvironmentFiltersAndPreservesOrder {
+	let inEnv = []string{
+		"SECRET=1",
+		"HOME=/tmp/h",
+		"CUSTOM=abc",
+		"PATH=/usr/bin",
+		"ERGO_TOOL_VERSIONS=deadbeef",
+	}
+	let got = Environment(inEnv)
+	assert got.Len() == 3
+	assert got[0] == "HOME=/tmp/h"
+	assert got[1] == "PATH=/usr/bin"
+	assert got[2] == "ERGO_TOOL_VERSIONS=deadbeef"
+	assert Names().Len() == 52
+}

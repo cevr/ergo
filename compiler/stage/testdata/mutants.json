@@ -1,0 +1,35 @@
+{
+  "about": "compiler/stage mutants covering StdWork merging, lexical report ordering, and counter reset completeness",
+  "mutants": [
+    {
+      "name": "selfhost-stage-drop-std-files-parsed",
+      "origin": "wf10 SELFHOST-TESTINPUTS-CASES",
+      "file": "compiler/stage/stage.ergo",
+      "decl": "StageReport",
+      "from": "\t\tif uint32(i) == FilesParsed {\n\t\t\tv = v + w.FilesParsed\n\t\t} else if uint32(i) == PackagesChecked {\n",
+      "to": "\t\tif uint32(i) == PackagesChecked {\n",
+      "rule": "StageReport must add StdWork.FilesParsed into the files_parsed counter total.",
+      "killers": ["compiler/stage:CounterTableAndReportRoundTrip"]
+    },
+    {
+      "name": "selfhost-stage-unsorted-report-keys",
+      "origin": "wf10 SELFHOST-TESTINPUTS-CASES",
+      "file": "compiler/stage/stage.ergo",
+      "decl": "StageReport",
+      "from": "\tslices.SortBy(out, entryOrder)\n",
+      "to": "\tout\n",
+      "rule": "StageReport must sort entries lexicographically by Name to match Go's encoding/json map key ordering.",
+      "killers": ["compiler/stage:CounterTableAndReportRoundTrip"]
+    },
+    {
+      "name": "selfhost-stage-reset-missed-counter",
+      "origin": "wf10 SELFHOST-TESTINPUTS-CASES",
+      "file": "compiler/stage/stage.ergo",
+      "decl": "StoreReset",
+      "from": "\ts.ref.Set(zeroValues())\n",
+      "to": "\tlet _ = s\n",
+      "rule": "StoreReset must clear every counter in the synchronized store back to zero.",
+      "killers": ["compiler/stage:CounterTableAndReportRoundTrip"]
+    }
+  ]
+}
