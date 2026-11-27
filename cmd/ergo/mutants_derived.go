@@ -251,9 +251,16 @@ func (r *mutantRunner) runDerivedMutants(targets []derivedTarget, jobs []ledgerJ
 			LookupViable: lookupViable,
 			StoreViable:  storeViable,
 		})
+		var skipRe *regexp.Regexp
+		if r.opts.skip != "" {
+			skipRe, _ = regexp.Compile(r.opts.skip)
+		}
 		for _, m := range muts {
 			allDerived = append(allDerived, m)
 			if nameRe != nil && !nameRe.MatchString(m.ID) {
+				continue
+			}
+			if skipRe != nil && skipRe.MatchString(m.ID) {
 				continue
 			}
 			items = append(items, derivedItem{m: m, baseRoot: t.baseRoot})

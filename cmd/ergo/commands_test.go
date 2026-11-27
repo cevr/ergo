@@ -26,8 +26,12 @@ func TestCommandTableClassifiesEveryWordOnce(t *testing.T) {
 			if c.run == nil || c.usage == "" || c.reason != "" {
 				t.Fatalf("available %q: %+v", c.name, c)
 			}
-			if !strings.Contains(help, "ergo "+c.usage+"\n") {
-				t.Fatalf("help does not list %q", c.usage)
+			if !c.hidden {
+				if !strings.Contains(help, "ergo "+c.usage+"\n") {
+					t.Fatalf("help does not list %q", c.usage)
+				}
+			} else if strings.Contains(help, "  ergo "+strings.Fields(c.name)[0]+" ") {
+				t.Fatalf("help should not list hidden command %q", c.name)
 			}
 		case removed, dark:
 			if c.run != nil || c.help != "" || c.usage != "" || (c.fate == dark) != (c.reason == "") {
@@ -40,7 +44,7 @@ func TestCommandTableClassifiesEveryWordOnce(t *testing.T) {
 			t.Fatalf("%q has no fate", c.name)
 		}
 	}
-	for _, kept := range []string{"check", "diagnostics", "build", "run", "fmt", "test"} {
+	for _, kept := range []string{"check", "build", "run", "fmt", "test", "fix", "lint", "verify", "inspect"} {
 		if row, ok := lookupCommand([]string{kept}); !ok || row.fate != available {
 			t.Fatalf("%s is not kept", kept)
 		}
@@ -94,21 +98,38 @@ func TestStubsAnswerBeforeReadingArguments(t *testing.T) {
 func TestHelpListsOnlyTheKeptCommands(t *testing.T) {
 	binary := buildTestCLI(t)
 	dir := t.TempDir()
-	for _, args := range [][]string{nil, {"--help"}, {"-h"}, {"help"}, {"check", "--help"}, {"build", "-h"}} {
+	for _, args := range [][]string{nil, {"--help"}, {"-h"}, {"help"}} {
 		stdout, stderr, code := runSmokeCLI(t, binary, dir, "", args...)
 		if code != 0 || len(stderr) != 0 || string(stdout) != generalHelp() {
 			t.Fatalf("ergo %v: exit %d stdout %q stderr %q", args, code, stdout, stderr)
 		}
 	}
-	// graph left the table with f7837e0b0 and came back as a kept command
-	// with GRAPH-TABLE 4f5f6cbc8 (ergo graph export and its queries,
-	// docs/tooling.md, Graph rows), so help names it.
-	for _, word := range []string{"edition", "query", "explain", "lsp", "mcp", "ergo type"} {
-		if regexp.MustCompile(`\b` + word + `\b`).MatchString(generalHelp()) {
-			t.Fatalf("help names %q", word)
+	for _, word := range []string{"edition", "query", "explain", "lsp", "mcp", "ergo type", "Ergo prototype", "Go is the only target", "--target go", "--native", "--compiled", "budget", "tsmap"} {
+		if strings.Contains(generalHelp(), word) {
+			t.Fatalf("help names forbidden term %q", word)
 		}
 	}
-	for args, want := range map[string]string{"diagnostics --help": diagnosticsHelp, "fmt --help": fmtHelp, "fmt -h": fmtHelp} {
+	for _, section := range []string{"Examples:", "Core:", "Verify & Inspect:", "Packages & Workspace:"} {
+		if !strings.Contains(generalHelp(), section) {
+			t.Fatalf("generalHelp lacks grouped section %q", section)
+		}
+	}
+	for args, want := range map[string]string{
+		"check --help":         checkHelp,
+		"build -h":             buildHelp,
+		"help test":            testHelp,
+		"verify --help":        verifyHelp,
+		"inspect --help":       inspectHelp,
+		"diagnostics --help":   diagnosticsHelp,
+		"fmt --help":           fmtHelp,
+		"fmt -h":               fmtHelp,
+		"fix --help":           fixHelp,
+		"--help-all":           generalHelpAll(),
+		"test --help-all":      testAllHelp,
+		"build --help-all":     buildAllHelp,
+		"fix --help-all":       fixAllHelp,
+		"inspect graph --help": graphHelp,
+	} {
 		stdout, _, code := runSmokeCLI(t, binary, dir, "", strings.Fields(args)...)
 		if code != 0 || string(stdout) != want {
 			t.Fatalf("ergo %s: exit %d stdout %q", args, code, stdout)
@@ -118,7 +139,7 @@ func TestHelpListsOnlyTheKeptCommands(t *testing.T) {
 	if code != 1 || len(stdout) != 0 || string(stderr) != "unknown command frobnicate; use ergo --help\n" {
 		t.Fatalf("an unknown command: exit %d stdout %q stderr %q", code, stdout, stderr)
 	}
-	for _, usage := range []string{"check FILE", "diagnostics FILE", "build FILE", "run FILE", "fmt FILE...", "test FILE"} {
+	for _, usage := range []string{"check [PATH...]", "build [PATH]", "run [PATH]", "fmt [PATH...]", "test [PATH...]", "fix [--check]", "verify mutants|explore|conform|cases", "inspect [api|machine|deps|facts|copies|forms|rewrites|graph]"} {
 		if !slices.ContainsFunc(strings.Split(generalHelp(), "\n"), func(line string) bool { return strings.HasPrefix(line, "  ergo "+usage) }) {
 			t.Fatalf("help lacks %q", usage)
 		}

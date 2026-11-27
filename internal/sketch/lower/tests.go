@@ -156,7 +156,7 @@ var testHelpers = []struct{ key, base string }{
 	{"GenIn", "ergoGenIn"}, {"GenStrLen", "ergoGenStrLen"}, {"GenMatch", "ergoGenMatch"}, {"GenSliceLen", "ergoGenSliceLen"},
 	{"LitFloat", "ergoLitFloat"}, {"LitComplex", "ergoLitComplex"},
 	{"LitDuration", "ergoLitDuration"}, {"LitEntries", "ergoLitEntries"},
-	{"Seed", "ergoSeed"}, {"Tests", "ergoTests"}, {"Only", "ergoOnly"}, {"Want", "ergoWant"},
+	{"Seed", "ergoSeed"}, {"Tests", "ergoTests"}, {"Only", "ergoOnly"}, {"Select", "ergoSelect"}, {"SelectOn", "ergoSelectOn"}, {"Allow", "ergoAllow"}, {"Want", "ergoWant"},
 	{"Try", "ergoTry"}, {"Prop", "ergoProp"}, {"Receipt", "ergoReceipt"},
 	{"LastEvidence", "ergoLastEvidence"}, {"ApplyEvidence", "ergoApplyEvidence"}, {"FinishListedLaw", "ergoFinishListedLaw"},
 	{"Record", "ergoRecord"}, {"RecordSearch", "ergoRecordSearch"}, {"WriteReceipt", "ergoWriteReceipt"}, {"JSON", "ergoJSON"},
@@ -1006,6 +1006,7 @@ func (l *lowerer) testRunner() string {
 	// --skip-law NAME runs every test and law but that one, and prints its
 	// skip line. The total and the skips count what runs.
 	pick, picked, skip, matched, skips := scope.alloc("pick"), scope.alloc("picked"), scope.alloc("skip"), scope.alloc("matched"), scope.alloc("skips")
+	allow := l.helper("Allow")
 	flag := l.helper("Flag")
 	b.WriteString("\t" + pick + ", " + picked + " := " + flag + "(\"law\")\n")
 	b.WriteString("\t" + skip + ", _ := " + flag + "(\"skip-law\")\n")
@@ -1013,7 +1014,7 @@ func (l *lowerer) testRunner() string {
 	b.WriteString("\t_ = " + skip + "\n")
 	b.WriteString("\tif !" + picked + " {\n")
 	for _, t := range tests {
-		b.WriteString("\tif " + want + "(" + strconv.Quote(t.Name) + ") {\n\t" + total + "++\n")
+		b.WriteString("\tif " + want + "(" + strconv.Quote(t.Name) + ") && " + allow + "(" + strconv.Quote(t.Name) + ") {\n\t" + total + "++\n")
 		l.skippable(&b, func() { l.testRun(&b, t, scope, env, seed, failed) })
 		b.WriteString("\t}\n")
 	}
@@ -1021,7 +1022,7 @@ func (l *lowerer) testRunner() string {
 	for _, law := range l.runLaws() {
 		title := strconv.Quote(l.lawTitle(law.Law))
 		runs, skipped := lawCounts(law)
-		b.WriteString("\tif (!" + picked + " || " + pick + " == " + title + ") && " + want + "(" + title + ") {\n")
+		b.WriteString("\tif (!" + picked + " || " + pick + " == " + title + ") && " + want + "(" + title + ") && " + allow + "(" + title + ") {\n")
 		b.WriteString("\t" + matched + " = true\n")
 		b.WriteString("\tif " + skip + " == " + title + " {\n")
 		b.WriteString("\t" + fmtPkg + ".Println(" + strconv.Quote("skip law "+l.lawTitle(law.Law)+": --skip-law") + ")\n")
@@ -2589,14 +2590,25 @@ func $LitEntries[K comparable, V any](typ string, m map[K]V, key func(K) string,
 // $Only is the one test or law that --run NAME selects; "" runs every one.
 var $Only string
 
+// $Select and $SelectOn restrict runs to comma-listed names from --filter/--skip.
+var (
+	$Select   string
+	$SelectOn bool
+)
+
 // $Want reports whether the test or law name runs: every one runs when
 // --run names none.
 func $Want(name string) bool { return $Only == "" || $Only == name }
 
+// $Allow reports whether name is admitted by the CLI --select allowlist.
+func $Allow(name string) bool {
+	return !$SelectOn || $strings.Contains(","+$Select+",", ","+name+",")
+}
+
 // $Flag is the value of the test binary's flag --name, given as --name V
 // or --name=V, and whether it is given; given twice, the last value
 // counts. The flags are --seed, --states, --law, --skip-law, --run,
-// --source, --receipt, --revision and --cached; any other argument, or a
+// --select, --source, --receipt, --revision and --cached; any other argument, or a
 // flag with no value, is a usage error (exit 2).
 func $Flag(name string) (string, bool) {
 	value, given := "", false
@@ -2604,7 +2616,7 @@ func $Flag(name string) (string, bool) {
 	for i := 0; i < len(args); i++ {
 		key, v, joined := $strings.Cut(args[i], "=")
 		switch key {
-		case "--seed", "--states", "--law", "--skip-law", "--run", "--source", "--receipt", "--revision", "--cached", "--tapes":
+		case "--seed", "--states", "--law", "--skip-law", "--run", "--select", "--source", "--receipt", "--revision", "--cached", "--tapes":
 		case "--prune-tapes":
 			if key == "--"+name {
 				value, given = "1", true
@@ -2634,6 +2646,7 @@ func $Flag(name string) (string, bool) {
 // $Receipt (L10); --run NAME fills $Only (X8).
 func $Seed() uint64 {
 	$Only, _ = $Flag("run")
+	$Select, $SelectOn = $Flag("select")
 	$Receipt.path, _ = $Flag("receipt")
 	$Receipt.source, _ = $Flag("source")
 	$Receipt.revision, _ = $Flag("revision")

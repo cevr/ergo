@@ -41,9 +41,20 @@ func libCommand(args []string) error {
 			return invalidInvocation(errors.New("ergo lib takes one source"))
 		}
 	}
-	if source == "" || out == "" {
-		return invalidInvocation(errors.New("usage: ergo lib FILE|DIR -o DIR"))
+	if source == "" {
+		source = "."
 	}
+	if out == "" {
+		return invalidInvocation(errors.New("usage: ergo lib [FILE|DIR] -o DIR"))
+	}
+	return writeLibrary(source, out, "ergo lib")
+}
+
+func buildLibrary(opts fileOptions) error {
+	return writeLibrary(opts.file, opts.output, "ergo build --lib")
+}
+
+func writeLibrary(source, out, prefix string) error {
 	l, err := load(source, "go")
 	if err != nil {
 		return err
@@ -52,7 +63,7 @@ func libCommand(args []string) error {
 		return refuseUnchecked(l, fileOptions{command: "lib"})
 	}
 	if !token.IsIdentifier(l.name) {
-		return fmt.Errorf("ergo lib: %q is not a Go package name; rename the file or folder", l.name)
+		return fmt.Errorf("%s: %q is not a Go package name; rename the file or folder", prefix, l.name)
 	}
 	files, err := irLibrary(l)
 	if err != nil {
