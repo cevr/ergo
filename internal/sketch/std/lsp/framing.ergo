@@ -1,0 +1,457 @@
+import io
+import option
+import strconv
+import strings
+import sync
+
+// DefaultMaxHeaderBytes is the default byte limit on an LSP frame header block.
+let DefaultMaxHeaderBytes = 8192
+
+// DefaultMaxBodyBytes is the default byte limit on an LSP frame payload (16 MiB).
+let DefaultMaxBodyBytes = 16777216
+
+// DefaultContentType is the default LSP Content-Type header value.
+let DefaultContentType = "application/vscode-jsonrpc; charset=utf-8"
+
+// FrameLimits configures maximum header and body byte sizes accepted during LSP framing.
+type FrameLimits { MaxHeaderBytes int, MaxBodyBytes int }
+
+// DefaultLimits returns standard FrameLimits (8 KiB header, 16 MiB body).
+func DefaultLimits() FrameLimits {
+	FrameLimits{MaxHeaderBytes: DefaultMaxHeaderBytes, MaxBodyBytes: DefaultMaxBodyBytes}
+}
+
+// MalformedHeader reports syntactically invalid, missing, bare-LF, or duplicate LSP frame headers.
+type MalformedHeader { Detail string }
+
+// InvalidLength reports a non-canonical or unparseable Content-Length header value.
+type InvalidLength { Value string }
+
+// HeaderTooLarge reports a frame header block exceeding MaxHeaderBytes.
+type HeaderTooLarge { Size int }
+
+// BodyTooLarge reports a Content-Length exceeding MaxBodyBytes.
+type BodyTooLarge { Size int }
+
+// TruncatedFrame reports fewer payload bytes remaining than declared by Content-Length.
+type TruncatedFrame { Expected int, Actual int }
+
+// FrameError enumerates every LSP Content-Length framing failure.
+type FrameError = MalformedHeader | InvalidLength | HeaderTooLarge | BodyTooLarge | TruncatedFrame
+
+// FrameErrorReason formats any FrameError as a human-readable message.
+func FrameErrorReason(err FrameError) string {
+	match err {
+	case MalformedHeader as m:
+		"malformed LSP frame header: " + m.Detail
+	case InvalidLength as v:
+		"invalid LSP Content-Length: " + v.Value
+	case HeaderTooLarge as h:
+		"LSP frame header size \(h.Size) exceeds limit"
+	case BodyTooLarge as b:
+		"LSP frame body size \(b.Size) exceeds limit"
+	case TruncatedFrame as t:
+		"truncated LSP frame: expected \(t.Expected) bytes, got \(t.Actual)"
+	}
+}
+
+// Frame holds a decoded LSP message payload and its optional Content-Type header.
+type Frame { ContentType string, Payload string }
+
+// ParsedFrame pairs one decoded Frame with any remaining unparsed trailing bytes.
+type ParsedFrame { Frame Frame, Rest string }
+
+// EncodeFrame serializes payload with a canonical Content-Length byte-count header.
+func EncodeFrame(payload string) string {
+	"Content-Length: \(payload.Len())\r\n\r\n" + payload
+}
+
+// EncodeFrameWithType serializes payload with Content-Length and Content-Type headers.
+func EncodeFrameWithType(payload string, contentType string) string fails MalformedHeader {
+	if contentType == "" {
+		return EncodeFrame(payload)
+	}
+	if strings.Contains(contentType, "\r") || strings.Contains(contentType, "\n") {
+		return MalformedHeader{Detail: "Content-Type contains CR or LF"}
+	}
+	"Content-Length: \(payload.Len())\r\nContent-Type: \(contentType)\r\n\r\n" + payload
+}
+
+type parsedHeader { contentLength int, contentType string, bodyStart int }
+
+func isASCIIWhitespace(b byte) bool {
+	b == ' ' || b == '\t'
+}
+
+func trimOWS(s string) string {
+	let bs = s.Bytes()
+	let mut start = 0
+	for start < bs.Len() && isASCIIWhitespace(bs[start]) {
+		start = start + 1
+	}
+	let mut end = bs.Len()
+	for end > start && isASCIIWhitespace(bs[end-1]) {
+		end = end - 1
+	}
+	strings.Slice(s, start, end)
+}
+
+func parseContentLengthValue(raw string) int fails InvalidLength {
+	let trimmed = trimOWS(raw)
+	if trimmed == "" {
+		return InvalidLength{Value: raw}
+	}
+	let bs = trimmed.Bytes()
+	let mut i = 0
+	for i < bs.Len() {
+		if bs[i] < '0' || bs[i] > '9' {
+			return InvalidLength{Value: trimmed}
+		}
+		i = i + 1
+	}
+	strconv.Atoi(trimmed) catch {
+	case _:
+		return InvalidLength{Value: trimmed}
+	}
+}
+
+func parseHeaderBlock(buf string, limits FrameLimits) parsedHeader fails MalformedHeader | InvalidLength | HeaderTooLarge | BodyTooLarge {
+	if limits.MaxHeaderBytes < 0 {
+		return HeaderTooLarge{Size: buf.Len()}
+	}
+	let hdrEnd = strings.Index(buf, "\r\n\r\n")
+	if hdrEnd < 0 {
+		if buf.Len() > limits.MaxHeaderBytes {
+			return HeaderTooLarge{Size: buf.Len()}
+		}
+		return MalformedHeader{Detail: "missing CRLFCRLF header terminator"}
+	}
+	if hdrEnd > limits.MaxHeaderBytes {
+		return HeaderTooLarge{Size: hdrEnd}
+	}
+	let hdrText = strings.Slice(buf, 0, hdrEnd)
+	if hdrText == "" {
+		return MalformedHeader{Detail: "empty header block"}
+	}
+	let lines = strings.Split(hdrText, "\r\n")
+	let mut seenLength = false
+	let mut contentLength = -1
+	let mut seenType = false
+	let mut contentType = ""
+	for line in lines {
+		if line == "" || strings.Contains(line, "\r") || strings.Contains(line, "\n") {
+			return MalformedHeader{Detail: "invalid line break in header"}
+		}
+		let kv = match strings.Cut(line, ":") {
+		case option.None:
+			return MalformedHeader{Detail: "header missing colon"}
+		case option.Some as h:
+			h.Value
+		}
+		let name = trimOWS(kv.Before)
+		if name == "" {
+			return MalformedHeader{Detail: "empty header name"}
+		}
+		if strings.Contains(name, " ") || strings.Contains(name, "\t") {
+			return MalformedHeader{Detail: "whitespace inside header name"}
+		}
+		if strings.EqualFold(name, "Content-Length") {
+			if seenLength {
+				return MalformedHeader{Detail: "duplicate Content-Length header"}
+			}
+			seenLength = true
+			contentLength = try parseContentLengthValue(kv.After)
+		} else if strings.EqualFold(name, "Content-Type") {
+			if seenType {
+				return MalformedHeader{Detail: "duplicate Content-Type header"}
+			}
+			seenType = true
+			let ct = trimOWS(kv.After)
+			if ct == "" {
+				return MalformedHeader{Detail: "empty Content-Type header"}
+			}
+			contentType = ct
+		}
+	}
+	if !seenLength {
+		return MalformedHeader{Detail: "missing Content-Length header"}
+	}
+	if limits.MaxBodyBytes < 0 || contentLength > limits.MaxBodyBytes {
+		return BodyTooLarge{Size: contentLength}
+	}
+	parsedHeader{contentLength: contentLength, contentType: contentType, bodyStart: hdrEnd + 4}
+}
+
+func wrapFrameError(fn func() ParsedFrame fails MalformedHeader | InvalidLength | HeaderTooLarge | BodyTooLarge | TruncatedFrame) ParsedFrame fails FrameError {
+	fn() catch {
+	case MalformedHeader as m:
+		return m
+	case InvalidLength as v:
+		return v
+	case HeaderTooLarge as h:
+		return h
+	case BodyTooLarge as b:
+		return b
+	case TruncatedFrame as t:
+		return t
+	}
+}
+
+// ParseFrame decodes a single LSP frame from the prefix of raw under limits.
+func ParseFrame(raw string, limits FrameLimits) ParsedFrame fails FrameError {
+	wrapFrameError(func() ParsedFrame fails MalformedHeader | InvalidLength | HeaderTooLarge | BodyTooLarge | TruncatedFrame {
+		if raw == "" {
+			return MalformedHeader{Detail: "empty frame"}
+		}
+		let hdr = try parseHeaderBlock(raw, limits)
+		let avail = raw.Len() - hdr.bodyStart
+		if avail < hdr.contentLength {
+			return TruncatedFrame{Expected: hdr.contentLength, Actual: avail}
+		}
+		let payloadEnd = hdr.bodyStart + hdr.contentLength
+		ParsedFrame{
+			Frame: Frame{
+				ContentType: hdr.contentType,
+				Payload:     strings.Slice(raw, hdr.bodyStart, payloadEnd),
+			},
+			Rest: strings.Slice(raw, payloadEnd, raw.Len()),
+		}
+	})
+}
+
+// ParseExactFrame decodes raw as exactly one complete LSP frame with no trailing bytes.
+func ParseExactFrame(raw string, limits FrameLimits) Frame fails FrameError {
+	let parsed = try ParseFrame(raw, limits)
+	if parsed.Rest != "" {
+		return MalformedHeader{Detail: "unexpected trailing bytes after frame"}
+	}
+	parsed.Frame
+}
+
+func stepBufferFrame(buf string, eof bool, limits FrameLimits) option.Option[ParsedFrame] fails FrameError {
+	let mut needMore = false
+	if limits.MaxHeaderBytes < 0 {
+		return HeaderTooLarge{Size: buf.Len()}
+	}
+	let hdrEnd = strings.Index(buf, "\r\n\r\n")
+	if hdrEnd < 0 {
+		if buf.Len() > limits.MaxHeaderBytes {
+			return HeaderTooLarge{Size: buf.Len()}
+		}
+		if eof {
+			if buf.Len() == 0 {
+				return option.None
+			}
+			return MalformedHeader{Detail: "truncated frame header at EOF"}
+		}
+		needMore = true
+	}
+	if needMore {
+		return option.None
+	}
+	let hdr = parseHeaderBlock(buf, limits) catch {
+	case MalformedHeader as m:
+		return m
+	case InvalidLength as v:
+		return v
+	case HeaderTooLarge as h:
+		return h
+	case BodyTooLarge as b:
+		return b
+	}
+	let avail = buf.Len() - hdr.bodyStart
+	if avail < hdr.contentLength {
+		if eof {
+			return TruncatedFrame{Expected: hdr.contentLength, Actual: avail}
+		}
+		return option.None
+	}
+	let payloadEnd = hdr.bodyStart + hdr.contentLength
+	option.Some{
+		Value: ParsedFrame{
+			Frame: Frame{
+				ContentType: hdr.contentType,
+				Payload:     strings.Slice(buf, hdr.bodyStart, payloadEnd),
+			},
+			Rest: strings.Slice(buf, payloadEnd, buf.Len()),
+		},
+	}
+}
+
+// ReadAllFrames decodes all Content-Length frames from src under limits across arbitrary chunk boundaries.
+func ReadAllFrames(src io.Source, limits FrameLimits) []Frame fails FrameError | io.ReadFailed {
+	let mut frames = []Frame{}
+	let mut buf = ""
+	let mut eof = false
+	for {
+		let next = try stepBufferFrame(buf, eof, limits)
+		match next {
+		case option.Some as parsed:
+			frames = frames.Append(parsed.Value.Frame)
+			buf = parsed.Value.Rest
+		case option.None:
+			if eof {
+				return frames
+			}
+			let chunk = try src.Read()
+			match chunk {
+			case option.None:
+				eof = true
+			case option.Some as s:
+				buf = buf + s.Value
+			}
+		}
+	}
+}
+
+type frameReaderState { buf string, eof bool }
+
+// FrameReader incrementally reads Content-Length frames from an io.Source.
+type FrameReader { src io.Source, limits FrameLimits, state sync.Ref[frameReaderState] }
+
+// NewFrameReader constructs a FrameReader over src with DefaultLimits.
+func NewFrameReader(src io.Source) FrameReader {
+	NewFrameReaderWithLimits(src, DefaultLimits())
+}
+
+// NewFrameReaderWithLimits constructs a FrameReader over src enforcing limits.
+func NewFrameReaderWithLimits(src io.Source, limits FrameLimits) FrameReader {
+	FrameReader{src: src, limits: limits, state: sync.NewRef(frameReaderState{buf: "", eof: false})}
+}
+
+// ReadFrame reads the next complete LSP frame from r, or returns None at clean EOF.
+func ReadFrame(r FrameReader) option.Option[Frame] fails FrameError | io.ReadFailed {
+	for {
+		let cur = r.state.Get()
+		let next = try stepBufferFrame(cur.buf, cur.eof, r.limits)
+		match next {
+		case option.Some as parsed:
+			r.state.Set(frameReaderState{buf: parsed.Value.Rest, eof: cur.eof})
+			return option.Some{Value: parsed.Value.Frame}
+		case option.None:
+			if cur.eof {
+				return option.None
+			}
+			let chunk = try r.src.Read()
+			match chunk {
+			case option.None:
+				r.state.Set(frameReaderState{buf: cur.buf, eof: true})
+			case option.Some as s:
+				r.state.Set(frameReaderState{buf: cur.buf + s.Value, eof: false})
+			}
+		}
+	}
+}
+
+law FrameRoundTrips(payload string, trailing string) {
+	let encoded = EncodeFrame(payload)
+	let parsed = ParseFrame(encoded+trailing, DefaultLimits()) catch {
+	case _:
+		return false
+	}
+	if parsed.Frame.Payload != payload || parsed.Frame.ContentType != "" || parsed.Rest != trailing {
+		return false
+	}
+	let exact = ParseExactFrame(encoded, DefaultLimits()) catch {
+	case _:
+		return false
+	}
+	if exact.Payload != payload {
+		return false
+	}
+	let typedWire = EncodeFrameWithType(payload, DefaultContentType) catch {
+	case _:
+		return false
+	}
+	let typed = ParseExactFrame(typedWire, DefaultLimits()) catch {
+	case _:
+		return false
+	}
+	typed.Payload == payload && typed.ContentType == DefaultContentType
+}
+
+func checkFrameError(raw string, limits FrameLimits, pred func(e FrameError) bool) bool {
+	let _ = ParseFrame(raw, limits) catch {
+	case FrameError as err:
+		return pred(err)
+	}
+	false
+}
+
+law FrameUsesByteLengthAndEnforcesLimits(prefix string, extra string) {
+	let payload = prefix + "😀é🚀" + extra
+	let encoded = EncodeFrame(payload)
+	let expectedHdr = "Content-Length: \(payload.Len())\r\n\r\n"
+	if !strings.HasPrefix(encoded, expectedHdr) {
+		return false
+	}
+	let truncated = strings.Slice(encoded, 0, encoded.Len()-1)
+	let truncOK = checkFrameError(truncated, DefaultLimits(), func(err FrameError) bool {
+		match err {
+		case TruncatedFrame as t:
+			t.Expected == payload.Len() && t.Actual == payload.Len()-1
+		case _:
+			false
+		}
+	})
+	let tooSmall = FrameLimits{MaxHeaderBytes: DefaultMaxHeaderBytes, MaxBodyBytes: payload.Len() - 1}
+	let bodyLimitOK = checkFrameError(encoded, tooSmall, func(err FrameError) bool {
+		match err {
+		case BodyTooLarge as b:
+			b.Size == payload.Len()
+		case _:
+			false
+		}
+	})
+	let tinyHdr = FrameLimits{MaxHeaderBytes: 4, MaxBodyBytes: DefaultMaxBodyBytes}
+	let hdrLimitOK = checkFrameError(encoded, tinyHdr, func(err FrameError) bool {
+		match err {
+		case HeaderTooLarge:
+			true
+		case _:
+			false
+		}
+	})
+	truncOK && bodyLimitOK && hdrLimitOK
+}
+
+law FrameReaderHandlesArbitraryChunks(a string, b string, c string, cut1 int, cut2 int) {
+	let p1 = a + "é😀"
+	let p2 = b
+	let p3 = "🚀\r\n" + c
+	let wireText = EncodeFrame(p1) + EncodeFrame(p2) + EncodeFrame(p3)
+	let n = wireText.Len()
+	let k1 = ((cut1 % n) + n) % n
+	let k2 = ((cut2 % n) + n) % n
+	let lo = if k1 <= k2 { k1 } else { k2 }
+	let hi = if k1 <= k2 { k2 } else { k1 }
+	let mem = io.CutAt(wireText, []int{lo, hi})
+	let decoded = ReadAllFrames(mem, DefaultLimits()) catch {
+	case _:
+		return false
+	}
+	decoded.Len() == 3 && decoded[0].Payload == p1 && decoded[1].Payload == p2 && decoded[2].Payload == p3
+}
+
+law RejectsMalformedFrames(body string) {
+	let safeBody = body + "x"
+	let samples = []string{
+		"",
+		"\r\n\r\n" + safeBody,
+		"Content-Type: application/vscode-jsonrpc\r\n\r\n" + safeBody,
+		"Content-Length: -1\r\n\r\n" + safeBody,
+		"Content-Length: +5\r\n\r\nhello",
+		"Content-Length: abc\r\n\r\nhello",
+		"Content-Length: \(safeBody.Len())\n\n" + safeBody,
+		"Content-Length: 1\r\nContent-Length: 1\r\n\r\nx",
+		"BadHeaderWithoutColon\r\nContent-Length: 1\r\n\r\nx",
+		"Content-Length: 1\nExtra: y\r\n\r\nx",
+	}
+	for raw in samples {
+		let failed = checkFrameError(raw, DefaultLimits(), func(_ FrameError) bool { true })
+		if !failed {
+			return false
+		}
+	}
+	true
+}

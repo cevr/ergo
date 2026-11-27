@@ -1,0 +1,375 @@
+import io
+import option
+import os
+import queue
+import sync
+
+// TransportReadError reports an underlying I/O read failure on an LSP transport.
+type TransportReadError { Detail string }
+
+// TransportWriteError reports an underlying I/O write failure on an LSP transport.
+type TransportWriteError { Detail string }
+
+// TransportClosed reports an attempt to Send on a closed LSP transport.
+type TransportClosed {}
+
+// TransportError enumerates framing and I/O failures surfaced by Transport operations.
+type TransportError = MalformedHeader | InvalidLength | HeaderTooLarge | BodyTooLarge | TruncatedFrame | TransportReadError | TransportWriteError | TransportClosed
+
+// TransportErrorReason formats err as a diagnostic message.
+func TransportErrorReason(err TransportError) string {
+	match err {
+	case MalformedHeader as m:
+		FrameErrorReason(m)
+	case InvalidLength as v:
+		FrameErrorReason(v)
+	case HeaderTooLarge as h:
+		FrameErrorReason(h)
+	case BodyTooLarge as b:
+		FrameErrorReason(b)
+	case TruncatedFrame as t:
+		FrameErrorReason(t)
+	case TransportReadError as r:
+		"transport read failed: " + r.Detail
+	case TransportWriteError as w:
+		"transport write failed: " + w.Detail
+	case TransportClosed:
+		"transport is closed"
+	}
+}
+
+// Transport abstracts bidirectional LSP message exchange over framed byte streams or memory queues.
+type Transport {
+	Read() option.Option[string] fails TransportError,
+	Send(payload string) fails TransportError,
+	Close(),
+
+	law DrainsToEOF() {
+		Send("{}") catch {
+		case _:
+			return false
+		}
+		let mut reads = 0
+		for reads < 64 {
+			let msg = Read() catch {
+			case _:
+				return false
+			}
+			match msg {
+			case option.None:
+				let again = Read() catch {
+				case _:
+					return false
+				}
+				match again {
+				case option.None:
+					return true
+				case option.Some:
+					return false
+				}
+			case option.Some:
+				reads = reads + 1
+			}
+		}
+		false
+	},
+}
+
+type memoryState { inbox []string, cursor int, outbox []string, closed bool }
+
+// MemoryTransport is a deterministic scripted Transport that records outgoing messages in memory.
+type MemoryTransport { state sync.Ref[memoryState] } implements Transport
+
+// NewMemoryTransport constructs a MemoryTransport seeded with incoming payloads.
+func NewMemoryTransport(inputs []string) MemoryTransport {
+	MemoryTransport{
+		state: sync.NewRef(memoryState{
+			inbox:  inputs,
+			cursor: 0,
+			outbox: []string{},
+			closed: false,
+		}),
+	}
+}
+
+// Read returns the next scripted incoming message, or None once exhausted or closed.
+func Read(t MemoryTransport) option.Option[string] fails TransportError {
+	sync.Modify[memoryState, option.Option[string]](t.state, func(st memoryState) (option.Option[string], memoryState) {
+		if st.closed || st.cursor >= st.inbox.Len() {
+			return (option.None, st)
+		}
+		let msg = st.inbox[st.cursor]
+		let next = memoryState{inbox: st.inbox, cursor: st.cursor + 1, outbox: st.outbox, closed: st.closed}
+		(option.Some{Value: msg}, next)
+	})
+}
+
+// Send records payload onto t's outgoing message log unless t is closed.
+func Send(t MemoryTransport, payload string) fails TransportError {
+	let ok = sync.Modify[memoryState, bool](t.state, func(st memoryState) (bool, memoryState) {
+		if st.closed {
+			return (false, st)
+		}
+		(true, memoryState{inbox: st.inbox, cursor: st.cursor, outbox: st.outbox.Append(payload), closed: false})
+	})
+	if !ok {
+		return TransportClosed
+	}
+}
+
+// Close marks t closed so subsequent Reads return None and Sends fail TransportClosed.
+func Close(t MemoryTransport) {
+	t.state.Update(func(st memoryState) memoryState {
+		memoryState{inbox: st.inbox, cursor: st.cursor, outbox: st.outbox, closed: true}
+	})
+}
+
+// SentMessages returns a snapshot slice of all payloads sent through t in emission order.
+func SentMessages(t MemoryTransport) []string {
+	t.state.Get().outbox
+}
+
+// IsMemoryClosed reports whether t has been closed.
+func IsMemoryClosed(t MemoryTransport) bool {
+	t.state.Get().closed
+}
+
+// StdioTransport exchanges Content-Length framed LSP messages over an io.Source and io.Stdout.
+type StdioTransport { reader FrameReader, out io.Stdout, limits FrameLimits, sendMu sync.Semaphore, closed sync.Ref[bool] } implements Transport
+
+// NewStdioTransport constructs a StdioTransport bound to the host stdin and stdout capabilities.
+func NewStdioTransport() StdioTransport needs os.Ambient {
+	NewStdioTransportWithLimits(DefaultLimits())
+}
+
+// NewStdioTransportWithLimits constructs a host StdioTransport enforcing custom FrameLimits.
+func NewStdioTransportWithLimits(limits FrameLimits) StdioTransport needs os.Ambient {
+	NewStdioTransportFrom(io.NewStdin(), io.NewHost(), limits)
+}
+
+// NewStdioTransportFrom builds a StdioTransport over arbitrary io.Source and io.Stdout implementations.
+func NewStdioTransportFrom(src io.Source, out io.Stdout, limits FrameLimits) StdioTransport {
+	StdioTransport{
+		reader: NewFrameReaderWithLimits(src, limits),
+		out:    out,
+		limits: limits,
+		sendMu: sync.NewSemaphore(1),
+		closed: sync.NewRef(false),
+	}
+}
+
+// Read decodes and returns the next Content-Length framed payload from t, or None at EOF.
+func Read(t StdioTransport) option.Option[string] fails TransportError {
+	if t.closed.Get() {
+		return option.None
+	}
+	let frame = ReadFrame(t.reader) catch {
+	case MalformedHeader as m:
+		return m
+	case InvalidLength as v:
+		return v
+	case HeaderTooLarge as h:
+		return h
+	case BodyTooLarge as b:
+		return b
+	case TruncatedFrame as tr:
+		return tr
+	case io.ReadFailed as r:
+		return TransportReadError{Detail: r.Reason}
+	}
+	match frame {
+	case option.None:
+		option.None
+	case option.Some as f:
+		option.Some{Value: f.Value.Payload}
+	}
+}
+
+// Send writes payload to t's output wrapped in a Content-Length frame, serialized safely across tasks.
+func Send(t StdioTransport, payload string) fails TransportError {
+	if t.limits.MaxBodyBytes < 0 || payload.Len() > t.limits.MaxBodyBytes {
+		return BodyTooLarge{Size: payload.Len()}
+	}
+	let sent = sync.With(t.sendMu, func() bool {
+		if t.closed.Get() {
+			return false
+		}
+		t.out.Print(EncodeFrame(payload))
+		true
+	})
+	if !sent {
+		return TransportClosed
+	}
+}
+
+// Close marks t closed, rejecting any further Send calls.
+func Close(t StdioTransport) {
+	t.closed.Set(true)
+}
+
+// LiveTransport is a bidirectional queue-backed Transport supporting concurrent client/server testing.
+type LiveTransport { clientIn queue.Queue[string], serverOut queue.Queue[string], closed sync.Ref[bool] } implements Transport
+
+// NewLive creates a LiveTransport with bounded channel capacity per direction.
+func NewLive(capacity int) LiveTransport {
+	let cap = if capacity <= 0 { 16 } else { capacity }
+	LiveTransport{
+		clientIn:  queue.New[string](cap),
+		serverOut: queue.New[string](cap),
+		closed:    sync.NewRef(false),
+	}
+}
+
+// SendClient enqueues a JSON-RPC payload from the client side into t.
+func SendClient(t LiveTransport, payload string) fails TransportClosed {
+	t.clientIn.Push(payload) catch {
+	case queue.Closed:
+		return TransportClosed
+	}
+}
+
+// CloseClient signals client EOF so server Read calls return None once buffered payloads drain.
+func CloseClient(t LiveTransport) {
+	t.clientIn.End()
+}
+
+// NextServer waits for and returns the next server response or notification, or None once closed.
+func NextServer(t LiveTransport) option.Option[string] {
+	let item = t.serverOut.Pop() catch {
+	case queue.Closed:
+		return option.None
+	}
+	option.Some{Value: item}
+}
+
+// TryNextServer polls for an already-queued server payload without blocking.
+func TryNextServer(t LiveTransport) option.Option[string] {
+	t.serverOut.Poll()
+}
+
+// ServerMessages drains all messages sent by the server until Close is called.
+func ServerMessages(t LiveTransport) []string {
+	let mut out = []string{}
+	for msg in t.serverOut.Values() {
+		out = out.Append(msg)
+	}
+	out
+}
+
+// Read waits for the next payload pushed from the client side, or None on EOF.
+func Read(t LiveTransport) option.Option[string] fails TransportError {
+	if t.closed.Get() {
+		return option.None
+	}
+	let msg = t.clientIn.Pop() catch {
+	case queue.Closed:
+		return option.None
+	}
+	option.Some{Value: msg}
+}
+
+// Send pushes payload onto t's outgoing server queue unless closed.
+func Send(t LiveTransport, payload string) fails TransportError {
+	if t.closed.Get() {
+		return TransportClosed
+	}
+	t.serverOut.Push(payload) catch {
+	case queue.Closed:
+		return TransportClosed
+	}
+}
+
+// Close closes both directions of t.
+func Close(t LiveTransport) {
+	t.closed.Set(true)
+	t.clientIn.End()
+	t.serverOut.End()
+}
+
+func makeSeededLiveTransport() LiveTransport {
+	let lt = NewLive(256)
+	SendClient(lt, "{\"jsonrpc\":\"2.0\",\"method\":\"exit\"}") catch {
+	case _:
+	}
+	CloseClient(lt)
+	lt
+}
+
+let memoryTransportContext = context {
+	Transport: NewMemoryTransport([]string{"{\"jsonrpc\":\"2.0\",\"method\":\"exit\"}"}),
+}
+
+let stdioTransportContext = context {
+	Transport: NewStdioTransportFrom(
+		io.CutAt(EncodeFrame("{\"jsonrpc\":\"2.0\",\"method\":\"exit\"}"), []int{}),
+		io.NewRecorder(),
+		DefaultLimits(),
+	),
+}
+
+let liveTransportContext = context {
+	Transport: makeSeededLiveTransport(),
+}
+
+law StdioFramesChunkInvariant(a string, b string, cut1 int, cut2 int) {
+	let p1 = a + "é😀"
+	let p2 = "x\r\n" + b
+	let wireText = EncodeFrame(p1) + EncodeFrame(p2)
+	let n = wireText.Len()
+	let k1 = ((cut1 % n) + n) % n
+	let k2 = ((cut2 % n) + n) % n
+	let lo = if k1 <= k2 { k1 } else { k2 }
+	let hi = if k1 <= k2 { k2 } else { k1 }
+	let src = io.CutAt(wireText, []int{lo, hi})
+	let rec = io.NewRecorder()
+	let st = NewStdioTransportFrom(src, rec, DefaultLimits())
+	let m1 = st.Read() catch {
+	case _:
+		return false
+	}
+	let m2 = st.Read() catch {
+	case _:
+		return false
+	}
+	let m3 = st.Read() catch {
+	case _:
+		return false
+	}
+	st.Send(p1) catch {
+	case _:
+		return false
+	}
+	st.Send(p2) catch {
+	case _:
+		return false
+	}
+	st.Close()
+	let sentWire = rec.Text()
+	let parsed1 = ParseFrame(sentWire, DefaultLimits()) catch {
+	case _:
+		return false
+	}
+	let parsed2 = ParseExactFrame(parsed1.Rest, DefaultLimits()) catch {
+	case _:
+		return false
+	}
+	let got1 = match m1 {
+	case option.Some as s:
+		s.Value == p1
+	case option.None:
+		false
+	}
+	let got2 = match m2 {
+	case option.Some as s:
+		s.Value == p2
+	case option.None:
+		false
+	}
+	let got3 = match m3 {
+	case option.None:
+		true
+	case option.Some:
+		false
+	}
+	got1 && got2 && got3 && parsed1.Frame.Payload == p1 && parsed2.Payload == p2
+}
