@@ -29,57 +29,25 @@ type S3 {
 	// HeadObjectIsRepeatable: two calls give one outcome: the same output, or the same failure.
 	law HeadObjectIsRepeatable(bucket string, key string) {
 		let r = NewHeadObjectRequest(bucket, key)
-		let first = HeadObject(r) catch {
-		case e:
-			let _ = HeadObject(r) catch {
-			case again:
-				return again == e
-			}
-			return false
-		}
-		try HeadObject(r) == first
+		aws.SameOutcome(func() HeadObjectOutput { try HeadObject(r) }, func(a, b) { a == b }, func(a, b) { a == b })
 	},
 
 	// GetObjectIsRepeatable: two calls give one outcome: the same output, or the same failure.
 	law GetObjectIsRepeatable(bucket string, key string) {
 		let r = NewGetObjectRequest(bucket, key)
-		let first = GetObject(r, func(part string) {}) catch {
-		case e:
-			let _ = GetObject(r, func(part string) {}) catch {
-			case again:
-				return again == e
-			}
-			return false
-		}
-		try GetObject(r, func(part string) {}) == first
+		aws.SameOutcome(func() GetObjectOutput { try GetObject(r, func(part string) {}) }, func(a, b) { a == b }, func(a, b) { a == b })
 	},
 
 	// PutObjectIsIdempotent: a second call gives the first call's outcome: the same output, or the same failure.
 	law PutObjectIsIdempotent(bucket string, key string) {
 		let r = NewPutObjectRequest(bucket, key)
-		let first = PutObject(r) catch {
-		case e:
-			let _ = PutObject(r) catch {
-			case again:
-				return again == e
-			}
-			return false
-		}
-		try PutObject(r) == first
+		aws.SameOutcome(func() PutObjectOutput { try PutObject(r) }, func(a, b) { a == b }, func(a, b) { a == b })
 	},
 
 	// DeleteObjectIsIdempotent: a second call gives the first call's outcome: the same output, or the same failure.
 	law DeleteObjectIsIdempotent(bucket string, key string) {
 		let r = NewDeleteObjectRequest(bucket, key)
-		let first = DeleteObject(r) catch {
-		case e:
-			let _ = DeleteObject(r) catch {
-			case again:
-				return again == e
-			}
-			return false
-		}
-		try DeleteObject(r) == first
+		aws.SameOutcome(func() DeleteObjectOutput { try DeleteObject(r) }, func(a, b) { a == b }, func(a, b) { a == b })
 	},
 }
 
@@ -95,101 +63,25 @@ func New(net http.Net, signer aws.Signer) Api { Api{net: net, signer: signer} }
 func HeadObject(a Api, r HeadObjectRequest) HeadObjectOutput fails NotFound | aws.Failed | aws.Malformed | http.RequestFailed {
 	let mut q = []http.Field{}
 	let mut h = []http.Field{}
-	match r.IfMatch {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "If-Match", Value: v.Value})
-	case option.None:
-	}
-	match r.IfModifiedSince {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "If-Modified-Since", Value: aws.TimeText(v.Value, aws.HTTPDate)})
-	case option.None:
-	}
-	match r.IfNoneMatch {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "If-None-Match", Value: v.Value})
-	case option.None:
-	}
-	match r.IfUnmodifiedSince {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "If-Unmodified-Since", Value: aws.TimeText(v.Value, aws.HTTPDate)})
-	case option.None:
-	}
-	match r.Range {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "Range", Value: v.Value})
-	case option.None:
-	}
-	match r.ResponseCacheControl {
-	case option.Some as v:
-		q = q.Append(http.Field{Name: "response-cache-control", Value: v.Value})
-	case option.None:
-	}
-	match r.ResponseContentDisposition {
-	case option.Some as v:
-		q = q.Append(http.Field{Name: "response-content-disposition", Value: v.Value})
-	case option.None:
-	}
-	match r.ResponseContentEncoding {
-	case option.Some as v:
-		q = q.Append(http.Field{Name: "response-content-encoding", Value: v.Value})
-	case option.None:
-	}
-	match r.ResponseContentLanguage {
-	case option.Some as v:
-		q = q.Append(http.Field{Name: "response-content-language", Value: v.Value})
-	case option.None:
-	}
-	match r.ResponseContentType {
-	case option.Some as v:
-		q = q.Append(http.Field{Name: "response-content-type", Value: v.Value})
-	case option.None:
-	}
-	match r.ResponseExpires {
-	case option.Some as v:
-		q = q.Append(http.Field{Name: "response-expires", Value: aws.TimeText(v.Value, aws.HTTPDate)})
-	case option.None:
-	}
-	match r.VersionId {
-	case option.Some as v:
-		q = q.Append(http.Field{Name: "versionId", Value: v.Value})
-	case option.None:
-	}
-	match r.SSECustomerAlgorithm {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-server-side-encryption-customer-algorithm", Value: v.Value})
-	case option.None:
-	}
-	match r.SSECustomerKey {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-server-side-encryption-customer-key", Value: v.Value})
-	case option.None:
-	}
-	match r.SSECustomerKeyMD5 {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-server-side-encryption-customer-key-MD5", Value: v.Value})
-	case option.None:
-	}
-	match r.RequestPayer {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-request-payer", Value: requestPayerWire(v.Value)})
-	case option.None:
-	}
-	match r.PartNumber {
-	case option.Some as v:
-		q = q.Append(http.Field{Name: "partNumber", Value: aws.IntText(v.Value)})
-	case option.None:
-	}
-	match r.ExpectedBucketOwner {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-expected-bucket-owner", Value: v.Value})
-	case option.None:
-	}
-	match r.ChecksumMode {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-checksum-mode", Value: checksumModeWire(v.Value)})
-	case option.None:
-	}
+	h = aws.PutText(h, "If-Match", r.IfMatch)
+	h = aws.PutTime(h, "If-Modified-Since", r.IfModifiedSince, aws.HTTPDate)
+	h = aws.PutText(h, "If-None-Match", r.IfNoneMatch)
+	h = aws.PutTime(h, "If-Unmodified-Since", r.IfUnmodifiedSince, aws.HTTPDate)
+	h = aws.PutText(h, "Range", r.Range)
+	q = aws.PutText(q, "response-cache-control", r.ResponseCacheControl)
+	q = aws.PutText(q, "response-content-disposition", r.ResponseContentDisposition)
+	q = aws.PutText(q, "response-content-encoding", r.ResponseContentEncoding)
+	q = aws.PutText(q, "response-content-language", r.ResponseContentLanguage)
+	q = aws.PutText(q, "response-content-type", r.ResponseContentType)
+	q = aws.PutTime(q, "response-expires", r.ResponseExpires, aws.HTTPDate)
+	q = aws.PutText(q, "versionId", r.VersionId)
+	h = aws.PutText(h, "x-amz-server-side-encryption-customer-algorithm", r.SSECustomerAlgorithm)
+	h = aws.PutText(h, "x-amz-server-side-encryption-customer-key", r.SSECustomerKey)
+	h = aws.PutText(h, "x-amz-server-side-encryption-customer-key-MD5", r.SSECustomerKeyMD5)
+	h = aws.PutBy(h, "x-amz-request-payer", r.RequestPayer, requestPayerWire)
+	q = aws.PutInt(q, "partNumber", r.PartNumber)
+	h = aws.PutText(h, "x-amz-expected-bucket-owner", r.ExpectedBucketOwner)
+	h = aws.PutBy(h, "x-amz-checksum-mode", r.ChecksumMode, checksumModeWire)
 	let req = http.Request{Method: "HEAD", Path: "/" + r.Bucket + "/" + r.Key, RawPath: "/" + aws.Label(r.Bucket, false) + "/" + aws.Label(r.Key, true), Query: q, Header: h, Body: http.Buffered{Text: ""}}
 	let resp = try a.net.Send(a.signer.Sign(req))
 	if resp.Status < 200 || resp.Status > 299 {
@@ -204,7 +96,7 @@ func headObjectOutput(h []http.Field) HeadObjectOutput fails aws.Malformed {
 		AcceptRanges:                     aws.TextIn(h, "accept-ranges"),
 		Expiration:                       aws.TextIn(h, "x-amz-expiration"),
 		Restore:                          aws.TextIn(h, "x-amz-restore"),
-		ArchiveStatus:                    archiveStatusIn(aws.TextIn(h, "x-amz-archive-status")),
+		ArchiveStatus:                    aws.TextIn(h, "x-amz-archive-status").Map(archiveStatusOf),
 		LastModified:                     try aws.TimeIn(h, "Last-Modified", aws.HTTPDate),
 		ContentLength:                    try aws.IntIn(h, "Content-Length"),
 		ChecksumCRC32:                    aws.TextIn(h, "x-amz-checksum-crc32"),
@@ -217,7 +109,7 @@ func headObjectOutput(h []http.Field) HeadObjectOutput fails aws.Malformed {
 		ChecksumXXHASH64:                 aws.TextIn(h, "x-amz-checksum-xxhash64"),
 		ChecksumXXHASH3:                  aws.TextIn(h, "x-amz-checksum-xxhash3"),
 		ChecksumXXHASH128:                aws.TextIn(h, "x-amz-checksum-xxhash128"),
-		ChecksumType:                     checksumTypeIn(aws.TextIn(h, "x-amz-checksum-type")),
+		ChecksumType:                     aws.TextIn(h, "x-amz-checksum-type").Map(checksumTypeOf),
 		ETag:                             aws.TextIn(h, "ETag"),
 		MissingMeta:                      try aws.IntIn(h, "x-amz-missing-meta"),
 		VersionId:                        aws.TextIn(h, "x-amz-version-id"),
@@ -229,21 +121,21 @@ func headObjectOutput(h []http.Field) HeadObjectOutput fails aws.Malformed {
 		ContentRange:                     aws.TextIn(h, "Content-Range"),
 		Expires:                          aws.TextIn(h, "Expires"),
 		WebsiteRedirectLocation:          aws.TextIn(h, "x-amz-website-redirect-location"),
-		ServerSideEncryption:             serverSideEncryptionIn(aws.TextIn(h, "x-amz-server-side-encryption")),
+		ServerSideEncryption:             aws.TextIn(h, "x-amz-server-side-encryption").Map(serverSideEncryptionOf),
 		Metadata:                         aws.Prefixed(h, "x-amz-meta-"),
 		SSECustomerAlgorithm:             aws.TextIn(h, "x-amz-server-side-encryption-customer-algorithm"),
 		SSECustomerKeyMD5:                aws.TextIn(h, "x-amz-server-side-encryption-customer-key-MD5"),
 		SSEKMSKeyId:                      aws.TextIn(h, "x-amz-server-side-encryption-aws-kms-key-id"),
 		BucketKeyEnabled:                 try aws.BoolIn(h, "x-amz-server-side-encryption-bucket-key-enabled"),
-		StorageClass:                     storageClassIn(aws.TextIn(h, "x-amz-storage-class")),
-		RequestCharged:                   requestChargedIn(aws.TextIn(h, "x-amz-request-charged")),
-		ReplicationStatus:                replicationStatusIn(aws.TextIn(h, "x-amz-replication-status")),
+		StorageClass:                     aws.TextIn(h, "x-amz-storage-class").Map(storageClassOf),
+		RequestCharged:                   aws.TextIn(h, "x-amz-request-charged").Map(requestChargedOf),
+		ReplicationStatus:                aws.TextIn(h, "x-amz-replication-status").Map(replicationStatusOf),
 		PartsCount:                       try aws.IntIn(h, "x-amz-mp-parts-count"),
 		TagCount:                         try aws.IntIn(h, "x-amz-tagging-count"),
-		ObjectLockMode:                   objectLockModeIn(aws.TextIn(h, "x-amz-object-lock-mode")),
+		ObjectLockMode:                   aws.TextIn(h, "x-amz-object-lock-mode").Map(objectLockModeOf),
 		ObjectLockRetainUntilDate:        try aws.TimeIn(h, "x-amz-object-lock-retain-until-date", aws.DateTime),
-		ObjectLockLegalHoldStatus:        objectLockLegalHoldStatusIn(aws.TextIn(h, "x-amz-object-lock-legal-hold")),
-		ObjectLockEventHold:              objectLockEventHoldIn(aws.TextIn(h, "x-amz-object-lock-event-hold")),
+		ObjectLockLegalHoldStatus:        aws.TextIn(h, "x-amz-object-lock-legal-hold").Map(objectLockLegalHoldStatusOf),
+		ObjectLockEventHold:              aws.TextIn(h, "x-amz-object-lock-event-hold").Map(objectLockEventHoldOf),
 		ObjectLockEventHoldDurationDays:  try aws.IntIn(h, "x-amz-object-lock-event-hold-duration-days"),
 		ObjectLockEventHoldDurationYears: try aws.IntIn(h, "x-amz-object-lock-event-hold-duration-years"),
 	}
@@ -251,10 +143,12 @@ func headObjectOutput(h []http.Field) HeadObjectOutput fails aws.Malformed {
 
 func headObjectFailed(status int, body string) HeadObjectOutput fails NotFound | aws.Failed | aws.Malformed {
 	let e = try aws.ErrorOf(status, body)
-	if e.Code == "NotFound" {
+	match e.Code {
+	case "NotFound":
 		return notFound(e)
+	case _:
+		aws.Failed{Status: e.Status, Code: e.Code, Message: e.Message}
 	}
-	aws.Failed{Status: e.Status, Code: e.Code, Message: e.Message}
 }
 
 // GetObject sends r: GET /{Bucket}/{Key+}.
@@ -262,101 +156,25 @@ func GetObject(a Api, r GetObjectRequest, put func(part string) fails http.SinkF
 	let mut q = []http.Field{}
 	q = q.Append(http.Field{Name: "x-id", Value: "GetObject"})
 	let mut h = []http.Field{}
-	match r.IfMatch {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "If-Match", Value: v.Value})
-	case option.None:
-	}
-	match r.IfModifiedSince {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "If-Modified-Since", Value: aws.TimeText(v.Value, aws.HTTPDate)})
-	case option.None:
-	}
-	match r.IfNoneMatch {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "If-None-Match", Value: v.Value})
-	case option.None:
-	}
-	match r.IfUnmodifiedSince {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "If-Unmodified-Since", Value: aws.TimeText(v.Value, aws.HTTPDate)})
-	case option.None:
-	}
-	match r.Range {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "Range", Value: v.Value})
-	case option.None:
-	}
-	match r.ResponseCacheControl {
-	case option.Some as v:
-		q = q.Append(http.Field{Name: "response-cache-control", Value: v.Value})
-	case option.None:
-	}
-	match r.ResponseContentDisposition {
-	case option.Some as v:
-		q = q.Append(http.Field{Name: "response-content-disposition", Value: v.Value})
-	case option.None:
-	}
-	match r.ResponseContentEncoding {
-	case option.Some as v:
-		q = q.Append(http.Field{Name: "response-content-encoding", Value: v.Value})
-	case option.None:
-	}
-	match r.ResponseContentLanguage {
-	case option.Some as v:
-		q = q.Append(http.Field{Name: "response-content-language", Value: v.Value})
-	case option.None:
-	}
-	match r.ResponseContentType {
-	case option.Some as v:
-		q = q.Append(http.Field{Name: "response-content-type", Value: v.Value})
-	case option.None:
-	}
-	match r.ResponseExpires {
-	case option.Some as v:
-		q = q.Append(http.Field{Name: "response-expires", Value: aws.TimeText(v.Value, aws.HTTPDate)})
-	case option.None:
-	}
-	match r.VersionId {
-	case option.Some as v:
-		q = q.Append(http.Field{Name: "versionId", Value: v.Value})
-	case option.None:
-	}
-	match r.SSECustomerAlgorithm {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-server-side-encryption-customer-algorithm", Value: v.Value})
-	case option.None:
-	}
-	match r.SSECustomerKey {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-server-side-encryption-customer-key", Value: v.Value})
-	case option.None:
-	}
-	match r.SSECustomerKeyMD5 {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-server-side-encryption-customer-key-MD5", Value: v.Value})
-	case option.None:
-	}
-	match r.RequestPayer {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-request-payer", Value: requestPayerWire(v.Value)})
-	case option.None:
-	}
-	match r.PartNumber {
-	case option.Some as v:
-		q = q.Append(http.Field{Name: "partNumber", Value: aws.IntText(v.Value)})
-	case option.None:
-	}
-	match r.ExpectedBucketOwner {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-expected-bucket-owner", Value: v.Value})
-	case option.None:
-	}
-	match r.ChecksumMode {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-checksum-mode", Value: checksumModeWire(v.Value)})
-	case option.None:
-	}
+	h = aws.PutText(h, "If-Match", r.IfMatch)
+	h = aws.PutTime(h, "If-Modified-Since", r.IfModifiedSince, aws.HTTPDate)
+	h = aws.PutText(h, "If-None-Match", r.IfNoneMatch)
+	h = aws.PutTime(h, "If-Unmodified-Since", r.IfUnmodifiedSince, aws.HTTPDate)
+	h = aws.PutText(h, "Range", r.Range)
+	q = aws.PutText(q, "response-cache-control", r.ResponseCacheControl)
+	q = aws.PutText(q, "response-content-disposition", r.ResponseContentDisposition)
+	q = aws.PutText(q, "response-content-encoding", r.ResponseContentEncoding)
+	q = aws.PutText(q, "response-content-language", r.ResponseContentLanguage)
+	q = aws.PutText(q, "response-content-type", r.ResponseContentType)
+	q = aws.PutTime(q, "response-expires", r.ResponseExpires, aws.HTTPDate)
+	q = aws.PutText(q, "versionId", r.VersionId)
+	h = aws.PutText(h, "x-amz-server-side-encryption-customer-algorithm", r.SSECustomerAlgorithm)
+	h = aws.PutText(h, "x-amz-server-side-encryption-customer-key", r.SSECustomerKey)
+	h = aws.PutText(h, "x-amz-server-side-encryption-customer-key-MD5", r.SSECustomerKeyMD5)
+	h = aws.PutBy(h, "x-amz-request-payer", r.RequestPayer, requestPayerWire)
+	q = aws.PutInt(q, "partNumber", r.PartNumber)
+	h = aws.PutText(h, "x-amz-expected-bucket-owner", r.ExpectedBucketOwner)
+	h = aws.PutBy(h, "x-amz-checksum-mode", r.ChecksumMode, checksumModeWire)
 	let req = http.Request{Method: "GET", Path: "/" + r.Bucket + "/" + r.Key, RawPath: "/" + aws.Label(r.Bucket, false) + "/" + aws.Label(r.Key, true), Query: q, Header: h, Body: http.Buffered{Text: ""}}
 	let resp = a.net.SendInto(a.signer.Sign(req), http.AnySuccess, put) catch {
 	case http.StatusRefused as s:
@@ -388,7 +206,7 @@ func getObjectOutput(h []http.Field) GetObjectOutput fails aws.Malformed {
 		ChecksumXXHASH64:                 aws.TextIn(h, "x-amz-checksum-xxhash64"),
 		ChecksumXXHASH3:                  aws.TextIn(h, "x-amz-checksum-xxhash3"),
 		ChecksumXXHASH128:                aws.TextIn(h, "x-amz-checksum-xxhash128"),
-		ChecksumType:                     checksumTypeIn(aws.TextIn(h, "x-amz-checksum-type")),
+		ChecksumType:                     aws.TextIn(h, "x-amz-checksum-type").Map(checksumTypeOf),
 		MissingMeta:                      try aws.IntIn(h, "x-amz-missing-meta"),
 		VersionId:                        aws.TextIn(h, "x-amz-version-id"),
 		CacheControl:                     aws.TextIn(h, "Cache-Control"),
@@ -399,21 +217,21 @@ func getObjectOutput(h []http.Field) GetObjectOutput fails aws.Malformed {
 		ContentType:                      aws.TextIn(h, "Content-Type"),
 		Expires:                          aws.TextIn(h, "Expires"),
 		WebsiteRedirectLocation:          aws.TextIn(h, "x-amz-website-redirect-location"),
-		ServerSideEncryption:             serverSideEncryptionIn(aws.TextIn(h, "x-amz-server-side-encryption")),
+		ServerSideEncryption:             aws.TextIn(h, "x-amz-server-side-encryption").Map(serverSideEncryptionOf),
 		Metadata:                         aws.Prefixed(h, "x-amz-meta-"),
 		SSECustomerAlgorithm:             aws.TextIn(h, "x-amz-server-side-encryption-customer-algorithm"),
 		SSECustomerKeyMD5:                aws.TextIn(h, "x-amz-server-side-encryption-customer-key-MD5"),
 		SSEKMSKeyId:                      aws.TextIn(h, "x-amz-server-side-encryption-aws-kms-key-id"),
 		BucketKeyEnabled:                 try aws.BoolIn(h, "x-amz-server-side-encryption-bucket-key-enabled"),
-		StorageClass:                     storageClassIn(aws.TextIn(h, "x-amz-storage-class")),
-		RequestCharged:                   requestChargedIn(aws.TextIn(h, "x-amz-request-charged")),
-		ReplicationStatus:                replicationStatusIn(aws.TextIn(h, "x-amz-replication-status")),
+		StorageClass:                     aws.TextIn(h, "x-amz-storage-class").Map(storageClassOf),
+		RequestCharged:                   aws.TextIn(h, "x-amz-request-charged").Map(requestChargedOf),
+		ReplicationStatus:                aws.TextIn(h, "x-amz-replication-status").Map(replicationStatusOf),
 		PartsCount:                       try aws.IntIn(h, "x-amz-mp-parts-count"),
 		TagCount:                         try aws.IntIn(h, "x-amz-tagging-count"),
-		ObjectLockMode:                   objectLockModeIn(aws.TextIn(h, "x-amz-object-lock-mode")),
+		ObjectLockMode:                   aws.TextIn(h, "x-amz-object-lock-mode").Map(objectLockModeOf),
 		ObjectLockRetainUntilDate:        try aws.TimeIn(h, "x-amz-object-lock-retain-until-date", aws.DateTime),
-		ObjectLockLegalHoldStatus:        objectLockLegalHoldStatusIn(aws.TextIn(h, "x-amz-object-lock-legal-hold")),
-		ObjectLockEventHold:              objectLockEventHoldIn(aws.TextIn(h, "x-amz-object-lock-event-hold")),
+		ObjectLockLegalHoldStatus:        aws.TextIn(h, "x-amz-object-lock-legal-hold").Map(objectLockLegalHoldStatusOf),
+		ObjectLockEventHold:              aws.TextIn(h, "x-amz-object-lock-event-hold").Map(objectLockEventHoldOf),
 		ObjectLockEventHoldDurationDays:  try aws.IntIn(h, "x-amz-object-lock-event-hold-duration-days"),
 		ObjectLockEventHoldDurationYears: try aws.IntIn(h, "x-amz-object-lock-event-hold-duration-years"),
 	}
@@ -421,13 +239,14 @@ func getObjectOutput(h []http.Field) GetObjectOutput fails aws.Malformed {
 
 func getObjectFailed(status int, body string) GetObjectOutput fails InvalidObjectState | NoSuchKey | aws.Failed | aws.Malformed {
 	let e = try aws.ErrorOf(status, body)
-	if e.Code == "InvalidObjectState" {
+	match e.Code {
+	case "InvalidObjectState":
 		return invalidObjectState(e)
-	}
-	if e.Code == "NoSuchKey" {
+	case "NoSuchKey":
 		return noSuchKey(e)
+	case _:
+		aws.Failed{Status: e.Status, Code: e.Code, Message: e.Message}
 	}
-	aws.Failed{Status: e.Status, Code: e.Code, Message: e.Message}
 }
 
 // PutObject sends r: PUT /{Bucket}/{Key+}.
@@ -435,232 +254,52 @@ func PutObject(a Api, r PutObjectRequest) PutObjectOutput fails EncryptionTypeMi
 	let mut q = []http.Field{}
 	q = q.Append(http.Field{Name: "x-id", Value: "PutObject"})
 	let mut h = []http.Field{}
-	match r.ACL {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-acl", Value: objectCannedACLWire(v.Value)})
-	case option.None:
-	}
-	match r.CacheControl {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "Cache-Control", Value: v.Value})
-	case option.None:
-	}
-	match r.ContentDisposition {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "Content-Disposition", Value: v.Value})
-	case option.None:
-	}
-	match r.ContentEncoding {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "Content-Encoding", Value: v.Value})
-	case option.None:
-	}
-	match r.ContentLanguage {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "Content-Language", Value: v.Value})
-	case option.None:
-	}
-	match r.ContentLength {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "Content-Length", Value: aws.IntText(v.Value)})
-	case option.None:
-	}
-	match r.ContentMD5 {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "Content-MD5", Value: v.Value})
-	case option.None:
-	}
-	match r.ContentType {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "Content-Type", Value: v.Value})
-	case option.None:
-	}
-	match r.ChecksumAlgorithm {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-sdk-checksum-algorithm", Value: checksumAlgorithmWire(v.Value)})
-	case option.None:
-	}
-	match r.ChecksumCRC32 {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-checksum-crc32", Value: v.Value})
-	case option.None:
-	}
-	match r.ChecksumCRC32C {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-checksum-crc32c", Value: v.Value})
-	case option.None:
-	}
-	match r.ChecksumCRC64NVME {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-checksum-crc64nvme", Value: v.Value})
-	case option.None:
-	}
-	match r.ChecksumSHA1 {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-checksum-sha1", Value: v.Value})
-	case option.None:
-	}
-	match r.ChecksumSHA256 {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-checksum-sha256", Value: v.Value})
-	case option.None:
-	}
-	match r.ChecksumSHA512 {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-checksum-sha512", Value: v.Value})
-	case option.None:
-	}
-	match r.ChecksumMD5 {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-checksum-md5", Value: v.Value})
-	case option.None:
-	}
-	match r.ChecksumXXHASH64 {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-checksum-xxhash64", Value: v.Value})
-	case option.None:
-	}
-	match r.ChecksumXXHASH3 {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-checksum-xxhash3", Value: v.Value})
-	case option.None:
-	}
-	match r.ChecksumXXHASH128 {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-checksum-xxhash128", Value: v.Value})
-	case option.None:
-	}
-	match r.Expires {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "Expires", Value: v.Value})
-	case option.None:
-	}
-	match r.IfMatch {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "If-Match", Value: v.Value})
-	case option.None:
-	}
-	match r.IfNoneMatch {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "If-None-Match", Value: v.Value})
-	case option.None:
-	}
-	match r.GrantFullControl {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-grant-full-control", Value: v.Value})
-	case option.None:
-	}
-	match r.GrantRead {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-grant-read", Value: v.Value})
-	case option.None:
-	}
-	match r.GrantReadACP {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-grant-read-acp", Value: v.Value})
-	case option.None:
-	}
-	match r.GrantWriteACP {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-grant-write-acp", Value: v.Value})
-	case option.None:
-	}
-	match r.WriteOffsetBytes {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-write-offset-bytes", Value: aws.IntText(v.Value)})
-	case option.None:
-	}
+	h = aws.PutBy(h, "x-amz-acl", r.ACL, objectCannedACLWire)
+	h = aws.PutText(h, "Cache-Control", r.CacheControl)
+	h = aws.PutText(h, "Content-Disposition", r.ContentDisposition)
+	h = aws.PutText(h, "Content-Encoding", r.ContentEncoding)
+	h = aws.PutText(h, "Content-Language", r.ContentLanguage)
+	h = aws.PutInt(h, "Content-Length", r.ContentLength)
+	h = aws.PutText(h, "Content-MD5", r.ContentMD5)
+	h = aws.PutText(h, "Content-Type", r.ContentType)
+	h = aws.PutBy(h, "x-amz-sdk-checksum-algorithm", r.ChecksumAlgorithm, checksumAlgorithmWire)
+	h = aws.PutText(h, "x-amz-checksum-crc32", r.ChecksumCRC32)
+	h = aws.PutText(h, "x-amz-checksum-crc32c", r.ChecksumCRC32C)
+	h = aws.PutText(h, "x-amz-checksum-crc64nvme", r.ChecksumCRC64NVME)
+	h = aws.PutText(h, "x-amz-checksum-sha1", r.ChecksumSHA1)
+	h = aws.PutText(h, "x-amz-checksum-sha256", r.ChecksumSHA256)
+	h = aws.PutText(h, "x-amz-checksum-sha512", r.ChecksumSHA512)
+	h = aws.PutText(h, "x-amz-checksum-md5", r.ChecksumMD5)
+	h = aws.PutText(h, "x-amz-checksum-xxhash64", r.ChecksumXXHASH64)
+	h = aws.PutText(h, "x-amz-checksum-xxhash3", r.ChecksumXXHASH3)
+	h = aws.PutText(h, "x-amz-checksum-xxhash128", r.ChecksumXXHASH128)
+	h = aws.PutText(h, "Expires", r.Expires)
+	h = aws.PutText(h, "If-Match", r.IfMatch)
+	h = aws.PutText(h, "If-None-Match", r.IfNoneMatch)
+	h = aws.PutText(h, "x-amz-grant-full-control", r.GrantFullControl)
+	h = aws.PutText(h, "x-amz-grant-read", r.GrantRead)
+	h = aws.PutText(h, "x-amz-grant-read-acp", r.GrantReadACP)
+	h = aws.PutText(h, "x-amz-grant-write-acp", r.GrantWriteACP)
+	h = aws.PutInt(h, "x-amz-write-offset-bytes", r.WriteOffsetBytes)
 	h = aws.PutPrefixed(h, "x-amz-meta-", r.Metadata)
-	match r.ServerSideEncryption {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-server-side-encryption", Value: serverSideEncryptionWire(v.Value)})
-	case option.None:
-	}
-	match r.StorageClass {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-storage-class", Value: storageClassWire(v.Value)})
-	case option.None:
-	}
-	match r.WebsiteRedirectLocation {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-website-redirect-location", Value: v.Value})
-	case option.None:
-	}
-	match r.SSECustomerAlgorithm {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-server-side-encryption-customer-algorithm", Value: v.Value})
-	case option.None:
-	}
-	match r.SSECustomerKey {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-server-side-encryption-customer-key", Value: v.Value})
-	case option.None:
-	}
-	match r.SSECustomerKeyMD5 {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-server-side-encryption-customer-key-MD5", Value: v.Value})
-	case option.None:
-	}
-	match r.SSEKMSKeyId {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-server-side-encryption-aws-kms-key-id", Value: v.Value})
-	case option.None:
-	}
-	match r.SSEKMSEncryptionContext {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-server-side-encryption-context", Value: v.Value})
-	case option.None:
-	}
-	match r.BucketKeyEnabled {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-server-side-encryption-bucket-key-enabled", Value: aws.BoolText(v.Value)})
-	case option.None:
-	}
-	match r.RequestPayer {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-request-payer", Value: requestPayerWire(v.Value)})
-	case option.None:
-	}
-	match r.Tagging {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-tagging", Value: v.Value})
-	case option.None:
-	}
-	match r.ObjectLockMode {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-object-lock-mode", Value: objectLockModeWire(v.Value)})
-	case option.None:
-	}
-	match r.ObjectLockRetainUntilDate {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-object-lock-retain-until-date", Value: aws.TimeText(v.Value, aws.DateTime)})
-	case option.None:
-	}
-	match r.ObjectLockLegalHoldStatus {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-object-lock-legal-hold", Value: objectLockLegalHoldStatusWire(v.Value)})
-	case option.None:
-	}
-	match r.ObjectLockEventHold {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-object-lock-event-hold", Value: objectLockEventHoldWire(v.Value)})
-	case option.None:
-	}
-	match r.ObjectLockEventHoldDurationDays {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-object-lock-event-hold-duration-days", Value: aws.IntText(v.Value)})
-	case option.None:
-	}
-	match r.ObjectLockEventHoldDurationYears {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-object-lock-event-hold-duration-years", Value: aws.IntText(v.Value)})
-	case option.None:
-	}
-	match r.ExpectedBucketOwner {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-expected-bucket-owner", Value: v.Value})
-	case option.None:
-	}
+	h = aws.PutBy(h, "x-amz-server-side-encryption", r.ServerSideEncryption, serverSideEncryptionWire)
+	h = aws.PutBy(h, "x-amz-storage-class", r.StorageClass, storageClassWire)
+	h = aws.PutText(h, "x-amz-website-redirect-location", r.WebsiteRedirectLocation)
+	h = aws.PutText(h, "x-amz-server-side-encryption-customer-algorithm", r.SSECustomerAlgorithm)
+	h = aws.PutText(h, "x-amz-server-side-encryption-customer-key", r.SSECustomerKey)
+	h = aws.PutText(h, "x-amz-server-side-encryption-customer-key-MD5", r.SSECustomerKeyMD5)
+	h = aws.PutText(h, "x-amz-server-side-encryption-aws-kms-key-id", r.SSEKMSKeyId)
+	h = aws.PutText(h, "x-amz-server-side-encryption-context", r.SSEKMSEncryptionContext)
+	h = aws.PutBool(h, "x-amz-server-side-encryption-bucket-key-enabled", r.BucketKeyEnabled)
+	h = aws.PutBy(h, "x-amz-request-payer", r.RequestPayer, requestPayerWire)
+	h = aws.PutText(h, "x-amz-tagging", r.Tagging)
+	h = aws.PutBy(h, "x-amz-object-lock-mode", r.ObjectLockMode, objectLockModeWire)
+	h = aws.PutTime(h, "x-amz-object-lock-retain-until-date", r.ObjectLockRetainUntilDate, aws.DateTime)
+	h = aws.PutBy(h, "x-amz-object-lock-legal-hold", r.ObjectLockLegalHoldStatus, objectLockLegalHoldStatusWire)
+	h = aws.PutBy(h, "x-amz-object-lock-event-hold", r.ObjectLockEventHold, objectLockEventHoldWire)
+	h = aws.PutInt(h, "x-amz-object-lock-event-hold-duration-days", r.ObjectLockEventHoldDurationDays)
+	h = aws.PutInt(h, "x-amz-object-lock-event-hold-duration-years", r.ObjectLockEventHoldDurationYears)
+	h = aws.PutText(h, "x-amz-expected-bucket-owner", r.ExpectedBucketOwner)
 	let req = http.Request{Method: "PUT", Path: "/" + r.Bucket + "/" + r.Key, RawPath: "/" + aws.Label(r.Bucket, false) + "/" + aws.Label(r.Key, true), Query: q, Header: h, Body: http.Buffered{Text: r.Body}}
 	let resp = try a.net.Send(a.signer.Sign(req))
 	if resp.Status < 200 || resp.Status > 299 {
@@ -683,8 +322,8 @@ func putObjectOutput(h []http.Field) PutObjectOutput fails aws.Malformed {
 		ChecksumXXHASH64:        aws.TextIn(h, "x-amz-checksum-xxhash64"),
 		ChecksumXXHASH3:         aws.TextIn(h, "x-amz-checksum-xxhash3"),
 		ChecksumXXHASH128:       aws.TextIn(h, "x-amz-checksum-xxhash128"),
-		ChecksumType:            checksumTypeIn(aws.TextIn(h, "x-amz-checksum-type")),
-		ServerSideEncryption:    serverSideEncryptionIn(aws.TextIn(h, "x-amz-server-side-encryption")),
+		ChecksumType:            aws.TextIn(h, "x-amz-checksum-type").Map(checksumTypeOf),
+		ServerSideEncryption:    aws.TextIn(h, "x-amz-server-side-encryption").Map(serverSideEncryptionOf),
 		VersionId:               aws.TextIn(h, "x-amz-version-id"),
 		SSECustomerAlgorithm:    aws.TextIn(h, "x-amz-server-side-encryption-customer-algorithm"),
 		SSECustomerKeyMD5:       aws.TextIn(h, "x-amz-server-side-encryption-customer-key-MD5"),
@@ -692,25 +331,24 @@ func putObjectOutput(h []http.Field) PutObjectOutput fails aws.Malformed {
 		SSEKMSEncryptionContext: aws.TextIn(h, "x-amz-server-side-encryption-context"),
 		BucketKeyEnabled:        try aws.BoolIn(h, "x-amz-server-side-encryption-bucket-key-enabled"),
 		Size:                    try aws.IntIn(h, "x-amz-object-size"),
-		RequestCharged:          requestChargedIn(aws.TextIn(h, "x-amz-request-charged")),
+		RequestCharged:          aws.TextIn(h, "x-amz-request-charged").Map(requestChargedOf),
 	}
 }
 
 func putObjectFailed(status int, body string) PutObjectOutput fails EncryptionTypeMismatch | InvalidRequest | InvalidWriteOffset | TooManyParts | aws.Failed | aws.Malformed {
 	let e = try aws.ErrorOf(status, body)
-	if e.Code == "EncryptionTypeMismatch" {
+	match e.Code {
+	case "EncryptionTypeMismatch":
 		return encryptionTypeMismatch(e)
-	}
-	if e.Code == "InvalidRequest" {
+	case "InvalidRequest":
 		return invalidRequest(e)
-	}
-	if e.Code == "InvalidWriteOffset" {
+	case "InvalidWriteOffset":
 		return invalidWriteOffset(e)
-	}
-	if e.Code == "TooManyParts" {
+	case "TooManyParts":
 		return tooManyParts(e)
+	case _:
+		aws.Failed{Status: e.Status, Code: e.Code, Message: e.Message}
 	}
-	aws.Failed{Status: e.Status, Code: e.Code, Message: e.Message}
 }
 
 // DeleteObject sends r: DELETE /{Bucket}/{Key+}.
@@ -718,46 +356,14 @@ func DeleteObject(a Api, r DeleteObjectRequest) DeleteObjectOutput fails aws.Fai
 	let mut q = []http.Field{}
 	q = q.Append(http.Field{Name: "x-id", Value: "DeleteObject"})
 	let mut h = []http.Field{}
-	match r.MFA {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-mfa", Value: v.Value})
-	case option.None:
-	}
-	match r.VersionId {
-	case option.Some as v:
-		q = q.Append(http.Field{Name: "versionId", Value: v.Value})
-	case option.None:
-	}
-	match r.RequestPayer {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-request-payer", Value: requestPayerWire(v.Value)})
-	case option.None:
-	}
-	match r.BypassGovernanceRetention {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-bypass-governance-retention", Value: aws.BoolText(v.Value)})
-	case option.None:
-	}
-	match r.ExpectedBucketOwner {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-expected-bucket-owner", Value: v.Value})
-	case option.None:
-	}
-	match r.IfMatch {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "If-Match", Value: v.Value})
-	case option.None:
-	}
-	match r.IfMatchLastModifiedTime {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-if-match-last-modified-time", Value: aws.TimeText(v.Value, aws.HTTPDate)})
-	case option.None:
-	}
-	match r.IfMatchSize {
-	case option.Some as v:
-		h = h.Append(http.Field{Name: "x-amz-if-match-size", Value: aws.IntText(v.Value)})
-	case option.None:
-	}
+	h = aws.PutText(h, "x-amz-mfa", r.MFA)
+	q = aws.PutText(q, "versionId", r.VersionId)
+	h = aws.PutBy(h, "x-amz-request-payer", r.RequestPayer, requestPayerWire)
+	h = aws.PutBool(h, "x-amz-bypass-governance-retention", r.BypassGovernanceRetention)
+	h = aws.PutText(h, "x-amz-expected-bucket-owner", r.ExpectedBucketOwner)
+	h = aws.PutText(h, "If-Match", r.IfMatch)
+	h = aws.PutTime(h, "x-amz-if-match-last-modified-time", r.IfMatchLastModifiedTime, aws.HTTPDate)
+	h = aws.PutInt(h, "x-amz-if-match-size", r.IfMatchSize)
 	let req = http.Request{Method: "DELETE", Path: "/" + r.Bucket + "/" + r.Key, RawPath: "/" + aws.Label(r.Bucket, false) + "/" + aws.Label(r.Key, true), Query: q, Header: h, Body: http.Buffered{Text: ""}}
 	let resp = try a.net.Send(a.signer.Sign(req))
 	if resp.Status < 200 || resp.Status > 299 {
@@ -770,7 +376,7 @@ func deleteObjectOutput(h []http.Field) DeleteObjectOutput fails aws.Malformed {
 	DeleteObjectOutput{
 		DeleteMarker:   try aws.BoolIn(h, "x-amz-delete-marker"),
 		VersionId:      aws.TextIn(h, "x-amz-version-id"),
-		RequestCharged: requestChargedIn(aws.TextIn(h, "x-amz-request-charged")),
+		RequestCharged: aws.TextIn(h, "x-amz-request-charged").Map(requestChargedOf),
 	}
 }
 
@@ -1298,17 +904,9 @@ func NewDeleteObjectOutput() DeleteObjectOutput {
 
 // NotFound is the service's error "NotFound": The specified content does not
 // exist.
-type NotFound {
-	Status  int,
-	Message string,
-}
+type NotFound { Status int, Message string }
 
-func notFound(e aws.ErrorBody) NotFound {
-	NotFound{
-		Status:  e.Status,
-		Message: e.Message,
-	}
-}
+func notFound(e aws.ErrorBody) NotFound { NotFound{Status: e.Status, Message: e.Message} }
 
 // InvalidObjectState is the service's error "InvalidObjectState": Object is
 // archived and inaccessible until restored.
@@ -1323,226 +921,100 @@ func invalidObjectState(e aws.ErrorBody) InvalidObjectState {
 	InvalidObjectState{
 		Status:       e.Status,
 		Message:      e.Message,
-		StorageClass: storageClassIn(e.Fields.Get("StorageClass")),
-		AccessTier:   intelligentTieringAccessTierIn(e.Fields.Get("AccessTier")),
+		StorageClass: e.Fields.Get("StorageClass").Map(storageClassOf),
+		AccessTier:   e.Fields.Get("AccessTier").Map(intelligentTieringAccessTierOf),
 	}
 }
 
 // NoSuchKey is the service's error "NoSuchKey": The specified key does not
 // exist.
-type NoSuchKey {
-	Status  int,
-	Message string,
-}
+type NoSuchKey { Status int, Message string }
 
-func noSuchKey(e aws.ErrorBody) NoSuchKey {
-	NoSuchKey{
-		Status:  e.Status,
-		Message: e.Message,
-	}
-}
+func noSuchKey(e aws.ErrorBody) NoSuchKey { NoSuchKey{Status: e.Status, Message: e.Message} }
 
 // EncryptionTypeMismatch is the service's error "EncryptionTypeMismatch":
 // The existing object was created with a different encryption type.
-type EncryptionTypeMismatch {
-	Status  int,
-	Message string,
-}
+type EncryptionTypeMismatch { Status int, Message string }
 
-func encryptionTypeMismatch(e aws.ErrorBody) EncryptionTypeMismatch {
-	EncryptionTypeMismatch{
-		Status:  e.Status,
-		Message: e.Message,
-	}
-}
+func encryptionTypeMismatch(e aws.ErrorBody) EncryptionTypeMismatch { EncryptionTypeMismatch{Status: e.Status, Message: e.Message} }
 
 // InvalidRequest is the service's error "InvalidRequest": A parameter or
 // header in your request isn't valid.
-type InvalidRequest {
-	Status  int,
-	Message string,
-}
+type InvalidRequest { Status int, Message string }
 
-func invalidRequest(e aws.ErrorBody) InvalidRequest {
-	InvalidRequest{
-		Status:  e.Status,
-		Message: e.Message,
-	}
-}
+func invalidRequest(e aws.ErrorBody) InvalidRequest { InvalidRequest{Status: e.Status, Message: e.Message} }
 
 // InvalidWriteOffset is the service's error "InvalidWriteOffset": The write
 // offset value that you specified does not match the current object size.
-type InvalidWriteOffset {
-	Status  int,
-	Message string,
-}
+type InvalidWriteOffset { Status int, Message string }
 
-func invalidWriteOffset(e aws.ErrorBody) InvalidWriteOffset {
-	InvalidWriteOffset{
-		Status:  e.Status,
-		Message: e.Message,
-	}
-}
+func invalidWriteOffset(e aws.ErrorBody) InvalidWriteOffset { InvalidWriteOffset{Status: e.Status, Message: e.Message} }
 
 // TooManyParts is the service's error "TooManyParts": You have attempted to
 // add more parts than the maximum of 10000 that are allowed for this object.
-type TooManyParts {
-	Status  int,
-	Message string,
-}
+type TooManyParts { Status int, Message string }
 
-func tooManyParts(e aws.ErrorBody) TooManyParts {
-	TooManyParts{
-		Status:  e.Status,
-		Message: e.Message,
-	}
-}
+func tooManyParts(e aws.ErrorBody) TooManyParts { TooManyParts{Status: e.Status, Message: e.Message} }
 
 // RequestPayer: Confirms that the requester knows that they will be charged
 // for the request. RequestPayerOther holds a value this model does not name.
-type RequestPayer = RequestPayerRequester | RequestPayerOther
-type RequestPayerRequester {}
-type RequestPayerOther { Value string }
+type RequestPayer = RequestPayerRequester{} | RequestPayerOther{Value string}
 
 func requestPayerWire(v RequestPayer) string {
 	match v {
 	case RequestPayerRequester:
 		"requester"
-	case RequestPayerOther as o:
-		o.Value
-	}
-}
-
-func requestPayerOf(s string) RequestPayer {
-	if s == "requester" {
-		return RequestPayerRequester
-	}
-	RequestPayerOther{Value: s}
-}
-
-func requestPayerIn(s option.Option[string]) option.Option[RequestPayer] {
-	match s {
-	case option.Some as v:
-		option.Some[RequestPayer]{requestPayerOf(v.Value)}
-	case option.None:
-		option.None
+	case RequestPayerOther{o}:
+		o
 	}
 }
 
 // ChecksumMode is a value the service names. ChecksumModeOther holds a value
 // this model does not name.
-type ChecksumMode = ChecksumModeEnabled | ChecksumModeOther
-type ChecksumModeEnabled {}
-type ChecksumModeOther { Value string }
+type ChecksumMode = ChecksumModeEnabled{} | ChecksumModeOther{Value string}
 
 func checksumModeWire(v ChecksumMode) string {
 	match v {
 	case ChecksumModeEnabled:
 		"ENABLED"
-	case ChecksumModeOther as o:
-		o.Value
-	}
-}
-
-func checksumModeOf(s string) ChecksumMode {
-	if s == "ENABLED" {
-		return ChecksumModeEnabled
-	}
-	ChecksumModeOther{Value: s}
-}
-
-func checksumModeIn(s option.Option[string]) option.Option[ChecksumMode] {
-	match s {
-	case option.Some as v:
-		option.Some[ChecksumMode]{checksumModeOf(v.Value)}
-	case option.None:
-		option.None
+	case ChecksumModeOther{o}:
+		o
 	}
 }
 
 // ArchiveStatus is a value the service names. ArchiveStatusOther holds a
 // value this model does not name.
-type ArchiveStatus = ArchiveStatusArchiveAccess | ArchiveStatusDeepArchiveAccess | ArchiveStatusOther
-type ArchiveStatusArchiveAccess {}
-type ArchiveStatusDeepArchiveAccess {}
-type ArchiveStatusOther { Value string }
-
-func archiveStatusWire(v ArchiveStatus) string {
-	match v {
-	case ArchiveStatusArchiveAccess:
-		"ARCHIVE_ACCESS"
-	case ArchiveStatusDeepArchiveAccess:
-		"DEEP_ARCHIVE_ACCESS"
-	case ArchiveStatusOther as o:
-		o.Value
-	}
-}
+type ArchiveStatus = ArchiveStatusArchiveAccess{} | ArchiveStatusDeepArchiveAccess{} | ArchiveStatusOther{Value string}
 
 func archiveStatusOf(s string) ArchiveStatus {
-	if s == "ARCHIVE_ACCESS" {
-		return ArchiveStatusArchiveAccess
-	}
-	if s == "DEEP_ARCHIVE_ACCESS" {
-		return ArchiveStatusDeepArchiveAccess
-	}
-	ArchiveStatusOther{Value: s}
-}
-
-func archiveStatusIn(s option.Option[string]) option.Option[ArchiveStatus] {
 	match s {
-	case option.Some as v:
-		option.Some[ArchiveStatus]{archiveStatusOf(v.Value)}
-	case option.None:
-		option.None
+	case "ARCHIVE_ACCESS":
+		ArchiveStatusArchiveAccess
+	case "DEEP_ARCHIVE_ACCESS":
+		ArchiveStatusDeepArchiveAccess
+	case _:
+		ArchiveStatusOther{Value: s}
 	}
 }
 
 // ChecksumType is a value the service names. ChecksumTypeOther holds a value
 // this model does not name.
-type ChecksumType = ChecksumTypeComposite | ChecksumTypeFullObject | ChecksumTypeOther
-type ChecksumTypeComposite {}
-type ChecksumTypeFullObject {}
-type ChecksumTypeOther { Value string }
-
-func checksumTypeWire(v ChecksumType) string {
-	match v {
-	case ChecksumTypeComposite:
-		"COMPOSITE"
-	case ChecksumTypeFullObject:
-		"FULL_OBJECT"
-	case ChecksumTypeOther as o:
-		o.Value
-	}
-}
+type ChecksumType = ChecksumTypeComposite{} | ChecksumTypeFullObject{} | ChecksumTypeOther{Value string}
 
 func checksumTypeOf(s string) ChecksumType {
-	if s == "COMPOSITE" {
-		return ChecksumTypeComposite
-	}
-	if s == "FULL_OBJECT" {
-		return ChecksumTypeFullObject
-	}
-	ChecksumTypeOther{Value: s}
-}
-
-func checksumTypeIn(s option.Option[string]) option.Option[ChecksumType] {
 	match s {
-	case option.Some as v:
-		option.Some[ChecksumType]{checksumTypeOf(v.Value)}
-	case option.None:
-		option.None
+	case "COMPOSITE":
+		ChecksumTypeComposite
+	case "FULL_OBJECT":
+		ChecksumTypeFullObject
+	case _:
+		ChecksumTypeOther{Value: s}
 	}
 }
 
 // ServerSideEncryption is a value the service names.
 // ServerSideEncryptionOther holds a value this model does not name.
-type ServerSideEncryption = ServerSideEncryptionAes256 | ServerSideEncryptionAwsFsx | ServerSideEncryptionAwsBackup | ServerSideEncryptionAwsKms | ServerSideEncryptionAwsKmsDsse | ServerSideEncryptionOther
-type ServerSideEncryptionAes256 {}
-type ServerSideEncryptionAwsFsx {}
-type ServerSideEncryptionAwsBackup {}
-type ServerSideEncryptionAwsKms {}
-type ServerSideEncryptionAwsKmsDsse {}
-type ServerSideEncryptionOther { Value string }
+type ServerSideEncryption = ServerSideEncryptionAes256{} | ServerSideEncryptionAwsFsx{} | ServerSideEncryptionAwsBackup{} | ServerSideEncryptionAwsKms{} | ServerSideEncryptionAwsKmsDsse{} | ServerSideEncryptionOther{Value string}
 
 func serverSideEncryptionWire(v ServerSideEncryption) string {
 	match v {
@@ -1556,58 +1028,31 @@ func serverSideEncryptionWire(v ServerSideEncryption) string {
 		"aws:kms"
 	case ServerSideEncryptionAwsKmsDsse:
 		"aws:kms:dsse"
-	case ServerSideEncryptionOther as o:
-		o.Value
+	case ServerSideEncryptionOther{o}:
+		o
 	}
 }
 
 func serverSideEncryptionOf(s string) ServerSideEncryption {
-	if s == "AES256" {
-		return ServerSideEncryptionAes256
-	}
-	if s == "aws:fsx" {
-		return ServerSideEncryptionAwsFsx
-	}
-	if s == "aws:backup" {
-		return ServerSideEncryptionAwsBackup
-	}
-	if s == "aws:kms" {
-		return ServerSideEncryptionAwsKms
-	}
-	if s == "aws:kms:dsse" {
-		return ServerSideEncryptionAwsKmsDsse
-	}
-	ServerSideEncryptionOther{Value: s}
-}
-
-func serverSideEncryptionIn(s option.Option[string]) option.Option[ServerSideEncryption] {
 	match s {
-	case option.Some as v:
-		option.Some[ServerSideEncryption]{serverSideEncryptionOf(v.Value)}
-	case option.None:
-		option.None
+	case "AES256":
+		ServerSideEncryptionAes256
+	case "aws:fsx":
+		ServerSideEncryptionAwsFsx
+	case "aws:backup":
+		ServerSideEncryptionAwsBackup
+	case "aws:kms":
+		ServerSideEncryptionAwsKms
+	case "aws:kms:dsse":
+		ServerSideEncryptionAwsKmsDsse
+	case _:
+		ServerSideEncryptionOther{Value: s}
 	}
 }
 
 // StorageClass is a value the service names. StorageClassOther holds a value
 // this model does not name.
-type StorageClass = StorageClassStandard | StorageClassReducedRedundancy | StorageClassStandardIa | StorageClassOnezoneIa | StorageClassIntelligentTiering | StorageClassGlacier | StorageClassDeepArchive | StorageClassOutposts | StorageClassGlacierIr | StorageClassSnow | StorageClassExpressOnezone | StorageClassFsxOpenzfs | StorageClassFsxOntap | StorageClassAwsBackupWarm | StorageClassAwsBackupLowCostWarm | StorageClassOther
-type StorageClassStandard {}
-type StorageClassReducedRedundancy {}
-type StorageClassStandardIa {}
-type StorageClassOnezoneIa {}
-type StorageClassIntelligentTiering {}
-type StorageClassGlacier {}
-type StorageClassDeepArchive {}
-type StorageClassOutposts {}
-type StorageClassGlacierIr {}
-type StorageClassSnow {}
-type StorageClassExpressOnezone {}
-type StorageClassFsxOpenzfs {}
-type StorageClassFsxOntap {}
-type StorageClassAwsBackupWarm {}
-type StorageClassAwsBackupLowCostWarm {}
-type StorageClassOther { Value string }
+type StorageClass = StorageClassStandard{} | StorageClassReducedRedundancy{} | StorageClassStandardIa{} | StorageClassOnezoneIa{} | StorageClassIntelligentTiering{} | StorageClassGlacier{} | StorageClassDeepArchive{} | StorageClassOutposts{} | StorageClassGlacierIr{} | StorageClassSnow{} | StorageClassExpressOnezone{} | StorageClassFsxOpenzfs{} | StorageClassFsxOntap{} | StorageClassAwsBackupWarm{} | StorageClassAwsBackupLowCostWarm{} | StorageClassOther{Value string}
 
 func storageClassWire(v StorageClass) string {
 	match v {
@@ -1641,162 +1086,86 @@ func storageClassWire(v StorageClass) string {
 		"AWS_BACKUP_WARM"
 	case StorageClassAwsBackupLowCostWarm:
 		"AWS_BACKUP_LOW_COST_WARM"
-	case StorageClassOther as o:
-		o.Value
+	case StorageClassOther{o}:
+		o
 	}
 }
 
 func storageClassOf(s string) StorageClass {
-	if s == "STANDARD" {
-		return StorageClassStandard
-	}
-	if s == "REDUCED_REDUNDANCY" {
-		return StorageClassReducedRedundancy
-	}
-	if s == "STANDARD_IA" {
-		return StorageClassStandardIa
-	}
-	if s == "ONEZONE_IA" {
-		return StorageClassOnezoneIa
-	}
-	if s == "INTELLIGENT_TIERING" {
-		return StorageClassIntelligentTiering
-	}
-	if s == "GLACIER" {
-		return StorageClassGlacier
-	}
-	if s == "DEEP_ARCHIVE" {
-		return StorageClassDeepArchive
-	}
-	if s == "OUTPOSTS" {
-		return StorageClassOutposts
-	}
-	if s == "GLACIER_IR" {
-		return StorageClassGlacierIr
-	}
-	if s == "SNOW" {
-		return StorageClassSnow
-	}
-	if s == "EXPRESS_ONEZONE" {
-		return StorageClassExpressOnezone
-	}
-	if s == "FSX_OPENZFS" {
-		return StorageClassFsxOpenzfs
-	}
-	if s == "FSX_ONTAP" {
-		return StorageClassFsxOntap
-	}
-	if s == "AWS_BACKUP_WARM" {
-		return StorageClassAwsBackupWarm
-	}
-	if s == "AWS_BACKUP_LOW_COST_WARM" {
-		return StorageClassAwsBackupLowCostWarm
-	}
-	StorageClassOther{Value: s}
-}
-
-func storageClassIn(s option.Option[string]) option.Option[StorageClass] {
 	match s {
-	case option.Some as v:
-		option.Some[StorageClass]{storageClassOf(v.Value)}
-	case option.None:
-		option.None
+	case "STANDARD":
+		StorageClassStandard
+	case "REDUCED_REDUNDANCY":
+		StorageClassReducedRedundancy
+	case "STANDARD_IA":
+		StorageClassStandardIa
+	case "ONEZONE_IA":
+		StorageClassOnezoneIa
+	case "INTELLIGENT_TIERING":
+		StorageClassIntelligentTiering
+	case "GLACIER":
+		StorageClassGlacier
+	case "DEEP_ARCHIVE":
+		StorageClassDeepArchive
+	case "OUTPOSTS":
+		StorageClassOutposts
+	case "GLACIER_IR":
+		StorageClassGlacierIr
+	case "SNOW":
+		StorageClassSnow
+	case "EXPRESS_ONEZONE":
+		StorageClassExpressOnezone
+	case "FSX_OPENZFS":
+		StorageClassFsxOpenzfs
+	case "FSX_ONTAP":
+		StorageClassFsxOntap
+	case "AWS_BACKUP_WARM":
+		StorageClassAwsBackupWarm
+	case "AWS_BACKUP_LOW_COST_WARM":
+		StorageClassAwsBackupLowCostWarm
+	case _:
+		StorageClassOther{Value: s}
 	}
 }
 
 // RequestCharged: If present, indicates that the requester was successfully
 // charged for the request. RequestChargedOther holds a value this model does
 // not name.
-type RequestCharged = RequestChargedRequester | RequestChargedOther
-type RequestChargedRequester {}
-type RequestChargedOther { Value string }
-
-func requestChargedWire(v RequestCharged) string {
-	match v {
-	case RequestChargedRequester:
-		"requester"
-	case RequestChargedOther as o:
-		o.Value
-	}
-}
+type RequestCharged = RequestChargedRequester{} | RequestChargedOther{Value string}
 
 func requestChargedOf(s string) RequestCharged {
-	if s == "requester" {
-		return RequestChargedRequester
-	}
-	RequestChargedOther{Value: s}
-}
-
-func requestChargedIn(s option.Option[string]) option.Option[RequestCharged] {
 	match s {
-	case option.Some as v:
-		option.Some[RequestCharged]{requestChargedOf(v.Value)}
-	case option.None:
-		option.None
+	case "requester":
+		RequestChargedRequester
+	case _:
+		RequestChargedOther{Value: s}
 	}
 }
 
 // ReplicationStatus is a value the service names. ReplicationStatusOther
 // holds a value this model does not name.
-type ReplicationStatus = ReplicationStatusComplete | ReplicationStatusPending | ReplicationStatusFailed | ReplicationStatusReplica | ReplicationStatusCompleted | ReplicationStatusOther
-type ReplicationStatusComplete {}
-type ReplicationStatusPending {}
-type ReplicationStatusFailed {}
-type ReplicationStatusReplica {}
-type ReplicationStatusCompleted {}
-type ReplicationStatusOther { Value string }
-
-func replicationStatusWire(v ReplicationStatus) string {
-	match v {
-	case ReplicationStatusComplete:
-		"COMPLETE"
-	case ReplicationStatusPending:
-		"PENDING"
-	case ReplicationStatusFailed:
-		"FAILED"
-	case ReplicationStatusReplica:
-		"REPLICA"
-	case ReplicationStatusCompleted:
-		"COMPLETED"
-	case ReplicationStatusOther as o:
-		o.Value
-	}
-}
+type ReplicationStatus = ReplicationStatusComplete{} | ReplicationStatusPending{} | ReplicationStatusFailed{} | ReplicationStatusReplica{} | ReplicationStatusCompleted{} | ReplicationStatusOther{Value string}
 
 func replicationStatusOf(s string) ReplicationStatus {
-	if s == "COMPLETE" {
-		return ReplicationStatusComplete
-	}
-	if s == "PENDING" {
-		return ReplicationStatusPending
-	}
-	if s == "FAILED" {
-		return ReplicationStatusFailed
-	}
-	if s == "REPLICA" {
-		return ReplicationStatusReplica
-	}
-	if s == "COMPLETED" {
-		return ReplicationStatusCompleted
-	}
-	ReplicationStatusOther{Value: s}
-}
-
-func replicationStatusIn(s option.Option[string]) option.Option[ReplicationStatus] {
 	match s {
-	case option.Some as v:
-		option.Some[ReplicationStatus]{replicationStatusOf(v.Value)}
-	case option.None:
-		option.None
+	case "COMPLETE":
+		ReplicationStatusComplete
+	case "PENDING":
+		ReplicationStatusPending
+	case "FAILED":
+		ReplicationStatusFailed
+	case "REPLICA":
+		ReplicationStatusReplica
+	case "COMPLETED":
+		ReplicationStatusCompleted
+	case _:
+		ReplicationStatusOther{Value: s}
 	}
 }
 
 // ObjectLockMode is a value the service names. ObjectLockModeOther holds a
 // value this model does not name.
-type ObjectLockMode = ObjectLockModeGovernance | ObjectLockModeCompliance | ObjectLockModeOther
-type ObjectLockModeGovernance {}
-type ObjectLockModeCompliance {}
-type ObjectLockModeOther { Value string }
+type ObjectLockMode = ObjectLockModeGovernance{} | ObjectLockModeCompliance{} | ObjectLockModeOther{Value string}
 
 func objectLockModeWire(v ObjectLockMode) string {
 	match v {
@@ -1804,36 +1173,25 @@ func objectLockModeWire(v ObjectLockMode) string {
 		"GOVERNANCE"
 	case ObjectLockModeCompliance:
 		"COMPLIANCE"
-	case ObjectLockModeOther as o:
-		o.Value
+	case ObjectLockModeOther{o}:
+		o
 	}
 }
 
 func objectLockModeOf(s string) ObjectLockMode {
-	if s == "GOVERNANCE" {
-		return ObjectLockModeGovernance
-	}
-	if s == "COMPLIANCE" {
-		return ObjectLockModeCompliance
-	}
-	ObjectLockModeOther{Value: s}
-}
-
-func objectLockModeIn(s option.Option[string]) option.Option[ObjectLockMode] {
 	match s {
-	case option.Some as v:
-		option.Some[ObjectLockMode]{objectLockModeOf(v.Value)}
-	case option.None:
-		option.None
+	case "GOVERNANCE":
+		ObjectLockModeGovernance
+	case "COMPLIANCE":
+		ObjectLockModeCompliance
+	case _:
+		ObjectLockModeOther{Value: s}
 	}
 }
 
 // ObjectLockLegalHoldStatus is a value the service names.
 // ObjectLockLegalHoldStatusOther holds a value this model does not name.
-type ObjectLockLegalHoldStatus = ObjectLockLegalHoldStatusOn | ObjectLockLegalHoldStatusOff | ObjectLockLegalHoldStatusOther
-type ObjectLockLegalHoldStatusOn {}
-type ObjectLockLegalHoldStatusOff {}
-type ObjectLockLegalHoldStatusOther { Value string }
+type ObjectLockLegalHoldStatus = ObjectLockLegalHoldStatusOn{} | ObjectLockLegalHoldStatusOff{} | ObjectLockLegalHoldStatusOther{Value string}
 
 func objectLockLegalHoldStatusWire(v ObjectLockLegalHoldStatus) string {
 	match v {
@@ -1841,36 +1199,25 @@ func objectLockLegalHoldStatusWire(v ObjectLockLegalHoldStatus) string {
 		"ON"
 	case ObjectLockLegalHoldStatusOff:
 		"OFF"
-	case ObjectLockLegalHoldStatusOther as o:
-		o.Value
+	case ObjectLockLegalHoldStatusOther{o}:
+		o
 	}
 }
 
 func objectLockLegalHoldStatusOf(s string) ObjectLockLegalHoldStatus {
-	if s == "ON" {
-		return ObjectLockLegalHoldStatusOn
-	}
-	if s == "OFF" {
-		return ObjectLockLegalHoldStatusOff
-	}
-	ObjectLockLegalHoldStatusOther{Value: s}
-}
-
-func objectLockLegalHoldStatusIn(s option.Option[string]) option.Option[ObjectLockLegalHoldStatus] {
 	match s {
-	case option.Some as v:
-		option.Some[ObjectLockLegalHoldStatus]{objectLockLegalHoldStatusOf(v.Value)}
-	case option.None:
-		option.None
+	case "ON":
+		ObjectLockLegalHoldStatusOn
+	case "OFF":
+		ObjectLockLegalHoldStatusOff
+	case _:
+		ObjectLockLegalHoldStatusOther{Value: s}
 	}
 }
 
 // ObjectLockEventHold is a value the service names. ObjectLockEventHoldOther
 // holds a value this model does not name.
-type ObjectLockEventHold = ObjectLockEventHoldOn | ObjectLockEventHoldOff | ObjectLockEventHoldOther
-type ObjectLockEventHoldOn {}
-type ObjectLockEventHoldOff {}
-type ObjectLockEventHoldOther { Value string }
+type ObjectLockEventHold = ObjectLockEventHoldOn{} | ObjectLockEventHoldOff{} | ObjectLockEventHoldOther{Value string}
 
 func objectLockEventHoldWire(v ObjectLockEventHold) string {
 	match v {
@@ -1878,41 +1225,25 @@ func objectLockEventHoldWire(v ObjectLockEventHold) string {
 		"ON"
 	case ObjectLockEventHoldOff:
 		"OFF"
-	case ObjectLockEventHoldOther as o:
-		o.Value
+	case ObjectLockEventHoldOther{o}:
+		o
 	}
 }
 
 func objectLockEventHoldOf(s string) ObjectLockEventHold {
-	if s == "ON" {
-		return ObjectLockEventHoldOn
-	}
-	if s == "OFF" {
-		return ObjectLockEventHoldOff
-	}
-	ObjectLockEventHoldOther{Value: s}
-}
-
-func objectLockEventHoldIn(s option.Option[string]) option.Option[ObjectLockEventHold] {
 	match s {
-	case option.Some as v:
-		option.Some[ObjectLockEventHold]{objectLockEventHoldOf(v.Value)}
-	case option.None:
-		option.None
+	case "ON":
+		ObjectLockEventHoldOn
+	case "OFF":
+		ObjectLockEventHoldOff
+	case _:
+		ObjectLockEventHoldOther{Value: s}
 	}
 }
 
 // ObjectCannedACL is a value the service names. ObjectCannedACLOther holds a
 // value this model does not name.
-type ObjectCannedACL = ObjectCannedACLPrivate | ObjectCannedACLPublicRead | ObjectCannedACLPublicReadWrite | ObjectCannedACLAuthenticatedRead | ObjectCannedACLAwsExecRead | ObjectCannedACLBucketOwnerRead | ObjectCannedACLBucketOwnerFullControl | ObjectCannedACLOther
-type ObjectCannedACLPrivate {}
-type ObjectCannedACLPublicRead {}
-type ObjectCannedACLPublicReadWrite {}
-type ObjectCannedACLAuthenticatedRead {}
-type ObjectCannedACLAwsExecRead {}
-type ObjectCannedACLBucketOwnerRead {}
-type ObjectCannedACLBucketOwnerFullControl {}
-type ObjectCannedACLOther { Value string }
+type ObjectCannedACL = ObjectCannedACLPrivate{} | ObjectCannedACLPublicRead{} | ObjectCannedACLPublicReadWrite{} | ObjectCannedACLAuthenticatedRead{} | ObjectCannedACLAwsExecRead{} | ObjectCannedACLBucketOwnerRead{} | ObjectCannedACLBucketOwnerFullControl{} | ObjectCannedACLOther{Value string}
 
 func objectCannedACLWire(v ObjectCannedACL) string {
 	match v {
@@ -1930,59 +1261,14 @@ func objectCannedACLWire(v ObjectCannedACL) string {
 		"bucket-owner-read"
 	case ObjectCannedACLBucketOwnerFullControl:
 		"bucket-owner-full-control"
-	case ObjectCannedACLOther as o:
-		o.Value
-	}
-}
-
-func objectCannedACLOf(s string) ObjectCannedACL {
-	if s == "private" {
-		return ObjectCannedACLPrivate
-	}
-	if s == "public-read" {
-		return ObjectCannedACLPublicRead
-	}
-	if s == "public-read-write" {
-		return ObjectCannedACLPublicReadWrite
-	}
-	if s == "authenticated-read" {
-		return ObjectCannedACLAuthenticatedRead
-	}
-	if s == "aws-exec-read" {
-		return ObjectCannedACLAwsExecRead
-	}
-	if s == "bucket-owner-read" {
-		return ObjectCannedACLBucketOwnerRead
-	}
-	if s == "bucket-owner-full-control" {
-		return ObjectCannedACLBucketOwnerFullControl
-	}
-	ObjectCannedACLOther{Value: s}
-}
-
-func objectCannedACLIn(s option.Option[string]) option.Option[ObjectCannedACL] {
-	match s {
-	case option.Some as v:
-		option.Some[ObjectCannedACL]{objectCannedACLOf(v.Value)}
-	case option.None:
-		option.None
+	case ObjectCannedACLOther{o}:
+		o
 	}
 }
 
 // ChecksumAlgorithm is a value the service names. ChecksumAlgorithmOther
 // holds a value this model does not name.
-type ChecksumAlgorithm = ChecksumAlgorithmCrc32 | ChecksumAlgorithmCrc32c | ChecksumAlgorithmSha1 | ChecksumAlgorithmSha256 | ChecksumAlgorithmCrc64nvme | ChecksumAlgorithmSha512 | ChecksumAlgorithmMd5 | ChecksumAlgorithmXxhash64 | ChecksumAlgorithmXxhash3 | ChecksumAlgorithmXxhash128 | ChecksumAlgorithmOther
-type ChecksumAlgorithmCrc32 {}
-type ChecksumAlgorithmCrc32c {}
-type ChecksumAlgorithmSha1 {}
-type ChecksumAlgorithmSha256 {}
-type ChecksumAlgorithmCrc64nvme {}
-type ChecksumAlgorithmSha512 {}
-type ChecksumAlgorithmMd5 {}
-type ChecksumAlgorithmXxhash64 {}
-type ChecksumAlgorithmXxhash3 {}
-type ChecksumAlgorithmXxhash128 {}
-type ChecksumAlgorithmOther { Value string }
+type ChecksumAlgorithm = ChecksumAlgorithmCrc32{} | ChecksumAlgorithmCrc32c{} | ChecksumAlgorithmSha1{} | ChecksumAlgorithmSha256{} | ChecksumAlgorithmCrc64nvme{} | ChecksumAlgorithmSha512{} | ChecksumAlgorithmMd5{} | ChecksumAlgorithmXxhash64{} | ChecksumAlgorithmXxhash3{} | ChecksumAlgorithmXxhash128{} | ChecksumAlgorithmOther{Value string}
 
 func checksumAlgorithmWire(v ChecksumAlgorithm) string {
 	match v {
@@ -2006,87 +1292,22 @@ func checksumAlgorithmWire(v ChecksumAlgorithm) string {
 		"XXHASH3"
 	case ChecksumAlgorithmXxhash128:
 		"XXHASH128"
-	case ChecksumAlgorithmOther as o:
-		o.Value
-	}
-}
-
-func checksumAlgorithmOf(s string) ChecksumAlgorithm {
-	if s == "CRC32" {
-		return ChecksumAlgorithmCrc32
-	}
-	if s == "CRC32C" {
-		return ChecksumAlgorithmCrc32c
-	}
-	if s == "SHA1" {
-		return ChecksumAlgorithmSha1
-	}
-	if s == "SHA256" {
-		return ChecksumAlgorithmSha256
-	}
-	if s == "CRC64NVME" {
-		return ChecksumAlgorithmCrc64nvme
-	}
-	if s == "SHA512" {
-		return ChecksumAlgorithmSha512
-	}
-	if s == "MD5" {
-		return ChecksumAlgorithmMd5
-	}
-	if s == "XXHASH64" {
-		return ChecksumAlgorithmXxhash64
-	}
-	if s == "XXHASH3" {
-		return ChecksumAlgorithmXxhash3
-	}
-	if s == "XXHASH128" {
-		return ChecksumAlgorithmXxhash128
-	}
-	ChecksumAlgorithmOther{Value: s}
-}
-
-func checksumAlgorithmIn(s option.Option[string]) option.Option[ChecksumAlgorithm] {
-	match s {
-	case option.Some as v:
-		option.Some[ChecksumAlgorithm]{checksumAlgorithmOf(v.Value)}
-	case option.None:
-		option.None
+	case ChecksumAlgorithmOther{o}:
+		o
 	}
 }
 
 // IntelligentTieringAccessTier is a value the service names.
 // IntelligentTieringAccessTierOther holds a value this model does not name.
-type IntelligentTieringAccessTier = IntelligentTieringAccessTierArchiveAccess | IntelligentTieringAccessTierDeepArchiveAccess | IntelligentTieringAccessTierOther
-type IntelligentTieringAccessTierArchiveAccess {}
-type IntelligentTieringAccessTierDeepArchiveAccess {}
-type IntelligentTieringAccessTierOther { Value string }
-
-func intelligentTieringAccessTierWire(v IntelligentTieringAccessTier) string {
-	match v {
-	case IntelligentTieringAccessTierArchiveAccess:
-		"ARCHIVE_ACCESS"
-	case IntelligentTieringAccessTierDeepArchiveAccess:
-		"DEEP_ARCHIVE_ACCESS"
-	case IntelligentTieringAccessTierOther as o:
-		o.Value
-	}
-}
+type IntelligentTieringAccessTier = IntelligentTieringAccessTierArchiveAccess{} | IntelligentTieringAccessTierDeepArchiveAccess{} | IntelligentTieringAccessTierOther{Value string}
 
 func intelligentTieringAccessTierOf(s string) IntelligentTieringAccessTier {
-	if s == "ARCHIVE_ACCESS" {
-		return IntelligentTieringAccessTierArchiveAccess
-	}
-	if s == "DEEP_ARCHIVE_ACCESS" {
-		return IntelligentTieringAccessTierDeepArchiveAccess
-	}
-	IntelligentTieringAccessTierOther{Value: s}
-}
-
-func intelligentTieringAccessTierIn(s option.Option[string]) option.Option[IntelligentTieringAccessTier] {
 	match s {
-	case option.Some as v:
-		option.Some[IntelligentTieringAccessTier]{intelligentTieringAccessTierOf(v.Value)}
-	case option.None:
-		option.None
+	case "ARCHIVE_ACCESS":
+		IntelligentTieringAccessTierArchiveAccess
+	case "DEEP_ARCHIVE_ACCESS":
+		IntelligentTieringAccessTierDeepArchiveAccess
+	case _:
+		IntelligentTieringAccessTierOther{Value: s}
 	}
 }

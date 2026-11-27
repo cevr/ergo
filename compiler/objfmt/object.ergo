@@ -1,0 +1,420 @@
+// Arch identifies the target processor architecture of a relocatable object file.
+type Arch = ArchX86_64{} | ArchARM64{}
+
+// ObjError reports a structural or semantic violation when building, validating, or encoding an object.
+type ObjError {
+	Op     string,
+	Reason string,
+}
+
+// SecText identifies the executable code section.
+let SecText uint32 = uint32(0)
+
+// SecRodata identifies the read-only data / C-string constants section.
+let SecRodata uint32 = uint32(1)
+
+// SecData identifies the initialized writable data section.
+let SecData uint32 = uint32(2)
+
+// SecBss identifies the zero-initialized writable data section.
+let SecBss uint32 = uint32(3)
+
+// SecUndef marks an undefined external symbol with no section in this object.
+let SecUndef uint32 = uint32(4294967295)
+
+// BindLocal marks a symbol with translation-unit-local visibility.
+let BindLocal uint8 = uint8(0)
+
+// BindGlobal marks an exported or imported symbol with global linkage.
+let BindGlobal uint8 = uint8(1)
+
+// BindWeak marks a symbol with weak global linkage.
+let BindWeak uint8 = uint8(2)
+
+// SymNone marks an untyped symbol such as an undefined external function reference.
+let SymNone uint8 = uint8(0)
+
+// SymObject marks a data object symbol.
+let SymObject uint8 = uint8(1)
+
+// SymFunc marks a function symbol.
+let SymFunc uint8 = uint8(2)
+
+// SymSection marks a section symbol.
+let SymSection uint8 = uint8(3)
+
+// RelocCall encodes a direct call relocation (PLT32 on ELF x86_64, CALL26 on ELF arm64, BRANCH on Mach-O).
+let RelocCall uint8 = uint8(0)
+
+// RelocJump encodes a direct jump relocation (PLT32 on ELF x86_64, JUMP26 on ELF arm64, BRANCH on Mach-O).
+let RelocJump uint8 = uint8(1)
+
+// RelocPCRel32 encodes a 32-bit PC-relative displacement relocation (x86_64 PC32 / SIGNED).
+let RelocPCRel32 uint8 = uint8(2)
+
+// RelocAbs64 encodes a 64-bit absolute pointer relocation.
+let RelocAbs64 uint8 = uint8(3)
+
+// RelocGotPCRel encodes a 32-bit GOT PC-relative relocation on x86_64.
+let RelocGotPCRel uint8 = uint8(4)
+
+// RelocRexGotPCRelX encodes a relaxable REX-prefixed 32-bit GOT PC-relative load on x86_64.
+let RelocRexGotPCRelX uint8 = uint8(5)
+
+// RelocArm64Page21 encodes an ARM64 ADRP page-base 21-bit PC-relative relocation.
+let RelocArm64Page21 uint8 = uint8(6)
+
+// RelocArm64PageOff12 encodes an ARM64 ADD low 12-bit page-offset relocation.
+let RelocArm64PageOff12 uint8 = uint8(7)
+
+// SymSpec describes a symbol entry added to an Object.
+type SymSpec {
+	Name  string,
+	Bind  uint8,
+	Kind  uint8,
+	Sec   uint32,
+	Value uint64,
+	Size  uint64,
+}
+
+// RelocSpec describes a relocation entry added to an Object.
+type RelocSpec {
+	Sec    uint32,
+	Off    uint32,
+	Kind   uint8,
+	Sym    uint32,
+	Addend uint64,
+}
+
+// Object stores sections, symbols, and relocations in flat pointer-free SoA columns.
+type Object {
+	Arch        Arch,
+	Text        []byte,
+	TextAlign   uint32,
+	Rodata      []byte,
+	RodataAlign uint32,
+	Data        []byte,
+	DataAlign   uint32,
+	BssSize     uint64,
+	BssAlign    uint32,
+	Names       StrPool,
+	SymNameID   []uint32,
+	SymBind     []uint8,
+	SymKind     []uint8,
+	SymSec      []uint32,
+	SymValue    []uint64,
+	SymSize     []uint64,
+	RelocSec    []uint32,
+	RelocOff    []uint32,
+	RelocKind   []uint8,
+	RelocSym    []uint32,
+	RelocAddend []uint64,
+}
+
+// NewObject creates an empty relocatable object builder for target architecture arch.
+func NewObject(arch Arch) Object {
+	Object{
+		Arch:        arch,
+		Text:        []byte{},
+		TextAlign:   uint32(16),
+		Rodata:      []byte{},
+		RodataAlign: uint32(8),
+		Data:        []byte{},
+		DataAlign:   uint32(8),
+		BssSize:     uint64(0),
+		BssAlign:    uint32(8),
+		Names:       NewStrPool(),
+		SymNameID:   []uint32{},
+		SymBind:     []uint8{},
+		SymKind:     []uint8{},
+		SymSec:      []uint32{},
+		SymValue:    []uint64{},
+		SymSize:     []uint64{},
+		RelocSec:    []uint32{},
+		RelocOff:    []uint32{},
+		RelocKind:   []uint8{},
+		RelocSym:    []uint32{},
+		RelocAddend: []uint64{},
+	}
+}
+
+func padSliceTo(bs []byte, align uint32) []byte {
+	if align <= uint32(1) {
+		return bs
+	}
+	let a = int(align)
+	let rem = bs.Len() % a
+	if rem == 0 {
+		return bs
+	}
+	let pad = a - rem
+	let mut out = bs.Grow(pad)
+	for _ in 0..pad {
+		out = out.Append(byte(0))
+	}
+	out
+}
+
+// AppendTextAligned appends bytes to .text padded to align and returns the start offset.
+func AppendTextAligned(o mut Object, bytes []byte, align uint32) uint32 {
+	o.Text = padSliceTo(o.Text, align)
+	let off = uint32(o.Text.Len())
+	o.Text = o.Text.AppendBytes(bytes)
+	if align > o.TextAlign {
+		o.TextAlign = align
+	}
+	off
+}
+
+// AppendText appends bytes to .text with 16-byte alignment and returns the start offset.
+func AppendText(o mut Object, bytes []byte) uint32 {
+	o.AppendTextAligned(bytes, uint32(16))
+}
+
+// AppendRodataCString appends a NUL-terminated string to .rodata and returns its offset.
+func AppendRodataCString(o mut Object, s string) uint32 {
+	let off = uint32(o.Rodata.Len())
+	o.Rodata = o.Rodata.AppendString(s)
+	o.Rodata = o.Rodata.Append(byte(0))
+	off
+}
+
+// AppendRodataBytes appends bytes to .rodata aligned to align and returns its offset.
+func AppendRodataBytes(o mut Object, bytes []byte, align uint32) uint32 {
+	o.Rodata = padSliceTo(o.Rodata, align)
+	let off = uint32(o.Rodata.Len())
+	o.Rodata = o.Rodata.AppendBytes(bytes)
+	if align > o.RodataAlign {
+		o.RodataAlign = align
+	}
+	off
+}
+
+// AppendDataBytes appends bytes to .data aligned to align and returns its offset.
+func AppendDataBytes(o mut Object, bytes []byte, align uint32) uint32 {
+	o.Data = padSliceTo(o.Data, align)
+	let off = uint32(o.Data.Len())
+	o.Data = o.Data.AppendBytes(bytes)
+	if align > o.DataAlign {
+		o.DataAlign = align
+	}
+	off
+}
+
+// AllocBss reserves size bytes in .bss aligned to align and returns its offset.
+func AllocBss(o mut Object, size uint64, align uint32) uint64 {
+	let off = AlignUpUint64(o.BssSize, align)
+	o.BssSize = off + size
+	if align > o.BssAlign {
+		o.BssAlign = align
+	}
+	off
+}
+
+// AddSym appends a symbol entry described by spec and returns its dense symbol ID.
+func AddSym(o mut Object, spec SymSpec) uint32 {
+	let nameID = o.Names.Intern(spec.Name)
+	let symID = uint32(o.SymNameID.Len())
+	o.SymNameID = o.SymNameID.Append(nameID)
+	o.SymBind = o.SymBind.Append(spec.Bind)
+	o.SymKind = o.SymKind.Append(spec.Kind)
+	o.SymSec = o.SymSec.Append(spec.Sec)
+	o.SymValue = o.SymValue.Append(spec.Value)
+	o.SymSize = o.SymSize.Append(spec.Size)
+	symID
+}
+
+// AddGlobalFunc registers a global function symbol in .text and returns its symbol ID.
+func AddGlobalFunc(o mut Object, name string, off uint64, size uint64) uint32 {
+	o.AddSym(SymSpec{Name: name, Bind: BindGlobal, Kind: SymFunc, Sec: SecText, Value: off, Size: size})
+}
+
+// AddLocalRodata registers a local symbol in .rodata and returns its symbol ID.
+func AddLocalRodata(o mut Object, name string, off uint64, size uint64) uint32 {
+	o.AddSym(SymSpec{Name: name, Bind: BindLocal, Kind: SymObject, Sec: SecRodata, Value: off, Size: size})
+}
+
+// AddLocalData registers a local symbol in .data and returns its symbol ID.
+func AddLocalData(o mut Object, name string, off uint64, size uint64) uint32 {
+	o.AddSym(SymSpec{Name: name, Bind: BindLocal, Kind: SymObject, Sec: SecData, Value: off, Size: size})
+}
+
+// EnsureUndefSym returns the symbol ID of an undefined global symbol named name, adding it if absent.
+func EnsureUndefSym(o mut Object, name string) uint32 {
+	let targetID = o.Names.Intern(name)
+	for i in 0..o.SymNameID.Len() {
+		if o.SymNameID[i] == targetID && o.SymSec[i] == SecUndef && o.SymBind[i] == BindGlobal {
+			return uint32(i)
+		}
+	}
+	o.AddSym(SymSpec{Name: name, Bind: BindGlobal, Kind: SymNone, Sec: SecUndef, Value: uint64(0), Size: uint64(0)})
+}
+
+// AddReloc appends a relocation described by spec to o.
+func AddReloc(o mut Object, spec RelocSpec) {
+	o.RelocSec = o.RelocSec.Append(spec.Sec)
+	o.RelocOff = o.RelocOff.Append(spec.Off)
+	o.RelocKind = o.RelocKind.Append(spec.Kind)
+	o.RelocSym = o.RelocSym.Append(spec.Sym)
+	o.RelocAddend = o.RelocAddend.Append(spec.Addend)
+}
+
+// SymCount returns the number of symbols recorded in o.
+func SymCount(o Object) uint32 {
+	uint32(o.SymNameID.Len())
+}
+
+// RelocCount returns the number of relocations recorded in o.
+func RelocCount(o Object) uint32 {
+	uint32(o.RelocSec.Len())
+}
+
+// SymName returns the name of dense symbol ID symID.
+func SymName(o Object, symID uint32) string {
+	o.Names.At(o.SymNameID[int(symID)])
+}
+
+func isPow2Align(a uint32) bool {
+	a != uint32(0) && (a&(a-uint32(1))) == uint32(0)
+}
+
+// SectionByteSize returns the size in bytes of section sec inside o.
+func SectionByteSize(o Object, sec uint32) uint64 {
+	if sec == SecText {
+		return uint64(o.Text.Len())
+	}
+	if sec == SecRodata {
+		return uint64(o.Rodata.Len())
+	}
+	if sec == SecData {
+		return uint64(o.Data.Len())
+	}
+	if sec == SecBss {
+		return o.BssSize
+	}
+	uint64(0)
+}
+
+// RelocPatchWidth returns the patched byte width (4 or 8) for portable relocation kind.
+func RelocPatchWidth(kind uint8) uint32 {
+	if kind == RelocAbs64 {
+		return uint32(8)
+	}
+	uint32(4)
+}
+
+// RelocValidForArch reports whether relocation kind is supported on target arch.
+func RelocValidForArch(arch Arch, kind uint8) bool {
+	if kind == RelocCall || kind == RelocJump || kind == RelocAbs64 {
+		return true
+	}
+	match arch {
+	case ArchX86_64:
+		kind == RelocPCRel32 || kind == RelocGotPCRel || kind == RelocRexGotPCRelX
+	case ArchARM64:
+		kind == RelocArm64Page21 || kind == RelocArm64PageOff12
+	}
+}
+
+func validateAlignments(o Object) fails ObjError {
+	if !isPow2Align(o.TextAlign) || !isPow2Align(o.RodataAlign) || !isPow2Align(o.DataAlign) || !isPow2Align(o.BssAlign) {
+		return ObjError{Op: "validate", Reason: "section alignment must be a non-zero power of two"}
+	}
+}
+
+func validateSymColumns(o Object) fails ObjError {
+	let n = o.SymNameID.Len()
+	if o.SymBind.Len() != n || o.SymKind.Len() != n || o.SymSec.Len() != n || o.SymValue.Len() != n || o.SymSize.Len() != n {
+		return ObjError{Op: "validate", Reason: "symbol SoA column lengths diverge"}
+	}
+	let poolCount = o.Names.Count()
+	for i in 0..n {
+		if o.SymNameID[i] >= poolCount {
+			return ObjError{Op: "validate", Reason: "symbol name index out of StrPool bounds"}
+		}
+		let b = o.SymBind[i]
+		if b != BindLocal && b != BindGlobal && b != BindWeak {
+			return ObjError{Op: "validate", Reason: "invalid symbol binding"}
+		}
+		let k = o.SymKind[i]
+		if k != SymNone && k != SymObject && k != SymFunc && k != SymSection {
+			return ObjError{Op: "validate", Reason: "invalid symbol kind"}
+		}
+		let sec = o.SymSec[i]
+		let val = o.SymValue[i]
+		let sz = o.SymSize[i]
+		if sec == SecUndef {
+			if val != uint64(0) || sz != uint64(0) {
+				return ObjError{Op: "validate", Reason: "undefined symbol must have zero value and size"}
+			}
+			continue
+		}
+		if sec > SecBss {
+			return ObjError{Op: "validate", Reason: "unknown symbol section index"}
+		}
+		let secSz = SectionByteSize(o, sec)
+		if val > secSz || sz > secSz-val {
+			return ObjError{Op: "validate", Reason: "symbol extent exceeds owning section size"}
+		}
+	}
+}
+
+func validateRelocColumns(o Object) fails ObjError {
+	let n = o.RelocSec.Len()
+	if o.RelocOff.Len() != n || o.RelocKind.Len() != n || o.RelocSym.Len() != n || o.RelocAddend.Len() != n {
+		return ObjError{Op: "validate", Reason: "relocation SoA column lengths diverge"}
+	}
+	let nSyms = o.SymCount()
+	for i in 0..n {
+		let sec = o.RelocSec[i]
+		if sec != SecText && sec != SecData {
+			return ObjError{Op: "validate", Reason: "relocations are supported only in .text and .data"}
+		}
+		let sym = o.RelocSym[i]
+		if sym >= nSyms {
+			return ObjError{Op: "validate", Reason: "relocation symbol index out of range"}
+		}
+		let kind = o.RelocKind[i]
+		if kind > RelocArm64PageOff12 || !RelocValidForArch(o.Arch, kind) {
+			return ObjError{Op: "validate", Reason: "relocation kind invalid for target architecture"}
+		}
+		let off = uint64(o.RelocOff[i])
+		let width = uint64(RelocPatchWidth(kind))
+		let secSz = SectionByteSize(o, sec)
+		if off > secSz || width > secSz-off {
+			return ObjError{Op: "validate", Reason: "relocation patch extent exceeds target section"}
+		}
+	}
+}
+
+// ValidateObject verifies that all sections, symbols, and relocations in o are structurally sound.
+func ValidateObject(o Object) fails ObjError {
+	try validateAlignments(o)
+	try validateSymColumns(o)
+	try validateRelocColumns(o)
+}
+
+// ObjectValidationRejectsBadReloc verifies that ValidateObject catches out-of-range relocs.
+law ObjectValidationRejectsBadReloc(off uint32) {
+	let mut okObj = NewObject(ArchX86_64)
+	let textOff = okObj.AppendText([]byte{byte(0xc3)})
+	let _ = okObj.AddGlobalFunc("f", uint64(textOff), uint64(1))
+	ValidateObject(okObj) catch {
+	case ObjError:
+		return false
+	}
+	let _ = okObj.EnsureUndefSym("ext")
+	okObj.AddReloc(RelocSpec{Sec: SecText, Off: off + uint32(1), Kind: RelocCall, Sym: uint32(1), Addend: uint64(0)})
+	ValidateObject(okObj) catch {
+	case ObjError:
+		return true
+	}
+	false
+}
+
+test ObjectBssAndAlignInvariants {
+	let mut o = NewObject(ArchX86_64)
+	let _ = o.AllocBss(uint64(3), uint32(8))
+	let b1 = o.AllocBss(uint64(4), uint32(16))
+	assert b1 == uint64(16) && o.BssAlign == uint32(16) && o.BssSize == uint64(20)
+}

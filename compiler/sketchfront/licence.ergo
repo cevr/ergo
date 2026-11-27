@@ -1,0 +1,586 @@
+import cmp
+import compiler/front
+import dense
+import hex
+import option
+import sha256
+import slices
+import strconv
+import strings
+
+// StdLedgerHeader is the header line emitted at the top of shipped ergo.laws.
+let StdLedgerHeader = "# std law ledger (runtime.md, Tests 10). Written by go run ./scripts/stdlaws; do not edit.\n"
+
+// CorpusFileName is the workspace file holding refuted licence cases.
+let CorpusFileName = "ergo.cases"
+
+// ShadowRefutedPrefix begins a shadow rewrite refutation line emitted on stderr.
+let ShadowRefutedPrefix = "ergo-shadow: law "
+
+// ForeignBuildTag pairs GOOS/GOARCH platform values for filtering foreign Go files.
+type ForeignBuildTag {
+	GoOS   string,
+	GoArch string,
+}
+
+// ForeignKeyEntry captures a relative Go file path and its canonical SHA-256 hex digest.
+type ForeignKeyEntry {
+	Path   string,
+	Digest string,
+}
+
+// LedgerRowTag tags dense ledger entries inside LedgerTable.
+type LedgerRowTag {}
+
+// LedgerTable holds parsed law and guard fact ledger entries in dense uint32 SoA columns.
+type LedgerTable {
+	Count    dense.Count[LedgerRowTag],
+	IsFact   []bool,
+	Law      []string,
+	Provider []string,
+	Instance []string,
+	Build    []string,
+	Verdict  []string,
+	By       []string,
+	With     []string,
+	Hash     []string,
+	RawLine  []string,
+	LineNum  []uint32,
+	ByKey    Map[string, uint32],
+}
+
+// NewLedgerTable allocates an empty pointer-free LedgerTable.
+func NewLedgerTable() LedgerTable {
+	LedgerTable{
+		Count:    dense.NewCount[LedgerRowTag](),
+		IsFact:   []bool{},
+		Law:      []string{},
+		Provider: []string{},
+		Instance: []string{},
+		Build:    []string{},
+		Verdict:  []string{},
+		By:       []string{},
+		With:     []string{},
+		Hash:     []string{},
+		RawLine:  []string{},
+		LineNum:  []uint32{},
+		ByKey:    Map[string, uint32]{},
+	}
+}
+
+// LedgerKey builds the unique lookup key of a law or fact ledger row.
+func LedgerKey(lawName string, provider string, instance string, build string) string {
+	let mut k = lawName
+	if provider != "" {
+		k = k + " for " + provider
+	}
+	if instance != "" {
+		k = k + " at " + instance
+	}
+	if build != "" {
+		k = k + " under " + build
+	}
+	k
+}
+
+// ParseLawLedger parses raw ergo.laws text into a dense LedgerTable plus any malformed line diagnostics.
+func ParseLawLedger(text string) (LedgerTable, []string) {
+	let mut tbl = NewLedgerTable()
+	let mut errs = []string{}
+	let lines = strings.Split(text, "\n")
+	for idx, raw in lines {
+		let line = strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "fact ") {
+			let rest = strings.TrimSpace(strings.TrimPrefix(line, "fact "))
+			let parts = splitTokensBalanced(rest)
+			if parts.Len() < 3 {
+				errs = errs.Append("line " + strconv.Itoa(idx+1) + ": malformed fact row")
+				continue
+			}
+			let rowID = uint32(dense.Index(dense.Next(&tbl.Count)))
+			let key = "fact " + rest
+			tbl.IsFact = tbl.IsFact.Append(true)
+			tbl.Law = tbl.Law.Append(key)
+			tbl.Provider = tbl.Provider.Append("")
+			tbl.Instance = tbl.Instance.Append("")
+			tbl.Build = tbl.Build.Append("")
+			tbl.Verdict = tbl.Verdict.Append("validated")
+			tbl.By = tbl.By.Append("guard")
+			tbl.With = tbl.With.Append("")
+			tbl.Hash = tbl.Hash.Append(parts[parts.Len()-1])
+			tbl.RawLine = tbl.RawLine.Append(line)
+			tbl.LineNum = tbl.LineNum.Append(uint32(idx + 1))
+			tbl.ByKey = tbl.ByKey.Put(key, rowID)
+			continue
+		}
+		if !strings.HasPrefix(line, "law ") {
+			errs = errs.Append("line " + strconv.Itoa(idx+1) + ": expected law or fact entry")
+			continue
+		}
+		let toks = splitTokensBalanced(strings.TrimSpace(strings.TrimPrefix(line, "law ")))
+		if toks.Len() < 2 {
+			errs = errs.Append("line " + strconv.Itoa(idx+1) + ": malformed law row")
+			continue
+		}
+		let lawName = toks[0]
+		let mut pos = 1
+		let mut provider = ""
+		let mut instance = ""
+		let mut build = ""
+		if pos+1 < toks.Len() && toks[pos] == "for" {
+			provider = toks[pos+1]
+			pos = pos + 2
+		}
+		if pos+1 < toks.Len() && toks[pos] == "at" {
+			instance = toks[pos+1]
+			pos = pos + 2
+		}
+		if pos+1 < toks.Len() && toks[pos] == "under" {
+			build = toks[pos+1]
+			pos = pos + 2
+		}
+		if pos >= toks.Len() {
+			errs = errs.Append("line " + strconv.Itoa(idx+1) + ": missing verdict")
+			continue
+		}
+		let verdict = toks[pos]
+		pos = pos + 1
+		let mut by = ""
+		if pos+1 < toks.Len() && toks[pos] == "by" {
+			by = toks[pos+1]
+			pos = pos + 2
+		}
+		let mut withVal = ""
+		if pos+1 < toks.Len() && toks[pos] == "with" {
+			withVal = toks[pos+1]
+			pos = pos + 2
+		}
+		let mut hash = ""
+		if pos < toks.Len() {
+			hash = toks[pos]
+		}
+		let rowID = uint32(dense.Index(dense.Next(&tbl.Count)))
+		let key = LedgerKey(lawName, provider, instance, build)
+		tbl.IsFact = tbl.IsFact.Append(false)
+		tbl.Law = tbl.Law.Append(lawName)
+		tbl.Provider = tbl.Provider.Append(provider)
+		tbl.Instance = tbl.Instance.Append(instance)
+		tbl.Build = tbl.Build.Append(build)
+		tbl.Verdict = tbl.Verdict.Append(verdict)
+		tbl.By = tbl.By.Append(by)
+		tbl.With = tbl.With.Append(withVal)
+		tbl.Hash = tbl.Hash.Append(hash)
+		tbl.RawLine = tbl.RawLine.Append(line)
+		tbl.LineNum = tbl.LineNum.Append(uint32(idx + 1))
+		if tbl.ByKey.Get(key) == option.None {
+			tbl.ByKey = tbl.ByKey.Put(key, rowID)
+		}
+	}
+	(tbl, errs)
+}
+
+func splitTokensBalanced(s string) []string {
+	let mut toks = []string{}
+	let mut start = -1
+	let mut depth = 0
+	let mut inQuote = false
+	let mut escaped = false
+	for i in 0..s.Len() {
+		let c = s[i]
+		if escaped {
+			escaped = false
+			continue
+		}
+		if inQuote {
+			if c == byte('\\') {
+				escaped = true
+			} else if c == byte('"') {
+				inQuote = false
+			}
+			continue
+		}
+		if c == byte('"') {
+			if start < 0 {
+				start = i
+			}
+			inQuote = true
+			continue
+		}
+		if c == byte('(') {
+			if start < 0 {
+				start = i
+			}
+			depth = depth + 1
+			continue
+		}
+		if c == byte(')') {
+			if depth > 0 {
+				depth = depth - 1
+			}
+			continue
+		}
+		if depth == 0 && (c == byte(' ') || c == byte('\t')) {
+			if start >= 0 {
+				toks = toks.Append(s[start:i])
+				start = -1
+			}
+			continue
+		}
+		if start < 0 {
+			start = i
+		}
+	}
+	if start >= 0 {
+		toks = toks.Append(s[start:s.Len()])
+	}
+	toks
+}
+
+// FormatLawLedger formats non-empty rows of tbl in deterministic sorted order.
+func FormatLawLedger(tbl LedgerTable, header string) string {
+	let n = tbl.Law.Len()
+	let mut lines = slices.WithCapacity[string](n)
+	for i in 0..n {
+		if tbl.IsFact[i] {
+			lines = lines.Append(tbl.RawLine[i])
+			continue
+		}
+		let mut b = strings.NewBuilder()
+		b.WriteString("law ")
+		b.WriteString(LedgerKey(tbl.Law[i], tbl.Provider[i], tbl.Instance[i], tbl.Build[i]))
+		b.WriteByte(' ')
+		b.WriteString(tbl.Verdict[i])
+		if tbl.By[i] != "" {
+			b.WriteString(" by ")
+			b.WriteString(tbl.By[i])
+		}
+		if tbl.With[i] != "" {
+			b.WriteString(" with ")
+			b.WriteString(tbl.With[i])
+		}
+		if tbl.Hash[i] != "" {
+			b.WriteByte(' ')
+			b.WriteString(tbl.Hash[i])
+		}
+		lines = lines.Append(b.String())
+	}
+	let sorted = slices.Sort(lines)
+	let mut out = strings.NewBuilder()
+	if header != "" {
+		out.WriteString(header)
+		if !strings.HasSuffix(header, "\n") {
+			out.WriteByte('\n')
+		}
+	}
+	for l in sorted {
+		out.WriteString(l)
+		out.WriteByte('\n')
+	}
+	out.String()
+}
+
+// CorpusEntryTag identifies one dense case entry inside CorpusTable.
+type CorpusEntryTag {}
+
+// CorpusTable stores refuted licence cases keyed by law identifier.
+type CorpusTable {
+	Count   dense.Count[CorpusEntryTag],
+	LawKeys []string,
+	Cases   []string,
+	ByKey   Map[string, uint32],
+}
+
+// NewCorpusTable allocates an empty CorpusTable.
+func NewCorpusTable() CorpusTable {
+	CorpusTable{
+		Count:   dense.NewCount[CorpusEntryTag](),
+		LawKeys: []string{},
+		Cases:   []string{},
+		ByKey:   Map[string, uint32]{},
+	}
+}
+
+// AddCorpusCase inserts a case line for lawKey unless the exact case is already recorded.
+func AddCorpusCase(c mut CorpusTable, lawKey string, caseLine string) {
+	if lawKey == "" || caseLine == "" {
+		return
+	}
+	for i in 0..(*c).LawKeys.Len() {
+		if (*c).LawKeys[i] == lawKey && (*c).Cases[i] == caseLine {
+			return
+		}
+	}
+	let id = uint32(dense.Index(dense.Next(&c.Count)))
+	(*c).LawKeys = (*c).LawKeys.Append(lawKey)
+	(*c).Cases = (*c).Cases.Append(caseLine)
+	if (*c).ByKey.Get(lawKey) == option.None {
+		(*c).ByKey = (*c).ByKey.Put(lawKey, id)
+	}
+}
+
+// CorpusCasesFor returns all recorded corpus case lines for lawKey in insertion order.
+func CorpusCasesFor(c CorpusTable, lawKey string) []string {
+	let mut out = []string{}
+	for i in 0..c.LawKeys.Len() {
+		if c.LawKeys[i] == lawKey {
+			out = out.Append(c.Cases[i])
+		}
+	}
+	out
+}
+
+// ParseCorpus parses an ergo.cases file cleanly into CorpusTable.
+func ParseCorpus(text string) CorpusTable {
+	let mut tbl = NewCorpusTable()
+	let mut curKey = ""
+	for raw in strings.Split(text, "\n") {
+		let trimmed = strings.TrimSpace(raw)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		let isIndented = strings.HasPrefix(raw, "\t") || strings.HasPrefix(raw, "  ")
+		if isIndented && curKey != "" {
+			AddCorpusCase(&tbl, curKey, trimmed)
+		} else {
+			curKey = trimmed
+		}
+	}
+	tbl
+}
+
+// FormatCorpus formats CorpusTable grouped by sorted lawKey.
+func FormatCorpus(c CorpusTable) string {
+	let mut uniqueKeys = []string{}
+	let mut seen = Map[string, bool]{}
+	for k in c.LawKeys {
+		if seen.Get(k) == option.None {
+			seen = seen.Put(k, true)
+			uniqueKeys = uniqueKeys.Append(k)
+		}
+	}
+	let sortedKeys = slices.Sort(uniqueKeys)
+	let mut b = strings.NewBuilder()
+	for ki, k in sortedKeys {
+		if ki > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(k)
+		b.WriteByte('\n')
+		for caseLine in CorpusCasesFor(c, k) {
+			b.WriteByte('\t')
+			b.WriteString(caseLine)
+			b.WriteByte('\n')
+		}
+	}
+	b.String()
+}
+
+// ShadowRefutation records one counterexample emitted by a shadow property run.
+type ShadowRefutation {
+	LawKey   string,
+	CaseLine string,
+	Seed     uint64,
+	Digest   string,
+}
+
+// ParseShadowLine parses an ergo-shadow refutation line matching internal/sketchfront/shadowref.go.
+func ParseShadowLine(line string) (ShadowRefutation, bool) {
+	let clean = strings.TrimRight(line, "\r\n")
+	if !strings.HasPrefix(clean, ShadowRefutedPrefix) {
+		return (ShadowRefutation{LawKey: "", CaseLine: "", Seed: uint64(0), Digest: ""}, false)
+	}
+	let rest = strings.TrimPrefix(clean, ShadowRefutedPrefix)
+	let marker = " refuted"
+	let idx = strings.Index(rest, marker)
+	if idx <= 0 {
+		return (ShadowRefutation{LawKey: "", CaseLine: "", Seed: uint64(0), Digest: ""}, false)
+	}
+	let lawKey = rest[0:idx]
+	if strings.Contains(lawKey, " ") {
+		return (ShadowRefutation{LawKey: "", CaseLine: "", Seed: uint64(0), Digest: ""}, false)
+	}
+	let tail = strings.TrimPrefix(rest[idx+marker.Len():rest.Len()], " ")
+	if tail != "" && (!strings.HasPrefix(tail, "(") || !strings.HasSuffix(tail, ")")) {
+		return (ShadowRefutation{LawKey: "", CaseLine: "", Seed: uint64(0), Digest: ""}, false)
+	}
+	(ShadowRefutation{LawKey: lawKey, CaseLine: tail, Seed: uint64(0), Digest: ""}, true)
+}
+
+// RecordShadowRefutations merges parsed shadow refutations into an existing CorpusTable.
+func RecordShadowRefutations(corpus CorpusTable, refs []ShadowRefutation) CorpusTable {
+	let mut out = corpus
+	for r in refs {
+		AddCorpusCase(&out, r.LawKey, r.CaseLine)
+	}
+	out
+}
+
+// LicenceStatus classifies a rewrite law ledger outcome for tooling advice.
+type LicenceStatus =
+	| LicenceValidated{By string}
+	| LicenceProved{By string}
+	| LicenceSkipped{Reason string}
+	| LicenceRefuted{Reason string, CaseLine string}
+	| LicenceMissing{}
+
+// LicenceAdvice describes one rewrite law in scope lacking current proved/validated licence evidence.
+type LicenceAdvice {
+	LawKey  string,
+	Status  string,
+	Message string,
+	FixHint string,
+}
+
+// AdviseLicences checks a list of required top-level rewrite laws against tbl and returns deterministic advice rows.
+func AdviseLicences(requiredLaws []string, tbl LedgerTable) []LicenceAdvice {
+	let mut out = []LicenceAdvice{}
+	for lawKey in slices.Sort(slices.Clone(requiredLaws)) {
+		match tbl.ByKey.Get(lawKey) {
+		case option.None:
+			out = out.Append(LicenceAdvice{
+				LawKey:  lawKey,
+				Status:  "missing",
+				Message: "law " + lawKey + " has no current entry in ergo.laws",
+				FixHint: "run ergo test to validate licence or ergo laws update",
+			})
+		case option.Some[uint32] as id:
+			let v = tbl.Verdict[int(id.Value)]
+			if v == "refuted" {
+				out = out.Append(LicenceAdvice{
+					LawKey:  lawKey,
+					Status:  "refuted",
+					Message: "law " + lawKey + " is refuted in ergo.laws",
+					FixHint: "inspect failing case in ergo.cases and fix law or provider",
+				})
+			} else if v == "skipped" || v == "tested" {
+				out = out.Append(LicenceAdvice{
+					LawKey:  lawKey,
+					Status:  v,
+					Message: "law " + lawKey + " is " + v + " and cannot license a rewrite",
+					FixHint: "ensure parameters have class tables and remove effectful calls",
+				})
+			}
+		}
+	}
+	out
+}
+
+// MatchesForeignBuildTag checks GOOS/GOARCH Go filename suffixes (_linux.go, _amd64.go, _linux_amd64.go, etc.).
+func MatchesForeignBuildTag(fileName string, tag ForeignBuildTag) bool {
+	if !strings.HasSuffix(fileName, ".go") || strings.HasSuffix(fileName, "_test.go") {
+		return false
+	}
+	let stem = strings.TrimSuffix(fileName, ".go")
+	let segs = strings.Split(stem, "_")
+	if segs.Len() <= 1 {
+		return true
+	}
+	let last = segs[segs.Len()-1]
+	let prev = if segs.Len() >= 2 { segs[segs.Len()-2] } else { "" }
+	let knownArch = isKnownGoArch(last)
+	let knownOS = isKnownGoOS(last)
+	if knownArch && tag.GoArch != "" {
+		if last != tag.GoArch {
+			return false
+		}
+		if isKnownGoOS(prev) && tag.GoOS != "" && prev != tag.GoOS {
+			return false
+		}
+		return true
+	}
+	if knownOS && tag.GoOS != "" {
+		return last == tag.GoOS
+	}
+	true
+}
+
+func isKnownGoOS(s string) bool {
+	s == "linux" || s == "darwin" || s == "windows" || s == "freebsd" || s == "openbsd" || s == "netbsd" || s == "android" || s == "js" || s == "wasip1"
+}
+
+func isKnownGoArch(s string) bool {
+	s == "amd64" || s == "arm64" || s == "386" || s == "arm" || s == "riscv64" || s == "ppc64le" || s == "s390x" || s == "wasm"
+}
+
+// ComputeForeignKeys produces sorted ForeignKeyEntry hashes for matching Go source files.
+func ComputeForeignKeys(entries []front.ProgramTextEntry, tag ForeignBuildTag) []ForeignKeyEntry {
+	let mut out = []ForeignKeyEntry{}
+	for e in entries {
+		if !MatchesForeignBuildTag(e.Rel, tag) {
+			continue
+		}
+		out = out.Append(ForeignKeyEntry{
+			Path:   e.Rel,
+			Digest: "h1:" + hex.Encode(sha256.Sum(e.Source)),
+		})
+	}
+	slices.SortFunc(out, func(a ForeignKeyEntry, b ForeignKeyEntry) int {
+		cmp.Compare(a.Path, b.Path)
+	})
+}
+
+// LedgerKeyIsUniqueForDistinctFields verifies distinct law/provider/instance/build produce distinct keys.
+law LedgerKeyIsUniqueForDistinctFields(lawName string, p1 string, p2 string) {
+	if p1 == p2 || p1 == "" || p2 == "" || strings.Contains(p1, " ") || strings.Contains(p2, " ") {
+		return true
+	}
+	LedgerKey(lawName, p1, "", "") != LedgerKey(lawName, p2, "", "")
+}
+
+// CorpusRoundTrips verifies formatting and parsing a populated CorpusTable preserves all cases.
+law CorpusRoundTrips(k string, c1 string, c2 string) {
+	let key = strings.TrimSpace(k)
+	let v1 = strings.TrimSpace(c1)
+	let v2 = strings.TrimSpace(c2)
+	if key == "" || v1 == "" || v2 == "" || strings.HasPrefix(key, "#") || strings.Contains(key, "\n") || strings.Contains(v1, "\n") || strings.Contains(v2, "\n") {
+		return true
+	}
+	let mut c = NewCorpusTable()
+	AddCorpusCase(&c, key, v1)
+	AddCorpusCase(&c, key, v2)
+	let formatted = FormatCorpus(c)
+	let parsed = ParseCorpus(formatted)
+	let got = CorpusCasesFor(parsed, key)
+	if v1 == v2 {
+		got.Len() == 1 && got[0] == v1
+	} else {
+		got.Len() == 2 && got[0] == v1 && got[1] == v2
+	}
+}
+
+test LawLedgerParseAdviceCorpusShadowAndForeign {
+	let sample = StdLedgerHeader + "fact go bytes.Contains reads b validated by guard with go1.27.4 h1:abc=\nlaw strings.TrimSpaceIsIdempotent validated by eval with go1.27.4 h1:def=\nlaw json.Text.SepAfterSet for json.text at (true) proved by native with go1.27.4 h1:ghi=\n"
+	let (tbl, errs) = ParseLawLedger(sample)
+	assert errs.Len() == 0
+	assert tbl.Law.Len() == 3
+	let key1 = LedgerKey("strings.TrimSpaceIsIdempotent", "", "", "")
+	assert tbl.ByKey.Get(key1) != option.None
+	let key2 = LedgerKey("json.Text.SepAfterSet", "json.text", "(true)", "")
+	assert tbl.ByKey.Get(key2) != option.None
+	let adv = AdviseLicences([]string{"strings.TrimSpaceIsIdempotent", "missing.Law"}, tbl)
+	assert adv.Len() == 1 && adv[0].LawKey == "missing.Law" && adv[0].Status == "missing"
+
+	let (sr, ok) = ParseShadowLine(ShadowRefutedPrefix + "law.ReverseInvolution refuted ([1, 2])\n")
+	assert ok && sr.LawKey == "law.ReverseInvolution" && sr.CaseLine == "([1, 2])"
+	let (bare, bareOK) = ParseShadowLine(ShadowRefutedPrefix + "law.ReverseInvolution refuted")
+	assert bareOK && bare.LawKey == "law.ReverseInvolution" && bare.CaseLine == ""
+	let (_, badShadowOK) = ParseShadowLine(ShadowRefutedPrefix + "law.ReverseInvolution refuted badtail")
+	assert !badShadowOK
+	let mut corp = NewCorpusTable()
+	corp = RecordShadowRefutations(corp, []ShadowRefutation{sr})
+	let formatted = FormatCorpus(corp)
+	assert strings.Contains(formatted, "law.ReverseInvolution\n\t([1, 2])\n")
+
+	let tag = ForeignBuildTag{GoOS: "linux", GoArch: "amd64"}
+	let fks = ComputeForeignKeys([]front.ProgramTextEntry{
+		front.ProgramTextEntry{Rel: "fast_darwin.go", Source: "package p"},
+		front.ProgramTextEntry{Rel: "fast_arm64.go", Source: "package p"},
+		front.ProgramTextEntry{Rel: "fast_linux_amd64.go", Source: "package p"},
+		front.ProgramTextEntry{Rel: "common_test.go", Source: "package p"},
+		front.ProgramTextEntry{Rel: "common.go", Source: "package p"},
+	}, tag)
+	assert fks.Len() == 2 && fks[0].Path == "common.go" && fks[1].Path == "fast_linux_amd64.go"
+}

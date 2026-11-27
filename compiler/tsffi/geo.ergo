@@ -1,0 +1,25 @@
+// GeoContract is the contract of the geo package of examples/tsffi, written by hand until the bridge reads it from the checked package summary.
+func GeoContract() Contract {
+	let mut c = NewContract("geo")
+	let meters = AddNominal(&c, "Meters", Float64ID, "Meters is a length in meters.")
+	let point = AddRecord(&c, "Point", []FieldSpec{FieldSpec{Name: "X", Type: meters}, FieldSpec{Name: "Y", Type: meters}}, "Point is a position in the plane.")
+	let circle = AddRecord(&c, "Circle", []FieldSpec{FieldSpec{Name: "Center", Type: point}, FieldSpec{Name: "Radius", Type: meters}}, "")
+	let points = AddSlice(&c, point)
+	let label = AddOption(&c, StringID)
+	let polygon = AddRecord(&c, "Polygon", []FieldSpec{FieldSpec{Name: "Points", Type: points}, FieldSpec{Name: "Label", Type: label}}, "")
+	let shape = AddUnion(&c, "Shape", []uint32{circle, polygon}, "Shape is a closed union of the shapes geo measures.")
+	let degenerate = AddRecord(&c, "Degenerate", []FieldSpec{FieldSpec{Name: "Points", Type: Int64ID}}, "Degenerate is a polygon of fewer than three points.")
+	let negative = AddRecord(&c, "NegativeRadius", []FieldSpec{FieldSpec{Name: "Radius", Type: meters}}, "")
+	let somePoint = AddOption(&c, point)
+	let _ = AddFunc(&c, FuncSpec{Name: "Area", Params: []ParamSpec{ParamSpec{Name: "s", Type: shape, Mut: false}}, Result: meters, Fails: []uint32{degenerate, negative}, Doc: "Area is the area of s."})
+	let _ = AddFunc(&c, FuncSpec{Name: "Centroid", Params: []ParamSpec{ParamSpec{Name: "points", Type: points, Mut: false}}, Result: somePoint, Fails: []uint32{}, Doc: "Centroid is the mean of points, or none when there are none."})
+	let _ = AddFunc(&c, FuncSpec{Name: "Scale", Params: []ParamSpec{ParamSpec{Name: "points", Type: points, Mut: true}, ParamSpec{Name: "by", Type: Float64ID, Mut: false}}, Result: VoidID, Fails: []uint32{}, Doc: ""})
+	let _ = AddFunc(&c, FuncSpec{Name: "Checksum", Params: []ParamSpec{ParamSpec{Name: "data", Type: BytesID, Mut: false}}, Result: Uint64ID, Fails: []uint32{}, Doc: ""})
+	c
+}
+
+// GeoDeclarations is the .d.ts text of the geo contract: the text examples/tsffi/testdata/geo.d.ts holds.
+func GeoDeclarations() string fails SpecFailure {
+	let k = try Validate(GeoContract())
+	try EmitDTS(k)
+}

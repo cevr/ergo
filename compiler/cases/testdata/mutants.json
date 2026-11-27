@@ -1,0 +1,45 @@
+{
+  "about": "compiler/cases: unified line diff, directory case validation, memory-limit OOM/span-queue detection, and .cases tape ledger deduplication.",
+  "mutants": [
+    {
+      "name": "selfhost-testplan-cases-diff-tie-order",
+      "origin": "SELFHOST-TESTPLAN-LAWFIX",
+      "file": "compiler/cases/diff.ergo",
+      "decl": "lineOps",
+      "from": "\t\t} else if bi == nb || (ai < na && common[(ai+1)*stride+bi] >= common[ai*stride+bi+1]) {\n",
+      "to": "\t\t} else if bi == nb || (ai < na && common[(ai+1)*stride+bi] > common[ai*stride+bi+1]) {\n",
+      "rule": "Equal-length LCS branches emit deletions (-) before insertions (+).",
+      "killers": ["compiler/cases:DiffEdgeCasesTest", "internal/selfhostcheck:TestCompilerTestplanAgrees"]
+    },
+    {
+      "name": "selfhost-testplan-cases-status-overflow",
+      "origin": "SELFHOST-TESTPLAN-LAWFIX",
+      "file": "compiler/cases/runner.ergo",
+      "decl": "LoadCaseDir",
+      "from": "\t\tif !valid || status < 0 || status > 255 || strconv.Itoa(status) != text {\n",
+      "to": "\t\tif !valid || status < 0 || strconv.Itoa(status) != text {\n",
+      "rule": "expected.status rejects exit status integers greater than 255.",
+      "killers": ["compiler/cases:LoadDirValidatesLayoutTest", "internal/selfhostcheck:TestCompilerTestplanAgrees"]
+    },
+    {
+      "name": "selfhost-testplan-cases-ledger-dedup",
+      "origin": "SELFHOST-TESTPLAN-LAWFIX",
+      "file": "compiler/cases/ledger.ergo",
+      "decl": "AddProperty",
+      "from": "\t\tif store.PropKeys[i] == key && store.PropDigests[i] == digest && tapesEqual(*store, i, draws) {\n",
+      "to": "\t\tif store.PropKeys[i] == key && store.PropDigests[i] == digest && false {\n",
+      "rule": "AddProperty deduplicates entries sharing identical key, digest, and draw tape.",
+      "killers": ["compiler/cases:CaseStoreParseFormatFilterPruneTest"]
+    },
+    {
+      "name": "selfhost-testplan-cases-limit-spanqueue",
+      "origin": "SELFHOST-TESTPLAN-LAWFIX",
+      "file": "compiler/cases/runner.ergo",
+      "decl": "CauseOf",
+      "from": "\t\t\tif strings.HasPrefix(line, \"PC=\") && slices.Contains(strings.Fields(line), \"addr=0x0\") {\n",
+      "to": "\t\t\tif false && strings.HasPrefix(line, \"PC=\") && slices.Contains(strings.Fields(line), \"addr=0x0\") {\n",
+      "rule": "CauseOf identifies Go span-queue SIGSEGV reports at addr=0x0 as QueueFault memory limits.",
+      "killers": ["compiler/cases:CauseOfDetectsOOMTest", "internal/selfhostcheck:TestCompilerTestplanAgrees"]
+    }
+  ]
+}

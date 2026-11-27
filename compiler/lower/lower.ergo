@@ -107,10 +107,11 @@ type fnb {
 type localBinds {
 	params []dense.ID[store.PNode],
 	locals []int,
+	types  []dense.Opt[store.TKey],
 }
 
 func emptyLocalBinds() localBinds {
-	localBinds{params: []dense.ID[store.PNode]{}, locals: []int{}}
+	localBinds{params: []dense.ID[store.PNode]{}, locals: []int{}, types: []dense.Opt[store.TKey]{}}
 }
 
 // Package builds the IR of every function of the checked package k; paths
@@ -252,11 +253,134 @@ func structDecl(st fnb, name string) bool {
 	structDeclIn(st.k, st.s, name)
 }
 
+func genericStructDecl(st fnb, name string) bool {
+	genericStructDeclIn(st.k, st.s, name)
+}
+
 // The method names Go's types may answer to (lower's hostProtocols): a
 // function of one of these names on a record takes another name.
 let hostProtocols = []string{"Error", "String", "GoString", "As", "Format", "GobDecode", "GobEncode", "Is", "MarshalJSON", "MarshalXML", "ReadByte", "ReadFrom", "ReadRune", "Scan", "Seek", "UnmarshalJSON", "UnmarshalXML", "UnreadByte", "UnreadRune", "Unwrap"}
 
+func genericConstraintList(st fnb, file int, tpOpt dense.Opt[syntax.Node]) option.Option[[]string] {
+	let p = st.k.Parsed[file]
+	let tpNode = match dense.Unpack(tpOpt) {
+	case option.Some{Value: x}:
+		x
+	case option.None:
+		return option.None
+	}
+	let fl = match syntax.ViewOf(p.Tree, tpNode) {
+	case syntax.FieldList as list:
+		list
+	case _:
+		return option.None
+	}
+	let at = fnb{..st, file: file, p: p}
+	let mut out = []string{}
+	for i in 0..syntax.Len(fl.List) {
+		let fld = match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, fl.List, i)) {
+		case syntax.Field as f:
+			f
+		case _:
+			return option.None
+		}
+		let c = match dense.Unpack(fld.Type) {
+		case option.Some{Value: ct}:
+			let cname = nameText(p, ct)
+			if !outside(at, ct) || (cname != "any" && cname != "comparable" && cname != "ordered") {
+				return option.None
+			}
+			cname
+		case option.None:
+			"any"
+		}
+		let n = syntax.Len(fld.Names)
+		if n == 0 {
+			return option.None
+		}
+		for _ in 0..n {
+			out = out.Append(c)
+		}
+	}
+	option.Some{Value: out}
+}
+
+func genericMethodInfo(st fnb, t dense.ID[store.TKey]) option.Option[(string, []expr.Field)] {
+	if store.KindOfType(st.s, t) != store.KInstance {
+		return option.None
+	}
+	let o = store.OriginOfType(st.s, t)
+	if int(o.Import) != 0 {
+		return option.None
+	}
+	let recName = store.DeclText(st.s, int(o.Decl))
+	if !genericStructDecl(st, recName) || runtimeRecordType(st, recName) != "" {
+		return option.None
+	}
+	let args = store.OperandsOf(st.s, t)
+	if args.Len() != st.generic.Binders.Len() {
+		return option.None
+	}
+	for j, a in args {
+		if store.KindOfType(st.s, a) != store.KParam || store.ArgOf(st.s, a) != st.generic.Binders[j].Index {
+			return option.None
+		}
+	}
+	let fdNode = match dense.Unpack(st.generic.Decl) {
+	case option.Some{Value: x}:
+		x
+	case option.None:
+		return option.None
+	}
+	let fdTree = st.k.Parsed[st.generic.File].Tree
+	let fnTp = match syntax.ViewOf(fdTree, fdNode) {
+	case syntax.FuncDecl as fd:
+		fd.TypeParams
+	case _:
+		return option.None
+	}
+	let fnCons = match genericConstraintList(st, st.generic.File, fnTp) {
+	case option.Some{Value: cs}:
+		cs
+	case option.None:
+		return option.None
+	}
+	let (tdFile, tdNode, ok) = typeDeclNodeIn(st.k, st.s, recName)
+	if !ok {
+		return option.None
+	}
+	let tdTp = match syntax.ViewOf(st.k.Parsed[tdFile].Tree, tdNode) {
+	case syntax.TypeDecl as td:
+		td.TypeParams
+	case _:
+		return option.None
+	}
+	let recCons = match genericConstraintList(st, tdFile, tdTp) {
+	case option.Some{Value: cs}:
+		cs
+	case option.None:
+		return option.None
+	}
+	if recCons.Len() != fnCons.Len() || recCons.Len() != st.generic.Binders.Len() {
+		return option.None
+	}
+	for j in 0..recCons.Len() {
+		if recCons[j] != fnCons[j] {
+			return option.None
+		}
+	}
+	for rec in st.k.Recs {
+		if rec.Name == recName && !rec.Op && rec.Params.Len() == st.generic.Binders.Len() {
+			return option.Some{Value: (recName, rec.Fields)}
+		}
+	}
+	option.None
+}
+
 func recordMethodInfo(st fnb, t dense.ID[store.TKey]) option.Option[(string, []expr.Field)] {
+	if hasGenericBinders(st.generic) {
+		return genericMethodInfo(st, t)
+	}
 	let r = ordinaryRecord(st, t)
 	if r >= 0 {
 		return option.Some{Value: (st.k.Recs[r].Name, st.k.Recs[r].Fields)}
@@ -296,9 +420,6 @@ func isRecordReceiver(st fnb, t dense.ID[store.TKey]) bool {
 // when first is an ordinary or union-variant record T and no field of T
 // is spelled name; else name. It stops at a name Go's protocols or keywords hold.
 func goName(st fnb, name string, first option.Option[dense.ID[store.TKey]]) string fails Unported {
-	if hasGenericBinders(st.generic) {
-		return try declName(st, name)
-	}
 	let t = match first {
 	case option.Some[dense.ID[store.TKey]] as f:
 		f.Value
@@ -333,11 +454,31 @@ func goName(st fnb, name string, first option.Option[dense.ID[store.TKey]]) stri
 // package alone. A base Go reserves, a fixed generated name (rule 4) or
 // a prelude declaration (rule 5) holds takes base_N in the package's own
 // numbering, which the slice does not port: it stops.
+func preludeCount(st fnb, base string) int {
+	let mut n = 0
+	for p in st.prelude {
+		if p == base {
+			n += 1
+		}
+	}
+	n
+}
+
+let leafExtraNames = []string{"ergonet", "ergosql"}
+
 func declName(st fnb, base string) string fails Unported {
-	if goReserved(base) || has(fixedNames, base) || has(st.prelude, base) || declCount(st, base) > 1 {
+	if declCount(st, base) > 1 {
 		return stop("declaration name taken (name_N)")
 	}
-	if st.alias == "" { base } else { st.alias + "__" + base }
+	let mut resolved = base
+	if goReserved(base) || has(fixedNames, base) || has(st.prelude, base) || has(leafExtraNames, base) {
+		let cand = base + "_1"
+		if st.alias == "" || has(leafExtraNames, base) || (has(st.prelude, base) && preludeCount(st, base) != 1) || pkgDecl(st, cand) || goReserved(cand) || has(fixedNames, cand) || has(st.prelude, cand) || has(leafExtraNames, cand) {
+			return stop("declaration name taken (name_N)")
+		}
+		resolved = cand
+	}
+	if st.alias == "" { base } else { st.alias + "__" + resolved }
 }
 
 // pkgAlias spells an import path in a joined name (lower's pkgAlias): one
@@ -583,10 +724,7 @@ func function(st0 fnb, b mut ir.Builder, f expr.Fn, path string) bool fails Unpo
 		sig = "result: " + typeCause(stF, ops[n])
 	}
 	let unit = !uses && isUnit(stF, ops[n])
-	if hasGenericBinders(stF.generic) && unit {
-		return stop("generic: unit result")
-	}
-	let borrowUnit = unit && controlUnitAdmitted(stF, f, body)
+	let borrowUnit = unit && !hasGenericBinders(stF.generic) && controlUnitAdmitted(stF, f, body)
 	if unit {
 		sig = ""
 	}
@@ -649,7 +787,7 @@ func function(st0 fnb, b mut ir.Builder, f expr.Fn, path string) bool fails Unpo
 }
 
 // aLet is a let the slice builds: `let name = value` of an admitted type.
-type aLet { tok int, at dense.ID[syntax.Node], name string, typ string, value dense.ID[syntax.Node], local int, nonScalar bool }
+type aLet { tok int, at dense.ID[syntax.Node], name string, typ string, vt dense.ID[store.TKey], mutSlice bool, value dense.ID[syntax.Node], local int, nonScalar bool }
 
 func admittedLetType(st fnb, vt dense.ID[store.TKey], mutable bool, hasWrittenType bool) string {
 	let basic = scalarBasicGo(st, vt)
@@ -706,7 +844,12 @@ func letOf(st fnb, binds localBinds, s dense.ID[syntax.Node], local int) (aLet, 
 	let vt = try typeOf(st, value, "let value")
 	let mutable = vd.Mut >= 0
 	let hasWritten = dense.Unpack(spec.Type) != option.None
-	let gt = admittedLetType(st, vt, mutable, hasWritten)
+	let mut gt = admittedLetType(st, vt, mutable, hasWritten)
+	let mut mutSlice = false
+	if gt == "" && mutable && !hasWritten && admittedMutSliceLit(st, vt, value) {
+		gt = shapeGo(st, vt)
+		mutSlice = true
+	}
 	if gt == "" {
 		if !mutable && hasWritten && shapeGo(st, vt) != "" {
 			return stop("let with explicit type annotation")
@@ -716,7 +859,7 @@ func letOf(st fnb, binds localBinds, s dense.ID[syntax.Node], local int) (aLet, 
 	if syntax.KindOf(p.Tree, unparen(st, value)) != syntax.KIfStmt {
 		try check(st, binds, value)
 	}
-	(aLet{tok: vd.Var, at: at, name: name, typ: gt, value: value, local: local, nonScalar: mutable && scalarBasicGo(st, vt) == ""}, mutable)
+	(aLet{tok: vd.Var, at: at, name: name, typ: gt, vt: vt, mutSlice: mutSlice, value: value, local: local, nonScalar: mutable && scalarBasicGo(st, vt) == ""}, mutable)
 }
 
 // aCall is a call the slice builds: the callee's Go name, whether it is
@@ -1081,7 +1224,29 @@ func callAdmitsType(st fnb, t dense.ID[store.TKey]) bool {
 	if shapeGo(st, t) == "" {
 		return false
 	}
-	!isUnionType(st, t) || isAdmittedFlatUnion(st, t)
+	!isUnionType(st, t) || isAdmittedUnion(st, t)
+}
+
+func isAdmittedUnion(st fnb, t dense.ID[store.TKey]) bool {
+	if isAdmittedFlatUnion(st, t) {
+		return true
+	}
+	if st.cache.active && st.cache.unionEnv.hasWireForm {
+		return false
+	}
+	match unionDescriptor(st, t) {
+	case option.Some{Value: shape}:
+		match shape.layout {
+		case UnionFlat:
+			!st.cache.active || st.cache.unionEnv.ready
+		case UnionSealed:
+			!holdsValue(st, t)
+		case UnionUnproved:
+			false
+		}
+	case option.None:
+		false
+	}
 }
 
 func isUnionType(st fnb, t dense.ID[store.TKey]) bool {
@@ -1137,7 +1302,7 @@ func isAdmittedFlatUnion(st fnb, t dense.ID[store.TKey]) bool {
 		}
 		return false
 	}
-	if st.cache.active && (!st.cache.unionEnv.ready || st.cache.unionEnv.hasExt) {
+	if st.cache.active && (!st.cache.unionEnv.ready || st.cache.unionEnv.hasWireForm) {
 		return false
 	}
 	match unionNamed(st, t) {
@@ -1363,6 +1528,14 @@ func outside(st fnb, x dense.ID[syntax.Node]) bool {
 // check stops at the first form of x the slice does not lower, before a
 // row is written.
 func check(st fnb, binds localBinds, x dense.ID[syntax.Node]) fails Unported {
+	try checkWith(st, binds, x, false)
+}
+
+func checkReadOnly(st fnb, binds localBinds, x dense.ID[syntax.Node]) fails Unported {
+	try checkWith(st, binds, x, true)
+}
+
+func checkWith(st fnb, binds localBinds, x dense.ID[syntax.Node], readOnly bool) fails Unported {
 	let p = st.p
 	if isConst(st, x) {
 		let t = try typeOf(st, x, "constant")
@@ -1377,6 +1550,9 @@ func check(st fnb, binds localBinds, x dense.ID[syntax.Node]) fails Unported {
 	match syntax.ViewOf(p.Tree, x) {
 	case syntax.Name:
 		if bareEmptyRecord(st, x) != "" {
+			return
+		}
+		if pkgGlobalName(st, binds, x, readOnly) != option.None {
 			return
 		}
 		let t = try typeOf(st, x, "Ident")
@@ -1412,7 +1588,7 @@ func check(st fnb, binds localBinds, x dense.ID[syntax.Node]) fails Unported {
 	case syntax.InterpolatedString as is:
 		try interpCheck(st, binds, x, is)
 	case syntax.ParenExpr as pe:
-		try check(st, binds, pe.X)
+		try checkWith(st, binds, pe.X, readOnly)
 	case syntax.UnaryExpr as u:
 		let ut = try typeOf(st, x, "UnaryExpr")
 		let op = syntax.TokText(p, u.Op)
@@ -1446,7 +1622,19 @@ func check(st fnb, binds localBinds, x dense.ID[syntax.Node]) fails Unported {
 		}
 		match try builtinOf(st, x, ce) {
 		case option.Some[aBuiltin] as bi:
-			try check(st, binds, bi.Value.arg)
+			if bi.Value.conv {
+				try check(st, binds, bi.Value.arg)
+			} else {
+				try checkReadOnly(st, binds, bi.Value.arg)
+			}
+			return
+		case option.None:
+		}
+		match pcallOf(st, binds, x, ce) {
+		case option.Some[aPCall] as pc:
+			for a in pc.Value.args {
+				try checkPCallArg(st, binds, a)
+			}
 			return
 		case option.None:
 		}
@@ -1499,6 +1687,11 @@ func value(st fnb, binds localBinds, b mut ir.Builder, x dense.ID[syntax.Node]) 
 		let zero = bareEmptyRecord(st, x)
 		if zero != "" {
 			return try ir.Row(b, ir.KindCode(ir.TExpr, "zero"), at, []uint32{ir.Text(b, zero)})
+		}
+		match pkgGlobalName(st, binds, x, true) {
+		case option.Some{Value: gname}:
+			return try ir.Row(b, ir.KindCode(ir.TExpr, "global"), at, []uint32{ir.Text(b, gname)})
+		case option.None:
 		}
 		let i = try paramLocal(st, binds, x)
 		try ir.Row(b, ir.KindCode(ir.TExpr, "local"), at, []uint32{uint32(i)})
@@ -1573,6 +1766,15 @@ func value(st fnb, binds localBinds, b mut ir.Builder, x dense.ID[syntax.Node]) 
 			return try ir.Row(b, ir.KindCode(ir.TExpr, "len"), at, []uint32{y})
 		case option.None:
 		}
+		match pcallOf(st, binds, x, ce) {
+		case option.Some[aPCall] as pc:
+			let mut pids = []uint32{}
+			for a in pc.Value.args {
+				pids = pids.Append(try emitPCallArg(st, binds, b, a))
+			}
+			return try ir.Row(b, ir.KindCode(ir.TExpr, "pcall"), at, []uint32{ir.Text(b, pc.Value.path), 0, 0, ir.Text(b, pc.Value.name), ir.List(b, pids)})
+		case option.None:
+		}
 		let c = try callee(st, binds, x, ce)
 		let mut ids = []uint32{}
 		for a in c.args {
@@ -1629,39 +1831,62 @@ func constText(st fnb, t dense.ID[store.TKey], v Cv) string fails Unported {
 	}
 }
 
+func foldTypeOr(st fnb, x dense.ID[syntax.Node], fallback option.Option[dense.ID[store.TKey]], what string) dense.ID[store.TKey] fails Unported {
+	match dense.Unpack(dense.SideOf(st.types, bind.PNodeOf(st.k.Ps, st.file, x))) {
+	case option.Some{Value: t}:
+		t
+	case option.None:
+		match fallback {
+		case option.Some{Value: t}:
+			t
+		case option.None:
+			return stop("untyped " + what)
+		}
+	}
+}
+
+func foldArithOp(op string) bool {
+	op == "+" || op == "-" || op == "*" || op == "/" || op == "%" || op == "&" || op == "|" || op == "^" || op == "<<" || op == ">>"
+}
+
 // fold is the constant value of x, which isConst reports, computed as the
 // checker computes it in int64 (an integer type's every value but those of
 // uint, uint64 and uintptr past int64, where it stops); a float folds only
 // as a literal, maybe negated.
 func fold(st fnb, x dense.ID[syntax.Node]) Cv fails Unported {
+	try foldTyped(st, x, option.None)
+}
+
+func foldTyped(st fnb, x dense.ID[syntax.Node], fallback option.Option[dense.ID[store.TKey]]) Cv fails Unported {
 	let p = st.p
 	match syntax.ViewOf(p.Tree, x) {
 	case syntax.BasicLit as bl:
-		let t = try typeOf(st, x, "BasicLit")
+		let t = try foldTypeOr(st, x, fallback, "BasicLit")
 		try literal(st, bl.Tok, t, false)
 	case syntax.Name as nm:
 		let _ = try typeOf(st, x, "Ident")
 		CBool{B: syntax.TokText(p, nm.Tok) == "true"}
 	case syntax.ParenExpr as pe:
-		try fold(st, pe.X)
+		try foldTyped(st, pe.X, fallback)
 	case syntax.UnaryExpr as u:
-		let t = try typeOf(st, x, "UnaryExpr")
+		let t = try foldTypeOr(st, x, fallback, "UnaryExpr")
 		let op = syntax.TokText(p, u.Op)
 		match syntax.ViewOf(p.Tree, u.X) {
 		case syntax.BasicLit as bl:
 			if op == "-" {
-				let lt = try typeOf(st, u.X, "BasicLit")
+				let lt = try foldTypeOr(st, u.X, option.Some{Value: t}, "BasicLit")
 				return try literal(st, bl.Tok, lt, true)
 			}
 		case _:
 		}
-		let v = try fold(st, u.X)
+		let v = try foldTyped(st, u.X, option.Some{Value: t})
 		try unary(st, op, t, v)
 	case syntax.BinaryExpr as be:
-		let _ = try typeOf(st, x, "BinaryExpr")
+		let t = try foldTypeOr(st, x, fallback, "BinaryExpr")
 		let op = syntax.TokText(p, be.Op)
-		let l = try fold(st, be.X)
-		let r = try fold(st, be.Y)
+		let childFallback = if foldArithOp(op) { option.Some{Value: t} } else { option.None }
+		let l = try foldTyped(st, be.X, childFallback)
+		let r = try foldTyped(st, be.Y, childFallback)
 		try binary(op, l, r)
 	case _:
 		return stop("constant expression form")

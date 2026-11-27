@@ -1,0 +1,1193 @@
+import compiler/check/bind
+import compiler/check/expr
+import compiler/check/store
+import compiler/ir
+import compiler/syntax
+import dense
+import option
+import strconv
+import strings
+
+type aPCallArg =
+	| PCallExpr{Node dense.ID[syntax.Node]}
+	| PCallIntLit{Pos int, Text string}
+
+type aPCall {
+	path string,
+	name string,
+	args []aPCallArg,
+}
+
+func unquoteImportPath(raw string) string {
+	strings.TrimRight(strings.TrimLeft(raw, "\""), "\"")
+}
+
+func importSpecLocalName(p syntax.Parsed, is syntax.ImportSpec) (string, string, bool) {
+	let raw = syntax.SourceOf(p)[syntax.NodePos(p, is.Path):syntax.NodeEnd(p, is.Path)]
+	let path = unquoteImportPath(raw)
+	if path == "" {
+		return ("", "", false)
+	}
+	let isGo = match dense.Unpack(is.Name) {
+	case option.Some{Value: nm}:
+		nameText(p, nm) == "go" || (is.NamePos >= 0 && syntax.TokKind(p, is.NamePos) == syntax.Go)
+	case option.None:
+		is.NamePos >= 0 && syntax.TokKind(p, is.NamePos) == syntax.Go
+	}
+	if !isGo {
+		return ("", "", false)
+	}
+	let slash = strings.LastIndex(path, "/")
+	let mut local = if slash >= 0 { path[slash+1 : path.Len()] } else { path }
+	match dense.Unpack(is.Name) {
+	case option.Some{Value: nm}:
+		let alias = nameText(p, nm)
+		if alias != "go" {
+			local = alias
+		}
+	case option.None:
+	}
+	(path, local, true)
+}
+
+func goImportSpecPath(st fnb, x dense.ID[syntax.Node]) string {
+	let target = unparen(st, x)
+	if syntax.KindOf(st.p.Tree, target) != syntax.KIdent {
+		return ""
+	}
+	match bind.ResolutionOf(st.k.U, st.k.Ps, bind.PNodeOf(st.k.Ps, st.file, target)) {
+	case bind.Outside:
+	case _:
+		return ""
+	}
+	let want = nameText(st.p, target)
+	if want == "" {
+		return ""
+	}
+	let decls = syntax.FileOf(st.p.Tree, syntax.Root(st.p.Tree)).Decls
+	for i in 0..syntax.Len(decls) {
+		match syntax.ViewOf(st.p.Tree, syntax.Item(st.p.Tree, decls, i)) {
+		case syntax.ImportDecl as id:
+			match syntax.ViewOf(st.p.Tree, id.Spec) {
+			case syntax.ImportSpec as is:
+				let (path, local, ok) = importSpecLocalName(st.p, is)
+				if ok && local == want {
+					return path
+				}
+			case _:
+			}
+		case _:
+		}
+	}
+	""
+}
+
+func bindTypeOf(st fnb, binds localBinds, x dense.ID[syntax.Node]) option.Option[dense.ID[store.TKey]] {
+	let node = unparen(st, x)
+	match dense.Unpack(dense.SideOf(st.types, bind.PNodeOf(st.k.Ps, st.file, node))) {
+	case option.Some{Value: t}:
+		return option.Some{Value: t}
+	case option.None:
+	}
+	if syntax.KindOf(st.p.Tree, node) != syntax.KIdent {
+		return option.None
+	}
+	match bind.ResolutionOf(st.k.U, st.k.Ps, bind.PNodeOf(st.k.Ps, st.file, node)) {
+	case bind.Declared as d:
+		for i, pat in binds.params {
+			if pat == d.At && i < binds.types.Len() {
+				return dense.Unpack(binds.types[i])
+			}
+		}
+		match dense.Unpack(bind.ParentOf(st.k.Ps, d.At)) {
+		case option.Some{Value: parent}:
+			let (pf, row) = bind.RowOf(st.k.Ps, parent)
+			if pf >= 0 && pf < st.k.Parsed.Len() {
+				let pp = st.k.Parsed[pf]
+				match syntax.ViewOf(pp.Tree, syntax.NodeAt(pp.Tree, row)) {
+				case syntax.VarSpec as vs:
+					match dense.Unpack(vs.Value) {
+					case option.Some{Value: vx}:
+						return dense.Unpack(dense.SideOf(st.types, bind.PNodeOf(st.k.Ps, pf, vx)))
+					case option.None:
+					}
+				case _:
+				}
+			}
+		case option.None:
+		}
+		option.None
+	case _:
+		option.None
+	}
+}
+
+func pureGoScalarSpec(path string, name string) ([]string, string, bool) {
+	if path == "strings" {
+		if name == "HasPrefix" || name == "HasSuffix" || name == "Contains" || name == "EqualFold" || name == "ContainsAny" {
+			return ([]string{"string", "string"}, "bool", true)
+		}
+		if name == "ContainsRune" {
+			return ([]string{"string", "int32"}, "bool", true)
+		}
+		if name == "Index" || name == "LastIndex" || name == "Count" || name == "Compare" || name == "IndexAny" || name == "LastIndexAny" {
+			return ([]string{"string", "string"}, "int", true)
+		}
+		if name == "IndexByte" || name == "LastIndexByte" {
+			return ([]string{"string", "uint8"}, "int", true)
+		}
+		if name == "TrimSpace" || name == "ToLower" || name == "ToUpper" || name == "ToTitle" {
+			return ([]string{"string"}, "string", true)
+		}
+		if name == "TrimPrefix" || name == "TrimSuffix" || name == "TrimLeft" || name == "TrimRight" || name == "Trim" || name == "ToValidUTF8" {
+			return ([]string{"string", "string"}, "string", true)
+		}
+		if name == "Repeat" {
+			return ([]string{"string", "int"}, "string", true)
+		}
+		if name == "ReplaceAll" {
+			return ([]string{"string", "string", "string"}, "string", true)
+		}
+		if name == "Replace" {
+			return ([]string{"string", "string", "string", "int"}, "string", true)
+		}
+		return ([]string{}, "", false)
+	}
+	if path == "strconv" {
+		if name == "Itoa" {
+			return ([]string{"int"}, "string", true)
+		}
+		if name == "FormatInt" {
+			return ([]string{"int64", "int"}, "string", true)
+		}
+		if name == "FormatUint" {
+			return ([]string{"uint64", "int"}, "string", true)
+		}
+		if name == "FormatBool" {
+			return ([]string{"bool"}, "string", true)
+		}
+		if name == "FormatFloat" {
+			return ([]string{"float64", "uint8", "int", "int"}, "string", true)
+		}
+		if name == "Quote" || name == "QuoteToASCII" || name == "QuoteToGraphic" {
+			return ([]string{"string"}, "string", true)
+		}
+		if name == "CanBackquote" {
+			return ([]string{"string"}, "bool", true)
+		}
+		if name == "IsPrint" || name == "IsGraphic" {
+			return ([]string{"int32"}, "bool", true)
+		}
+		return ([]string{}, "", false)
+	}
+	if path == "math" {
+		if name == "Abs" || name == "Ceil" || name == "Floor" || name == "Trunc" || name == "Round" || name == "RoundToEven" || name == "Sqrt" || name == "Cbrt" || name == "Log" || name == "Log2" || name == "Log10" || name == "Log1p" || name == "Exp" || name == "Exp2" || name == "Expm1" || name == "Sin" || name == "Cos" || name == "Tan" || name == "Asin" || name == "Acos" || name == "Atan" || name == "Sinh" || name == "Cosh" || name == "Tanh" || name == "Asinh" || name == "Acosh" || name == "Atanh" || name == "Erf" || name == "Erfc" || name == "Gamma" || name == "Erfinv" || name == "Erfcinv" {
+			return ([]string{"float64"}, "float64", true)
+		}
+		if name == "Pow" || name == "Mod" || name == "Remainder" || name == "Atan2" || name == "Hypot" || name == "Copysign" || name == "Dim" || name == "Max" || name == "Min" || name == "Nextafter" {
+			return ([]string{"float64", "float64"}, "float64", true)
+		}
+		if name == "FMA" {
+			return ([]string{"float64", "float64", "float64"}, "float64", true)
+		}
+		if name == "IsNaN" || name == "Signbit" {
+			return ([]string{"float64"}, "bool", true)
+		}
+		if name == "IsInf" {
+			return ([]string{"float64", "int"}, "bool", true)
+		}
+		if name == "Pow10" {
+			return ([]string{"int"}, "float64", true)
+		}
+		if name == "Ldexp" {
+			return ([]string{"float64", "int"}, "float64", true)
+		}
+		if name == "Float64bits" {
+			return ([]string{"float64"}, "uint64", true)
+		}
+		if name == "Float64frombits" {
+			return ([]string{"uint64"}, "float64", true)
+		}
+		if name == "Float32bits" {
+			return ([]string{"float32"}, "uint32", true)
+		}
+		if name == "Float32frombits" {
+			return ([]string{"uint32"}, "float32", true)
+		}
+		if name == "NaN" {
+			return ([]string{}, "float64", true)
+		}
+		if name == "Inf" {
+			return ([]string{"int"}, "float64", true)
+		}
+		return ([]string{}, "", false)
+	}
+	if path == "math/bits" {
+		if name == "LeadingZeros" || name == "TrailingZeros" || name == "OnesCount" || name == "Len" {
+			return ([]string{"uint"}, "int", true)
+		}
+		if name == "LeadingZeros8" || name == "TrailingZeros8" || name == "OnesCount8" || name == "Len8" {
+			return ([]string{"uint8"}, "int", true)
+		}
+		if name == "LeadingZeros16" || name == "TrailingZeros16" || name == "OnesCount16" || name == "Len16" {
+			return ([]string{"uint16"}, "int", true)
+		}
+		if name == "LeadingZeros32" || name == "TrailingZeros32" || name == "OnesCount32" || name == "Len32" {
+			return ([]string{"uint32"}, "int", true)
+		}
+		if name == "LeadingZeros64" || name == "TrailingZeros64" || name == "OnesCount64" || name == "Len64" {
+			return ([]string{"uint64"}, "int", true)
+		}
+		if name == "RotateLeft" {
+			return ([]string{"uint", "int"}, "uint", true)
+		}
+		if name == "RotateLeft32" {
+			return ([]string{"uint32", "int"}, "uint32", true)
+		}
+		if name == "RotateLeft64" {
+			return ([]string{"uint64", "int"}, "uint64", true)
+		}
+		if name == "Reverse" || name == "ReverseBytes" {
+			return ([]string{"uint"}, "uint", true)
+		}
+		if name == "Reverse32" || name == "ReverseBytes32" {
+			return ([]string{"uint32"}, "uint32", true)
+		}
+		if name == "Reverse64" || name == "ReverseBytes64" {
+			return ([]string{"uint64"}, "uint64", true)
+		}
+		return ([]string{}, "", false)
+	}
+	if path == "unicode" {
+		if name == "IsDigit" || name == "IsLetter" || name == "IsLower" || name == "IsUpper" || name == "IsTitle" || name == "IsSpace" || name == "IsPunct" || name == "IsSymbol" || name == "IsControl" || name == "IsGraphic" || name == "IsPrint" || name == "IsMark" || name == "IsNumber" {
+			return ([]string{"int32"}, "bool", true)
+		}
+		if name == "ToLower" || name == "ToUpper" || name == "ToTitle" {
+			return ([]string{"int32"}, "int32", true)
+		}
+		return ([]string{}, "", false)
+	}
+	if path == "unicode/utf8" {
+		if name == "RuneCountInString" || name == "RuneLen" {
+			if name == "RuneCountInString" {
+				return ([]string{"string"}, "int", true)
+			}
+			return ([]string{"int32"}, "int", true)
+		}
+		if name == "ValidString" || name == "FullRuneInString" {
+			return ([]string{"string"}, "bool", true)
+		}
+		if name == "ValidRune" {
+			return ([]string{"int32"}, "bool", true)
+		}
+		return ([]string{}, "", false)
+	}
+	if path == "path/filepath" {
+		if name == "Base" || name == "Dir" || name == "Ext" || name == "Clean" {
+			return ([]string{"string"}, "string", true)
+		}
+		if name == "IsAbs" || name == "IsLocal" {
+			return ([]string{"string"}, "bool", true)
+		}
+		return ([]string{}, "", false)
+	}
+	([]string{}, "", false)
+}
+
+func externTargetText(k expr.Pkg, f expr.Fn) string {
+	if f.File < 0 || f.File >= k.Parsed.Len() {
+		return ""
+	}
+	let p = k.Parsed[f.File]
+	match syntax.ViewOf(p.Tree, f.Decl) {
+	case syntax.FuncDecl as d:
+		match dense.Unpack(d.Extern) {
+		case option.Some{Value: ex}:
+			let spec = syntax.ExternSpecOf(p.Tree, ex)
+			syntax.SourceOf(p)[syntax.NodePos(p, spec.Target):syntax.NodeEnd(p, spec.Target)]
+		case option.None:
+			""
+		}
+	case _:
+		""
+	}
+}
+
+func fnOwnerTarget(st fnb, f expr.Fn) string {
+	if holdsFn(st.k, f) {
+		return externTargetText(st.k, f)
+	}
+	for d in st.k.Deps {
+		if holdsFn(d.K, f) {
+			return externTargetText(d.K, f)
+		}
+	}
+	""
+}
+
+func goLeafEdgeKind(st fnb, binds localBinds, x dense.ID[syntax.Node], ce syntax.CallExpr) (int, bool) {
+	if dense.Unpack(ce.Trailing) != option.None {
+		return (0, false)
+	}
+	let ix = dense.SideOf(st.callAt, bind.PNodeOf(st.k.Ps, st.file, x))
+	if ix > 0 {
+		let to = st.calls[ix-1]
+		let target = fnOwnerTarget(st, to.Callee)
+		if target == "ergo.local/prototype/runtime/v1.StringsJoin" && !to.Recv && syntax.Len(ce.Args) == 2 {
+			match pureRuntimeArgSlice(st, binds, syntax.Item(st.p.Tree, ce.Args, 0), "string") {
+			case option.Some:
+				match pureBasicArgType(st, binds, syntax.Item(st.p.Tree, ce.Args, 1)) {
+				case option.Some{Value: bt}:
+					if bt == "string" {
+						return (-3, true)
+					}
+				case option.None:
+				}
+			case option.None:
+			}
+			return (0, false)
+		}
+		if target == "ergo.local/prototype/runtime/v1.UTF8String" && !to.Recv && syntax.Len(ce.Args) == 1 {
+			if pureRuntimeArgSlice(st, binds, syntax.Item(st.p.Tree, ce.Args, 0), "uint8") != option.None {
+				return (-3, true)
+			}
+			return (0, false)
+		}
+		if target == "ergo.local/prototype/runtime/v1.StringsSlice" && ((to.Recv && syntax.Len(ce.Args) == 2) || (!to.Recv && syntax.Len(ce.Args) == 3)) {
+			return if pureRuntimeArgsStringsSlice(st, binds, ce, to.Recv) { (if to.Recv { -4 } else { -3 }, true) } else { (0, false) }
+		}
+		if target == "ergo.local/prototype/runtime/v1.UTF8RuneText" && ((to.Recv && syntax.Len(ce.Args) == 0) || (!to.Recv && syntax.Len(ce.Args) == 1)) {
+			let arg = if to.Recv {
+				match syntax.ViewOf(st.p.Tree, ce.Fun) {
+				case syntax.SelectorExpr as se:
+					se.X
+				case _:
+					return (0, false)
+				}
+			} else {
+				syntax.Item(st.p.Tree, ce.Args, 0)
+			}
+			match pureBasicArgType(st, binds, arg) {
+			case option.Some{Value: bt}:
+				if bt == "int32" {
+					return (if to.Recv { -4 } else { -3 }, true)
+				}
+			case option.None:
+			}
+			return (0, false)
+		}
+		return (0, false)
+	}
+	match pcallGoImport(st, binds, ce) {
+	case option.Some:
+		(-3, true)
+	case option.None:
+		(0, false)
+	}
+}
+
+func pureBasicArgType(st fnb, binds localBinds, a dense.ID[syntax.Node]) option.Option[string] {
+	match bindTypeOf(st, binds, a) {
+	case option.Some{Value: t}:
+		let b = basicGo(st, t)
+		if b != "" { option.Some{Value: b} } else { option.None }
+	case option.None:
+		option.None
+	}
+}
+
+func pureRuntimeArgSlice(st fnb, binds localBinds, a dense.ID[syntax.Node], elemBasic string) option.Option[bool] {
+	match bindTypeOf(st, binds, a) {
+	case option.Some{Value: t}:
+		if store.KindOfType(st.s, t) == store.KSlice {
+			let ops = store.OperandsOf(st.s, t)
+			if ops.Len() == 1 && basicGo(st, ops[0]) == elemBasic {
+				return option.Some{Value: true}
+			}
+		}
+		option.None
+	case option.None:
+		option.None
+	}
+}
+
+func pureRuntimeArgsStringsSlice(st fnb, binds localBinds, ce syntax.CallExpr, recv bool) bool {
+	let sNode = if recv {
+		match syntax.ViewOf(st.p.Tree, ce.Fun) {
+		case syntax.SelectorExpr as se:
+			se.X
+		case _:
+			return false
+		}
+	} else {
+		syntax.Item(st.p.Tree, ce.Args, 0)
+	}
+	let iNode = syntax.Item(st.p.Tree, ce.Args, if recv { 0 } else { 1 })
+	let jNode = syntax.Item(st.p.Tree, ce.Args, if recv { 1 } else { 2 })
+	let sb = match pureBasicArgType(st, binds, sNode) {
+	case option.Some{Value: b}:
+		b
+	case option.None:
+		return false
+	}
+	let ib = match pureBasicArgType(st, binds, iNode) {
+	case option.Some{Value: b}:
+		b
+	case option.None:
+		return false
+	}
+	let jb = match pureBasicArgType(st, binds, jNode) {
+	case option.Some{Value: b}:
+		b
+	case option.None:
+		return false
+	}
+	sb == "string" && ib == "int" && jb == "int"
+}
+
+func intLiteralOf(st fnb, node dense.ID[syntax.Node]) option.Option[string] {
+	let n = unparen(st, node)
+	match syntax.ViewOf(st.p.Tree, n) {
+	case syntax.BasicLit as bl:
+		if syntax.TokKind(st.p, bl.Tok) == syntax.Int {
+			let v = strconv.ParseInt(syntax.TokText(st.p, bl.Tok), 0, 64) catch {
+			case _:
+				return option.None
+			}
+			return option.Some{Value: strconv.FormatInt(v, 10)}
+		}
+		option.None
+	case syntax.UnaryExpr as u:
+		if syntax.TokText(st.p, u.Op) == "-" {
+			match syntax.ViewOf(st.p.Tree, unparen(st, u.X)) {
+			case syntax.BasicLit as bl:
+				if syntax.TokKind(st.p, bl.Tok) == syntax.Int {
+					let v = strconv.ParseInt(syntax.TokText(st.p, bl.Tok), 0, 64) catch {
+					case _:
+						return option.None
+					}
+					return option.Some{Value: strconv.FormatInt(-v, 10)}
+				}
+				return option.None
+			case _:
+				return option.None
+			}
+		}
+		option.None
+	case _:
+		option.None
+	}
+}
+
+func pcallGoImport(st fnb, binds localBinds, ce syntax.CallExpr) option.Option[aPCall] {
+	if dense.Unpack(ce.Trailing) != option.None {
+		return option.None
+	}
+	let se = match syntax.ViewOf(st.p.Tree, unparen(st, ce.Fun)) {
+	case syntax.SelectorExpr as s:
+		s
+	case _:
+		return option.None
+	}
+	let goPath = goImportSpecPath(st, se.X)
+	if goPath == "" {
+		return option.None
+	}
+	let fnName = nameText(st.p, se.Sel)
+	let (paramTypes, _, ok) = pureGoScalarSpec(goPath, fnName)
+	if !ok || syntax.Len(ce.Args) != paramTypes.Len() {
+		return option.None
+	}
+	let mut args = []aPCallArg{}
+	for j in 0..paramTypes.Len() {
+		let a = syntax.Item(st.p.Tree, ce.Args, j)
+		let want = paramTypes[j]
+		match bindTypeOf(st, binds, a) {
+		case option.Some{Value: at}:
+			if basicGo(st, at) != want {
+				return option.None
+			}
+			args = args.Append(PCallExpr{Node: a})
+		case option.None:
+			if want != "int" {
+				return option.None
+			}
+			match intLiteralOf(st, a) {
+			case option.Some{Value: v}:
+				args = args.Append(PCallIntLit{Pos: syntax.NodePos(st.p, a), Text: v})
+			case option.None:
+				return option.None
+			}
+		}
+	}
+	option.Some{Value: aPCall{path: goPath, name: fnName, args: args}}
+}
+
+func pcallOf(st fnb, binds localBinds, x dense.ID[syntax.Node], ce syntax.CallExpr) option.Option[aPCall] {
+	if dense.Unpack(ce.Trailing) != option.None {
+		return option.None
+	}
+	let ix = dense.SideOf(st.callAt, bind.PNodeOf(st.k.Ps, st.file, x))
+	if ix == 0 {
+		return pcallGoImport(st, binds, ce)
+	}
+	let to = st.calls[ix-1]
+	let target = fnOwnerTarget(st, to.Callee)
+	if target == "ergo.local/prototype/runtime/v1.StringsJoin" && !to.Recv && syntax.Len(ce.Args) == 2 {
+		let a0 = syntax.Item(st.p.Tree, ce.Args, 0)
+		let a1 = syntax.Item(st.p.Tree, ce.Args, 1)
+		if pureRuntimeArgSlice(st, binds, a0, "string") == option.None {
+			return option.None
+		}
+		match pureBasicArgType(st, binds, a1) {
+		case option.Some{Value: bt}:
+			if bt != "string" {
+				return option.None
+			}
+		case option.None:
+			return option.None
+		}
+		return option.Some{Value: aPCall{path: "ergo.local/prototype/runtime/v1", name: "StringsJoin", args: []aPCallArg{PCallExpr{Node: a0}, PCallExpr{Node: a1}}}}
+	}
+	if target == "ergo.local/prototype/runtime/v1.UTF8String" && !to.Recv && syntax.Len(ce.Args) == 1 {
+		let a0 = syntax.Item(st.p.Tree, ce.Args, 0)
+		if pureRuntimeArgSlice(st, binds, a0, "uint8") == option.None {
+			return option.None
+		}
+		return option.Some{Value: aPCall{path: "ergo.local/prototype/runtime/v1", name: "UTF8String", args: []aPCallArg{PCallExpr{Node: a0}}}}
+	}
+	if target == "ergo.local/prototype/runtime/v1.StringsSlice" && ((to.Recv && syntax.Len(ce.Args) == 2) || (!to.Recv && syntax.Len(ce.Args) == 3)) {
+		if !pureRuntimeArgsStringsSlice(st, binds, ce, to.Recv) {
+			return option.None
+		}
+		let mut args = []aPCallArg{}
+		if to.Recv {
+			match syntax.ViewOf(st.p.Tree, ce.Fun) {
+			case syntax.SelectorExpr as se:
+				args = args.Append(PCallExpr{Node: se.X})
+			case _:
+				return option.None
+			}
+		}
+		for j in 0..syntax.Len(ce.Args) {
+			args = args.Append(PCallExpr{Node: syntax.Item(st.p.Tree, ce.Args, j)})
+		}
+		return option.Some{Value: aPCall{path: "ergo.local/prototype/runtime/v1", name: "StringsSlice", args: args}}
+	}
+	if target == "ergo.local/prototype/runtime/v1.UTF8RuneText" && ((to.Recv && syntax.Len(ce.Args) == 0) || (!to.Recv && syntax.Len(ce.Args) == 1)) {
+		let a0 = if to.Recv {
+			match syntax.ViewOf(st.p.Tree, ce.Fun) {
+			case syntax.SelectorExpr as se:
+				se.X
+			case _:
+				return option.None
+			}
+		} else {
+			syntax.Item(st.p.Tree, ce.Args, 0)
+		}
+		match pureBasicArgType(st, binds, a0) {
+		case option.Some{Value: bt}:
+			if bt != "int32" {
+				return option.None
+			}
+		case option.None:
+			return option.None
+		}
+		return option.Some{Value: aPCall{path: "ergo.local/prototype/runtime/v1", name: "UTF8RuneText", args: []aPCallArg{PCallExpr{Node: a0}}}}
+	}
+	option.None
+}
+
+func checkPCallArg(st fnb, binds localBinds, a aPCallArg) fails Unported {
+	match a {
+	case PCallExpr as e:
+		let node = unparen(st, e.Node)
+		if syntax.KindOf(st.p.Tree, node) == syntax.KIdent && dense.Unpack(dense.SideOf(st.types, bind.PNodeOf(st.k.Ps, st.file, node))) == option.None {
+			let _ = try paramLocal(st, binds, node)
+			return
+		}
+		try check(st, binds, e.Node)
+	case PCallIntLit:
+	}
+}
+
+func observePCallArg(st fnb, binds localBinds, p mut controlPlan, a aPCallArg) fails Unported {
+	match a {
+	case PCallExpr as e:
+		let node = unparen(st, e.Node)
+		if syntax.KindOf(st.p.Tree, node) == syntax.KIdent && dense.Unpack(dense.SideOf(st.types, bind.PNodeOf(st.k.Ps, st.file, node))) == option.None {
+			let slot = try paramLocal(st, binds, node)
+			p.reads = p.reads.Append(slot)
+			return
+		}
+		try controlOperand(st, binds, p, e.Node)
+	case PCallIntLit:
+	}
+}
+
+func emitPCallArg(st fnb, binds localBinds, b mut ir.Builder, a aPCallArg) uint32 fails Unported | ir.Malformed {
+	match a {
+	case PCallExpr as e:
+		try value(st, binds, b, e.Node)
+	case PCallIntLit as lit:
+		try constRow(b, pos(st, lit.Pos), "int", lit.Text)
+	}
+}
+
+func admittedMutSliceLit(st fnb, vt dense.ID[store.TKey], val dense.ID[syntax.Node]) bool {
+	if store.KindOfType(st.s, vt) != store.KSlice || shapeGo(st, vt) == "" {
+		return false
+	}
+	let ops = store.OperandsOf(st.s, vt)
+	if ops.Len() != 1 || holdsValue(st, ops[0]) {
+		return false
+	}
+	let elem = ops[0]
+	match syntax.ViewOf(st.p.Tree, unparen(st, val)) {
+	case syntax.CompositeLit as cl:
+		if dense.Unpack(cl.Type) == option.None || dense.Unpack(cl.Base) != option.None {
+			return false
+		}
+		for i in 0..syntax.Len(cl.Elts) {
+			let e = syntax.Item(st.p.Tree, cl.Elts, i)
+			if syntax.KindOf(st.p.Tree, e) == syntax.KKeyValueExpr {
+				return false
+			}
+			let et = dense.Unpack(dense.SideOf(st.types, bind.PNodeOf(st.k.Ps, st.file, e)))
+			match et {
+			case option.Some{Value: t}:
+				if t != elem {
+					return false
+				}
+			case option.None:
+				return false
+			}
+		}
+		true
+	case _:
+		false
+	}
+}
+
+func nodeTargetsDecl(st fnb, declAt dense.ID[store.PNode], x dense.ID[syntax.Node]) bool {
+	let n = unparen(st, x)
+	if syntax.KindOf(st.p.Tree, n) != syntax.KIdent {
+		return false
+	}
+	match bind.ResolutionOf(st.k.U, st.k.Ps, bind.PNodeOf(st.k.Ps, st.file, n)) {
+	case bind.Declared as d:
+		d.At == declAt
+	case _:
+		false
+	}
+}
+
+func nodeMentionsDecl(st fnb, declAt dense.ID[store.PNode], x dense.ID[syntax.Node]) bool {
+	if nodeTargetsDecl(st, declAt, x) {
+		return true
+	}
+	for c in syntax.Children(st.p.Tree, x, []uint32{}) {
+		if nodeMentionsDecl(st, declAt, syntax.NodeAt(st.p.Tree, int(c))) {
+			return true
+		}
+	}
+	false
+}
+
+func isPreludeAppendCall(st fnb, x dense.ID[syntax.Node]) option.Option[(dense.ID[syntax.Node], dense.ID[syntax.Node])] {
+	let n = unparen(st, x)
+	let ce = match syntax.ViewOf(st.p.Tree, n) {
+	case syntax.CallExpr as c:
+		c
+	case _:
+		return option.None
+	}
+	if dense.Unpack(ce.Trailing) != option.None || syntax.Len(ce.Args) != 1 {
+		return option.None
+	}
+	let se = match syntax.ViewOf(st.p.Tree, ce.Fun) {
+	case syntax.SelectorExpr as s:
+		s
+	case _:
+		return option.None
+	}
+	let ci = dense.SideOf(st.callAt, bind.PNodeOf(st.k.Ps, st.file, n))
+	if ci == 0 || !st.calls[ci-1].Recv {
+		return option.None
+	}
+	let target = fnOwnerTarget(st, st.calls[ci-1].Callee)
+	if target != "ergo.local/prototype/runtime/v1.Append" {
+		return option.None
+	}
+	option.Some{Value: (se.X, syntax.Item(st.p.Tree, ce.Args, 0))}
+}
+
+func isMutSliceAppendCall(st fnb, declAt dense.ID[store.PNode], sliceType dense.ID[store.TKey], rhs dense.ID[syntax.Node]) option.Option[(dense.ID[syntax.Node], int)] {
+	let (recv, elemExpr) = match isPreludeAppendCall(st, rhs) {
+	case option.Some{Value: pair}:
+		pair
+	case option.None:
+		return option.None
+	}
+	if !nodeTargetsDecl(st, declAt, recv) || nodeMentionsDecl(st, declAt, elemExpr) {
+		return option.None
+	}
+	let ops = store.OperandsOf(st.s, sliceType)
+	if ops.Len() != 1 || holdsValue(st, ops[0]) {
+		return option.None
+	}
+	match dense.Unpack(dense.SideOf(st.types, bind.PNodeOf(st.k.Ps, st.file, elemExpr))) {
+	case option.Some{Value: et}:
+		if et != ops[0] {
+			return option.None
+		}
+	case option.None:
+		return option.None
+	}
+	let appendAt = syntax.NodePos(st.p, unparen(st, rhs))
+	option.Some{Value: (elemExpr, appendAt)}
+}
+
+func isFillLoopNext(st fnb, declAt dense.ID[store.PNode], sliceVal dense.ID[syntax.Node], list syntax.List, idx int) bool {
+	if idx+1 >= syntax.Len(list) {
+		return false
+	}
+	let lit = unparen(st, sliceVal)
+	match syntax.ViewOf(st.p.Tree, lit) {
+	case syntax.CompositeLit as cl:
+		if syntax.Len(cl.Elts) != 0 {
+			return false
+		}
+	case _:
+		return false
+	}
+	let next = syntax.Item(st.p.Tree, list, idx+1)
+	let rs = match syntax.ViewOf(st.p.Tree, next) {
+	case syntax.RangeStmt as r:
+		r
+	case _:
+		return false
+	}
+	if !isDotDotRange(st, rs) {
+		return false
+	}
+	match syntax.ViewOf(st.p.Tree, rs.Body) {
+	case syntax.BlockStmt as bl:
+		if syntax.Len(bl.List) != 1 {
+			return false
+		}
+		match syntax.ViewOf(st.p.Tree, syntax.Item(st.p.Tree, bl.List, 0)) {
+		case syntax.AssignStmt as a:
+			syntax.TokText(st.p, a.Tok) == "=" && nodeTargetsDecl(st, declAt, a.Lhs) && isPreludeAppendCall(st, a.Rhs) != option.None
+		case _:
+			false
+		}
+	case _:
+		false
+	}
+}
+
+type mutSliceScan {
+	ok         bool,
+	hasAppend  bool,
+	writes     bool,
+	wholeReads int,
+}
+
+func scanMutSliceExprReads(st fnb, declAt dense.ID[store.PNode], x dense.ID[syntax.Node], reads mut int) bool {
+	if nodeTargetsDecl(st, declAt, x) {
+		*reads = *reads + 1
+		return true
+	}
+	match syntax.ViewOf(st.p.Tree, x) {
+	case syntax.ParenExpr as pe:
+		return scanMutSliceExprReads(st, declAt, pe.X, reads)
+	case syntax.FuncLit:
+		return !nodeMentionsDecl(st, declAt, x)
+	case syntax.SliceExpr as sx:
+		if nodeMentionsDecl(st, declAt, sx.X) {
+			return false
+		}
+		for c in syntax.Children(st.p.Tree, x, []uint32{}) {
+			if !scanMutSliceExprReads(st, declAt, syntax.NodeAt(st.p.Tree, int(c)), reads) {
+				return false
+			}
+		}
+		return true
+	case syntax.IndexExpr as ie:
+		if nodeTargetsDecl(st, declAt, ie.X) {
+			for i in 0..syntax.Len(ie.Indices) {
+				if !scanMutSliceExprReads(st, declAt, syntax.Item(st.p.Tree, ie.Indices, i), reads) {
+					return false
+				}
+			}
+			return true
+		}
+		for c in syntax.Children(st.p.Tree, x, []uint32{}) {
+			if !scanMutSliceExprReads(st, declAt, syntax.NodeAt(st.p.Tree, int(c)), reads) {
+				return false
+			}
+		}
+		return true
+	case syntax.CallExpr as ce:
+		if goLenReceiver(st, x, ce) != option.None {
+			match syntax.ViewOf(st.p.Tree, ce.Fun) {
+			case syntax.SelectorExpr as se:
+				if nodeTargetsDecl(st, declAt, se.X) {
+					return true
+				}
+			case _:
+			}
+		}
+		if builtinName(st, ce.Fun) == "len" && syntax.Len(ce.Args) == 1 && nodeTargetsDecl(st, declAt, syntax.Item(st.p.Tree, ce.Args, 0)) {
+			return true
+		}
+		for c in syntax.Children(st.p.Tree, x, []uint32{}) {
+			if !scanMutSliceExprReads(st, declAt, syntax.NodeAt(st.p.Tree, int(c)), reads) {
+				return false
+			}
+		}
+		return true
+	case _:
+		for c in syntax.Children(st.p.Tree, x, []uint32{}) {
+			if !scanMutSliceExprReads(st, declAt, syntax.NodeAt(st.p.Tree, int(c)), reads) {
+				return false
+			}
+		}
+		return true
+	}
+}
+
+func scanMutSliceStmt(st fnb, declAt dense.ID[store.PNode], sliceType dense.ID[store.TKey], s dense.ID[syntax.Node], writes mut bool, hasAppend mut bool, wholeSeen mut bool) bool {
+	match syntax.ViewOf(st.p.Tree, s) {
+	case syntax.AssignStmt as a:
+		if nodeMentionsDecl(st, declAt, a.Lhs) {
+			if syntax.TokText(st.p, a.Tok) != "=" || !nodeTargetsDecl(st, declAt, a.Lhs) {
+				return false
+			}
+			if *wholeSeen {
+				return false
+			}
+			match isMutSliceAppendCall(st, declAt, sliceType, a.Rhs) {
+			case option.Some:
+				*writes = true
+				*hasAppend = true
+				return true
+			case option.None:
+				return false
+			}
+		}
+		if *wholeSeen && nodeMentionsDecl(st, declAt, a.Rhs) {
+			return false
+		}
+		let mut r = 0
+		if !scanMutSliceExprReads(st, declAt, a.Lhs, &r) || !scanMutSliceExprReads(st, declAt, a.Rhs, &r) || r > 1 {
+			return false
+		}
+		if r > 0 {
+			*wholeSeen = true
+		}
+		true
+	case syntax.DeclStmt as ds:
+		match syntax.ViewOf(st.p.Tree, ds.Decl) {
+		case syntax.VarDecl as vd:
+			match syntax.ViewOf(st.p.Tree, vd.Spec) {
+			case syntax.VarSpec as sp:
+				if nodeTargetsDecl(st, declAt, syntax.Item(st.p.Tree, sp.Names, 0)) {
+					return true
+				}
+				match dense.Unpack(sp.Value) {
+				case option.Some{Value: v}:
+					let mut r = 0
+					if !scanMutSliceExprReads(st, declAt, v, &r) || r > 1 {
+						return false
+					}
+					if r > 0 {
+						*wholeSeen = true
+					}
+					return true
+				case option.None:
+					return true
+				}
+			case _:
+				!nodeMentionsDecl(st, declAt, s)
+			}
+		case _:
+			!nodeMentionsDecl(st, declAt, s)
+		}
+	case syntax.ExprStmt as es:
+		let mut r = 0
+		if !scanMutSliceExprReads(st, declAt, es.X, &r) || r > 1 {
+			return false
+		}
+		if r > 0 {
+			*wholeSeen = true
+		}
+		true
+	case syntax.ReturnStmt as rt:
+		match dense.Unpack(rt.Result) {
+		case option.Some{Value: x}:
+			let mut r = 0
+			if !scanMutSliceExprReads(st, declAt, x, &r) || r > 1 {
+				return false
+			}
+			if r > 0 {
+				*wholeSeen = true
+			}
+			true
+		case option.None:
+			true
+		}
+	case syntax.BlockStmt as bl:
+		scanMutSliceList(st, declAt, sliceType, bl.List, writes, hasAppend, wholeSeen)
+	case syntax.IfStmt as iff:
+		let mut rc = 0
+		if !scanMutSliceExprReads(st, declAt, iff.Cond, &rc) || rc > 1 {
+			return false
+		}
+		if rc > 0 {
+			*wholeSeen = true
+		}
+		let mut wt = *writes
+		let mut wf = *writes
+		let mut stt = *wholeSeen
+		let mut stf = *wholeSeen
+		if !scanMutSliceStmt(st, declAt, sliceType, iff.Body, &wt, hasAppend, &stt) {
+			return false
+		}
+		match dense.Unpack(iff.Else) {
+		case option.Some{Value: e}:
+			if !scanMutSliceStmt(st, declAt, sliceType, e, &wf, hasAppend, &stf) {
+				return false
+			}
+		case option.None:
+		}
+		*writes = wt || wf
+		*wholeSeen = stt || stf
+		true
+	case syntax.TypeSwitchStmt as m:
+		let mut rs = 0
+		if !scanMutSliceExprReads(st, declAt, m.Subject, &rs) || rs > 1 {
+			return false
+		}
+		if rs > 0 {
+			*wholeSeen = true
+		}
+		let mut anyW = *writes
+		let mut anyR = *wholeSeen
+		for i in 0..syntax.Len(m.Clauses) {
+			let cc = syntax.CaseClauseOf(st.p.Tree, syntax.Item(st.p.Tree, m.Clauses, i))
+			let mut wc = *writes
+			let mut rc = *wholeSeen
+			if !scanMutSliceList(st, declAt, sliceType, cc.Body, &wc, hasAppend, &rc) {
+				return false
+			}
+			anyW = anyW || wc
+			anyR = anyR || rc
+		}
+		*writes = anyW
+		*wholeSeen = anyR
+		true
+	case syntax.SwitchStmt as m:
+		let mut rs = 0
+		if !scanMutSliceExprReads(st, declAt, m.Tag, &rs) || rs > 1 {
+			return false
+		}
+		if rs > 0 {
+			*wholeSeen = true
+		}
+		let mut anyW = *writes
+		let mut anyR = *wholeSeen
+		for i in 0..syntax.Len(m.Clauses) {
+			let cc = syntax.CaseClauseOf(st.p.Tree, syntax.Item(st.p.Tree, m.Clauses, i))
+			let mut wc = *writes
+			let mut rc = *wholeSeen
+			if !scanMutSliceList(st, declAt, sliceType, cc.Body, &wc, hasAppend, &rc) {
+				return false
+			}
+			anyW = anyW || wc
+			anyR = anyR || rc
+		}
+		*writes = anyW
+		*wholeSeen = anyR
+		true
+	case syntax.ForStmt as f:
+		match dense.Unpack(f.Cond) {
+		case option.Some{Value: c}:
+			let mut rc = 0
+			if !scanMutSliceExprReads(st, declAt, c, &rc) || rc > 0 {
+				return false
+			}
+		case option.None:
+		}
+		let mut loopW = false
+		let mut loopR = *wholeSeen
+		if !scanMutSliceStmt(st, declAt, sliceType, f.Body, &loopW, hasAppend, &loopR) {
+			return false
+		}
+		if loopW && loopR {
+			return false
+		}
+		*writes = *writes || loopW
+		*wholeSeen = *wholeSeen || loopR
+		true
+	case syntax.RangeStmt as rs:
+		let mut rx = 0
+		if !scanMutSliceExprReads(st, declAt, rs.X, &rx) || rx > 1 {
+			return false
+		}
+		let mut loopW = false
+		let mut loopR = *wholeSeen || rx > 0
+		if !scanMutSliceStmt(st, declAt, sliceType, rs.Body, &loopW, hasAppend, &loopR) {
+			return false
+		}
+		if loopW && loopR {
+			return false
+		}
+		*writes = *writes || loopW
+		*wholeSeen = *wholeSeen || loopR
+		true
+	case syntax.BranchStmt:
+		true
+	case _:
+		!nodeMentionsDecl(st, declAt, s)
+	}
+}
+
+func scanMutSliceList(st fnb, declAt dense.ID[store.PNode], sliceType dense.ID[store.TKey], list syntax.List, writes mut bool, hasAppend mut bool, wholeSeen mut bool) bool {
+	for i in 0..syntax.Len(list) {
+		if !scanMutSliceStmt(st, declAt, sliceType, syntax.Item(st.p.Tree, list, i), writes, hasAppend, wholeSeen) {
+			return false
+		}
+	}
+	true
+}
+
+func mutSliceCheck(st fnb, body dense.ID[syntax.Node], atNode dense.ID[syntax.Node], sliceType dense.ID[store.TKey]) (bool, bool) {
+	let declAt = bind.PNodeOf(st.k.Ps, st.file, atNode)
+	let mut writes = false
+	let mut hasAppend = false
+	let mut wholeSeen = false
+	let ok = scanMutSliceStmt(st, declAt, sliceType, body, &writes, &hasAppend, &wholeSeen)
+	(ok, hasAppend)
+}
+
+func emitSeedSliceLit(st fnb, binds localBinds, b mut ir.Builder, sliceType dense.ID[store.TKey], litNode dense.ID[syntax.Node]) uint32 fails Unported | ir.Malformed {
+	let cl = syntax.CompositeLitOf(st.p.Tree, unparen(st, litNode))
+	let at = pos(st, syntax.NodePos(st.p, unparen(st, litNode)))
+	let typ = shapeGo(st, sliceType)
+	let elemType = store.OperandsOf(st.s, sliceType)[0]
+	let elemGo = shapeGo(st, elemType)
+	let elemExpr = syntax.Item(st.p.Tree, cl.Elts, 0)
+	let emptyLit = try ir.Row(b, ir.KindCode(ir.TExpr, "lit"), at, []uint32{ir.Text(b, typ), uint32(0), uint32(0)})
+	let capConst = try constRow(b, at, "int", "4")
+	let room = try ir.Row(b, ir.KindCode(ir.TExpr, "pcall"), at, []uint32{ir.Text(b, "slices"), ir.Text(b, typ+", "+elemGo), uint32(0), ir.Text(b, "Grow"), ir.List(b, []uint32{emptyLit, capConst})})
+	let eRow = try value(st, binds, b, elemExpr)
+	try ir.Row(b, ir.KindCode(ir.TExpr, "append"), at, []uint32{ir.List(b, []uint32{room, eRow})})
+}
+
+func isPkgGlobalType(st fnb, t dense.ID[store.TKey], allowSliceReadOnly bool) bool {
+	if shapeGo(st, t) == "" {
+		return false
+	}
+	let b = basicGo(st, t)
+	if b != "" && b != "float32" && b != "float64" {
+		return false
+	}
+	if !holdsValue(st, t) {
+		return true
+	}
+	if allowSliceReadOnly && store.KindOfType(st.s, t) == store.KSlice {
+		let ops = store.OperandsOf(st.s, t)
+		return ops.Len() == 1 && !holdsValue(st, ops[0])
+	}
+	false
+}
+
+func pkgGlobalName(st fnb, binds localBinds, x dense.ID[syntax.Node], allowSliceReadOnly bool) option.Option[string] {
+	let node = unparen(st, x)
+	if syntax.KindOf(st.p.Tree, node) != syntax.KIdent {
+		return option.None
+	}
+	let pnode = bind.PNodeOf(st.k.Ps, st.file, node)
+	let d = match bind.ResolutionOf(st.k.U, st.k.Ps, pnode) {
+	case bind.Declared as decl:
+		decl
+	case _:
+		return option.None
+	}
+	for at in binds.params {
+		if at == d.At {
+			return option.None
+		}
+	}
+	let specPn = match dense.Unpack(bind.ParentOf(st.k.Ps, d.At)) {
+	case option.Some{Value: p}:
+		p
+	case option.None:
+		return option.None
+	}
+	let (df, specRow) = bind.RowOf(st.k.Ps, specPn)
+	if df < 0 || df >= st.k.Parsed.Len() {
+		return option.None
+	}
+	let dp = st.k.Parsed[df]
+	match syntax.ViewOf(dp.Tree, syntax.NodeAt(dp.Tree, specRow)) {
+	case syntax.VarSpec as vs:
+		if dense.Unpack(vs.Pattern) != option.None || syntax.Len(vs.Names) != 1 || dense.Unpack(vs.Value) == option.None {
+			return option.None
+		}
+	case _:
+		return option.None
+	}
+	let declPn = match dense.Unpack(bind.ParentOf(st.k.Ps, specPn)) {
+	case option.Some{Value: p}:
+		p
+	case option.None:
+		return option.None
+	}
+	let (ddf, declRow) = bind.RowOf(st.k.Ps, declPn)
+	if ddf != df {
+		return option.None
+	}
+	match syntax.ViewOf(dp.Tree, syntax.NodeAt(dp.Tree, declRow)) {
+	case syntax.VarDecl as vd:
+		if vd.Mut >= 0 || dense.Unpack(vd.Extern) != option.None {
+			return option.None
+		}
+	case _:
+		return option.None
+	}
+	let okTop = match dense.Unpack(bind.ParentOf(st.k.Ps, declPn)) {
+	case option.None:
+		true
+	case option.Some{Value: topPn}:
+		let (tf, topRow) = bind.RowOf(st.k.Ps, topPn)
+		tf == df && syntax.KindOf(dp.Tree, syntax.NodeAt(dp.Tree, topRow)) == syntax.KFile
+	}
+	if !okTop {
+		return option.None
+	}
+	let t = match dense.Unpack(dense.SideOf(st.types, pnode)) {
+	case option.Some{Value: tk}:
+		tk
+	case option.None:
+		return option.None
+	}
+	if !isPkgGlobalType(st, t, allowSliceReadOnly) {
+		return option.None
+	}
+	let (nf, nRow) = bind.RowOf(st.k.Ps, d.At)
+	if nf != df {
+		return option.None
+	}
+	let rawName = nameText(dp, syntax.NodeAt(dp.Tree, nRow))
+	if rawName == "" || rawName == "_" {
+		return option.None
+	}
+	let gname = declName(st, rawName) catch {
+	case Unported:
+		return option.None
+	}
+	option.Some{Value: gname}
+}

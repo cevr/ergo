@@ -1,0 +1,526 @@
+import compiler/check/bind
+import compiler/check/expr
+import compiler/check/facts
+import compiler/check/load
+import compiler/check/store
+import compiler/check/types
+import compiler/syntax
+import dense
+import option
+import strings
+
+// PlannedDecl captures one planned test or law within a checked package.
+type PlannedDecl {
+	Kind       string,
+	Title      string,
+	Plan       Plan,
+	ByCtor     bool,
+	KeyWhyText string,
+}
+
+// PackagePlan holds the TypePool, enumerated ValArena, planned tests/laws,
+// named-type summaries, and NativeRoot info for a checked package.
+type PackagePlan {
+	Path      string,
+	Pool      TypePool,
+	Arena     ValArena,
+	Decls     []PlannedDecl,
+	TypeIDs   []uint32,
+	TypeNames []string,
+	Native    NativeRoot,
+}
+
+func isUnexportedName(name string) bool {
+	if name.Len() == 0 {
+		return false
+	}
+	let b = name[0]
+	b >= byte(97) && b <= byte(122)
+}
+
+func hasRowNonEmpty(s store.Store, r dense.ID[store.TKey]) bool {
+	if store.KindOfType(s, r) != store.KRow {
+		return false
+	}
+	store.OperandsOf(s, r).Len() > 0
+}
+
+func depFrozen(k expr.Pkg) []store.Frozen {
+	let mut out = []store.Frozen{}
+	for d in k.Deps {
+		out = out.Append(store.Freeze(d.S))
+	}
+	out
+}
+
+func declTypeNameText(s store.Store, d dense.ID[store.Decl]) string {
+	store.Text(s, store.DeclOf(s, d).Name)
+}
+
+type bridgeCache { m Map[string, uint32] }
+
+func resolveNamedSpec(pool mut TypePool, tid uint32, name string, d dense.ID[store.Decl], s store.Store, k expr.Pkg, recs Map[string, expr.Rec], refs Map[string, facts.Refinement], cache mut bridgeCache) {
+	let idx = int(tid)
+	match refs.Get(name) {
+	case option.Some{Value: ref}:
+		SetRefinement(pool, tid, ref.Len, ref.Spans)
+	case option.None:
+	}
+	match recs.Get(name) {
+	case option.Some{Value: rec}:
+		if rec.Op {
+			let mut mNames = []string{}
+			let mut mSigs = []uint32{}
+			for f in rec.Fields {
+				mNames = mNames.Append(f.Name)
+				mSigs = mSigs.Append(bridgeType(pool, s, k, recs, refs, cache, f.T))
+			}
+			let opID = AddOp(pool, mNames, mSigs, name)
+			SetUnder(pool, tid, opID)
+			return
+		}
+		let mut fNames = []string{}
+		let mut fTypes = []uint32{}
+		let mut hasUnexp = false
+		for f in rec.Fields {
+			if isUnexportedName(f.Name) {
+				hasUnexp = true
+			}
+			fNames = fNames.Append(f.Name)
+			fTypes = fTypes.Append(bridgeType(pool, s, k, recs, refs, cache, f.T))
+		}
+		let stID = AddStruct(pool, fNames, fTypes, hasUnexp, name)
+		SetUnder(pool, tid, stID)
+		return
+	case option.None:
+	}
+	let row = store.DeclOf(s, d)
+	let fi = int(row.File)
+	if fi >= 0 && fi < k.Parsed.Len() {
+		let p = k.Parsed[fi]
+		let root = syntax.Root(p.Tree)
+		if syntax.KindOf(p.Tree, root) == syntax.KFile {
+			let decls = syntax.FileOf(p.Tree, root).Decls
+			for i in 0..syntax.Len(decls) {
+				let item = syntax.Item(p.Tree, decls, i)
+				if syntax.KindOf(p.Tree, item) != syntax.KTypeDecl {
+					continue
+				}
+				let td = syntax.TypeDeclOf(p.Tree, item)
+				if types.NameText(p, td.Name) != name {
+					continue
+				}
+				let tparams = types.Brackets(p, td.TypeParams)
+				if tparams.Len() > 0 {
+					pool.NumTParams[idx] = uint32(tparams.Len())
+				}
+				match dense.Unpack(td.Spec) {
+				case option.Some{Value: sp}:
+					if syntax.KindOf(p.Tree, sp) == syntax.KInterfaceType {
+						let it = syntax.InterfaceTypeOf(p.Tree, sp)
+						let mut vars = []uint32{}
+						let mut isUnion = false
+						for j in 0..syntax.Len(it.Members) {
+							let m = syntax.Item(p.Tree, it.Members, j)
+							if syntax.KindOf(p.Tree, m) == syntax.KVariantSpec {
+								isUnion = true
+							} else if syntax.KindOf(p.Tree, m) != syntax.KLawDecl && syntax.KindOf(p.Tree, m) != syntax.KTestDecl && syntax.KindOf(p.Tree, m) != syntax.KField {
+								isUnion = true
+							}
+						}
+						if isUnion {
+							let env = types.NewEnv(s, k.Parsed, p, []string{}, k.Kinds, k.Ext, k.Foreign, k.Ifaces)
+							let mut tmpStore = s
+							for j in 0..syntax.Len(it.Members) {
+								let m = syntax.Item(p.Tree, it.Members, j)
+								if syntax.KindOf(p.Tree, m) == syntax.KVariantSpec {
+									let vs = syntax.VariantSpecOf(p.Tree, m)
+									let vName = types.NameText(p, vs.Name)
+									let mut vfNames = []string{}
+									let mut vfTypes = []uint32{}
+									let mut unexp = false
+									if syntax.KindOf(p.Tree, vs.Fields) == syntax.KFieldList {
+										let fields = syntax.FieldListOf(p.Tree, vs.Fields).List
+										for kIdx in 0..syntax.Len(fields) {
+											let fd = syntax.FieldOf(p.Tree, syntax.Item(p.Tree, fields, kIdx))
+											let bt = match dense.Unpack(fd.Type) {
+											case option.Some{Value: ftn}:
+												let fTy = types.Resolve(&tmpStore, env, ftn)
+												bridgeType(pool, tmpStore, k, recs, refs, cache, fTy)
+											case option.None:
+												AddBasic(pool, BInvalid)
+											}
+											let nn = syntax.Len(fd.Names)
+											if nn == 0 {
+												vfNames = vfNames.Append("")
+												vfTypes = vfTypes.Append(bt)
+											} else {
+												for qIdx in 0..nn {
+													let nm = types.NameText(p, syntax.Item(p.Tree, fd.Names, qIdx))
+													if isUnexportedName(nm) {
+														unexp = true
+													}
+													vfNames = vfNames.Append(nm)
+													vfTypes = vfTypes.Append(bt)
+												}
+											}
+										}
+									}
+									let vst = AddStruct(pool, vfNames, vfTypes, unexp, vName)
+									let vn = AddNamed(pool, pool.Pkg[idx], vName, vName, vst)
+									vars = vars.Append(vn)
+								} else if syntax.KindOf(p.Tree, m) != syntax.KLawDecl && syntax.KindOf(p.Tree, m) != syntax.KTestDecl && syntax.KindOf(p.Tree, m) != syntax.KField {
+									let mt = types.Resolve(&tmpStore, env, m)
+									vars = vars.Append(bridgeType(pool, tmpStore, k, recs, refs, cache, mt))
+								}
+							}
+							SetUnder(pool, tid, AddUnion(pool, vars, false, name))
+							return
+						}
+					} else {
+						let env = types.NewEnv(s, k.Parsed, p, []string{}, k.Kinds, k.Ext, k.Foreign, k.Ifaces)
+						let mut tmpStore = s
+						let baseT = types.Resolve(&tmpStore, env, sp)
+						SetUnder(pool, tid, bridgeType(pool, tmpStore, k, recs, refs, cache, baseT))
+						return
+					}
+				case option.None:
+				}
+			}
+		}
+	}
+}
+
+func bridgeType(pool mut TypePool, s store.Store, k expr.Pkg, recs Map[string, expr.Rec], refs Map[string, facts.Refinement], cache mut bridgeCache, t dense.ID[store.TKey]) uint32 {
+	let printText = store.Canon(s, depFrozen(k), t)
+	let key = "\(dense.Index(t)):" + printText
+	match cache.m.Get(key) {
+	case option.Some{Value: id}:
+		return id
+	case option.None:
+	}
+	let kind = store.KindOfType(s, t)
+	if kind == store.KBasic {
+		let id = AddBasic(pool, uint8(store.ArgOf(s, t)))
+		cache.m[key] = id
+		return id
+	}
+	if kind == store.KParam {
+		let id = AddParam(pool, "T\(store.ArgOf(s, t))")
+		cache.m[key] = id
+		return id
+	}
+	if kind == store.KTuple {
+		let mut elems = []uint32{}
+		for o in store.OperandsOf(s, t) {
+			elems = elems.Append(bridgeType(pool, s, k, recs, refs, cache, o))
+		}
+		let id = AddTuple(pool, elems, printText)
+		cache.m[key] = id
+		return id
+	}
+	if kind == store.KSlice || kind == store.KArray {
+		let ops = store.OperandsOf(s, t)
+		let elem = if ops.Len() > 0 { bridgeType(pool, s, k, recs, refs, cache, ops[0]) } else { AddBasic(pool, BInvalid) }
+		let id = AddSlice(pool, elem, printText)
+		cache.m[key] = id
+		return id
+	}
+	if kind == store.KMap {
+		let ops = store.OperandsOf(s, t)
+		let kt = if ops.Len() > 0 { bridgeType(pool, s, k, recs, refs, cache, ops[0]) } else { AddBasic(pool, BInvalid) }
+		let vt = if ops.Len() > 1 { bridgeType(pool, s, k, recs, refs, cache, ops[1]) } else { AddBasic(pool, BInvalid) }
+		let id = AddMap(pool, kt, vt, printText)
+		cache.m[key] = id
+		return id
+	}
+	if kind == store.KPointer {
+		let ops = store.OperandsOf(s, t)
+		let elem = if ops.Len() > 0 { bridgeType(pool, s, k, recs, refs, cache, ops[0]) } else { AddBasic(pool, BInvalid) }
+		let id = AddPointer(pool, elem, printText)
+		cache.m[key] = id
+		return id
+	}
+	if kind == store.KOwn {
+		let ops = store.OperandsOf(s, t)
+		if ops.Len() > 0 {
+			let inner = bridgeType(pool, s, k, recs, refs, cache, ops[0])
+			cache.m[key] = inner
+			return inner
+		}
+	}
+	if kind == store.KSig {
+		let ops = store.OperandsOf(s, t)
+		let n = ops.Len()
+		let mut params = []uint32{}
+		let mut results = []uint32{}
+		let mut hasRow = false
+		if n >= 3 {
+			for j in 0..(n - 3) {
+				params = params.Append(bridgeType(pool, s, k, recs, refs, cache, ops[j]))
+			}
+			let res = ops[n-3]
+			if store.KindOfType(s, res) == store.KTuple {
+				for r in store.OperandsOf(s, res) {
+					results = results.Append(bridgeType(pool, s, k, recs, refs, cache, r))
+				}
+			} else {
+				results = results.Append(bridgeType(pool, s, k, recs, refs, cache, res))
+			}
+			hasRow = hasRowNonEmpty(s, ops[n-2]) || hasRowNonEmpty(s, ops[n-1])
+		}
+		let id = AddSig(pool, params, results, hasRow, printText)
+		cache.m[key] = id
+		return id
+	}
+	if kind == store.KNamed {
+		let did = store.DeclAt(s, store.ArgOf(s, t))
+		let name = declTypeNameText(s, did)
+		let id = AddNamed(pool, store.PathOf(s), name, printText, NoType)
+		cache.m[key] = id
+		resolveNamedSpec(pool, id, name, did, s, k, recs, refs, cache)
+		return id
+	}
+	if kind == store.KForeign {
+		let fid = store.ArgOf(s, t)
+		let isForeign = fid < k.Foreign.Len()
+		let name = if isForeign { k.Foreign[fid].Name } else { printText }
+		let pkg = if isForeign { k.Foreign[fid].Path } else { "" }
+		let id = AddNamed(pool, pkg, name, if isForeign && k.Foreign[fid].Print != "" { k.Foreign[fid].Print } else { printText }, NoType)
+		let idx = int(id)
+		pool.IsHost[idx] = isForeign && (strings.Contains(pkg, "/") || pkg == "go")
+		pool.IsGoRef[idx] = isForeign && k.Foreign[fid].Qual != "" && pkg != "prelude"
+		cache.m[key] = id
+		return id
+	}
+	if kind == store.KInstance {
+		let xr = store.OriginOfType(s, t)
+		let id = AddNamed(pool, store.PathOf(s), printText, printText, NoType)
+		pool.Orig[int(id)] = uint32(0)
+		if xr.Import == uint32(0) && int(xr.Decl) < store.NumDecls(s) {
+			let d = store.DeclAt(s, int(xr.Decl))
+			let baseName = declTypeNameText(s, d)
+			resolveNamedSpec(pool, id, baseName, d, s, k, recs, refs, cache)
+		}
+		cache.m[key] = id
+		return id
+	}
+	let id = AddBasic(pool, BInvalid)
+	cache.m[key] = id
+	id
+}
+
+func computeTiesCSR(types []uint32, paramWhere []bool) ([]uint32, []uint32, []uint32) {
+	let mut starts = []uint32{}
+	let mut lens = []uint32{}
+	let mut targets = []uint32{}
+	let mut any = false
+	for i, pt in types {
+		let start = uint32(targets.Len())
+		let mut count = uint32(0)
+		if i >= paramWhere.Len() || !paramWhere[i] {
+			for j in 0..i {
+				if (j >= paramWhere.Len() || !paramWhere[j]) && types[j] == pt {
+					targets = targets.Append(uint32(j))
+					count = count + uint32(1)
+					any = true
+				}
+			}
+		}
+		starts = starts.Append(start)
+		lens = lens.Append(count)
+	}
+	if !any {
+		return ([]uint32{}, []uint32{}, []uint32{})
+	}
+	(starts, lens, targets)
+}
+
+func ctorMethodName(typeName string) string {
+	if typeName.Len() == 0 {
+		return "New"
+	}
+	let b = typeName[0]
+	if b >= byte(97) && b <= byte(122) {
+		return "new" + strings.ToUpper(typeName[0:1]) + typeName[1:typeName.Len()]
+	}
+	"New" + typeName
+}
+
+// PlanPackage bridges a checked package from load.Typed into TypePool and computes
+// plans for its tests, laws, named types, and native test root requirement.
+func PlanPackage(path string, dir string, d load.Typed) PackagePlan {
+	let mut s = d.S
+	let refList = facts.Refinements(&s, d.K)
+	let mut refs = Map[string, facts.Refinement]{}
+	for r in refList {
+		let p = d.K.Parsed[r.File]
+		let nm = types.NameText(p, r.Name)
+		match r.R {
+		case option.Some{Value: rf}:
+			refs[nm] = rf
+		case option.None:
+		}
+	}
+	let mut recs = Map[string, expr.Rec]{}
+	for rec in d.K.Recs {
+		recs[rec.Name] = rec
+	}
+	let mut pool = NewTypePool()
+	let mut arena = NewValArena()
+	let mut cache = bridgeCache{m: Map[string, uint32]{}}
+	let mut typeIDs = []uint32{}
+	let mut typeNames = []string{}
+
+	for i in 0..store.NumDecls(s) {
+		let did = store.DeclAt(s, i)
+		let row = store.DeclOf(s, did)
+		if store.KindName(int(row.Kind)) != "type" {
+			continue
+		}
+		let nm = declTypeNameText(s, did)
+		let tid = bridgeType(&pool, s, d.K, recs, refs, &cache, store.TNamed(&s, did))
+		typeIDs = typeIDs.Append(tid)
+		typeNames = typeNames.Append(nm)
+	}
+
+	let ctorTargets = Map[string, uint32]{}
+	let mut ctorMap = ctorTargets
+	for idx, nm in typeNames {
+		ctorMap[ctorMethodName(nm)] = typeIDs[idx]
+	}
+	let mut hasNativeGo = false
+	for im in store.ImportPaths(s) {
+		if strings.HasPrefix(im, "go ") || strings.Contains(im, ".") {
+			hasNativeGo = true
+		}
+	}
+	for fn in d.K.Fns {
+		if fn.Params.Len() > 0 {
+			continue
+		}
+		let fi = int(fn.File)
+		if fi < 0 || fi >= d.K.Parsed.Len() {
+			continue
+		}
+		let fnName = types.NameText(d.K.Parsed[fi], fn.Name)
+		match ctorMap.Get(fnName) {
+		case option.Some{Value: targetTID}:
+			if store.KindOfType(s, fn.Sig) == store.KSig {
+				let ops = store.OperandsOf(s, fn.Sig)
+				if ops.Len() >= 3 && !hasRowNonEmpty(s, ops[ops.Len()-2]) && !hasRowNonEmpty(s, ops[ops.Len()-1]) {
+					let mut ps = []uint32{}
+					for j in 0..(ops.Len() - 3) {
+						ps = ps.Append(bridgeType(&pool, s, d.K, recs, refs, &cache, ops[j]))
+					}
+					let u = underlyingOf(pool, targetTID)
+					if u != NoType && pool.Kind[int(u)] == KTOp {
+						SetBuilder(&pool, targetTID, ps)
+					} else {
+						SetConstructor(&pool, targetTID, ps)
+					}
+				}
+			}
+		case option.None:
+		}
+	}
+
+	let mut planned = []PlannedDecl{}
+	for fn in d.K.Fns {
+		let fi = int(fn.File)
+		if fi < 0 || fi >= d.K.Parsed.Len() {
+			continue
+		}
+		let p = d.K.Parsed[fi]
+		let kd = syntax.KindOf(p.Tree, fn.Decl)
+		if kd != syntax.KTestDecl && kd != syntax.KLawDecl {
+			continue
+		}
+		let nm = types.NameText(p, fn.Name)
+		let mut paramTypes = []uint32{}
+		if store.KindOfType(s, fn.Sig) == store.KSig {
+			let ops = store.OperandsOf(s, fn.Sig)
+			if ops.Len() >= 3 {
+				for j in 0..(ops.Len() - 3) {
+					paramTypes = paramTypes.Append(bridgeType(&pool, s, d.K, recs, refs, &cache, ops[j]))
+				}
+			}
+		}
+		let mut pnames = fn.Pnames
+		for pnames.Len() < paramTypes.Len() {
+			pnames = pnames.Append("arg\(pnames.Len())")
+		}
+		if kd == syntax.KTestDecl {
+			let (ts, tl, tt) = computeTiesCSR(paramTypes, []bool{})
+			let pl = PlanTest(pool, &arena, pnames, paramTypes, ts, tl, tt)
+			planned = planned.Append(PlannedDecl{
+				Kind:       "test",
+				Title:      nm,
+				Plan:       pl,
+				ByCtor:     false,
+				KeyWhyText: "",
+			})
+		} else {
+			let mut hasWhere = []bool{}
+			let ld = syntax.LawDeclOf(p.Tree, fn.Decl)
+			match dense.Unpack(ld.Params) {
+			case option.Some{Value: fl}:
+				if syntax.KindOf(p.Tree, fl) == syntax.KFieldList {
+					let fields = syntax.FieldListOf(p.Tree, fl).List
+					for q in 0..syntax.Len(fields) {
+						let fd = syntax.FieldOf(p.Tree, syntax.Item(p.Tree, fields, q))
+						let w = fd.Where != dense.NoID[syntax.Node]()
+						let cnt = syntax.Len(fd.Names)
+						let reps = if cnt == 0 { 1 } else { cnt }
+						for _ in 0..reps {
+							hasWhere = hasWhere.Append(w)
+						}
+					}
+				}
+			case option.None:
+			}
+			let (ts, tl, tt) = computeTiesCSR(paramTypes, hasWhere)
+			let pl = PlanTest(pool, &arena, pnames, paramTypes, ts, tl, tt)
+			let pl2 = WithTies(pl, ts, tl, tt, uint32(0))
+			let mut reason = ""
+			if fn.Params.Len() > 0 {
+				reason = "a law with type parameters of its own runs as its licence run, at int, not as a property"
+			}
+			let finalPlan = if reason != "" { MakeUnrunPlan(reason) } else { pl2 }
+			planned = planned.Append(PlannedDecl{
+				Kind:       "law",
+				Title:      nm,
+				Plan:       finalPlan,
+				ByCtor:     false,
+				KeyWhyText: "",
+			})
+		}
+	}
+	PackagePlan{
+		Path:      path,
+		Pool:      pool,
+		Arena:     arena,
+		Decls:     planned,
+		TypeIDs:   typeIDs,
+		TypeNames: typeNames,
+		Native:    NativeRoot{Path: if dir == "" { path } else { dir }, Required: hasNativeGo},
+	}
+}
+
+// PlanPackageBuildsPlansTest parses, checks, and plans a synthetic Ergo package in memory.
+test PlanPackageBuildsPlansTest {
+	let src = "type Bit int where 0 <= it && it <= 1\n\ntest Toggle(a Bit, b Bit) {\n\tassert int(a) + int(b) <= 2\n}\n\nlaw Commute(a bool, b bool) { (a && b) == (b && a) }\n"
+	let tab = load.TablesOf("", "@pkg main main 0\n")
+	let parsed = syntax.Parse(src)
+	let unit = load.UnitOf(tab, []bind.File{bind.File{Name: "p.ergo", Parsed: parsed}}, []string{"p.ergo"})
+	let prog = load.LoadAll([]load.Unit{unit}, []types.Iface{}, 1)
+	assert prog.Loaded.Len() == 1
+	let typed = load.TypeAt(prog, 0)
+	let pkgPlan = PlanPackage("main", "", typed)
+	assert pkgPlan.Decls.Len() == 2
+	assert pkgPlan.Decls[0].Kind == "test" && pkgPlan.Decls[0].Title == "Toggle"
+	assert pkgPlan.Decls[0].Plan.Listed && int(pkgPlan.Decls[0].Plan.Count) == 4
+	assert pkgPlan.Decls[0].Plan.HasTies
+	assert pkgPlan.Decls[1].Kind == "law" && pkgPlan.Decls[1].Title == "Commute"
+	assert pkgPlan.Decls[1].Plan.Listed && int(pkgPlan.Decls[1].Plan.Count) == 4
+}

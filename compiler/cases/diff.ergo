@@ -1,0 +1,184 @@
+import strconv
+import strings
+
+let diffContext = 3
+let maxDiffCells = 16 << 20
+
+let opEqual = uint8(32)
+let opDelete = uint8(45)
+let opInsert = uint8(43)
+
+func splitLines(text string) []string {
+	let mut out = []string{}
+	let mut pos = 0
+	let n = text.Len()
+	for pos < n {
+		let mut end = pos
+		for end < n && text[end] != byte(10) {
+			end = end + 1
+		}
+		if end < n {
+			end = end + 1
+		}
+		out = out.Append(text[pos:end])
+		pos = end
+	}
+	out
+}
+
+func formatHunkSpan(start uint32, count int) string {
+	if count == 0 {
+		return "\(int(start)),0"
+	}
+	"\(int(start) + 1),\(count)"
+}
+
+func writeHunk(out mut strings.Builder, kinds []uint8, lines []string, aIdx []uint32, bIdx []uint32, from int, to int) {
+	let mut aCount = 0
+	let mut bCount = 0
+	for i in from..to {
+		if kinds[i] != opInsert {
+			aCount = aCount + 1
+		}
+		if kinds[i] != opDelete {
+			bCount = bCount + 1
+		}
+	}
+	out.WriteString("@@ -" + formatHunkSpan(aIdx[from], aCount) + " +" + formatHunkSpan(bIdx[from], bCount) + " @@\n")
+	for i in from..to {
+		out.WriteByte(kinds[i])
+		out.WriteString(lines[i])
+		if !strings.HasSuffix(lines[i], "\n") {
+			out.WriteString("\n\\ No newline at end of file\n")
+		}
+	}
+}
+
+func lineOps(a []string, b []string) ([]uint8, []string, []uint32, []uint32) {
+	let na = a.Len()
+	let nb = b.Len()
+	let mut kinds = []uint8{}
+	let mut lines = []string{}
+	let mut aIdx = []uint32{}
+	let mut bIdx = []uint32{}
+	if na*nb > maxDiffCells {
+		for i, line in a {
+			kinds = kinds.Append(opDelete)
+			lines = lines.Append(line)
+			aIdx = aIdx.Append(uint32(i))
+			bIdx = bIdx.Append(uint32(0))
+		}
+		for j, line in b {
+			kinds = kinds.Append(opInsert)
+			lines = lines.Append(line)
+			aIdx = aIdx.Append(uint32(na))
+			bIdx = bIdx.Append(uint32(j))
+		}
+		return (kinds, lines, aIdx, bIdx)
+	}
+	let stride = nb + 1
+	let total = (na + 1) * stride
+	let mut common = MakeSlice[uint32](total)
+	for _ in 0..total {
+		common = common.Append(uint32(0))
+	}
+	let mut i = na - 1
+	for i >= 0 {
+		let mut j = nb - 1
+		for j >= 0 {
+			let cur = i*stride + j
+			if a[i] == b[j] {
+				common[cur] = common[(i+1)*stride+j+1] + uint32(1)
+			} else {
+				let down = common[(i+1)*stride+j]
+				let right = common[i*stride+j+1]
+				common[cur] = if down >= right { down } else { right }
+			}
+			j = j - 1
+		}
+		i = i - 1
+	}
+	let mut ai = 0
+	let mut bi = 0
+	for ai < na || bi < nb {
+		if ai < na && bi < nb && a[ai] == b[bi] {
+			kinds = kinds.Append(opEqual)
+			lines = lines.Append(a[ai])
+			aIdx = aIdx.Append(uint32(ai))
+			bIdx = bIdx.Append(uint32(bi))
+			ai = ai + 1
+			bi = bi + 1
+		} else if bi == nb || (ai < na && common[(ai+1)*stride+bi] >= common[ai*stride+bi+1]) {
+			kinds = kinds.Append(opDelete)
+			lines = lines.Append(a[ai])
+			aIdx = aIdx.Append(uint32(ai))
+			bIdx = bIdx.Append(uint32(bi))
+			ai = ai + 1
+		} else {
+			kinds = kinds.Append(opInsert)
+			lines = lines.Append(b[bi])
+			aIdx = aIdx.Append(uint32(ai))
+			bIdx = bIdx.Append(uint32(bi))
+			bi = bi + 1
+		}
+	}
+	(kinds, lines, aIdx, bIdx)
+}
+
+// Diff computes a unified line diff from want to got with "--- want" and "+++ got" headers.
+func Diff(want string, got string) string {
+	let a = splitLines(want)
+	let b = splitLines(got)
+	let (kinds, lines, aIdx, bIdx) = lineOps(a, b)
+	let mut out = strings.NewBuilder()
+	out.WriteString("--- want\n+++ got\n")
+	let n = kinds.Len()
+	let mut start = 0
+	for start < n {
+		let mut first = start
+		for first < n && kinds[first] == opEqual {
+			first = first + 1
+		}
+		if first == n {
+			break
+		}
+		let mut last = first
+		for i in first..n {
+			if kinds[i] != opEqual {
+				if i-last > 2*diffContext {
+					break
+				}
+				last = i
+			}
+		}
+		let from = if first-diffContext > start { first - diffContext } else { start }
+		let to = if last+diffContext+1 < n { last + diffContext + 1 } else { n }
+		writeHunk(&out, kinds, lines, aIdx, bIdx, from, to)
+		start = to
+	}
+	out.String()
+}
+
+// DiffIdenticalIsHeaderOnly checks that identical strings produce only the diff headers.
+law DiffIdenticalIsHeaderOnly(s string) {
+	Diff(s, s) == "--- want\n+++ got\n"
+}
+
+// DiffDistinctHasHunk checks that distinct strings always emit at least one hunk header.
+law DiffDistinctHasHunk(a string, b string) {
+	if a == b {
+		return true
+	}
+	let d = Diff(a, b)
+	strings.HasPrefix(d, "--- want\n+++ got\n") && strings.Contains(d, "@@ -")
+}
+
+// DiffEdgeCasesTest verifies trailing-newline markers, zero counts, and distant hunk splitting.
+test DiffEdgeCasesTest {
+	assert Diff("a\n", "a") == "--- want\n+++ got\n@@ -1,1 +1,1 @@\n-a\n+a\n\\ No newline at end of file\n"
+	assert Diff("", "x\n") == "--- want\n+++ got\n@@ -0,0 +1,1 @@\n+x\n"
+	let d = Diff("1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n", "one\n2\n3\n4\n5\n6\n7\n8\n9\nten\n")
+	assert strings.Contains(d, "@@ -1,4 +1,4 @@")
+	assert strings.Contains(d, "@@ -7,4 +7,4 @@")
+	assert strconv.Itoa(1) == "1"
+}

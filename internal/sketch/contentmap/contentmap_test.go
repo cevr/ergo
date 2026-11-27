@@ -463,7 +463,7 @@ func TestStdRegexMatchesUserlandCopyEquivalence(t *testing.T) {
 		{"captures and option", `"(?<Year>[0-9]{4})-(?<Month>[0-9]{2})(-(?<Day>[0-9]{2}))?"`, ""},
 		{"union", `"(?<Num>[0-9]+)|(?<Word>[a-z]+)"`, ""},
 		{"nested repeat", `"(?<Pair>(?<Key>[a-z]+)=(?<Val>[0-9]*))*"`, ""},
-		{"syntax error caret", `"^abc"`, "drop ^"},
+		{"syntax error caret", `"a^bc"`, "drop ^"},
 		{"syntax error pygroup", `"(?P<X>a)"`, "(?<Name>"},
 	} {
 		stdSrc := fmt.Sprintf("import regex\n\ntype Sample derive regex.Pattern(%s)\nfunc main() {}\n", tc.pat)

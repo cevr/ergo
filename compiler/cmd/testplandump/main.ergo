@@ -1,0 +1,946 @@
+// Command testplandump exposes compiler/cases, compiler/testplan, and
+// compiler/lawfix over files, checked package corpora, and JSON fixtures.
+
+import codec
+import compiler/cases
+import compiler/check/bind
+import compiler/check/facts
+import compiler/check/load
+import compiler/check/types
+import compiler/lawfix
+import compiler/syntax
+import compiler/testplan
+import fs
+import fstest
+import io
+import json
+import option
+import os
+import slices
+import strconv
+import strings
+
+func readFileText(path string) string fails os.Exit needs fs.Files {
+	fs.Files.ReadFile(path) catch {
+	case fs.NotFound:
+		return os.Exit{Code: 1, Message: "testplandump: no file \(path)"}
+	case fs.Denied:
+		return os.Exit{Code: 1, Message: "testplandump: cannot read \(path)"}
+	case fs.Failed as e:
+		return os.Exit{Code: 1, Message: "testplandump: cannot read \(path): \(e.Reason)"}
+	}
+}
+
+func decodeJSON(text string) json.Value fails os.Exit {
+	let c = json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}
+	json.Decode(c, text) catch {
+	case json.Malformed as m:
+		return os.Exit{Code: 1, Message: "testplandump: malformed JSON at \(m.Offset): \(m.Reason)"}
+	case codec.WireWrongKind, codec.WireMissingField, codec.WireUnknownTag:
+		return os.Exit{Code: 1, Message: "testplandump: decode JSON: wrong kind"}
+	}
+}
+
+func jField(v json.Value, key string) option.Option[json.Value] {
+	match v {
+	case json.Object as obj:
+		let mut out option.Option[json.Value] = option.None
+		for m in obj.Members {
+			if m.Key == key {
+				out = option.Some[json.Value]{Value: m.Value}
+			}
+		}
+		out
+	case _:
+		option.None
+	}
+}
+
+func jStr(v json.Value, key string) string {
+	match jField(v, key) {
+	case option.Some{Value: fv}:
+		match fv {
+		case json.Str as s:
+			s.Value
+		case _:
+			""
+		}
+	case option.None:
+		""
+	}
+}
+
+func jBool(v json.Value, key string) bool {
+	match jField(v, key) {
+	case option.Some{Value: fv}:
+		match fv {
+		case json.Boolean as b:
+			b.Value
+		case _:
+			false
+		}
+	case option.None:
+		false
+	}
+}
+
+func jInt(v json.Value, key string) int {
+	match jField(v, key) {
+	case option.Some{Value: fv}:
+		match fv {
+		case json.Num as n:
+			strconv.Atoi(n.Wire()) catch {
+			case strconv.Malformed, strconv.OutOfRange:
+				0
+			}
+		case _:
+			0
+		}
+	case option.None:
+		0
+	}
+}
+
+func jUint64(v json.Value, key string) uint64 {
+	match jField(v, key) {
+	case option.Some{Value: fv}:
+		match fv {
+		case json.Num as n:
+			let v64 = strconv.ParseInt(n.Wire(), 10, 64) catch {
+			case strconv.Malformed, strconv.OutOfRange:
+				int64(0)
+			}
+			if v64 < int64(0) { uint64(0) } else { uint64(v64) }
+		case _:
+			uint64(0)
+		}
+	case option.None:
+		uint64(0)
+	}
+}
+
+func jInt64(v json.Value, key string) int64 {
+	match jField(v, key) {
+	case option.Some{Value: fv}:
+		match fv {
+		case json.Num as n:
+			strconv.ParseInt(n.Wire(), 10, 64) catch {
+			case strconv.Malformed, strconv.OutOfRange:
+				int64(0)
+			}
+		case _:
+			int64(0)
+		}
+	case option.None:
+		int64(0)
+	}
+}
+
+func jArray(v json.Value, key string) []json.Value {
+	match jField(v, key) {
+	case option.Some{Value: fv}:
+		match fv {
+		case json.Array as a:
+			a.Items
+		case _:
+			[]json.Value{}
+		}
+	case option.None:
+		[]json.Value{}
+	}
+}
+
+func jStrArray(v json.Value, key string) []string {
+	let mut out = []string{}
+	for item in jArray(v, key) {
+		match item {
+		case json.Str as s:
+			out = out.Append(s.Value)
+		case _:
+		}
+	}
+	out
+}
+
+func jUint32Array(v json.Value, key string) []uint32 {
+	let mut out = []uint32{}
+	for item in jArray(v, key) {
+		match item {
+		case json.Num as n:
+			let val = strconv.Atoi(n.Wire()) catch {
+			case strconv.Malformed, strconv.OutOfRange:
+				0
+			}
+			out = out.Append(uint32(val))
+		case _:
+		}
+	}
+	out
+}
+
+func jBoolArray(v json.Value, key string) []bool {
+	let mut out = []bool{}
+	for item in jArray(v, key) {
+		match item {
+		case json.Boolean as b:
+			out = out.Append(b.Value)
+		case _:
+		}
+	}
+	out
+}
+
+func writeStringList(t json.Text, xs []string) {
+	t.BeginList(xs.Len())
+	for x in xs {
+		t.String(x)
+	}
+	t.EndList()
+}
+
+func hexEncode(s string) string {
+	let digits = "0123456789abcdef"
+	let mut out = strings.NewBuilder()
+	for i in 0..s.Len() {
+		let b = int(s[i])
+		out.WriteByte(digits[b>>4])
+		out.WriteByte(digits[b&15])
+	}
+	out.String()
+}
+
+func writeUint32List(t json.Text, xs []uint32) {
+	t.BeginList(xs.Len())
+	for x in xs {
+		t.Int(int64(x))
+	}
+	t.EndList()
+}
+
+func runCasesLedger(argv []string) string fails os.Exit needs fs.Files {
+	let mut file = ""
+	let mut prefix = ""
+	let mut matchPat = ""
+	let mut prunePrefix = ""
+	let mut liveRaw = ""
+	let mut i = 0
+	for i < argv.Len() {
+		let a = argv[i]
+		if a == "--file" && i+1 < argv.Len() {
+			file = argv[i+1]
+			i = i + 2
+		} else if a == "--prefix" && i+1 < argv.Len() {
+			prefix = argv[i+1]
+			i = i + 2
+		} else if a == "--match" && i+1 < argv.Len() {
+			matchPat = argv[i+1]
+			i = i + 2
+		} else if a == "--prune" && i+1 < argv.Len() {
+			prunePrefix = argv[i+1]
+			i = i + 2
+		} else if a == "--live" && i+1 < argv.Len() {
+			liveRaw = argv[i+1]
+			i = i + 2
+		} else {
+			return os.Exit{Code: 2, Message: "usage: testplandump cases-ledger --file PATH [--prefix P] [--match M] [--prune P --live K,...]"}
+		}
+	}
+	if file == "" {
+		return os.Exit{Code: 2, Message: "testplandump cases-ledger: missing --file"}
+	}
+	let raw = try readFileText(file)
+	let t = json.NewText()
+	let st0 = cases.ParseCases(raw) catch {
+	case cases.CasesFailure as e:
+		t.BeginObject(2)
+		t.Key("ok")
+		t.Bool(false)
+		t.Key("error")
+		t.String(e.Message)
+		t.EndObject()
+		return t.Written() + "\n"
+	}
+	let mut st = st0
+	let mut pruned = 0
+	if prunePrefix != "" {
+		let mut live = Map[string, bool]{}
+		if liveRaw != "" {
+			for k in strings.Split(liveRaw, ",") {
+				if k != "" {
+					live[k] = true
+				}
+			}
+		}
+		pruned = cases.PruneOrphans(&st, prunePrefix, live)
+	}
+	let filtered = if prefix != "" || matchPat != "" {
+		cases.FilterCases(st, prefix, "")
+	} else {
+		st
+	}
+	let matched = cases.MatchKeys(st, matchPat)
+	t.BeginObject(7)
+	t.Key("ok")
+	t.Bool(true)
+	t.Key("formatted")
+	t.String(cases.FormatCases(st))
+	t.Key("filtered")
+	t.String(cases.FormatCases(filtered))
+	t.Key("shadows")
+	t.Int(int64(st.ShadowKeys.Len()))
+	t.Key("props")
+	t.Int(int64(st.PropKeys.Len()))
+	t.Key("matched")
+	writeStringList(t, matched)
+	t.Key("pruned")
+	t.Int(int64(pruned))
+	t.EndObject()
+	t.Written() + "\n"
+}
+
+func runCasesDir(argv []string, cwd string) string fails os.Exit needs fs.Files {
+	let mut dir = ""
+	let mut record = false
+	let mut i = 0
+	for i < argv.Len() {
+		let a = argv[i]
+		if a == "--dir" && i+1 < argv.Len() {
+			dir = argv[i+1]
+			i = i + 2
+		} else if a == "--record" {
+			record = true
+			i = i + 1
+		} else {
+			return os.Exit{Code: 2, Message: "usage: testplandump cases-dir --dir DIR [--record]"}
+		}
+	}
+	if dir == "" {
+		return os.Exit{Code: 2, Message: "testplandump cases-dir: missing --dir"}
+	}
+	let (loaded, problems) = cases.LoadDir(dir, cwd, record)
+	let (probText, probCode) = cases.FormatProblems(problems)
+	let t = json.NewText()
+	t.BeginObject(4)
+	t.Key("problems")
+	writeStringList(t, problems)
+	t.Key("problemText")
+	t.String(probText)
+	t.Key("problemStatus")
+	t.Int(int64(probCode))
+	t.Key("cases")
+	t.BeginList(loaded.Len())
+	for c in loaded {
+		t.BeginObject(12)
+		t.Key("name")
+		t.String(c.Name)
+		t.Key("dir")
+		t.String(c.Dir)
+		t.Key("args")
+		writeStringList(t, c.Args)
+		t.Key("env")
+		writeStringList(t, c.Env)
+		t.Key("stdin")
+		t.String(c.Stdin)
+		t.Key("setup")
+		t.Bool(c.Setup)
+		t.Key("out")
+		t.String(c.Out)
+		t.Key("outHex")
+		t.String(hexEncode(c.Out))
+		t.Key("hasOut")
+		t.Bool(c.HasOut)
+		t.Key("err")
+		t.String(c.Err)
+		t.Key("errHex")
+		t.String(hexEncode(c.Err))
+		t.Key("status")
+		t.Int(int64(c.Status))
+		t.EndObject()
+	}
+	t.EndList()
+	t.EndObject()
+	t.Written() + "\n"
+}
+
+func runCasesDiff(argv []string) string fails os.Exit needs fs.Files {
+	if argv.Len() != 2 || argv[0] != "--input" {
+		return os.Exit{Code: 2, Message: "usage: testplandump cases-diff --input PATH"}
+	}
+	let root = try decodeJSON(try readFileText(argv[1]))
+	cases.Diff(jStr(root, "want"), jStr(root, "got"))
+}
+
+func runCasesJudge(argv []string) string fails os.Exit needs fs.Files {
+	if argv.Len() != 2 || argv[0] != "--input" {
+		return os.Exit{Code: 2, Message: "usage: testplandump cases-judge --input PATH"}
+	}
+	let root = try decodeJSON(try readFileText(argv[1]))
+	let cVal = match jField(root, "case") {
+	case option.Some{Value: v}:
+		v
+	case option.None:
+		return os.Exit{Code: 2, Message: "missing case object"}
+	}
+	let oVal = match jField(root, "outcome") {
+	case option.Some{Value: v}:
+		v
+	case option.None:
+		return os.Exit{Code: 2, Message: "missing outcome object"}
+	}
+	let c = cases.Case{
+		Name:   jStr(cVal, "name"),
+		Dir:    jStr(cVal, "dir"),
+		Args:   jStrArray(cVal, "args"),
+		Env:    jStrArray(cVal, "env"),
+		Stdin:  jStr(cVal, "stdin"),
+		Setup:  jBool(cVal, "setup"),
+		Out:    jStr(cVal, "out"),
+		HasOut: jBool(cVal, "hasOut"),
+		Err:    jStr(cVal, "err"),
+		Status: uint32(jInt(cVal, "status")),
+	}
+	let o0 = cases.Outcome{
+		Stdout:     jStr(oVal, "stdout"),
+		Stderr:     jStr(oVal, "stderr"),
+		StdoutOver: jBool(oVal, "stdoutOver"),
+		StderrOver: jBool(oVal, "stderrOver"),
+		Status:     uint32(jInt(oVal, "status")),
+		Signaled:   jBool(oVal, "signaled"),
+		Signal:     jStr(oVal, "signal"),
+		TimedOut:   jBool(oVal, "timedOut"),
+		Limited:    jBool(oVal, "limited"),
+	}
+	let memory = jUint64(root, "memory")
+	let timeout = duration(int64(jInt(root, "timeoutSec")) * int64(1000000000))
+	let o = cases.ClassifyLimit(o0, memory)
+	let v = cases.Judge(c, o, jStr(root, "program"), memory, timeout)
+	let t = json.NewText()
+	t.BeginObject(6)
+	t.Key("fatal")
+	t.String(v.Fatal)
+	t.Key("what")
+	writeStringList(t, v.What)
+	t.Key("stdout")
+	t.Bool(v.Stdout)
+	t.Key("stderr")
+	t.Bool(v.Stderr)
+	t.Key("passed")
+	t.Bool(cases.VerdictPassed(v))
+	t.Key("report")
+	t.String(cases.FormatVerdictLine(c, o, v))
+	t.EndObject()
+	t.Written() + "\n"
+}
+
+func parseFactsNum(v json.Value, key string) facts.Num {
+	facts.NumOf(jInt64(v, key))
+}
+
+func runTestplanSpec(argv []string) string fails os.Exit needs fs.Files {
+	if argv.Len() != 2 || argv[0] != "--input" {
+		return os.Exit{Code: 2, Message: "usage: testplandump testplan-spec --input PATH"}
+	}
+	let root = try decodeJSON(try readFileText(argv[1]))
+	let typeDefs = jArray(root, "types")
+	let mut pool = testplan.NewTypePool()
+	let mut ids = []uint32{}
+	for td in typeDefs {
+		let kind = jStr(td, "kind")
+		let pText = jStr(td, "print")
+		let id = if kind == "basic" {
+			testplan.AddBasic(&pool, uint8(jInt(td, "basic")))
+		} else if kind == "tuple" {
+			testplan.AddTuple(&pool, jUint32Array(td, "children"), pText)
+		} else if kind == "slice" {
+			testplan.AddSlice(&pool, uint32(jInt(td, "elem")), pText)
+		} else if kind == "map" {
+			testplan.AddMap(&pool, uint32(jInt(td, "key")), uint32(jInt(td, "val")), pText)
+		} else if kind == "pointer" {
+			testplan.AddPointer(&pool, uint32(jInt(td, "elem")), pText)
+		} else if kind == "struct" {
+			testplan.AddStruct(&pool, jStrArray(td, "fieldNames"), jUint32Array(td, "children"), jBool(td, "hasUnexported"), pText)
+		} else if kind == "union" {
+			testplan.AddUnion(&pool, jUint32Array(td, "children"), jBool(td, "hasRow"), pText)
+		} else if kind == "op" {
+			testplan.AddOp(&pool, jStrArray(td, "methodNames"), jUint32Array(td, "children"), pText)
+		} else if kind == "sig" {
+			testplan.AddSig(&pool, jUint32Array(td, "params"), jUint32Array(td, "results"), jBool(td, "hasRow"), pText)
+		} else if kind == "param" {
+			testplan.AddParam(&pool, jStr(td, "name"))
+		} else if kind == "named" {
+			let nid = testplan.AddNamed(&pool, jStr(td, "pkg"), jStr(td, "name"), pText, testplan.NoType)
+			let idx = int(nid)
+			pool.HasDecl[idx] = !jBool(td, "noDecl")
+			pool.IsHost[idx] = jBool(td, "isHost")
+			pool.IsGoRef[idx] = jBool(td, "isGoRef")
+			pool.IsGoError[idx] = jBool(td, "isGoError")
+			pool.IsRuntime[idx] = jBool(td, "isRuntime")
+			if jBool(td, "isOrig") {
+				pool.Orig[idx] = uint32(0)
+			}
+			nid
+		} else {
+			testplan.AddBasic(&pool, testplan.BInvalid)
+		}
+		ids = ids.Append(id)
+	}
+	for i, td in typeDefs {
+		if jStr(td, "kind") == "named" {
+			let tid = ids[i]
+			let under = jInt(td, "under")
+			if under >= 0 && under < ids.Len() {
+				testplan.SetUnder(&pool, tid, ids[under])
+			}
+			if jBool(td, "hasCtor") {
+				testplan.SetConstructor(&pool, tid, jUint32Array(td, "ctorParams"))
+			}
+			if jBool(td, "hasBuilder") {
+				testplan.SetBuilder(&pool, tid, jUint32Array(td, "builderParams"))
+			}
+			if jBool(td, "isRefined") {
+				let mut spans = []facts.Span{}
+				for sp in jArray(td, "spans") {
+					spans = spans.Append(facts.Span{Lo: parseFactsNum(sp, "lo"), Hi: parseFactsNum(sp, "hi")})
+				}
+				testplan.SetRefinement(&pool, tid, jBool(td, "refLen"), spans)
+			}
+		}
+	}
+	let mut arena = testplan.NewValArena()
+	let mut ranks = testplan.NewValueRanks(pool)
+	let queries = jArray(root, "queries")
+	let t = json.NewText()
+	t.BeginList(queries.Len())
+	for q in queries {
+		let op = jStr(q, "op")
+		if op == "domain" {
+			let tid = uint32(jInt(q, "type"))
+			let (vs, ok) = testplan.Domain(pool, &arena, tid)
+			let mut texts = []string{}
+			for v in vs {
+				texts = texts.Append(testplan.FormatVal(arena, pool, v))
+			}
+			t.BeginObject(2)
+			t.Key("ok")
+			t.Bool(ok)
+			t.Key("values")
+			writeStringList(t, texts)
+			t.EndObject()
+		} else if op == "scalar" {
+			let k = uint8(jInt(q, "basic"))
+			t.BeginObject(1)
+			t.Key("scalar")
+			t.String(testplan.ScalarName(testplan.ScalarOf(k)))
+			t.EndObject()
+		} else if op == "keyWhy" {
+			t.BeginObject(1)
+			t.Key("why")
+			t.String(testplan.KeyWhy(pool, uint32(jInt(q, "type"))))
+			t.EndObject()
+		} else if op == "byConstructor" {
+			t.BeginObject(1)
+			t.Key("byCtor")
+			t.Bool(testplan.ByConstructor(pool, uint32(jInt(q, "type"))))
+			t.EndObject()
+		} else if op == "rank" {
+			t.BeginObject(1)
+			t.Key("rank")
+			t.Int(int64(testplan.Rank(pool, &ranks, uint32(jInt(q, "type")))))
+			t.EndObject()
+		} else if op == "smallVariants" {
+			let got = testplan.SmallVariants(pool, jUint32Array(q, "variants"))
+			t.BeginObject(1)
+			t.Key("variants")
+			writeUint32List(t, got)
+			t.EndObject()
+		} else if op == "callbackSecond" {
+			t.BeginObject(1)
+			t.Key("result")
+			t.Bool(testplan.CallbackSecond(jInt(q, "variant"), jInt64(q, "x")))
+			t.EndObject()
+		} else if op == "planLaw" || op == "planTest" || op == "planContext" {
+			let pl = if op == "planTest" {
+				testplan.PlanTest(pool, &arena, jStrArray(q, "paramNames"), jUint32Array(q, "paramTypes"), jUint32Array(q, "tieStart"), jUint32Array(q, "tieLen"), jUint32Array(q, "tieTargets"))
+			} else if op == "planContext" {
+				testplan.PlanContext(pool, &arena, jStrArray(q, "paramNames"), jUint32Array(q, "paramTypes"), jBool(q, "hasSupplied"), uint32(jInt(q, "supplied")))
+			} else {
+				let mut slots = []testplan.LawSlotSpec{}
+				for s in jArray(q, "slots") {
+					slots = slots.Append(testplan.LawSlotSpec{
+						HasParam:    jBool(s, "hasParam"),
+						Param:       uint32(jInt(s, "param")),
+						SlotType:    uint32(jInt(s, "slotType")),
+						GenericSlot: jBool(s, "genericSlot"),
+					})
+				}
+				let mut binds = []testplan.LawProviderSpec{}
+				for b in jArray(q, "bindings") {
+					binds = binds.Append(testplan.LawProviderSpec{
+						Type:       uint32(jInt(b, "type")),
+						Name:       jStr(b, "name"),
+						Params:     jUint32Array(b, "params"),
+						ClaimAt:    uint32(jInt(b, "claimAt")),
+						HasClaimAt: jBool(b, "hasClaimAt"),
+						HasCtor:    jBool(b, "hasCtor"),
+						ClaimCtor:  jBool(b, "claimCtor"),
+						Native:     jBool(b, "native"),
+						Unrun:      jStr(b, "unrun"),
+					})
+				}
+				testplan.PlanLaw(pool, &arena, jBool(q, "claimed"), jStr(q, "claimantTitle"), slots, jStrArray(q, "paramNames"), jUint32Array(q, "paramTypes"), jBoolArray(q, "paramWhere"), jUint32Array(q, "tieStart"), jUint32Array(q, "tieLen"), jUint32Array(q, "tieTargets"), jStr(q, "unrun"), binds)
+			}
+			let mut casesList = []string{}
+			if pl.Listed {
+				for k in 0..int(pl.Count) {
+					let vals = testplan.PlanAt(pl, uint32(k))
+					let mut row = []string{}
+					for v in vals {
+						row = row.Append(testplan.FormatVal(arena, pool, v))
+					}
+					casesList = casesList.Append(strings.Join(row, ","))
+				}
+			}
+			t.BeginObject(6)
+			t.Key("count")
+			t.Int(int64(pl.Count))
+			t.Key("listed")
+			t.Bool(pl.Listed)
+			t.Key("reason")
+			t.String(pl.Reason)
+			t.Key("native")
+			t.String(pl.Native)
+			t.Key("hasTies")
+			t.Bool(pl.HasTies)
+			t.Key("cases")
+			writeStringList(t, casesList)
+			t.EndObject()
+		} else {
+			t.BeginObject(1)
+			t.Key("error")
+			t.String("unknown op \(op)")
+			t.EndObject()
+		}
+	}
+	t.EndList()
+	t.Written() + "\n"
+}
+
+func needsOutside(ims []string, held Map[string, bool]) bool {
+	for path in ims {
+		match held.Get(path) {
+		case option.Some:
+		case option.None:
+			return true
+		}
+	}
+	false
+}
+
+func runTestplanPkg(argv0 []string) string fails os.Exit needs fs.Files {
+	let mut std = ""
+	let mut corpus = ""
+	let mut i = 0
+	for i < argv0.Len() {
+		if argv0[i] == "-std" && i+1 < argv0.Len() {
+			std = argv0[i+1]
+			i = i + 2
+		} else if argv0[i] == "-corpus" && i+1 < argv0.Len() {
+			corpus = argv0[i+1]
+			i = i + 2
+		} else {
+			return os.Exit{Code: 2, Message: "usage: testplandump testplan-pkg [-std DIR] -corpus MANIFEST"}
+		}
+	}
+	if corpus == "" {
+		return os.Exit{Code: 2, Message: "testplandump testplan-pkg: missing -corpus"}
+	}
+	let mut units = []load.Unit{}
+	let mut held = []string{}
+	let mut heldSet = Map[string, bool]{}
+	let mut rawSpecs = [][]string{}
+	for l in strings.Split(try readFileText(corpus), "\n") {
+		let g = strings.Fields(l)
+		if g.Len() >= 3 {
+			rawSpecs = rawSpecs.Append(g)
+			held = held.Append(g[0])
+			heldSet[g[0]] = true
+		}
+	}
+	let mut outside = []types.Iface{}
+	for sp in rawSpecs {
+		let extText = try readFileText(sp[1])
+		let foreignText = try readFileText(sp[2])
+		let tab = load.TablesOf(extText, foreignText)
+		let mut files = []bind.File{}
+		let paths = sp[3:sp.Len()]
+		for fp in paths {
+			let src = try readFileText(fp)
+			let slash = strings.LastIndex(fp, "/")
+			let bn = if slash < 0 { fp } else { fp[slash+1 : fp.Len()] }
+			files = files.Append(bind.File{Name: bn, Parsed: syntax.Parse(src)})
+		}
+		let mut unit = load.UnitOf(tab, files, paths)
+		unit.Path = sp[0]
+		units = units.Append(unit)
+		let ims = bind.Imports(files)
+		if std != "" && needsOutside(ims, heldSet) {
+			let dir = if paths.Len() > 0 { load.Dir(paths[0]) } else { "." }
+			let prev = held.Len()
+			let (h, o) = load.OutsideOne(ims, dir, tab, held, outside, std)
+			held = h
+			outside = o
+			for k in prev..held.Len() {
+				heldSet[held[k]] = true
+			}
+		}
+	}
+	let prog = load.LoadAll(units, outside, 1)
+	let mut out = strings.NewBuilder()
+	for idx in 0..prog.Loaded.Len() {
+		let uIdx = prog.Units[idx]
+		let typed = load.TypeAt(prog, idx)
+		let pp = testplan.PlanPackage(units[uIdx].Path, units[uIdx].Dir, typed)
+		out.WriteString("@pkg \(uIdx) \(pp.Path)\n")
+		for k, nm in pp.TypeNames {
+			let tid = pp.TypeIDs[k]
+			let mut a = pp.Arena
+			let (vs, ok) = testplan.Domain(pp.Pool, &a, tid)
+			let bc = testplan.ByConstructor(pp.Pool, tid)
+			let kw = testplan.KeyWhy(pp.Pool, tid)
+			let domStr = if ok { "\(vs.Len())" } else { "-" }
+			out.WriteString("type \(nm) dom=\(domStr) byCtor=\(bc) keyWhy=\(kw)\n")
+		}
+		for d in pp.Decls {
+			out.WriteString("\(d.Kind) \(d.Title) listed=\(d.Plan.Listed) count=\(int(d.Plan.Count)) ties=\(d.Plan.HasTies) reason=\(d.Plan.Reason)\n")
+		}
+	}
+	out.String()
+}
+
+func runLawfixSpec(argv []string) string fails os.Exit needs fs.Files {
+	if argv.Len() != 2 || argv[0] != "--input" {
+		return os.Exit{Code: 2, Message: "usage: testplandump lawfix-spec --input PATH"}
+	}
+	let root = try decodeJSON(try readFileText(argv[1]))
+	let pkgName = jStr(root, "pkgName")
+	let dir = jStr(root, "dir")
+	let unexportFlag = jBool(root, "unexport")
+	let writeFlag = jBool(root, "write")
+	let runFlag = jBool(root, "run")
+	let extList = jStrArray(root, "externalRefs")
+	let mut extMap = Map[string, bool]{}
+	for e in extList {
+		extMap[e] = true
+	}
+	let mut files = []lawfix.SourceFile{}
+	for fv in jArray(root, "files") {
+		let nm = jStr(fv, "name")
+		let src = jStr(fv, "src")
+		files = files.Append(lawfix.SourceFile{Name: nm, Src: src, Parsed: syntax.Parse(src)})
+	}
+	let g = lawfix.BuildGraph(pkgName, files)
+	let pDiags = lawfix.PlacementDiags(g)
+	let expHelpers = lawfix.ExportedLawHelpers(g)
+	let mut expNames = []string{}
+	for cid in expHelpers {
+		expNames = expNames.Append(g.DeclName[int(cid)])
+	}
+	let lhs = lawfix.LawHelpers(g)
+	let (unexpFiles, unexpRenames) = if unexportFlag {
+		let mut cands = []uint32{}
+		for cid in expHelpers {
+			match extMap.Get(g.DeclName[int(cid)]) {
+			case option.Some:
+			case option.None:
+				cands = cands.Append(cid)
+			}
+		}
+		lawfix.Unexport(g, cands)
+	} else {
+		(Map[string, string]{}, []string{})
+	}
+	let planRes = lawfix.Plan(g) catch {
+	case lawfix.PlanFailure as pf:
+		return os.Exit{Code: 1, Message: "testplandump lawfix-spec: \(pf.Message)"}
+	}
+	let mut runText = ""
+	if runFlag {
+		let mem = fstest.NewMemory()
+		let rep = with context { fs.Files: mem, fs.Writes: mem } {
+			let dPath = if dir == "" { "/pkg" } else { dir }
+			fs.Writes.MkdirAll(dPath) catch {
+			case fs.Denied, fs.Failed:
+			}
+			for sf in files {
+				fs.Writes.WriteFile(dPath+"/"+sf.Name, sf.Src) catch {
+				case fs.NotFound, fs.Denied, fs.Failed:
+				}
+			}
+			lawfix.Run(pkgName, dPath, writeFlag, unexportFlag, extMap) catch {
+			case lawfix.PlanFailure as pf:
+				return os.Exit{Code: 1, Message: "testplandump lawfix-spec Run: \(pf.Message)"}
+			}
+		}
+		runText = lawfix.FormatReport(rep)
+	}
+
+	let t = json.NewText()
+	t.BeginObject(6)
+	t.Key("placementDiags")
+	t.BeginList(pDiags.Len())
+	for gDiag in pDiags {
+		let p = g.Files[gDiag.File].Parsed
+		let lines = syntax.LinesOf(g.Files[gDiag.File].Src)
+		let pos = syntax.PositionOf(lines, gDiag.Offset)
+		let _ = p
+		t.BeginObject(5)
+		t.Key("file")
+		t.String(g.Files[gDiag.File].Name)
+		t.Key("line")
+		t.Int(int64(pos.Line))
+		t.Key("col")
+		t.Int(int64(pos.Column))
+		t.Key("code")
+		t.String(gDiag.Code)
+		t.Key("message")
+		t.String(gDiag.Message)
+		t.EndObject()
+	}
+	t.EndList()
+	t.Key("exportedHelpers")
+	writeStringList(t, expNames)
+	t.Key("lawHelpers")
+	t.BeginList(lhs.Len())
+	for h in lhs {
+		let mut uNames = []string{}
+		for u in h.Users {
+			uNames = uNames.Append(g.DeclName[int(u)])
+		}
+		t.BeginObject(3)
+		t.Key("decl")
+		t.String(g.DeclName[int(h.Decl)])
+		t.Key("user")
+		t.String(g.DeclName[int(h.User)])
+		t.Key("users")
+		writeStringList(t, uNames)
+		t.EndObject()
+	}
+	t.EndList()
+	t.Key("unexport")
+	let mut ufKeys = []string{}
+	for k, _ in unexpFiles {
+		ufKeys = ufKeys.Append(k)
+	}
+	ufKeys = slices.Sort(ufKeys)
+	t.BeginObject(2)
+	t.Key("renames")
+	writeStringList(t, unexpRenames)
+	t.Key("files")
+	t.BeginObject(ufKeys.Len())
+	for k in ufKeys {
+		t.Key(k)
+		match unexpFiles.Get(k) {
+		case option.Some{Value: v}:
+			t.String(v)
+		case option.None:
+			t.String("")
+		}
+	}
+	t.EndObject()
+	t.EndObject()
+	t.Key("plan")
+	t.BeginObject(6)
+	t.Key("deleted")
+	writeStringList(t, planRes.Deleted)
+	t.Key("renamed")
+	writeStringList(t, planRes.Renamed)
+	t.Key("helpers")
+	writeStringList(t, planRes.Helpers)
+	t.Key("unplaced")
+	writeStringList(t, planRes.Unplaced)
+	t.Key("moves")
+	t.BeginList(planRes.Moves.Len())
+	for mv in planRes.Moves {
+		t.BeginObject(5)
+		t.Key("kind")
+		t.String(mv.Kind)
+		t.Key("law")
+		t.String(mv.Law)
+		t.Key("from")
+		t.String(mv.From)
+		t.Key("to")
+		t.String(mv.To)
+		t.Key("helpers")
+		writeStringList(t, mv.Helpers)
+		t.EndObject()
+	}
+	t.EndList()
+	t.Key("files")
+	t.BeginObject(planRes.FileNames.Len())
+	for i, nm in planRes.FileNames {
+		t.Key(nm)
+		t.String(planRes.FileContents[i])
+	}
+	t.EndObject()
+	t.EndObject()
+	t.Key("runReport")
+	t.String(runText)
+	t.EndObject()
+	t.Written() + "\n"
+}
+
+func dispatchWithCwd(argv []string, cwd string) string fails os.Exit needs fs.Files {
+	if argv.Len() == 0 {
+		return os.Exit{Code: 2, Message: "usage: testplandump <cases-ledger|cases-dir|cases-diff|cases-judge|testplan-spec|testplan-pkg|lawfix-spec> ..."}
+	}
+	let cmd = argv[0]
+	let rest = argv[1:argv.Len()]
+	if cmd == "cases-ledger" {
+		return try runCasesLedger(rest)
+	}
+	if cmd == "cases-dir" {
+		return try runCasesDir(rest, cwd)
+	}
+	if cmd == "cases-diff" {
+		return try runCasesDiff(rest)
+	}
+	if cmd == "cases-judge" {
+		return try runCasesJudge(rest)
+	}
+	if cmd == "testplan-spec" {
+		return try runTestplanSpec(rest)
+	}
+	if cmd == "testplan-pkg" {
+		return try runTestplanPkg(rest)
+	}
+	if cmd == "lawfix-spec" {
+		return try runLawfixSpec(rest)
+	}
+	os.Exit{Code: 2, Message: "testplandump: unknown command \(cmd)"}
+}
+
+func main() fails os.Exit needs os.Ambient {
+	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), io.Stdout: io.NewHost() } {
+		let cwd = os.Process.Getwd() catch {
+		case os.NoWorkdir:
+			""
+		}
+		let out = try dispatchWithCwd(os.Process.Args(), cwd)
+		io.Stdout.Print(out)
+	}
+}
+
+// DispatchWithCwdRunsSubcommandsTest checks testplandump subcommands cleanly over fstest.Memory.
+test DispatchWithCwdRunsSubcommandsTest {
+	let m = fstest.NewMemory()
+	let (lOut, dOut) = with context { fs.Files: m, fs.Writes: m } {
+		try fs.Writes.MkdirAll("/td")
+		try fs.Writes.WriteFile("/td/a.cases", "law a.L (1)\nproperty a.P tape cafe 1,2\n")
+		try fs.Writes.WriteFile("/td/diff.json", "{\"want\":\"x\\n\",\"got\":\"y\\n\"}")
+		let l = try dispatchWithCwd([]string{"cases-ledger", "--file", "/td/a.cases"}, "/")
+		let d = try dispatchWithCwd([]string{"cases-diff", "--input", "/td/diff.json"}, "/")
+		(l, d)
+	}
+	assert strings.Contains(lOut, "property a.P tape cafe 1,2")
+	assert strings.Contains(dOut, "--- want\n+++ got\n")
+}

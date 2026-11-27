@@ -240,9 +240,9 @@ func TestPatternDiagnostics(t *testing.T) {
 		wantText string
 	}{
 		{"anchor caret", "`a^b`", 34, "drop ^"},
-		{"anchor dollar", "`ab$`", 35, "drop $"},
+		{"anchor dollar", "`a$b`", 34, "drop $"},
 		{"python group", "`(?P<X>a)`", 33, "(?<Name>"},
-		{"noncap group", "`(?:a)`", 33, "(?:"},
+		{"lookahead", "`(?=a)`", 33, "lookahead"},
 		{"concat caret", "\"a\" + \"^b\"", 39, "drop ^"},
 		{"escape caret", `"a\x5eb"`, 34, "drop ^"},
 		{"dup capture", "`(?<X>a)(?<X>b)`", 40, "duplicate capture"},

@@ -1,0 +1,363 @@
+import compiler/cachekey
+import compiler/front
+import compiler/lawcache
+import compiler/report
+import fs
+import option
+import slices
+import strconv
+import strings
+
+// EvaluatedMark labels newly evaluated test lines in test runner output.
+let EvaluatedMark = " (evaluated)"
+
+// StoredMark labels cached test lines served from verdict storage.
+let StoredMark = " (cached)"
+
+// DefaultEvalStates bounds machine state exploration when States is zero.
+let DefaultEvalStates = uint32(1000000)
+
+// RunnerEval names the pure check-time evaluator runner.
+let RunnerEval = "eval"
+
+// RunnerNative names the compiled native Go test binary runner.
+let RunnerNative = "native"
+
+// WarmEnabledEnv enables or disables warm-answer inspection when set.
+let WarmEnabledEnv = "ERGO_WARM"
+
+// WarmSchema names the serialized schema tag of warm cache entries.
+let WarmSchema = "ergo-warm-1"
+
+// EvalBudget configures step, byte, state, seed, and depth limits without signed 64-bit fields.
+type EvalBudget {
+	Steps      uint64,
+	Depth      uint32,
+	Seed       uint64,
+	Source     string,
+	States     uint32,
+	Bytes      uint64,
+	PruneCases bool,
+}
+
+// DefaultEvalBudget returns the deterministic default evaluation budget.
+func DefaultEvalBudget() EvalBudget {
+	EvalBudget{
+		Steps:      uint64(1000000),
+		Depth:      uint32(1024),
+		Seed:       uint64(1),
+		Source:     "",
+		States:     DefaultEvalStates,
+		Bytes:      uint64(67108864),
+		PruneCases: false,
+	}
+}
+
+// EvalResult records one checked obligation evaluation verdict cleanly in DoD types.
+type EvalResult {
+	Name       string,
+	Status     string,
+	Reason     string,
+	Evidence   string,
+	Cases      uint32,
+	TotalCases uint32,
+	Seed       uint64,
+	Steps      uint64,
+	Cached     bool,
+	LineText   string,
+}
+
+// EvaluationEnvelope aggregates all test and law evaluation results for a package or command response.
+type EvaluationEnvelope {
+	Status     string,
+	Evaluated  uint32,
+	CachedHits uint32,
+	Refuted    uint32,
+	Skipped    uint32,
+	Incomplete uint32,
+	Defects    uint32,
+	Results    []EvalResult,
+}
+
+// SummarizeEvaluation rolls EvalResult records into a canonical EvaluationEnvelope using compiler/report.
+func SummarizeEvaluation(results []EvalResult) EvaluationEnvelope {
+	let mut statuses = slices.WithCapacity[string](results.Len())
+	let mut evCount = uint32(0)
+	let mut cachedCount = uint32(0)
+	let mut refutedCount = uint32(0)
+	let mut skippedCount = uint32(0)
+	let mut incCount = uint32(0)
+	let mut defectCount = uint32(0)
+	for r in results {
+		statuses = statuses.Append(r.Status)
+		if r.Cached {
+			cachedCount = cachedCount + uint32(1)
+		} else if r.Status == "passed" {
+			evCount = evCount + uint32(1)
+		}
+		if r.Status == "refuted" {
+			refutedCount = refutedCount + uint32(1)
+		} else if r.Status == "skipped" {
+			skippedCount = skippedCount + uint32(1)
+		} else if r.Status == "incomplete" || r.Status == "not run" {
+			incCount = incCount + uint32(1)
+		} else if r.Status == "defect" {
+			defectCount = defectCount + uint32(1)
+		}
+	}
+	EvaluationEnvelope{
+		Status:     report.EvaluationStatus(statuses),
+		Evaluated:  evCount,
+		CachedHits: cachedCount,
+		Refuted:    refutedCount,
+		Skipped:    skippedCount,
+		Incomplete: incCount,
+		Defects:    defectCount,
+		Results:    results,
+	}
+}
+
+// TargetVerdictKey computes the framed lawcache key for one law target verdict.
+func TargetVerdictKey(pkgPath string, reachDigest string, target string, runner string, states uint32, budgetSteps uint64, budgetBytes uint64) string {
+	let effStates = if states == uint32(0) { DefaultEvalStates } else { states }
+	lawcache.Key([]string{
+		"ergo-law-verdict-1",
+		pkgPath,
+		reachDigest,
+		target,
+		runner,
+		strconv.Itoa(int(effStates)),
+		u64DecimalStr(budgetSteps),
+		u64DecimalStr(budgetBytes),
+	})
+}
+
+// TestVerdictKey computes the framed lawcache key for one pure test verdict.
+func TestVerdictKey(pkgPath string, reachDigest string, testName string, seed uint64) string {
+	lawcache.Key([]string{
+		"ergo-test-verdict-1",
+		pkgPath,
+		reachDigest,
+		testName,
+		u64DecimalStr(seed),
+	})
+}
+
+// RouteVerdictKey computes the framed key for one HTTP or command route verification entry.
+func RouteVerdictKey(pkgPath string, routePattern string, inputDigest string) string {
+	lawcache.Key([]string{
+		"ergo-route-verdict-1",
+		pkgPath,
+		routePattern,
+		inputDigest,
+	})
+}
+
+func u64DecimalStr(v uint64) string {
+	let zero = uint64(0)
+	let ten = uint64(10)
+	if v == zero {
+		return "0"
+	}
+	let mut cur = v
+	let mut out = ""
+	for cur > zero {
+		out = strconv.Itoa(int(cur%ten)) + out
+		cur = cur / ten
+	}
+	out
+}
+
+func quoteCLIArg(s string) string {
+	if s == "" {
+		return "\"\""
+	}
+	let mut plain = true
+	for i in 0..s.Len() {
+		let b = s[i]
+		if b <= byte(' ') || b == byte('"') || b == byte('\'') || b == byte('\\') {
+			plain = false
+			break
+		}
+	}
+	if plain {
+		return s
+	}
+	strconv.Quote(s)
+}
+
+// ReplayCommandOf formats the exact CLI command to replay one failing test or law.
+func ReplayCommandOf(source string, title string, isLaw bool, seed uint64) string {
+	let srcPart = quoteCLIArg(source)
+	let titlePart = quoteCLIArg(title)
+	let flagPart = if isLaw { "--law " + titlePart } else { "--run " + titlePart }
+	let seedPart = if seed > uint64(0) { " --seed " + u64DecimalStr(seed) } else { "" }
+	"ergo test " + srcPart + " " + flagPart + seedPart
+}
+
+// TestAnswer captures pre-evaluated and cached test lines before native runner fallback.
+type TestAnswer {
+	HandledNames []string,
+	OutputLines  []string,
+	RefutedNames []string,
+	Evaluated    uint32,
+	Stored       uint32,
+}
+
+// ResolveTestAnswers classifies pure evaluation results into handled lines, cached marks, and refutations.
+func ResolveTestAnswers(results []EvalResult, workspaceRoot string, resolvedRoot string) TestAnswer {
+	let mut handled = []string{}
+	let mut lines = []string{}
+	let mut refuted = []string{}
+	let mut ev = uint32(0)
+	let mut st = uint32(0)
+	for r in results {
+		let mark = if r.Cached { StoredMark } else { EvaluatedMark }
+		let baseLine = if r.LineText != "" { r.LineText } else if r.Status == "passed" { "ok " + r.Name } else { "FAIL " + r.Name + ": " + r.Reason }
+		let cleanLine = if workspaceRoot != "" { lawcache.Within(workspaceRoot, baseLine) } else { baseLine }
+		if r.Status == "passed" {
+			handled = handled.Append(r.Name)
+			lines = lines.Append(cleanLine + mark)
+			if r.Cached {
+				st = st + uint32(1)
+			} else {
+				ev = ev + uint32(1)
+			}
+		} else if r.Status == "refuted" {
+			if workspaceRoot != "" && lawcache.NamesResolved(cleanLine, workspaceRoot, resolvedRoot) {
+				continue
+			}
+			handled = handled.Append(r.Name)
+			lines = lines.Append(cleanLine)
+			refuted = refuted.Append(r.Name)
+			ev = ev + uint32(1)
+		}
+	}
+	TestAnswer{
+		HandledNames: handled,
+		OutputLines:  lines,
+		RefutedNames: refuted,
+		Evaluated:    ev,
+		Stored:       st,
+	}
+}
+
+// StorePassedVerdict persists a passing verdict line into lawcache.Store when safe for caching.
+func StorePassedVerdict(store lawcache.Store, key string, root string, text string) {
+	if key == "" || text == "" || lawcache.IsFailureText(text) {
+		return
+	}
+	if root != "" && lawcache.NamesResolved(text, root, root) {
+		return
+	}
+	lawcache.Keep(store, key, text)
+}
+
+// LoadCachedVerdict retrieves a stored verdict string for key from lawcache.Store unless fresh or root-leaking.
+func LoadCachedVerdict(store lawcache.Store, key string, fresh bool, root string) option.Option[string] {
+	if key == "" {
+		return option.None
+	}
+	if fresh {
+		lawcache.Fresh(store)
+		return option.None
+	}
+	match lawcache.Get(store, key) {
+	case option.None:
+		option.None
+	case option.Some[string] as got:
+		let normText = if root != "" { lawcache.Unroot(root, got.Value) } else { got.Value }
+		option.Some[string]{Value: normText}
+	}
+}
+
+// WarmEnabled reports whether the compiler warm cache is active for envVal.
+func WarmEnabled(envVal string) bool {
+	envVal != "off" && envVal != "0" && envVal != "false"
+}
+
+// WarmKeyOf computes the canonical warm cache key using compiler/front and compiler/cachekey.
+func WarmKeyOf(compilerVersion string, parts []string, environ []string, experiments []string) string {
+	front.ComputeWarmKey(compilerVersion, parts, environ, experiments)
+}
+
+// WarmHitOutcome describes the decision reached when checking cached warm answer freshness.
+type WarmHitOutcome =
+	| WarmHitValid{Payload string}
+	| WarmHitStale{Reason string}
+
+// CheckWarmHit verifies decoded warm manifest freshness against root and filesystem stat settle window.
+func CheckWarmHit(manifestText string, payload string, root string, envMap Map[string, string]) WarmHitOutcome needs fs.Files {
+	let (inputs, ok) = front.DecodeWarmManifest(manifestText)
+	if !ok {
+		return WarmHitStale{Reason: "malformed warm manifest"}
+	}
+	if root != "" && !front.InputsWithin(inputs, root) {
+		return WarmHitStale{Reason: "inputs outside workspace root"}
+	}
+	if !front.InputsFresh(inputs, envMap) {
+		return WarmHitStale{Reason: "filesystem inputs changed"}
+	}
+	WarmHitValid{Payload: payload}
+}
+
+// StageCounters tracks phase latencies in nanoseconds and warm-hit state using uint64 scalars.
+type StageCounters {
+	FrontNs uint64,
+	CheckNs uint64,
+	LowerNs uint64,
+	BuildNs uint64,
+	TotalNs uint64,
+	WarmHit bool,
+}
+
+// FormatStageReportJSON encodes StageCounters deterministically as compact JSON.
+func FormatStageReportJSON(s StageCounters) string {
+	let warmStr = if s.WarmHit { "true" } else { "false" }
+	"{\"frontNs\":" + u64DecimalStr(s.FrontNs) + ",\"checkNs\":" + u64DecimalStr(s.CheckNs) + ",\"lowerNs\":" + u64DecimalStr(s.LowerNs) + ",\"buildNs\":" + u64DecimalStr(s.BuildNs) + ",\"totalNs\":" + u64DecimalStr(s.TotalNs) + ",\"warmHit\":" + warmStr + "}"
+}
+
+// TargetVerdictKeySensitiveToTarget verifies distinct target names produce distinct verdict keys.
+law TargetVerdictKeySensitiveToTarget(pkgPath string, t1 string, t2 string) {
+	if t1 == t2 {
+		return true
+	}
+	TargetVerdictKey(pkgPath, "dig", t1, RunnerEval, uint32(0), uint64(100), uint64(100)) != TargetVerdictKey(pkgPath, "dig", t2, RunnerEval, uint32(0), uint64(100), uint64(100))
+}
+
+// WarmKeyStableAcrossTempVars verifies changing temp/cache env vars keeps WarmKey invariant.
+law WarmKeyStableAcrossTempVars(compilerVersion string, part string) {
+	let e1 = []string{"GOFLAGS=-trimpath", "GOCACHE=/tmp/a", "GOPATH=/tmp/g1"}
+	let e2 = []string{"GOFLAGS=-trimpath", "GOCACHE=/tmp/b", "GOPATH=/tmp/g2"}
+	WarmKeyOf(compilerVersion, []string{part}, e1, []string{}) == WarmKeyOf(compilerVersion, []string{part}, e2, []string{})
+}
+
+test EvaluateVerdictsKeysAnswersAndWarm {
+	let kLaw = TargetVerdictKey("app/p", "d1", "law.A", RunnerEval, uint32(0), uint64(1000), uint64(4096))
+	assert kLaw != "" && kLaw == TargetVerdictKey("app/p", "d1", "law.A", RunnerEval, DefaultEvalStates, uint64(1000), uint64(4096))
+	assert kLaw != TargetVerdictKey("app/p", "d1", "law.A", RunnerEval, uint32(1), uint64(1000), uint64(4096))
+	let kTest = TestVerdictKey("app/p", "d1", "TestOne", uint64(9))
+	assert kTest != "" && kTest != TestVerdictKey("app/p", "d1", "TestOne", uint64(10))
+	assert ReplayCommandOf("main.ergo", "LawA", true, uint64(5)) == "ergo test main.ergo --law LawA --seed 5"
+
+	let res = []EvalResult{
+		EvalResult{Name: "TestOne", Status: "passed", Reason: "", Evidence: "evaluated", Cases: uint32(1), TotalCases: uint32(1), Seed: uint64(1), Steps: uint64(12), Cached: false, LineText: "ok TestOne"},
+		EvalResult{Name: "TestTwo", Status: "passed", Reason: "", Evidence: "evaluated", Cases: uint32(1), TotalCases: uint32(1), Seed: uint64(1), Steps: uint64(0), Cached: true, LineText: "ok TestTwo"},
+	}
+	let env = SummarizeEvaluation(res)
+	assert env.Status == "passed" && env.Evaluated == uint32(1) && env.CachedHits == uint32(1)
+	let ans = ResolveTestAnswers(res, "", "")
+	assert ans.OutputLines.Len() == 2 && ans.OutputLines[0] == "ok TestOne (evaluated)" && ans.OutputLines[1] == "ok TestTwo (cached)"
+
+	let store = lawcache.Memory("ergo")
+	StorePassedVerdict(store, kTest, "", "ok TestOne")
+	assert LoadCachedVerdict(store, kTest, false, "") != option.None
+	assert LoadCachedVerdict(store, kTest, true, "") == option.None
+	let kFail = TestVerdictKey("app/p", "d1", "TestFail", uint64(1))
+	StorePassedVerdict(store, kFail, "", "FAIL TestFail: bad")
+	assert LoadCachedVerdict(store, kFail, false, "") == option.None
+
+	let sr = FormatStageReportJSON(StageCounters{FrontNs: uint64(10), CheckNs: uint64(20), LowerNs: uint64(30), BuildNs: uint64(40), TotalNs: uint64(100), WarmHit: true})
+	assert strings.Contains(sr, "\"warmHit\":true")
+	let _ = cachekey.WarmSchema
+}

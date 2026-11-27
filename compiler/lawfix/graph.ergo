@@ -1,0 +1,1123 @@
+// Package lawfix automates law and test placement, helper bundling,
+// unexporting, import updating, and placement diagnostics matching Go's
+// internal/sketch/lawfix and internal/sketch/check placement rules.
+
+import compiler/check/bind
+import compiler/check/diag
+import compiler/check/store
+import compiler/syntax
+import dense
+import filepath
+import option
+import slices
+import strings
+
+// NoDecl is the uint32 sentinel representing an absent declaration ID.
+let NoDecl = uint32(4294967295)
+
+// Declaration kind constants stored in LawGraph.DeclKind.
+let KDFunc = uint8(0)
+let KDType = uint8(1)
+let KDVar = uint8(2)
+let KDContext = uint8(3)
+let KDLaw = uint8(4)
+let KDTest = uint8(5)
+let KDMemberLaw = uint8(6)
+let KDMachineLaw = uint8(7)
+
+// SourceFile pairs an input filename, raw source bytes, and parsed syntax tree.
+type SourceFile { Name string, Src string, Parsed syntax.Parsed }
+
+// LawSubject identifies one non-helper target declaration reachable from a law or test.
+type LawSubject { Name string, Decl uint32, FileIdx uint32 }
+
+// HelperSpec records a helper declaration, its first user anchor, and all users.
+type HelperSpec { Decl uint32, User uint32, Users []uint32 }
+
+// DeclRef lists a subject reached by a declaration in graph order.
+type DeclRef { Name string, Decl uint32 }
+
+// LawGraph holds package declarations, spans, ownership, and dependency CSRs in dense uint32 SoA columns.
+type LawGraph {
+	PkgName       string,
+	Files         []SourceFile,
+	Store         store.Store,
+	Uses          bind.Uses,
+	Parents       bind.Parents,
+	DeclKind      []uint8,
+	DeclName      []string,
+	DeclFile      []uint32,
+	DeclNode      []dense.ID[syntax.Node],
+	DeclNameNode  []dense.ID[syntax.Node],
+	DeclFrom      []uint32,
+	DeclTo        []uint32,
+	DeclExported  []bool,
+	DeclDotted    []bool,
+	DeclPaired    []bool,
+	DeclMachine   []bool,
+	DeclOwner     []uint32,
+	DeclRank      []uint32,
+	DeclProvider  []bool,
+	RefStart      []uint32,
+	RefLen        []uint32,
+	RefTargets    []uint32,
+	UserStart     []uint32,
+	UserLen       []uint32,
+	Users         []uint32,
+	BaseHelper    []bool,
+	FixHelper     []bool,
+	PNodeDecl     []uint32,
+	PNodeIsImport []bool,
+	NameIndex     Map[string, uint32],
+	TypeIndex     Map[string, uint32],
+	MethodStart   []uint32,
+	MethodLen     []uint32,
+	MethodDecls   []uint32,
+}
+
+// IsLawOrTestFile reports whether filename is named for laws or tests.
+func IsLawOrTestFile(name string) bool {
+	let lower = strings.ToLower(filepath.Base(name))
+	strings.Contains(lower, "law") || strings.Contains(lower, "test")
+}
+
+// LawsFileName reports whether filename is named for laws.
+func LawsFileName(name string) bool {
+	strings.Contains(strings.ToLower(filepath.Base(name)), "law")
+}
+
+// TestsFileName reports whether filename is named for tests rather than laws.
+func TestsFileName(name string) bool {
+	!LawsFileName(name) && IsLawOrTestFile(name)
+}
+
+// IsExported reports whether ident begins with an uppercase ASCII or non-ASCII uppercase letter.
+func IsExported(name string) bool {
+	if name.Len() == 0 {
+		return false
+	}
+	let b = name[0]
+	b >= byte(65) && b <= byte(90)
+}
+
+func isKeyword(s string) bool {
+	match s {
+	case "func", "type", "let", "mut", "own", "return", "try", "catch", "match", "case", "if", "else", "for", "in", "break", "continue", "import", "context", "with", "needs", "fails", "takes", "provides", "implements", "law", "test", "assert", "skip", "always", "sometimes", "where", "extern", "go", "derive", "select", "machine", "state", "step", "var", "const":
+		true
+	case _:
+		false
+	}
+}
+
+// IsValidImportName reports whether s is a valid non-keyword, non-blank identifier for an import qualifier.
+func IsValidImportName(s string) bool {
+	if s.Len() == 0 || s == "_" || isKeyword(s) {
+		return false
+	}
+	for i in 0..s.Len() {
+		let b = s[i]
+		let letter = (b >= byte(65) && b <= byte(90)) || (b >= byte(97) && b <= byte(122)) || b == byte(95)
+		let digit = b >= byte(48) && b <= byte(57)
+		if i == 0 && !letter {
+			return false
+		}
+		if i > 0 && !letter && !digit {
+			return false
+		}
+	}
+	true
+}
+
+// ImportPath extracts the unquoted import path string from an ImportSpec node.
+func ImportPath(p syntax.Parsed, is syntax.ImportSpec) string {
+	let raw = tokenTextOfNode(p, is.Path)
+	if raw.Len() >= 2 && raw[0] == byte(34) && raw[raw.Len()-1] == byte(34) {
+		return raw[1 : raw.Len()-1]
+	}
+	raw
+}
+
+// ImportIsGo reports whether an ImportSpec is a Go package import.
+func ImportIsGo(p syntax.Parsed, is syntax.ImportSpec) bool {
+	match dense.Unpack(is.Name) {
+	case option.Some{Value: n}:
+		identText(p, n) == "go"
+	case option.None:
+		is.NamePos >= 0 && syntax.TokKind(p, is.NamePos) == syntax.Go
+	}
+}
+
+// ImportDefaultName returns the default local qualifier for an import path.
+func ImportDefaultName(path string, isGo bool) string {
+	let clean = strings.TrimRight(path, "/")
+	let slash = strings.LastIndex(clean, "/")
+	let mut last = if slash >= 0 { clean[slash+1 : clean.Len()] } else { clean }
+	if !isGo && (strings.HasPrefix(path, "./") || strings.HasPrefix(path, "../")) {
+		let dot = strings.LastIndex(last, ".")
+		if dot > 0 {
+			last = last[0:dot]
+		}
+	}
+	if !isGo {
+		let dot2 = strings.Index(last, ".")
+		if dot2 > 0 {
+			last = last[0:dot2]
+		}
+	}
+	let mut cleanIdent = strings.NewBuilder()
+	for i in 0..last.Len() {
+		let b = last[i]
+		if (b >= byte(65) && b <= byte(90)) || (b >= byte(97) && b <= byte(122)) || b == byte(95) || (i > 0 && b >= byte(48) && b <= byte(57)) {
+			cleanIdent.WriteByte(b)
+		} else {
+			cleanIdent.WriteByte(byte(95))
+		}
+	}
+	let out = cleanIdent.String()
+	if out == "" { "pkg" } else { out }
+}
+
+// ImportLocalName returns the local qualifier bound by an ImportSpec in source.
+func ImportLocalName(p syntax.Parsed, is syntax.ImportSpec) string {
+	let isGo = ImportIsGo(p, is)
+	match dense.Unpack(is.Name) {
+	case option.Some{Value: n}:
+		let alias = identText(p, n)
+		if alias == "go" {
+			return ImportDefaultName(ImportPath(p, is), true)
+		}
+		alias
+	case option.None:
+		ImportDefaultName(ImportPath(p, is), isGo)
+	}
+}
+
+func tokenTextOfNode(p syntax.Parsed, id dense.ID[syntax.Node]) string {
+	let j = syntax.TokStartingAt(p, syntax.NodePos(p, id))
+	if j < 0 { "" } else { syntax.TokText(p, j) }
+}
+
+func identText(p syntax.Parsed, id dense.ID[syntax.Node]) string {
+	if syntax.KindOf(p.Tree, id) != syntax.KIdent {
+		return ""
+	}
+	syntax.TokText(p, syntax.NameOf(p.Tree, id).Tok)
+}
+
+func declDocGroup(t syntax.Tree, d dense.ID[syntax.Node]) int {
+	match syntax.ViewOf(t, d) {
+	case syntax.ImportDecl as x:
+		x.Doc
+	case syntax.VarDecl as x:
+		x.Doc
+	case syntax.TypeDecl as x:
+		x.Doc
+	case syntax.FuncDecl as x:
+		x.Doc
+	case syntax.ContextDecl as x:
+		x.Doc
+	case syntax.TestDecl as x:
+		x.Doc
+	case syntax.LawDecl as x:
+		x.Doc
+	case _:
+		-1
+	}
+}
+
+// DeclStartWithDoc returns the start byte offset of decl including any attached doc group.
+func DeclStartWithDoc(p syntax.Parsed, d dense.ID[syntax.Node]) int {
+	let mut pos = syntax.NodePos(p, d)
+	let doc = declDocGroup(p.Tree, d)
+	if doc >= 0 && doc < syntax.NumGroups(p) {
+		let gp = syntax.GroupPos(p, doc)
+		if gp < pos {
+			pos = gp
+		}
+	}
+	pos
+}
+
+// LineStartAt returns the byte index beginning the line containing offset.
+func LineStartAt(src string, offset int) int {
+	let mut i = if offset > src.Len() { src.Len() } else { offset }
+	for i > 0 && src[i-1] != byte(10) {
+		i = i - 1
+	}
+	i
+}
+
+// LineEndAt returns the byte offset immediately after the newline terminating offset, or offset itself if at newline boundary.
+func LineEndAt(src string, offset int) int {
+	if offset > src.Len() {
+		return src.Len()
+	}
+	if offset > 0 && src[offset-1] == byte(10) {
+		return offset
+	}
+	let mut i = offset
+	for i < src.Len() && src[i] != byte(10) {
+		i = i + 1
+	}
+	if i < src.Len() {
+		return i + 1
+	}
+	i
+}
+
+// DeclLineSpan returns the full-line [from, to) byte span of decl d in file f.
+func DeclLineSpan(f SourceFile, d dense.ID[syntax.Node]) (uint32, uint32) {
+	let start = LineStartAt(f.Src, DeclStartWithDoc(f.Parsed, d))
+	let end = LineEndAt(f.Src, syntax.NodeEnd(f.Parsed, d))
+	(uint32(start), uint32(end))
+}
+
+func sortFilesByName(files0 []SourceFile) []SourceFile {
+	let mut files = files0
+	for i in 1..files.Len() {
+		let mut j = i
+		for j > 0 && files[j].Name < files[j-1].Name {
+			let tmp = files[j]
+			files[j] = files[j-1]
+			files[j-1] = tmp
+			j = j - 1
+		}
+	}
+	files
+}
+
+func appendDeclRow(g mut LawGraph, kind uint8, name string, fi uint32, node dense.ID[syntax.Node], nameNode dense.ID[syntax.Node], from uint32, to uint32, exported bool, dotted bool, paired bool, isMach bool, owner uint32, rank uint32) uint32 {
+	let id = uint32(g.DeclKind.Len())
+	g.DeclKind = g.DeclKind.Append(kind)
+	g.DeclName = g.DeclName.Append(name)
+	g.DeclFile = g.DeclFile.Append(fi)
+	g.DeclNode = g.DeclNode.Append(node)
+	g.DeclNameNode = g.DeclNameNode.Append(nameNode)
+	g.DeclFrom = g.DeclFrom.Append(from)
+	g.DeclTo = g.DeclTo.Append(to)
+	g.DeclExported = g.DeclExported.Append(exported)
+	g.DeclDotted = g.DeclDotted.Append(dotted)
+	g.DeclPaired = g.DeclPaired.Append(paired)
+	g.DeclMachine = g.DeclMachine.Append(isMach)
+	g.DeclOwner = g.DeclOwner.Append(owner)
+	g.DeclRank = g.DeclRank.Append(rank)
+	g.DeclProvider = g.DeclProvider.Append(false)
+	g.MethodStart = g.MethodStart.Append(uint32(0))
+	g.MethodLen = g.MethodLen.Append(uint32(0))
+	g.BaseHelper = g.BaseHelper.Append(false)
+	g.FixHelper = g.FixHelper.Append(false)
+	id
+}
+
+func receiverTypeName(p syntax.Parsed, flNode dense.ID[syntax.Node]) string {
+	if syntax.KindOf(p.Tree, flNode) != syntax.KFieldList {
+		return ""
+	}
+	let list = syntax.FieldListOf(p.Tree, flNode).List
+	if syntax.Len(list) == 0 {
+		return ""
+	}
+	let fd = syntax.FieldOf(p.Tree, syntax.Item(p.Tree, list, 0))
+	match dense.Unpack(fd.Type) {
+	case option.Some{Value: tn}:
+		typeHeadName(p, tn)
+	case option.None:
+		""
+	}
+}
+
+func firstParamTypeName(p syntax.Parsed, ftNode dense.ID[syntax.Node]) string {
+	if syntax.KindOf(p.Tree, ftNode) != syntax.KFuncType {
+		return ""
+	}
+	let ft = syntax.FuncTypeOf(p.Tree, ftNode)
+	receiverTypeName(p, ft.Params)
+}
+
+func typeHeadName(p syntax.Parsed, x0 dense.ID[syntax.Node]) string {
+	let mut x = x0
+	for _ in 0..16 {
+		let k = syntax.KindOf(p.Tree, x)
+		if k == syntax.KStarExpr {
+			x = syntax.StarExprOf(p.Tree, x).X
+			continue
+		}
+		if k == syntax.KParenExpr {
+			x = syntax.ParenExprOf(p.Tree, x).X
+			continue
+		}
+		if k == syntax.KIndexExpr {
+			x = syntax.IndexExprOf(p.Tree, x).X
+			continue
+		}
+		if k == syntax.KIdent {
+			return identText(p, x)
+		}
+		return ""
+	}
+	""
+}
+
+type pnodeOwnerMap { owner []uint32 }
+
+func markSubtree(pm mut pnodeOwnerMap, ps bind.Parents, fi int, p syntax.Parsed, lo int, hi int, dID uint32) {
+	let tr = p.Tree
+	for i in 0..syntax.NumNodes(tr) {
+		let nid = syntax.NodeAt(tr, i)
+		let np = syntax.NodePos(p, nid)
+		let ne = syntax.NodeEnd(p, nid)
+		if np >= lo && ne <= hi {
+			let pn = bind.PNodeOf(ps, fi, nid)
+			let idx = dense.Index(pn)
+			if idx >= 0 && idx < pm.owner.Len() && pm.owner[idx] == NoDecl {
+				pm.owner[idx] = dID
+			}
+		}
+	}
+}
+
+func collectLocalNames(uses bind.Uses, ps bind.Parents, fi int, p syntax.Parsed, lo int, hi int) []string {
+	let tr = p.Tree
+	let mut locals = []string{}
+	for i in 0..syntax.NumNodes(tr) {
+		let nid = syntax.NodeAt(tr, i)
+		if syntax.KindOf(tr, nid) != syntax.KIdent {
+			continue
+		}
+		let np = syntax.NodePos(p, nid)
+		let ne = syntax.NodeEnd(p, nid)
+		if np < lo || ne > hi {
+			continue
+		}
+		let pn = bind.PNodeOf(ps, fi, nid)
+		match bind.DefOf(uses, pn) {
+		case bind.Local:
+			let nm = identText(p, nid)
+			if nm != "" && !slices.Contains(locals, nm) {
+				locals = locals.Append(nm)
+			}
+		case bind.NoDef, bind.Law:
+		}
+	}
+	locals
+}
+
+type edgeAcc {
+	refLists  [][]uint32,
+	userLists [][]uint32,
+}
+
+func addGraphEdge(acc mut edgeAcc, from uint32, to uint32) {
+	if from == NoDecl || to == NoDecl || from == to {
+		return
+	}
+	let fi = int(from)
+	let ti = int(to)
+	if !slices.Contains(acc.refLists[fi], to) {
+		acc.refLists[fi] = acc.refLists[fi].Append(to)
+		acc.userLists[ti] = acc.userLists[ti].Append(from)
+	}
+}
+
+func solveHelpers(g LawGraph, exported bool) []bool {
+	let n = g.DeclKind.Len()
+	let mut h = MakeSlice[bool](n)
+	let mut byOwner = MakeSlice[bool](n)
+	for i in 0..n {
+		let k = g.DeclKind[i]
+		let hasUsers = g.UserLen[i] > uint32(0)
+		let isKind = if k == KDFunc {
+			!g.DeclDotted[i] || g.DeclOwner[i] == NoDecl
+		} else {
+			k == KDType || k == KDVar || k == KDContext
+		}
+		let kindOk = isKind && (exported || !g.DeclExported[i])
+		let named = hasUsers && kindOk && (exported || !(g.DeclDotted[i] && g.DeclExported[i]))
+		let own = g.DeclOwner[i] != NoDecl && k == KDFunc
+		h = h.Append(named || own)
+		byOwner = byOwner.Append(!named && own)
+	}
+	let mut changed = true
+	for changed {
+		changed = false
+		for i in 0..n {
+			if !h[i] {
+				continue
+			}
+			let mut drop = false
+			if byOwner[i] && g.DeclOwner[i] != NoDecl && !h[int(g.DeclOwner[i])] {
+				drop = true
+			}
+			if !drop && g.DeclKind[i] == KDType {
+				let mStart = int(g.MethodStart[i])
+				let mLen = int(g.MethodLen[i])
+				for j in 0..mLen {
+					let m = int(g.MethodDecls[mStart+j])
+					if !h[m] {
+						drop = true
+						break
+					}
+				}
+			}
+			if !drop {
+				let uStart = int(g.UserStart[i])
+				let uLen = int(g.UserLen[i])
+				for j in 0..uLen {
+					let u = int(g.Users[uStart+j])
+					let uk = g.DeclKind[u]
+					if uk != KDLaw && uk != KDTest && uk != KDMemberLaw && uk != KDMachineLaw && !h[u] {
+						drop = true
+						break
+					}
+				}
+			}
+			if drop {
+				h[i] = false
+				changed = true
+			}
+		}
+	}
+	h
+}
+
+// BuildGraph parses and binds files and constructs the package declaration/reference LawGraph.
+func BuildGraph(pkgName string, rawFiles []SourceFile) LawGraph {
+	let files = sortFilesByName(rawFiles)
+	let mut bindFiles = []bind.File{}
+	for f in files {
+		bindFiles = bindFiles.Append(bind.File{Name: f.Name, Parsed: f.Parsed})
+	}
+	let st0 = bind.Collect(pkgName, bindFiles)
+	let ps = bind.BuildParents(bindFiles)
+	let (st, uses) = bind.Bind(st0, []store.Frozen{}, ps, bindFiles, 1)
+
+	let mut totalPNodes = 0
+	for f in files {
+		if !f.Parsed.Failed {
+			totalPNodes = totalPNodes + syntax.NumNodes(f.Parsed.Tree)
+		}
+	}
+	let mut initOwners = MakeSlice[uint32](totalPNodes)
+	let mut initImpFlags = MakeSlice[bool](totalPNodes)
+	for _ in 0..totalPNodes {
+		initOwners = initOwners.Append(NoDecl)
+		initImpFlags = initImpFlags.Append(false)
+	}
+	let mut pnodeMap = pnodeOwnerMap{owner: initOwners}
+
+	let mut g = LawGraph{
+		PkgName:       pkgName,
+		Files:         files,
+		Store:         st,
+		Uses:          uses,
+		Parents:       ps,
+		DeclKind:      []uint8{},
+		DeclName:      []string{},
+		DeclFile:      []uint32{},
+		DeclNode:      []dense.ID[syntax.Node]{},
+		DeclNameNode:  []dense.ID[syntax.Node]{},
+		DeclFrom:      []uint32{},
+		DeclTo:        []uint32{},
+		DeclExported:  []bool{},
+		DeclDotted:    []bool{},
+		DeclPaired:    []bool{},
+		DeclMachine:   []bool{},
+		DeclOwner:     []uint32{},
+		DeclRank:      []uint32{},
+		DeclProvider:  []bool{},
+		RefStart:      []uint32{},
+		RefLen:        []uint32{},
+		RefTargets:    []uint32{},
+		UserStart:     []uint32{},
+		UserLen:       []uint32{},
+		Users:         []uint32{},
+		BaseHelper:    []bool{},
+		FixHelper:     []bool{},
+		PNodeDecl:     []uint32{},
+		PNodeIsImport: initImpFlags,
+		NameIndex:     Map[string, uint32]{},
+		TypeIndex:     Map[string, uint32]{},
+		MethodStart:   []uint32{},
+		MethodLen:     []uint32{},
+		MethodDecls:   []uint32{},
+	}
+
+	let mut rank = uint32(0)
+	let mut methodBuckets = [][]uint32{}
+	for fi, f in files {
+		if f.Parsed.Failed {
+			continue
+		}
+		let tr = f.Parsed.Tree
+		let root = syntax.Root(tr)
+		if syntax.KindOf(tr, root) != syntax.KFile {
+			continue
+		}
+		let decls = syntax.FileOf(tr, root).Decls
+		for di in 0..syntax.Len(decls) {
+			let d = syntax.Item(tr, decls, di)
+			let r = rank
+			rank = rank + uint32(1)
+			let (from, to) = DeclLineSpan(f, d)
+			match syntax.ViewOf(tr, d) {
+			case syntax.TypeDecl as td:
+				let nm = identText(f.Parsed, td.Name)
+				let mut isMachine = false
+				let mut isOp = false
+				match dense.Unpack(td.Spec) {
+				case option.Some{Value: sp}:
+					let sk = syntax.KindOf(tr, sp)
+					isMachine = sk == syntax.KMachineType
+					if sk == syntax.KInterfaceType {
+						let it = syntax.InterfaceTypeOf(tr, sp)
+						let mut hasOps = false
+						let mut hasUnion = false
+						for mi in 0..syntax.Len(it.Members) {
+							let mk = syntax.KindOf(tr, syntax.Item(tr, it.Members, mi))
+							if mk == syntax.KField {
+								hasOps = true
+							} else if mk == syntax.KVariantSpec {
+								hasUnion = true
+							}
+						}
+						isOp = hasOps && !hasUnion
+					}
+				case option.None:
+				}
+				let did = appendDeclRow(&g, KDType, nm, uint32(fi), d, td.Name, from, to, IsExported(nm), false, false, isMachine, NoDecl, r)
+				g.NameIndex[nm] = did
+				if !isOp {
+					g.TypeIndex[nm] = did
+				} else {
+					g.TypeIndex["op:"+nm] = did
+					g.TypeIndex[nm] = did
+				}
+				for methodBuckets.Len() <= int(did) {
+					methodBuckets = methodBuckets.Append([]uint32{})
+				}
+				match dense.Unpack(td.Spec) {
+				case option.Some{Value: sp}:
+					if syntax.KindOf(tr, sp) == syntax.KInterfaceType {
+						let it = syntax.InterfaceTypeOf(tr, sp)
+						for mi in 0..syntax.Len(it.Members) {
+							let m = syntax.Item(tr, it.Members, mi)
+							if syntax.KindOf(tr, m) == syntax.KLawDecl {
+								let ld = syntax.LawDeclOf(tr, m)
+								let lnm = identText(f.Parsed, ld.Name)
+								let mlFrom = uint32(syntax.NodePos(f.Parsed, m))
+								let mlTo = uint32(syntax.NodeEnd(f.Parsed, m))
+								let mid = appendDeclRow(&g, KDMemberLaw, lnm, uint32(fi), m, ld.Name, mlFrom, mlTo, IsExported(lnm), true, false, false, did, r)
+								for methodBuckets.Len() <= int(mid) {
+									methodBuckets = methodBuckets.Append([]uint32{})
+								}
+								markSubtree(&pnodeMap, ps, fi, f.Parsed, int(mlFrom), int(mlTo), mid)
+							}
+						}
+					} else if syntax.KindOf(tr, sp) == syntax.KMachineType {
+						let mt = syntax.MachineTypeOf(tr, sp)
+						for mi in 0..syntax.Len(mt.Members) {
+							let m = syntax.Item(tr, mt.Members, mi)
+							if syntax.KindOf(tr, m) == syntax.KLawDecl {
+								let ld = syntax.LawDeclOf(tr, m)
+								let lnm = identText(f.Parsed, ld.Name)
+								let mlFrom = uint32(syntax.NodePos(f.Parsed, m))
+								let mlTo = uint32(syntax.NodeEnd(f.Parsed, m))
+								let mid = appendDeclRow(&g, KDMachineLaw, lnm, uint32(fi), m, ld.Name, mlFrom, mlTo, IsExported(lnm), true, false, false, did, r)
+								for methodBuckets.Len() <= int(mid) {
+									methodBuckets = methodBuckets.Append([]uint32{})
+								}
+								markSubtree(&pnodeMap, ps, fi, f.Parsed, int(mlFrom), int(mlTo), mid)
+							}
+						}
+					}
+				case option.None:
+				}
+				markSubtree(&pnodeMap, ps, fi, f.Parsed, int(from), int(to), did)
+			case syntax.FuncDecl as fd:
+				let nm = identText(f.Parsed, fd.Name)
+				let mut dotted = false
+				let mut ownerName = ""
+				match dense.Unpack(fd.Recv) {
+				case option.Some{Value: recv}:
+					dotted = true
+					ownerName = receiverTypeName(f.Parsed, recv)
+				case option.None:
+					ownerName = firstParamTypeName(f.Parsed, fd.Type)
+				}
+				let did = appendDeclRow(&g, KDFunc, nm, uint32(fi), d, fd.Name, from, to, IsExported(nm), dotted, false, false, NoDecl, r)
+				if !dotted {
+					g.NameIndex[nm] = did
+				}
+				if ownerName != "" {
+					match g.TypeIndex.Get(ownerName) {
+					case option.Some{Value: oID}:
+						if dotted {
+							g.DeclOwner[int(did)] = oID
+							methodBuckets[int(oID)] = methodBuckets[int(oID)].Append(did)
+						} else {
+							match g.TypeIndex.Get("op:" + ownerName) {
+							case option.Some:
+								g.DeclDotted[int(did)] = true
+							case option.None:
+							}
+						}
+					case option.None:
+					}
+				}
+				for methodBuckets.Len() <= int(did) {
+					methodBuckets = methodBuckets.Append([]uint32{})
+				}
+				markSubtree(&pnodeMap, ps, fi, f.Parsed, int(from), int(to), did)
+			case syntax.ContextDecl as cd:
+				let nm = identText(f.Parsed, cd.Name)
+				let did = appendDeclRow(&g, KDContext, nm, uint32(fi), d, cd.Name, from, to, IsExported(nm), false, false, false, NoDecl, r)
+				g.NameIndex[nm] = did
+				for methodBuckets.Len() <= int(did) {
+					methodBuckets = methodBuckets.Append([]uint32{})
+				}
+				markSubtree(&pnodeMap, ps, fi, f.Parsed, int(from), int(to), did)
+			case syntax.VarDecl as vd:
+				let vs = syntax.VarSpecOf(tr, vd.Spec)
+				let firstNameNode = if syntax.Len(vs.Names) > 0 { syntax.Item(tr, vs.Names, 0) } else { d }
+				let mut names = []string{}
+				for k in 0..syntax.Len(vs.Names) {
+					names = names.Append(identText(f.Parsed, syntax.Item(tr, vs.Names, k)))
+				}
+				let joined = if names.Len() > 0 { strings.Join(names, ", ") } else { "_" }
+				let exp = names.Len() > 0 && IsExported(names[0])
+				let did = appendDeclRow(&g, KDVar, joined, uint32(fi), d, firstNameNode, from, to, exp, false, false, false, NoDecl, r)
+				for nm in names {
+					g.NameIndex[nm] = did
+				}
+				for methodBuckets.Len() <= int(did) {
+					methodBuckets = methodBuckets.Append([]uint32{})
+				}
+				markSubtree(&pnodeMap, ps, fi, f.Parsed, int(from), int(to), did)
+			case syntax.LawDecl as ld:
+				let nm = identText(f.Parsed, ld.Name)
+				let paired = ld.Rewrite && ld.Equation
+				let did = appendDeclRow(&g, KDLaw, nm, uint32(fi), d, ld.Name, from, to, IsExported(nm), false, paired, false, NoDecl, r)
+				for methodBuckets.Len() <= int(did) {
+					methodBuckets = methodBuckets.Append([]uint32{})
+				}
+				markSubtree(&pnodeMap, ps, fi, f.Parsed, int(from), int(to), did)
+			case syntax.TestDecl as td:
+				let nm = identText(f.Parsed, td.Name)
+				let did = appendDeclRow(&g, KDTest, nm, uint32(fi), d, td.Name, from, to, IsExported(nm), false, false, false, NoDecl, r)
+				for methodBuckets.Len() <= int(did) {
+					methodBuckets = methodBuckets.Append([]uint32{})
+				}
+				markSubtree(&pnodeMap, ps, fi, f.Parsed, int(from), int(to), did)
+			case syntax.ImportDecl as imd:
+				let spNode = imd.Spec
+				let (spFrom, spTo) = (syntax.NodePos(f.Parsed, d), syntax.NodeEnd(f.Parsed, d))
+				for ni in 0..syntax.NumNodes(tr) {
+					let nid = syntax.NodeAt(tr, ni)
+					let np = syntax.NodePos(f.Parsed, nid)
+					let ne = syntax.NodeEnd(f.Parsed, nid)
+					if np >= spFrom && ne <= spTo {
+						let idx = dense.Index(bind.PNodeOf(ps, fi, nid))
+						if idx >= 0 && idx < g.PNodeIsImport.Len() {
+							g.PNodeIsImport[idx] = true
+						}
+					}
+				}
+				let _ = spNode
+			case _:
+			}
+		}
+	}
+
+	let nDecls = g.DeclKind.Len()
+	for i in 0..nDecls {
+		if g.DeclKind[i] == KDFunc && g.DeclOwner[i] == NoDecl {
+			let fi = int(g.DeclFile[i])
+			let fd = syntax.FuncDeclOf(files[fi].Parsed.Tree, g.DeclNode[i])
+			let mut ownerName = ""
+			let mut isRecv = false
+			match dense.Unpack(fd.Recv) {
+			case option.Some{Value: recv}:
+				ownerName = receiverTypeName(files[fi].Parsed, recv)
+				isRecv = true
+			case option.None:
+				ownerName = firstParamTypeName(files[fi].Parsed, fd.Type)
+			}
+			if ownerName != "" {
+				match g.TypeIndex.Get(ownerName) {
+				case option.Some{Value: oID}:
+					if isRecv {
+						g.DeclOwner[i] = oID
+						methodBuckets[int(oID)] = methodBuckets[int(oID)].Append(uint32(i))
+					} else {
+						match g.TypeIndex.Get("op:" + ownerName) {
+						case option.Some:
+							g.DeclDotted[i] = true
+						case option.None:
+						}
+					}
+				case option.None:
+				}
+			}
+		}
+	}
+
+	for i in 0..nDecls {
+		g.MethodStart[i] = uint32(g.MethodDecls.Len())
+		g.MethodLen[i] = uint32(methodBuckets[i].Len())
+		for m in methodBuckets[i] {
+			g.MethodDecls = g.MethodDecls.Append(m)
+		}
+	}
+
+	let mut acc = edgeAcc{refLists: [][]uint32{}, userLists: [][]uint32{}}
+	for _ in 0..nDecls {
+		acc.refLists = acc.refLists.Append([]uint32{})
+		acc.userLists = acc.userLists.Append([]uint32{})
+	}
+	for i in 0..nDecls {
+		if g.DeclKind[i] == KDMemberLaw || g.DeclKind[i] == KDMachineLaw {
+			addGraphEdge(&acc, uint32(i), g.DeclOwner[i])
+		}
+		if g.DeclKind[i] == KDType {
+			let fi = int(g.DeclFile[i])
+			let tr = files[fi].Parsed.Tree
+			let td = syntax.TypeDeclOf(tr, g.DeclNode[i])
+			if IsLawOrTestFile(files[fi].Name) && syntax.Len(td.Implements) > 0 {
+				g.DeclProvider[i] = true
+				for im in 0..syntax.Len(td.Implements) {
+					let opName = typeHeadName(files[fi].Parsed, syntax.Item(tr, td.Implements, im))
+					match g.NameIndex.Get(opName) {
+					case option.Some{Value: opID}:
+						addGraphEdge(&acc, uint32(i), opID)
+					case option.None:
+					}
+				}
+			}
+		}
+	}
+
+	for fi, f in files {
+		if f.Parsed.Failed {
+			continue
+		}
+		let tr = f.Parsed.Tree
+		let nNodes = syntax.NumNodes(tr)
+		let mut isSel = MakeSlice[bool](nNodes)
+		let mut isKey = MakeSlice[bool](nNodes)
+		for _ in 0..nNodes {
+			isSel = isSel.Append(false)
+			isKey = isKey.Append(false)
+		}
+		for i in 0..nNodes {
+			let nid = syntax.NodeAt(tr, i)
+			let k = syntax.KindOf(tr, nid)
+			if k == syntax.KSelectorExpr {
+				isSel[dense.Index(syntax.SelectorExprOf(tr, nid).Sel)] = true
+			} else if k == syntax.KKeyValueExpr {
+				let kv = syntax.KeyValueExprOf(tr, nid)
+				if syntax.KindOf(tr, kv.Key) == syntax.KIdent {
+					isKey[dense.Index(kv.Key)] = true
+				}
+			}
+		}
+		let mut localCache = Map[string, []string]{}
+		for i in 0..nNodes {
+			let nid = syntax.NodeAt(tr, i)
+			let k = syntax.KindOf(tr, nid)
+			if k == syntax.KSelectorExpr {
+				let se = syntax.SelectorExprOf(tr, nid)
+				if syntax.KindOf(tr, se.X) == syntax.KIdent {
+					let xName = identText(f.Parsed, se.X)
+					let sName = identText(f.Parsed, se.Sel)
+					let pn = bind.PNodeOf(ps, fi, nid)
+					let owner = pnodeMap.owner[dense.Index(pn)]
+					if owner != NoDecl {
+						match g.TypeIndex.Get(xName) {
+						case option.Some{Value: tID}:
+							let mStart = int(g.MethodStart[int(tID)])
+							let mLen = int(g.MethodLen[int(tID)])
+							for mj in 0..mLen {
+								let mid = g.MethodDecls[mStart+mj]
+								if g.DeclName[int(mid)] == sName {
+									addGraphEdge(&acc, owner, mid)
+								}
+							}
+						case option.None:
+						}
+					}
+				}
+			}
+			if k != syntax.KIdent {
+				continue
+			}
+			let pn = bind.PNodeOf(ps, fi, nid)
+			let owner = pnodeMap.owner[dense.Index(pn)]
+			if owner == NoDecl || nid == g.DeclNameNode[int(owner)] {
+				continue
+			}
+			let r = bind.ResolutionOf(uses, ps, pn)
+			match r {
+			case bind.Declared as dec:
+				let dIdx = dense.Index(dec.At)
+				if dIdx >= 0 && dIdx < pnodeMap.owner.Len() {
+					let target = pnodeMap.owner[dIdx]
+					if target != NoDecl && g.DeclKind[int(target)] != KDLaw && g.DeclKind[int(target)] != KDTest {
+						addGraphEdge(&acc, owner, target)
+					}
+				}
+			case bind.NotUse:
+				if !isSel[i] && !isKey[i] {
+					match bind.DefOf(uses, pn) {
+					case bind.NoDef:
+						let oKey = "\(owner)"
+						let locals = match localCache.Get(oKey) {
+						case option.Some{Value: ls}:
+							ls
+						case option.None:
+							let ls = collectLocalNames(uses, ps, fi, f.Parsed, int(g.DeclFrom[int(owner)]), int(g.DeclTo[int(owner)]))
+							localCache[oKey] = ls
+							ls
+						}
+						let nm = identText(f.Parsed, nid)
+						if !slices.Contains(locals, nm) {
+							match g.NameIndex.Get(nm) {
+							case option.Some{Value: cand}:
+								if g.DeclKind[int(cand)] != KDLaw && g.DeclKind[int(cand)] != KDTest {
+									addGraphEdge(&acc, owner, cand)
+								}
+							case option.None:
+							}
+						}
+					case bind.Local, bind.Law:
+					}
+				}
+			case bind.Outside, bind.Imported:
+			}
+		}
+	}
+
+	for i in 0..nDecls {
+		g.RefStart = g.RefStart.Append(uint32(g.RefTargets.Len()))
+		g.RefLen = g.RefLen.Append(uint32(acc.refLists[i].Len()))
+		for t in acc.refLists[i] {
+			g.RefTargets = g.RefTargets.Append(t)
+		}
+		g.UserStart = g.UserStart.Append(uint32(g.Users.Len()))
+		g.UserLen = g.UserLen.Append(uint32(acc.userLists[i].Len()))
+		for u in acc.userLists[i] {
+			g.Users = g.Users.Append(u)
+		}
+	}
+	g.PNodeDecl = pnodeMap.owner
+	g.BaseHelper = solveHelpers(g, false)
+	let allH = solveHelpers(g, true)
+	let mut fixH = MakeSlice[bool](nDecls)
+	for i in 0..nDecls {
+		let fi = int(g.DeclFile[i])
+		fixH = fixH.Append(g.BaseHelper[i] || (allH[i] && IsLawOrTestFile(g.Files[fi].Name)))
+	}
+	g.FixHelper = fixH
+	g
+}
+
+// SubjectsOf returns the reachable non-helper declarations for root declaration dID.
+func SubjectsOf(g LawGraph, dID uint32, useFixHelpers bool) []LawSubject {
+	let n = g.DeclKind.Len()
+	let helperFlags = if useFixHelpers { g.FixHelper } else { g.BaseHelper }
+	let mut seen = MakeSlice[bool](n)
+	for _ in 0..n {
+		seen = seen.Append(false)
+	}
+	seen[int(dID)] = true
+	let mut queue = []uint32{dID}
+	let mut qPos = 0
+	let mut out = []LawSubject{}
+	for qPos < queue.Len() {
+		let x = queue[qPos]
+		qPos = qPos + 1
+		let rStart = int(g.RefStart[int(x)])
+		let rLen = int(g.RefLen[int(x)])
+		for j in 0..rLen {
+			let target = g.RefTargets[rStart+j]
+			let tIdx = int(target)
+			if seen[tIdx] {
+				continue
+			}
+			seen[tIdx] = true
+			if helperFlags[tIdx] {
+				queue = queue.Append(target)
+				continue
+			}
+			let tk = g.DeclKind[tIdx]
+			if tk == KDLaw || tk == KDTest {
+				continue
+			}
+			out = out.Append(LawSubject{
+				Name:    g.DeclName[tIdx],
+				Decl:    target,
+				FileIdx: g.DeclFile[tIdx],
+			})
+		}
+	}
+	out
+}
+
+// ExportedLawHelpers returns exported function helper declaration IDs declared in law/test files.
+func ExportedLawHelpers(g LawGraph) []uint32 {
+	let mut out = []uint32{}
+	for i in 0..g.DeclKind.Len() {
+		if g.DeclKind[i] == KDFunc && g.FixHelper[i] && !g.BaseHelper[i] && g.DeclOwner[i] == NoDecl && !g.DeclDotted[i] {
+			out = out.Append(uint32(i))
+		}
+	}
+	out
+}
+
+func helperUsersFor(g LawGraph, hID uint32) []uint32 {
+	let n = g.DeclKind.Len()
+	let mut seen = MakeSlice[bool](n)
+	for _ in 0..n {
+		seen = seen.Append(false)
+	}
+	seen[int(hID)] = true
+	let mut queue = []uint32{hID}
+	let mut qPos = 0
+	let mut users = []uint32{}
+	for qPos < queue.Len() {
+		let x = queue[qPos]
+		qPos = qPos + 1
+		let uStart = int(g.UserStart[int(x)])
+		let uLen = int(g.UserLen[int(x)])
+		for j in 0..uLen {
+			let u = g.Users[uStart+j]
+			let uIdx = int(u)
+			if seen[uIdx] {
+				continue
+			}
+			seen[uIdx] = true
+			let uk = g.DeclKind[uIdx]
+			if uk == KDLaw || uk == KDTest {
+				if !slices.Contains(users, u) {
+					users = users.Append(u)
+				}
+			} else if uk == KDMemberLaw || uk == KDMachineLaw {
+				let owner = g.DeclOwner[uIdx]
+				if owner != NoDecl && !slices.Contains(users, owner) {
+					users = users.Append(owner)
+				}
+			} else if g.FixHelper[uIdx] {
+				queue = queue.Append(u)
+			}
+		}
+	}
+	for i in 1..users.Len() {
+		let mut j = i
+		for j > 0 && g.DeclRank[int(users[j])] < g.DeclRank[int(users[j-1])] {
+			let tmp = users[j]
+			users[j] = users[j-1]
+			users[j-1] = tmp
+			j = j - 1
+		}
+	}
+	users
+}
+
+// LawHelpers returns helper declarations in package order alongside their primary and all user declarations.
+func LawHelpers(g LawGraph) []HelperSpec {
+	let mut out = []HelperSpec{}
+	for i in 0..g.DeclKind.Len() {
+		let k = g.DeclKind[i]
+		if k == KDLaw || k == KDTest || k == KDMemberLaw || k == KDMachineLaw {
+			continue
+		}
+		if !g.FixHelper[i] {
+			continue
+		}
+		let users = helperUsersFor(g, uint32(i))
+		if users.Len() == 0 {
+			continue
+		}
+		out = out.Append(HelperSpec{Decl: uint32(i), User: users[0], Users: users})
+	}
+	out
+}
+
+// PlacementDiags computes S115 diagnostics for misplaced top-level laws and tests matching Go's check.lawplace.
+func PlacementDiags(g LawGraph) []diag.Diag {
+	let mut out = []diag.Diag{}
+	for i in 0..g.DeclKind.Len() {
+		let k = g.DeclKind[i]
+		if k != KDLaw && k != KDTest {
+			continue
+		}
+		let fi = int(g.DeclFile[i])
+		if !IsLawOrTestFile(g.Files[fi].Name) {
+			continue
+		}
+		let kindWord = if k == KDLaw { "law" } else { "test" }
+		let subjects = SubjectsOf(g, uint32(i), false)
+		let p = g.Files[fi].Parsed
+		let at = g.DeclNameNode[i]
+		let off = syntax.NodePos(p, at)
+		let length = syntax.NodeEnd(p, at) - off
+		if subjects.Len() == 0 {
+			out = out.Append(diag.Diag{
+				File:    fi,
+				Offset:  off,
+				Length:  length,
+				Code:    "S115",
+				Message: "\(kindWord) \(g.DeclName[i]) names nothing in package \(g.PkgName); state it in the package it is about",
+			})
+			continue
+		}
+		let mut sameFile = false
+		let mut seenFiles = []uint32{}
+		let mut named = []string{}
+		for s in subjects {
+			if s.FileIdx == uint32(fi) {
+				sameFile = true
+				break
+			}
+			if !slices.Contains(seenFiles, s.FileIdx) {
+				seenFiles = seenFiles.Append(s.FileIdx)
+				named = named.Append("\(s.Name) (\(g.Files[int(s.FileIdx)].Name))")
+			}
+		}
+		if sameFile {
+			continue
+		}
+		let where = if named.Len() > 1 { "one of those files" } else { "that file" }
+		let mut list = strings.Join(named, ", ")
+		let lastComma = strings.LastIndex(list, ", ")
+		if lastComma >= 0 {
+			list = list[0:lastComma] + " and " + list[lastComma+2:list.Len()]
+		}
+		out = out.Append(diag.Diag{
+			File:    fi,
+			Offset:  off,
+			Length:  length,
+			Code:    "S115",
+			Message: "\(kindWord) \(g.DeclName[i]) is about \(list); state it in \(where)",
+		})
+	}
+	diag.Sorted(out)
+}
+
+// LawGraphHelperFixpointTest checks helper classification, exported law helpers, dotted helper exclusion, and S115 placement diagnostics.
+test LawGraphHelperFixpointTest {
+	let fA = "type OpFace { OpStep(x int) int }\nfunc Target(x int) int { x + 1 }\nfunc prodUser(x int) int { Target(x) }\n"
+	let fL = "func sharedHelper(x int) int { Target(x) }\nfunc ExportedHelp(x int) int { Target(x) }\nfunc OpHelper(o OpFace, x int) int { o.OpStep(x) }\n\nlaw TargetDirect(x int) {\n\tsharedHelper(x) == Target(x)\n}\n\nlaw TargetDoubles(x int) {\n\tExportedHelp(x) == Target(x)\n}\n\nlaw TargetOpHelper(o OpFace, x int) {\n\tOpHelper(o, x) == Target(x)\n}\n\ntest UnplacedEmpty() {\n\tassert 1 == 1\n}\n"
+	let files = []SourceFile{
+		SourceFile{Name: "a.ergo", Src: fA, Parsed: syntax.Parse(fA)},
+		SourceFile{Name: "laws.ergo", Src: fL, Parsed: syntax.Parse(fL)},
+	}
+	let g = BuildGraph("demo", files)
+	let diags = PlacementDiags(g)
+	assert diags.Len() == 2
+	assert diags[0].Code == "S115" && strings.Contains(diags[0].Message, "law TargetDirect is about Target (a.ergo); state it in that file")
+	assert strings.Contains(diags[1].Message, "test UnplacedEmpty names nothing in package demo")
+	let expHelpers = ExportedLawHelpers(g)
+	assert expHelpers.Len() == 1 && g.DeclName[int(expHelpers[0])] == "ExportedHelp"
+	let hs = LawHelpers(g)
+	assert hs.Len() == 3
+}

@@ -1,0 +1,432 @@
+// Package cases implements golden directory case execution, diffing,
+// judging, and .cases ledger serialization for Ergo test harnesses.
+
+import option
+import slices
+import strconv
+import strings
+
+// CasesFile is the file name holding stored law and property refutations.
+let CasesFile = "ergo.cases"
+
+// CasesFailure is a parse or validation failure of a .cases file or tape encoding.
+type CasesFailure { Line uint32, Message string }
+
+// PropertyEntry is one property refutation entry retrieved from a CaseStore.
+type PropertyEntry { Key string, Digest string, Tape []uint64 }
+
+// CaseStore holds shadow law refutations and property draw tapes in dense SoA columns.
+type CaseStore {
+	ShadowKeys     []string,
+	ShadowValues   []string,
+	PropKeys       []string,
+	PropDigests    []string,
+	PropTapeStarts []uint32,
+	PropTapeLens   []uint32,
+	PropDraws      []uint64,
+}
+
+// NewCaseStore returns an empty CaseStore.
+func NewCaseStore() CaseStore {
+	CaseStore{
+		ShadowKeys:     []string{},
+		ShadowValues:   []string{},
+		PropKeys:       []string{},
+		PropDigests:    []string{},
+		PropTapeStarts: []uint32{},
+		PropTapeLens:   []uint32{},
+		PropDraws:      []uint64{},
+	}
+}
+
+// PropertyKey returns the canonical case key for pkgPath and property label.
+func PropertyKey(pkgPath string, label string) string {
+	if pkgPath == "" {
+		return label
+	}
+	pkgPath + "." + label
+}
+
+// EncodeTape formats draws as comma-separated lowercase hexadecimal uint64 values, or "-" when empty.
+func EncodeTape(draws []uint64) string {
+	if draws.Len() == 0 {
+		return "-"
+	}
+	let mut buf = []byte{}
+	for i, d in draws {
+		if i > 0 {
+			buf = buf.Append(byte(44))
+		}
+		buf = strconv.AppendUint(buf, d, 16)
+	}
+	strings.FromBytes(buf)
+}
+
+func parseHexUint64(s string) uint64 fails CasesFailure {
+	if s.Len() == 0 {
+		return CasesFailure{Line: uint32(0), Message: "bad tape draw \"\": empty"}
+	}
+	let mut acc = uint64(0)
+	let limit = uint64(0x0fffffffffffffff)
+	for i in 0..s.Len() {
+		let b = s[i]
+		let d = if b >= byte(48) && b <= byte(57) {
+			uint64(b - byte(48))
+		} else if b >= byte(97) && b <= byte(102) {
+			uint64(b - byte(97) + byte(10))
+		} else if b >= byte(65) && b <= byte(70) {
+			uint64(b - byte(65) + byte(10))
+		} else {
+			return CasesFailure{Line: uint32(0), Message: "bad tape draw \"\(s)\""}
+		}
+		if acc > limit {
+			return CasesFailure{Line: uint32(0), Message: "bad tape draw \"\(s)\": value out of range"}
+		}
+		acc = (acc << uint64(4)) + d
+	}
+	acc
+}
+
+// DecodeTape parses EncodeTape's output back into uint64 draw values.
+func DecodeTape(s string) []uint64 fails CasesFailure {
+	if s == "-" {
+		return []uint64{}
+	}
+	if s == "" {
+		return CasesFailure{Line: uint32(0), Message: "empty tape encoding"}
+	}
+	let parts = strings.Split(s, ",")
+	let mut out = []uint64{}
+	for p in parts {
+		out = out.Append(try parseHexUint64(p))
+	}
+	out
+}
+
+func splitFirstSpace(s string) (string, string, bool) {
+	let idx = strings.Index(s, " ")
+	if idx < 0 {
+		return ("", "", false)
+	}
+	(s[0:idx], s[idx+1 : s.Len()], true)
+}
+
+// ParseCases parses the contents of an ergo.cases file.
+func ParseCases(text string) CaseStore fails CasesFailure {
+	let mut store = NewCaseStore()
+	let lines = strings.Split(text, "\n")
+	for i, raw in lines {
+		let line = strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "law ") {
+			let rest = line[4:line.Len()]
+			let (key, val, ok) = splitFirstSpace(rest)
+			if !ok || key == "" || !strings.HasPrefix(val, "(") {
+				return CasesFailure{Line: uint32(i + 1), Message: "\(CasesFile):\(i + 1): not a corpus line: \(line)"}
+			}
+			AddShadow(&store, key, val)
+			continue
+		}
+		if strings.HasPrefix(line, "property ") {
+			let rest = line[9:line.Len()]
+			let fields = strings.Fields(rest)
+			if fields.Len() != 4 || fields[1] != "tape" || fields[0] == "" || fields[2] == "" {
+				return CasesFailure{Line: uint32(i + 1), Message: "\(CasesFile):\(i + 1): not a property tape line: \(line)"}
+			}
+			let draws = DecodeTape(fields[3]) catch {
+			case CasesFailure as e:
+				return CasesFailure{Line: uint32(i + 1), Message: "\(CasesFile):\(i + 1): \(e.Message)"}
+			}
+			appendRawProperty(&store, fields[0], fields[2], draws)
+			continue
+		}
+		return CasesFailure{Line: uint32(i + 1), Message: "\(CasesFile):\(i + 1): not a corpus line: \(line)"}
+	}
+	store
+}
+
+func appendRawProperty(store mut CaseStore, key string, digest string, draws []uint64) {
+	let start = uint32(store.PropDraws.Len())
+	let n = uint32(draws.Len())
+	store.PropKeys = store.PropKeys.Append(key)
+	store.PropDigests = store.PropDigests.Append(digest)
+	store.PropTapeStarts = store.PropTapeStarts.Append(start)
+	store.PropTapeLens = store.PropTapeLens.Append(n)
+	for d in draws {
+		store.PropDraws = store.PropDraws.Append(d)
+	}
+}
+
+// AddShadow appends a shadow law counterexample for key.
+func AddShadow(store mut CaseStore, key string, value string) {
+	store.ShadowKeys = store.ShadowKeys.Append(key)
+	store.ShadowValues = store.ShadowValues.Append(value)
+}
+
+func propertyTapeAt(store CaseStore, idx int) []uint64 {
+	let start = int(store.PropTapeStarts[idx])
+	let n = int(store.PropTapeLens[idx])
+	let mut out = []uint64{}
+	for j in 0..n {
+		out = out.Append(store.PropDraws[start+j])
+	}
+	out
+}
+
+func tapesEqual(store CaseStore, idx int, draws []uint64) bool {
+	let n = int(store.PropTapeLens[idx])
+	if n != draws.Len() {
+		return false
+	}
+	let start = int(store.PropTapeStarts[idx])
+	for j in 0..n {
+		if store.PropDraws[start+j] != draws[j] {
+			return false
+		}
+	}
+	true
+}
+
+// AddProperty appends a property case if no entry with the same key, digest,
+// and draw tape exists. It reports whether the store changed.
+func AddProperty(store mut CaseStore, key string, digest string, draws []uint64) bool {
+	for i in 0..store.PropKeys.Len() {
+		if store.PropKeys[i] == key && store.PropDigests[i] == digest && tapesEqual(*store, i, draws) {
+			return false
+		}
+	}
+	appendRawProperty(store, key, digest, draws)
+	true
+}
+
+// ForProperty returns all property entries stored for key in insertion order.
+func ForProperty(store CaseStore, key string) []PropertyEntry {
+	let mut out = []PropertyEntry{}
+	for i in 0..store.PropKeys.Len() {
+		if store.PropKeys[i] == key {
+			out = out.Append(PropertyEntry{
+				Key:    key,
+				Digest: store.PropDigests[i],
+				Tape:   propertyTapeAt(store, i),
+			})
+		}
+	}
+	out
+}
+
+func sortedUniqueKeys(keys []string) []string {
+	let mut seen = Map[string, bool]{}
+	let mut out = []string{}
+	for k in keys {
+		match seen.Get(k) {
+		case option.Some:
+		case option.None:
+			seen[k] = true
+			out = out.Append(k)
+		}
+	}
+	slices.Sort(out)
+}
+
+// FormatCases serializes store deterministically in canonical key-sorted order.
+func FormatCases(store CaseStore) string {
+	let mut b = strings.NewBuilder()
+	for k in sortedUniqueKeys(store.ShadowKeys) {
+		for i in 0..store.ShadowKeys.Len() {
+			if store.ShadowKeys[i] == k {
+				b.WriteString("law " + k + " " + store.ShadowValues[i] + "\n")
+			}
+		}
+	}
+	for k in sortedUniqueKeys(store.PropKeys) {
+		for i in 0..store.PropKeys.Len() {
+			if store.PropKeys[i] == k {
+				let draws = propertyTapeAt(store, i)
+				b.WriteString("property " + k + " tape " + store.PropDigests[i] + " " + EncodeTape(draws) + "\n")
+			}
+		}
+	}
+	b.String()
+}
+
+// FilterCases returns a compacted CaseStore retaining entries matching
+// pkgPrefix (if non-empty, key starts with pkgPrefix) and keySub (if
+// non-empty, key contains keySub).
+func FilterCases(store CaseStore, pkgPrefix string, keySub string) CaseStore {
+	let mut out = NewCaseStore()
+	for i in 0..store.ShadowKeys.Len() {
+		let k = store.ShadowKeys[i]
+		if (pkgPrefix == "" || strings.HasPrefix(k, pkgPrefix)) && (keySub == "" || strings.Contains(k, keySub)) {
+			AddShadow(&out, k, store.ShadowValues[i])
+		}
+	}
+	for i in 0..store.PropKeys.Len() {
+		let k = store.PropKeys[i]
+		if (pkgPrefix == "" || strings.HasPrefix(k, pkgPrefix)) && (keySub == "" || strings.Contains(k, keySub)) {
+			appendRawProperty(&out, k, store.PropDigests[i], propertyTapeAt(store, i))
+		}
+	}
+	out
+}
+
+// MatchKeys returns all unique shadow and property keys matching pattern
+// (exact string, "prefix*" glob suffix, or substring).
+func MatchKeys(store CaseStore, pattern string) []string {
+	let mut combined = []string{}
+	let isPrefix = strings.HasSuffix(pattern, "*")
+	let prefix = if isPrefix { pattern[0 : pattern.Len()-1] } else { "" }
+	for k in store.ShadowKeys {
+		let matched = if pattern == "" {
+			true
+		} else if isPrefix {
+			strings.HasPrefix(k, prefix)
+		} else {
+			strings.Contains(k, pattern)
+		}
+		if matched {
+			combined = combined.Append(k)
+		}
+	}
+	for k in store.PropKeys {
+		let matched = if pattern == "" {
+			true
+		} else if isPrefix {
+			strings.HasPrefix(k, prefix)
+		} else {
+			strings.Contains(k, pattern)
+		}
+		if matched {
+			combined = combined.Append(k)
+		}
+	}
+	sortedUniqueKeys(combined)
+}
+
+func rebuildCompactedProps(store mut CaseStore, keep []bool) {
+	let mut keys = []string{}
+	let mut digests = []string{}
+	let mut starts = []uint32{}
+	let mut lens = []uint32{}
+	let mut draws = []uint64{}
+	for i in 0..store.PropKeys.Len() {
+		if !keep[i] {
+			continue
+		}
+		let start = int(store.PropTapeStarts[i])
+		let n = int(store.PropTapeLens[i])
+		keys = keys.Append(store.PropKeys[i])
+		digests = digests.Append(store.PropDigests[i])
+		starts = starts.Append(uint32(draws.Len()))
+		lens = lens.Append(uint32(n))
+		for j in 0..n {
+			draws = draws.Append(store.PropDraws[start+j])
+		}
+	}
+	store.PropKeys = keys
+	store.PropDigests = digests
+	store.PropTapeStarts = starts
+	store.PropTapeLens = lens
+	store.PropDraws = draws
+}
+
+// RemoveProperty removes property entries for key (matching digest when
+// matchDigest is non-empty) and returns the number of entries removed.
+func RemoveProperty(store mut CaseStore, key string, matchDigest string) int {
+	let mut keep = []bool{}
+	let mut removed = 0
+	for i in 0..store.PropKeys.Len() {
+		let drop = store.PropKeys[i] == key && (matchDigest == "" || store.PropDigests[i] == matchDigest)
+		if drop {
+			removed = removed + 1
+		}
+		keep = keep.Append(!drop)
+	}
+	if removed > 0 {
+		rebuildCompactedProps(store, keep)
+	}
+	removed
+}
+
+// PruneOrphans removes property entries whose key starts with pkgPrefix and
+// does not appear in liveKeys. Returns the count removed.
+func PruneOrphans(store mut CaseStore, pkgPrefix string, liveKeys Map[string, bool]) int {
+	let mut keep = []bool{}
+	let mut removed = 0
+	for i in 0..store.PropKeys.Len() {
+		let k = store.PropKeys[i]
+		let isLive = match liveKeys.Get(k) {
+		case option.Some{Value: v}:
+			v
+		case option.None:
+			false
+		}
+		let drop = strings.HasPrefix(k, pkgPrefix) && !isLive
+		if drop {
+			removed = removed + 1
+		}
+		keep = keep.Append(!drop)
+	}
+	if removed > 0 {
+		rebuildCompactedProps(store, keep)
+	}
+	removed
+}
+
+// EncodeTapeRoundTrips verifies EncodeTape and DecodeTape round-trip arbitrary draw tapes.
+law EncodeTapeRoundTrips(draws []uint64) {
+	let enc = EncodeTape(draws)
+	let dec = try DecodeTape(enc)
+	slices.Equal(dec, draws)
+}
+
+func sanitizeToken(raw string, fallback string) string {
+	let mut b = strings.NewBuilder()
+	for i in 0..raw.Len() {
+		let c = raw[i]
+		if (c >= byte(48) && c <= byte(57)) || (c >= byte(65) && c <= byte(90)) || (c >= byte(97) && c <= byte(122)) || c == byte(46) || c == byte(95) || c == byte(45) {
+			b.WriteByte(c)
+		}
+	}
+	let s = b.String()
+	if s == "" { fallback } else { s }
+}
+
+// CaseStoreRoundTrips verifies formatting and parsing a populated CaseStore preserves canonical text.
+law CaseStoreRoundTrips(k1 string, v1 string, k2 string, d2 string, draws []uint64) {
+	let mut st = NewCaseStore()
+	let sk = sanitizeToken(k1, "a.Law")
+	let sv = "(" + sanitizeToken(v1, "1") + ")"
+	let pk = sanitizeToken(k2, "a.Prop")
+	let pd = sanitizeToken(d2, "abcd")
+	AddShadow(&st, sk, sv)
+	let _ = AddProperty(&st, pk, pd, draws)
+	let formatted = FormatCases(st)
+	let reparsed = try ParseCases(formatted)
+	FormatCases(reparsed) == formatted
+}
+
+// CaseStoreParseFilterPruneTest checks ParseCases, AddProperty deduplication, FilterCases, MatchKeys, and PruneOrphans.
+test CaseStoreParseFormatFilterPruneTest {
+	let input = "# comment\nlaw b.L (2)\nlaw a.L (1)\nproperty a.P tape deadbeef 0,ff,10\nproperty b.Q tape cafe -\n"
+	let mut st = try ParseCases(input)
+	assert st.ShadowKeys.Len() == 2
+	assert st.PropKeys.Len() == 2
+	assert !AddProperty(&st, "a.P", "deadbeef", []uint64{uint64(0), uint64(0xff), uint64(0x10)})
+	assert AddProperty(&st, "a.P", "deadbeef", []uint64{uint64(1)})
+	let gotA = ForProperty(st, "a.P")
+	assert gotA.Len() == 2
+	assert FormatCases(st) == "law a.L (1)\nlaw b.L (2)\nproperty a.P tape deadbeef 0,ff,10\nproperty a.P tape deadbeef 1\nproperty b.Q tape cafe -\n"
+	let filtered = FilterCases(st, "a.", "")
+	assert filtered.ShadowKeys.Len() == 1
+	assert filtered.PropKeys.Len() == 2
+	let matched = MatchKeys(st, "a.*")
+	assert matched.Len() == 2 && matched[0] == "a.L" && matched[1] == "a.P"
+	let mut live = Map[string, bool]{}
+	live["a.P"] = true
+	let pruned = PruneOrphans(&st, "b.", live)
+	assert pruned == 1
+	assert ForProperty(st, "b.Q").Len() == 0
+	assert ForProperty(st, "a.P").Len() == 2
+}

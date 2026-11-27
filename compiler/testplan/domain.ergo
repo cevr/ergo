@@ -1,0 +1,1022 @@
+// Package testplan computes checked, target-independent test and law case
+// plans matching Go's internal/sketch/testplan and test/law planning rules.
+
+import compiler/check/facts
+import slices
+import strings
+
+// TypeCap caps the number of values in any listed finite domain.
+let TypeCap = 256
+
+// NoType marks an absent TypeID in dense SoA tables.
+let NoType = uint32(4294967295)
+
+// Type kind tags stored in TypePool.Kind.
+let KTInvalid = uint8(0)
+let KTBasic = uint8(1)
+let KTTuple = uint8(2)
+let KTNamed = uint8(3)
+let KTStruct = uint8(4)
+let KTUnion = uint8(5)
+let KTSlice = uint8(6)
+let KTMap = uint8(7)
+let KTOp = uint8(8)
+let KTSig = uint8(9)
+let KTPointer = uint8(10)
+let KTParam = uint8(11)
+
+// Basic type ordinals matching compiler/check/store and internal/sketch/check.
+let BInvalid = uint8(0)
+let BBool = uint8(1)
+let BString = uint8(2)
+let BInt = uint8(3)
+let BInt8 = uint8(4)
+let BInt16 = uint8(5)
+let BInt32 = uint8(6)
+let BInt64 = uint8(7)
+let BUint = uint8(8)
+let BUint8 = uint8(9)
+let BUint16 = uint8(10)
+let BUint32 = uint8(11)
+let BUint64 = uint8(12)
+let BUintptr = uint8(13)
+let BFloat32 = uint8(14)
+let BFloat64 = uint8(15)
+let BComplex64 = uint8(16)
+let BComplex128 = uint8(17)
+let BDuration = uint8(18)
+
+// Value scalar tags stored in ValArena.ScalarKind.
+let VSNone = uint8(0)
+let VSBool = uint8(1)
+let VSText = uint8(2)
+
+// TypePool stores checked type descriptors in dense uint32 SoA columns.
+type TypePool {
+	Kind          []uint8,
+	Basic         []uint8,
+	Under         []uint32,
+	Orig          []uint32,
+	NumTParams    []uint32,
+	ChildStart    []uint32,
+	ChildLen      []uint32,
+	Children      []uint32,
+	ChildNames    []string,
+	SigResStart   []uint32,
+	SigResLen     []uint32,
+	SigResults    []uint32,
+	Name          []string,
+	Pkg           []string,
+	Print         []string,
+	HasDecl       []bool,
+	IsHost        []bool,
+	IsGoRef       []bool,
+	IsGoError     []bool,
+	IsRuntime     []bool,
+	HasRow        []bool,
+	HasCtor       []bool,
+	CtorStart     []uint32,
+	CtorLen       []uint32,
+	CtorParams    []uint32,
+	HasBuilder    []bool,
+	BuilderStart  []uint32,
+	BuilderLen    []uint32,
+	BuilderParams []uint32,
+	IsRefined     []bool,
+	RefLen        []bool,
+	RefSpanStart  []uint32,
+	RefSpanLen    []uint32,
+	RefSpans      []facts.Span,
+	NameIndex     Map[string, uint32],
+}
+
+// NewTypePool allocates an empty TypePool.
+func NewTypePool() TypePool {
+	TypePool{
+		Kind:          []uint8{},
+		Basic:         []uint8{},
+		Under:         []uint32{},
+		Orig:          []uint32{},
+		NumTParams:    []uint32{},
+		ChildStart:    []uint32{},
+		ChildLen:      []uint32{},
+		Children:      []uint32{},
+		ChildNames:    []string{},
+		SigResStart:   []uint32{},
+		SigResLen:     []uint32{},
+		SigResults:    []uint32{},
+		Name:          []string{},
+		Pkg:           []string{},
+		Print:         []string{},
+		HasDecl:       []bool{},
+		IsHost:        []bool{},
+		IsGoRef:       []bool{},
+		IsGoError:     []bool{},
+		IsRuntime:     []bool{},
+		HasRow:        []bool{},
+		HasCtor:       []bool{},
+		CtorStart:     []uint32{},
+		CtorLen:       []uint32{},
+		CtorParams:    []uint32{},
+		HasBuilder:    []bool{},
+		BuilderStart:  []uint32{},
+		BuilderLen:    []uint32{},
+		BuilderParams: []uint32{},
+		IsRefined:     []bool{},
+		RefLen:        []bool{},
+		RefSpanStart:  []uint32{},
+		RefSpanLen:    []uint32{},
+		RefSpans:      []facts.Span{},
+		NameIndex:     Map[string, uint32]{},
+	}
+}
+
+func allocType(p mut TypePool, kind uint8) uint32 {
+	let id = uint32(p.Kind.Len())
+	p.Kind = p.Kind.Append(kind)
+	p.Basic = p.Basic.Append(BInvalid)
+	p.Under = p.Under.Append(NoType)
+	p.Orig = p.Orig.Append(NoType)
+	p.NumTParams = p.NumTParams.Append(uint32(0))
+	p.ChildStart = p.ChildStart.Append(uint32(0))
+	p.ChildLen = p.ChildLen.Append(uint32(0))
+	p.SigResStart = p.SigResStart.Append(uint32(0))
+	p.SigResLen = p.SigResLen.Append(uint32(0))
+	p.Name = p.Name.Append("")
+	p.Pkg = p.Pkg.Append("")
+	p.Print = p.Print.Append("")
+	p.HasDecl = p.HasDecl.Append(true)
+	p.IsHost = p.IsHost.Append(false)
+	p.IsGoRef = p.IsGoRef.Append(false)
+	p.IsGoError = p.IsGoError.Append(false)
+	p.IsRuntime = p.IsRuntime.Append(false)
+	p.HasRow = p.HasRow.Append(false)
+	p.HasCtor = p.HasCtor.Append(false)
+	p.CtorStart = p.CtorStart.Append(uint32(0))
+	p.CtorLen = p.CtorLen.Append(uint32(0))
+	p.HasBuilder = p.HasBuilder.Append(false)
+	p.BuilderStart = p.BuilderStart.Append(uint32(0))
+	p.BuilderLen = p.BuilderLen.Append(uint32(0))
+	p.IsRefined = p.IsRefined.Append(false)
+	p.RefLen = p.RefLen.Append(false)
+	p.RefSpanStart = p.RefSpanStart.Append(uint32(0))
+	p.RefSpanLen = p.RefSpanLen.Append(uint32(0))
+	id
+}
+
+func appendChildren(p mut TypePool, tid uint32, ids []uint32, names []string) {
+	let idx = int(tid)
+	p.ChildStart[idx] = uint32(p.Children.Len())
+	p.ChildLen[idx] = uint32(ids.Len())
+	for i, c in ids {
+		p.Children = p.Children.Append(c)
+		let nm = if i < names.Len() { names[i] } else { "" }
+		p.ChildNames = p.ChildNames.Append(nm)
+	}
+}
+
+func basicName(b uint8) string {
+	if b == BBool {
+		return "bool"
+	}
+	if b == BString {
+		return "string"
+	}
+	if b == BInt {
+		return "int"
+	}
+	if b == BInt8 {
+		return "int8"
+	}
+	if b == BInt16 {
+		return "int16"
+	}
+	if b == BInt32 {
+		return "int32"
+	}
+	if b == BInt64 {
+		return "int64"
+	}
+	if b == BUint {
+		return "uint"
+	}
+	if b == BUint8 {
+		return "uint8"
+	}
+	if b == BUint16 {
+		return "uint16"
+	}
+	if b == BUint32 {
+		return "uint32"
+	}
+	if b == BUint64 {
+		return "uint64"
+	}
+	if b == BUintptr {
+		return "uintptr"
+	}
+	if b == BFloat32 {
+		return "float32"
+	}
+	if b == BFloat64 {
+		return "float64"
+	}
+	if b == BComplex64 {
+		return "complex64"
+	}
+	if b == BComplex128 {
+		return "complex128"
+	}
+	if b == BDuration {
+		return "duration"
+	}
+	"invalid type"
+}
+
+// AddBasic inserts a basic type descriptor and returns its TypeID.
+func AddBasic(p mut TypePool, b uint8) uint32 {
+	let id = allocType(p, KTBasic)
+	p.Basic[int(id)] = b
+	p.Print[int(id)] = basicName(b)
+	id
+}
+
+// AddTuple inserts a tuple type descriptor from elem types and returns its TypeID.
+func AddTuple(p mut TypePool, elems []uint32, printText string) uint32 {
+	let id = allocType(p, KTTuple)
+	appendChildren(p, id, elems, []string{})
+	p.Print[int(id)] = printText
+	id
+}
+
+// AddSlice inserts a slice type descriptor and returns its TypeID.
+func AddSlice(p mut TypePool, elem uint32, printText string) uint32 {
+	let id = allocType(p, KTSlice)
+	appendChildren(p, id, []uint32{elem}, []string{})
+	p.Print[int(id)] = printText
+	id
+}
+
+// AddMap inserts a map type descriptor and returns its TypeID.
+func AddMap(p mut TypePool, key uint32, val uint32, printText string) uint32 {
+	let id = allocType(p, KTMap)
+	appendChildren(p, id, []uint32{key, val}, []string{})
+	p.Print[int(id)] = printText
+	id
+}
+
+// AddPointer inserts a borrow (*Elem) type descriptor and returns its TypeID.
+func AddPointer(p mut TypePool, elem uint32, printText string) uint32 {
+	let id = allocType(p, KTPointer)
+	appendChildren(p, id, []uint32{elem}, []string{})
+	p.Print[int(id)] = printText
+	id
+}
+
+// AddStruct inserts a struct type descriptor and returns its TypeID.
+func AddStruct(p mut TypePool, fieldNames []string, fieldTypes []uint32, hasUnexported bool, printText string) uint32 {
+	let id = allocType(p, KTStruct)
+	appendChildren(p, id, fieldTypes, fieldNames)
+	p.Print[int(id)] = printText
+	if hasUnexported {
+		p.IsRuntime[int(id)] = true
+	}
+	id
+}
+
+// AddUnion inserts a union type descriptor and returns its TypeID.
+func AddUnion(p mut TypePool, variants []uint32, hasRow bool, printText string) uint32 {
+	let id = allocType(p, KTUnion)
+	appendChildren(p, id, variants, []string{})
+	p.HasRow[int(id)] = hasRow
+	p.Print[int(id)] = printText
+	id
+}
+
+// AddOp inserts an operation interface type descriptor and returns its TypeID.
+func AddOp(p mut TypePool, methodNames []string, methodSigs []uint32, printText string) uint32 {
+	let id = allocType(p, KTOp)
+	appendChildren(p, id, methodSigs, methodNames)
+	p.Print[int(id)] = printText
+	id
+}
+
+// AddSig inserts a signature type descriptor and returns its TypeID.
+func AddSig(p mut TypePool, params []uint32, results []uint32, hasRow bool, printText string) uint32 {
+	let id = allocType(p, KTSig)
+	appendChildren(p, id, params, []string{})
+	let idx = int(id)
+	p.SigResStart[idx] = uint32(p.SigResults.Len())
+	p.SigResLen[idx] = uint32(results.Len())
+	for r in results {
+		p.SigResults = p.SigResults.Append(r)
+	}
+	p.HasRow[idx] = hasRow
+	p.Print[idx] = printText
+	id
+}
+
+// AddParam inserts a type parameter descriptor and returns its TypeID.
+func AddParam(p mut TypePool, name string) uint32 {
+	let id = allocType(p, KTParam)
+	p.Name[int(id)] = name
+	p.Print[int(id)] = name
+	id
+}
+
+// AddNamed inserts a named type placeholder with optional underlying type and returns its TypeID.
+func AddNamed(p mut TypePool, pkg string, name string, printText string, under uint32) uint32 {
+	let id = allocType(p, KTNamed)
+	let idx = int(id)
+	p.Pkg[idx] = pkg
+	p.Name[idx] = name
+	p.Print[idx] = printText
+	p.Under[idx] = under
+	p.NameIndex[printText] = id
+	id
+}
+
+// SetUnder updates the underlying TypeID of a named type.
+func SetUnder(p mut TypePool, tid uint32, under uint32) {
+	p.Under[int(tid)] = under
+}
+
+// SetConstructor records a constructor's parameter types for a named type.
+func SetConstructor(p mut TypePool, tid uint32, params []uint32) {
+	let idx = int(tid)
+	p.HasCtor[idx] = true
+	p.CtorStart[idx] = uint32(p.CtorParams.Len())
+	p.CtorLen[idx] = uint32(params.Len())
+	for c in params {
+		p.CtorParams = p.CtorParams.Append(c)
+	}
+}
+
+// SetBuilder records an operation type's builder parameter types.
+func SetBuilder(p mut TypePool, tid uint32, params []uint32) {
+	let idx = int(tid)
+	p.HasBuilder[idx] = true
+	p.BuilderStart[idx] = uint32(p.BuilderParams.Len())
+	p.BuilderLen[idx] = uint32(params.Len())
+	for c in params {
+		p.BuilderParams = p.BuilderParams.Append(c)
+	}
+}
+
+// SetRefinement attaches normalized refinement spans to a named type.
+func SetRefinement(p mut TypePool, tid uint32, isLen bool, spans []facts.Span) {
+	let idx = int(tid)
+	p.IsRefined[idx] = true
+	p.RefLen[idx] = isLen
+	p.RefSpanStart[idx] = uint32(p.RefSpans.Len())
+	p.RefSpanLen[idx] = uint32(spans.Len())
+	for sp in spans {
+		p.RefSpans = p.RefSpans.Append(sp)
+	}
+}
+
+// Constructor reports whether tid has a direct non-generic constructor and returns its parameter types.
+func Constructor(p TypePool, tid uint32) (bool, []uint32) {
+	let idx = int(tid)
+	if idx < 0 || idx >= p.Kind.Len() {
+		return (false, []uint32{})
+	}
+	if p.Kind[idx] != KTNamed || !p.HasDecl[idx] || p.Orig[idx] != NoType || !p.HasCtor[idx] {
+		return (false, []uint32{})
+	}
+	let start = int(p.CtorStart[idx])
+	let n = int(p.CtorLen[idx])
+	let mut out = []uint32{}
+	for j in 0..n {
+		out = out.Append(p.CtorParams[start+j])
+	}
+	(true, out)
+}
+
+func underlyingOf(p TypePool, tid0 uint32) uint32 {
+	let mut cur = tid0
+	let n = p.Kind.Len()
+	for _ in 0..n {
+		let idx = int(cur)
+		if idx < 0 || idx >= n {
+			return NoType
+		}
+		if p.Kind[idx] != KTNamed {
+			return cur
+		}
+		let u = p.Under[idx]
+		if u == NoType {
+			return cur
+		}
+		cur = u
+	}
+	cur
+}
+
+func childrenOf(p TypePool, tid uint32) []uint32 {
+	let idx = int(tid)
+	let start = int(p.ChildStart[idx])
+	let n = int(p.ChildLen[idx])
+	let mut out = []uint32{}
+	for j in 0..n {
+		out = out.Append(p.Children[start+j])
+	}
+	out
+}
+
+func builderParamsOf(p TypePool, tid uint32) (bool, []uint32) {
+	let idx = int(tid)
+	if !p.HasBuilder[idx] {
+		return (false, []uint32{})
+	}
+	let start = int(p.BuilderStart[idx])
+	let n = int(p.BuilderLen[idx])
+	let mut out = []uint32{}
+	for j in 0..n {
+		out = out.Append(p.BuilderParams[start+j])
+	}
+	(true, out)
+}
+
+// ValArena stores enumerated finite domain values in dense uint32 SoA columns.
+type ValArena {
+	Type       []uint32,
+	ScalarKind []uint8,
+	BoolVal    []bool,
+	TextVal    []string,
+	ChildStart []uint32,
+	ChildLen   []uint32,
+	Children   []uint32,
+}
+
+// NewValArena allocates an empty ValArena.
+func NewValArena() ValArena {
+	ValArena{
+		Type:       []uint32{},
+		ScalarKind: []uint8{},
+		BoolVal:    []bool{},
+		TextVal:    []string{},
+		ChildStart: []uint32{},
+		ChildLen:   []uint32{},
+		Children:   []uint32{},
+	}
+}
+
+func addArenaBool(a mut ValArena, tid uint32, v bool) uint32 {
+	let id = uint32(a.Type.Len())
+	a.Type = a.Type.Append(tid)
+	a.ScalarKind = a.ScalarKind.Append(VSBool)
+	a.BoolVal = a.BoolVal.Append(v)
+	a.TextVal = a.TextVal.Append("")
+	a.ChildStart = a.ChildStart.Append(uint32(0))
+	a.ChildLen = a.ChildLen.Append(uint32(0))
+	id
+}
+
+func addArenaText(a mut ValArena, tid uint32, text string) uint32 {
+	let id = uint32(a.Type.Len())
+	a.Type = a.Type.Append(tid)
+	a.ScalarKind = a.ScalarKind.Append(VSText)
+	a.BoolVal = a.BoolVal.Append(false)
+	a.TextVal = a.TextVal.Append(text)
+	a.ChildStart = a.ChildStart.Append(uint32(0))
+	a.ChildLen = a.ChildLen.Append(uint32(0))
+	id
+}
+
+func addArenaNode(a mut ValArena, tid uint32, kids []uint32) uint32 {
+	let id = uint32(a.Type.Len())
+	a.Type = a.Type.Append(tid)
+	a.ScalarKind = a.ScalarKind.Append(VSNone)
+	a.BoolVal = a.BoolVal.Append(false)
+	a.TextVal = a.TextVal.Append("")
+	a.ChildStart = a.ChildStart.Append(uint32(a.Children.Len()))
+	a.ChildLen = a.ChildLen.Append(uint32(kids.Len()))
+	for k in kids {
+		a.Children = a.Children.Append(k)
+	}
+	id
+}
+
+// FormatVal returns a deterministic structural string representation of value id in arena.
+func FormatVal(a ValArena, p TypePool, vid uint32) string {
+	let idx = int(vid)
+	if idx < 0 || idx >= a.Type.Len() {
+		return "<invalid>"
+	}
+	let sk = a.ScalarKind[idx]
+	if sk == VSBool {
+		return if a.BoolVal[idx] { "true" } else { "false" }
+	}
+	if sk == VSText {
+		return a.TextVal[idx]
+	}
+	let start = int(a.ChildStart[idx])
+	let n = int(a.ChildLen[idx])
+	let mut parts = []string{}
+	for j in 0..n {
+		parts = parts.Append(FormatVal(a, p, a.Children[start+j]))
+	}
+	let tname = p.Print[int(a.Type[idx])]
+	"\(tname)(" + strings.Join(parts, ", ") + ")"
+}
+
+func spanCountWithinCap(sp facts.Span, cap int) (int, bool) {
+	match (sp.Lo, sp.Hi) {
+	case (facts.At as lo, facts.At as hi):
+		if facts.Compare(sp.Lo, sp.Hi) > 0 {
+			return (0, true)
+		}
+		let dist = if lo.Neg == hi.Neg {
+			if lo.Neg { lo.Mag - hi.Mag } else { hi.Mag - lo.Mag }
+		} else {
+			if lo.Mag > uint64(cap) || hi.Mag > uint64(cap) {
+				return (0, false)
+			}
+			lo.Mag + hi.Mag
+		}
+		if dist >= uint64(cap) {
+			return (0, false)
+		}
+		(int(dist) + 1, true)
+	case _:
+		(0, false)
+	}
+}
+
+type seenFlags { v []bool }
+
+func domainProduct(p TypePool, a mut ValArena, tid uint32, ts []uint32, seen mut seenFlags) ([]uint32, bool) {
+	let empty = addArenaNode(a, tid, []uint32{})
+	let mut out = []uint32{empty}
+	for ft in ts {
+		let (vs, ok) = domainWalk(p, a, ft, seen)
+		if !ok || vs.Len() == 0 || out.Len() > TypeCap/vs.Len() {
+			return ([]uint32{}, false)
+		}
+		let mut next = []uint32{}
+		for prefix in out {
+			let pIdx = int(prefix)
+			let pStart = int(a.ChildStart[pIdx])
+			let pLen = int(a.ChildLen[pIdx])
+			let mut baseKids = []uint32{}
+			for j in 0..pLen {
+				baseKids = baseKids.Append(a.Children[pStart+j])
+			}
+			for v in vs {
+				let mut kids = baseKids
+				kids = kids.Append(v)
+				next = next.Append(addArenaNode(a, tid, kids))
+			}
+		}
+		out = next
+	}
+	(out, true)
+}
+
+func domainWalk(p TypePool, a mut ValArena, tid uint32, seen mut seenFlags) ([]uint32, bool) {
+	let idx = int(tid)
+	if idx < 0 || idx >= p.Kind.Len() {
+		return ([]uint32{}, false)
+	}
+	let kind = p.Kind[idx]
+	if kind == KTBasic {
+		if p.Basic[idx] == BBool {
+			return ([]uint32{addArenaBool(a, tid, false), addArenaBool(a, tid, true)}, true)
+		}
+		return ([]uint32{}, false)
+	}
+	if kind == KTTuple {
+		return domainProduct(p, a, tid, childrenOf(p, tid), seen)
+	}
+	if kind == KTNamed {
+		let (hasCtor, _) = Constructor(p, tid)
+		if hasCtor {
+			return ([]uint32{}, false)
+		}
+		if p.IsRefined[idx] {
+			if p.RefLen[idx] {
+				return ([]uint32{}, false)
+			}
+			let sStart = int(p.RefSpanStart[idx])
+			let sLen = int(p.RefSpanLen[idx])
+			let mut total = 0
+			for j in 0..sLen {
+				let (cnt, fits) = spanCountWithinCap(p.RefSpans[sStart+j], TypeCap-total)
+				if !fits {
+					return ([]uint32{}, false)
+				}
+				total = total + cnt
+			}
+			let mut out = []uint32{}
+			for j in 0..sLen {
+				let sp = p.RefSpans[sStart+j]
+				let mut cur = sp.Lo
+				for facts.Compare(cur, sp.Hi) <= 0 {
+					out = out.Append(addArenaText(a, tid, facts.NumText(cur)))
+					if facts.Compare(cur, sp.Hi) == 0 {
+						break
+					}
+					cur = facts.Inc(cur)
+				}
+			}
+			return (out, true)
+		}
+		if seen.v[idx] {
+			return ([]uint32{}, false)
+		}
+		seen.v[idx] = true
+		let under = underlyingOf(p, tid)
+		let uIdx = int(under)
+		if under == NoType || uIdx < 0 || uIdx >= p.Kind.Len() {
+			seen.v[idx] = false
+			return ([]uint32{}, false)
+		}
+		let uKind = p.Kind[uIdx]
+		if uKind == KTStruct {
+			let res = domainProduct(p, a, tid, childrenOf(p, under), seen)
+			seen.v[idx] = false
+			return res
+		}
+		if uKind == KTUnion {
+			let mut out = []uint32{}
+			for variant in childrenOf(p, under) {
+				let (vs, ok) = domainWalk(p, a, variant, seen)
+				if !ok || out.Len()+vs.Len() > TypeCap {
+					seen.v[idx] = false
+					return ([]uint32{}, false)
+				}
+				for v in vs {
+					out = out.Append(addArenaNode(a, tid, []uint32{v}))
+				}
+			}
+			seen.v[idx] = false
+			return (out, out.Len() > 0)
+		}
+		if uKind == KTBasic {
+			let (vs, ok) = domainWalk(p, a, under, seen)
+			let mut wrapped = []uint32{}
+			for v in vs {
+				wrapped = wrapped.Append(addArenaNode(a, tid, []uint32{v}))
+			}
+			seen.v[idx] = false
+			return (wrapped, ok)
+		}
+		seen.v[idx] = false
+	}
+	([]uint32{}, false)
+}
+
+// Domain enumerates tid's finite values into arena in declaration order (last
+// field fastest), returning false when tid is recursive, unbounded, or
+// constructor-backed.
+func Domain(p TypePool, a mut ValArena, tid uint32) ([]uint32, bool) {
+	let n = p.Kind.Len()
+	let mut flags = MakeSlice[bool](n)
+	for _ in 0..n {
+		flags = flags.Append(false)
+	}
+	let mut seen = seenFlags{v: flags}
+	domainWalk(p, a, tid, &seen)
+}
+
+// ValueRanks caches least-fixpoint value depth ranks per TypeID in dense uint32 storage.
+type ValueRanks {
+	Solved []uint32,
+}
+
+// NewValueRanks allocates a ValueRanks memo sized for p.
+func NewValueRanks(p TypePool) ValueRanks {
+	let n = p.Kind.Len()
+	let mut s = MakeSlice[uint32](n)
+	for _ in 0..n {
+		s = s.Append(uint32(0))
+	}
+	ValueRanks{Solved: s}
+}
+
+let rankInfinite = 1 << 30
+
+func ensureRankSize(r mut ValueRanks, n int) {
+	for r.Solved.Len() < n {
+		r.Solved = r.Solved.Append(uint32(0))
+	}
+}
+
+func maxRankOf(ts []uint32, cur []int, solved []uint32, inOpen []bool, openMap []int, p TypePool) int {
+	let mut most = -1
+	for t in ts {
+		let k = evalRankOf(t, cur, solved, inOpen, openMap, p)
+		if k == rankInfinite {
+			return rankInfinite - 1
+		}
+		if k > most {
+			most = k
+		}
+	}
+	most
+}
+
+func evalRankOf(tid uint32, cur []int, solved []uint32, inOpen []bool, openMap []int, p TypePool) int {
+	let idx = int(tid)
+	if idx < 0 || idx >= p.Kind.Len() {
+		return 0
+	}
+	let kind = p.Kind[idx]
+	if kind == KTNamed {
+		if inOpen[idx] {
+			return cur[openMap[idx]]
+		}
+		let sv = solved[idx]
+		if sv >= uint32(2) {
+			return int(sv) - 2
+		}
+		return rankInfinite
+	}
+	if kind == KTTuple {
+		return 1 + maxRankOf(childrenOf(p, tid), cur, solved, inOpen, openMap, p)
+	}
+	if kind == KTStruct {
+		return 1 + maxRankOf(childrenOf(p, tid), cur, solved, inOpen, openMap, p)
+	}
+	if kind == KTUnion {
+		let mut least = rankInfinite
+		for v in childrenOf(p, tid) {
+			let k = evalRankOf(v, cur, solved, inOpen, openMap, p)
+			if k < least {
+				least = k
+			}
+		}
+		if least == rankInfinite {
+			return rankInfinite
+		}
+		return least + 1
+	}
+	0
+}
+
+type rankReach { inOpen []bool, open []uint32 }
+
+func reachRank(p TypePool, r ValueRanks, tid uint32, st mut rankReach) {
+	let idx = int(tid)
+	if idx < 0 || idx >= p.Kind.Len() {
+		return
+	}
+	let kind = p.Kind[idx]
+	if kind == KTSlice || kind == KTMap || kind == KTTuple || kind == KTStruct || kind == KTUnion {
+		for e in childrenOf(p, tid) {
+			reachRank(p, r, e, st)
+		}
+		return
+	}
+	if kind == KTNamed {
+		if r.Solved[idx] != uint32(0) || st.inOpen[idx] {
+			return
+		}
+		st.inOpen[idx] = true
+		st.open = st.open.Append(tid)
+		let under = underlyingOf(p, tid)
+		let uIdx = int(under)
+		if under != NoType && uIdx >= 0 && uIdx < p.Kind.Len() && p.Kind[uIdx] == KTOp {
+			let (hasB, params) = builderParamsOf(p, tid)
+			if hasB {
+				for bp in params {
+					reachRank(p, r, bp, st)
+				}
+			}
+			return
+		}
+		reachRank(p, r, under, st)
+	}
+}
+
+// Rank computes the least finite-value depth of tid, or -1 if unbuildable.
+func Rank(p TypePool, r mut ValueRanks, tid uint32) int {
+	let n = p.Kind.Len()
+	ensureRankSize(r, n)
+	let mut inOpen = MakeSlice[bool](n)
+	let mut openMap = MakeSlice[int](n)
+	for _ in 0..n {
+		inOpen = inOpen.Append(false)
+		openMap = openMap.Append(-1)
+	}
+	let mut st = rankReach{inOpen: inOpen, open: []uint32{}}
+	reachRank(p, *r, tid, &st)
+	let mut cur = MakeSlice[int](st.open.Len())
+	for k, id in st.open {
+		openMap[int(id)] = k
+		cur = cur.Append(rankInfinite)
+	}
+	let mut changed = true
+	for changed {
+		changed = false
+		for pos, id in st.open {
+			let mut k = rankInfinite
+			let under = underlyingOf(p, id)
+			let uIdx = int(under)
+			if under != NoType && uIdx >= 0 && uIdx < n && p.Kind[uIdx] == KTOp {
+				let (hasB, params) = builderParamsOf(p, id)
+				if hasB {
+					k = 1 + maxRankOf(params, cur, r.Solved, st.inOpen, openMap, p)
+				}
+			} else {
+				k = evalRankOf(under, cur, r.Solved, st.inOpen, openMap, p)
+			}
+			if k < cur[pos] {
+				cur[pos] = k
+				changed = true
+			}
+		}
+	}
+	for pos, id in st.open {
+		let idx = int(id)
+		if cur[pos] == rankInfinite {
+			r.Solved[idx] = uint32(1)
+		} else {
+			r.Solved[idx] = uint32(cur[pos] + 2)
+		}
+		st.inOpen[idx] = false
+	}
+	let res = evalRankOf(tid, cur, r.Solved, st.inOpen, openMap, p)
+	if res == rankInfinite { -1 } else { res }
+}
+
+// SmallVariants filters union variants to those of least finite value rank.
+func SmallVariants(p TypePool, variants []uint32) []uint32 {
+	let mut ranks = NewValueRanks(p)
+	let mut least = -1
+	let mut small = []uint32{}
+	for v in variants {
+		let k = Rank(p, &ranks, v)
+		if k < 0 {
+			continue
+		}
+		if least < 0 || k < least {
+			least = k
+			small = []uint32{v}
+		} else if k == least {
+			small = small.Append(v)
+		}
+	}
+	small
+}
+
+func valueTextWalk(p TypePool, root uint32, tid uint32, seen mut seenFlags) bool {
+	let idx = int(tid)
+	if idx < 0 || idx >= p.Kind.Len() {
+		return false
+	}
+	let kind = p.Kind[idx]
+	if kind == KTBasic {
+		return true
+	}
+	if kind == KTSlice || kind == KTMap || kind == KTTuple {
+		for e in childrenOf(p, tid) {
+			if !valueTextWalk(p, root, e, seen) {
+				return false
+			}
+		}
+		return true
+	}
+	if kind == KTNamed {
+		let (hasCtor, _) = Constructor(p, tid)
+		if seen.v[idx] || (tid != root && hasCtor) {
+			return true
+		}
+		seen.v[idx] = true
+		let under = underlyingOf(p, tid)
+		let uIdx = int(under)
+		if under == NoType || uIdx < 0 || uIdx >= p.Kind.Len() {
+			return false
+		}
+		let uKind = p.Kind[uIdx]
+		if uKind == KTStruct || uKind == KTUnion {
+			for c in childrenOf(p, under) {
+				if !valueTextWalk(p, root, c, seen) {
+					return false
+				}
+			}
+			return true
+		}
+		if uKind == KTBasic || uKind == KTSlice || uKind == KTMap || uKind == KTTuple {
+			return valueTextWalk(p, root, under, seen)
+		}
+	}
+	false
+}
+
+// ByConstructor reports whether a refuted value of tid prints via its constructor call.
+func ByConstructor(p TypePool, tid uint32) bool {
+	let (hasCtor, params) = Constructor(p, tid)
+	if !hasCtor {
+		return false
+	}
+	if params.Len() == 0 {
+		return true
+	}
+	let n = p.Kind.Len()
+	let mut flags = MakeSlice[bool](n)
+	for _ in 0..n {
+		flags = flags.Append(false)
+	}
+	let mut seen = seenFlags{v: flags}
+	!valueTextWalk(p, tid, tid, &seen)
+}
+
+// DomainRespectsTypeCap verifies that tuple product expansion refuses domains past TypeCap.
+law DomainRespectsTypeCap(k uint8) {
+	let mut p = NewTypePool()
+	let b = AddBasic(&p, BBool)
+	let n = int(k%uint8(6)) + 1
+	let mut ts = []uint32{}
+	for _ in 0..n {
+		ts = ts.Append(b)
+	}
+	let tup = AddTuple(&p, ts, "tuple")
+	let mut arena = NewValArena()
+	let (vs, ok) = Domain(p, &arena, tup)
+	ok && vs.Len() <= TypeCap
+}
+
+// SmallVariantsPicksLeastRank checks that SmallVariants picks shallowest variants and drops unfinite ones.
+test SmallVariantsPicksLeastRank {
+	let mut p = NewTypePool()
+	let i = AddBasic(&p, BInt)
+	let opNoB = AddOp(&p, []string{}, []uint32{}, "OpNoB")
+	let noB = AddNamed(&p, "p", "NoB", "p.NoB", opNoB)
+	let stLeaf = AddStruct(&p, []string{"x"}, []uint32{i}, false, "Leaf")
+	let leaf = AddNamed(&p, "p", "Leaf", "p.Leaf", stLeaf)
+	let stDeep = AddStruct(&p, []string{"l"}, []uint32{leaf}, false, "Deep")
+	let deep = AddNamed(&p, "p", "Deep", "p.Deep", stDeep)
+	let got = SmallVariants(p, []uint32{noB, deep, leaf})
+	assert got.Len() == 1 && got[0] == leaf
+
+	let opCy = AddOp(&p, []string{}, []uint32{}, "Metered")
+	let cy = AddNamed(&p, "p", "Metered", "p.Metered", opCy)
+	SetBuilder(&p, cy, []uint32{cy})
+	let mut ranks = NewValueRanks(p)
+	assert Rank(p, &ranks, cy) == -1
+}
+
+// ByConstructorMatchesSpecTest covers zero-param constructors, record fields, and operation fields.
+test ByConstructorMatchesSpecTest {
+	let mut p = NewTypePool()
+	let i = AddBasic(&p, BInt)
+	let st1 = AddStruct(&p, []string{"n"}, []uint32{i}, false, "Zero")
+	let n1 = AddNamed(&p, "p", "Zero", "p.Zero", st1)
+	SetConstructor(&p, n1, []uint32{})
+	assert ByConstructor(p, n1)
+
+	let st2 = AddStruct(&p, []string{"n"}, []uint32{i}, false, "Plain")
+	let n2 = AddNamed(&p, "p", "Plain", "p.Plain", st2)
+	SetConstructor(&p, n2, []uint32{i})
+	assert !ByConstructor(p, n2)
+
+	let op = AddOp(&p, []string{}, []uint32{}, "Runner")
+	let run = AddNamed(&p, "p", "Runner", "p.Runner", op)
+	let st3 = AddStruct(&p, []string{"r"}, []uint32{run}, false, "Hold")
+	let n3 = AddNamed(&p, "p", "Hold", "p.Hold", st3)
+	SetConstructor(&p, n3, []uint32{i})
+	assert ByConstructor(p, n3)
+}
+
+// DomainEnumeratesFiniteTypesTest checks Bool, Tuple, Struct, Union, Refinement, Ctor, and Cycle domains.
+test DomainEnumeratesFiniteTypesTest {
+	let mut p = NewTypePool()
+	let b = AddBasic(&p, BBool)
+	let i = AddBasic(&p, BInt)
+	let mut arena = NewValArena()
+
+	let (bvs, bok) = Domain(p, &arena, b)
+	assert bok && bvs.Len() == 2 && FormatVal(arena, p, bvs[0]) == "false" && FormatVal(arena, p, bvs[1]) == "true"
+
+	let pairSt = AddStruct(&p, []string{"a", "b"}, []uint32{b, b}, false, "Pair")
+	let pair = AddNamed(&p, "p", "Pair", "p.Pair", pairSt)
+	let (pvs, pok) = Domain(p, &arena, pair)
+	assert pok && pvs.Len() == 4
+	assert FormatVal(arena, p, pvs[1]) == "p.Pair(false, true)"
+
+	let bit = AddNamed(&p, "p", "Bit", "p.Bit", i)
+	SetRefinement(&p, bit, false, []facts.Span{facts.Span{Lo: facts.NumOf(int64(2)), Hi: facts.NumOf(int64(4))}})
+	let (rvs, rok) = Domain(p, &arena, bit)
+	assert rok && rvs.Len() == 3 && FormatVal(arena, p, rvs[0]) == "2" && FormatVal(arena, p, rvs[2]) == "4"
+
+	let big = AddNamed(&p, "p", "Big", "p.Big", i)
+	SetRefinement(&p, big, false, []facts.Span{facts.Span{Lo: facts.NumOf(int64(0)), Hi: facts.NumOf(int64(256))}})
+	let (_, bigOk) = Domain(p, &arena, big)
+	assert !bigOk
+
+	let cy = AddNamed(&p, "p", "Cy", "p.Cy", NoType)
+	let cySt = AddStruct(&p, []string{"next"}, []uint32{cy}, false, "CySt")
+	SetUnder(&p, cy, cySt)
+	let (_, cyOk) = Domain(p, &arena, cy)
+	assert !cyOk
+
+	let zSt = AddStruct(&p, []string{"v"}, []uint32{b}, false, "Z")
+	let zCtor = AddNamed(&p, "p", "Z", "p.Z", zSt)
+	SetConstructor(&p, zCtor, []uint32{})
+	let (_, zOk) = Domain(p, &arena, zCtor)
+	assert !zOk
+
+	assert slices.Contains([]uint32{pair, bit}, pair)
+}

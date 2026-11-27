@@ -1,0 +1,475 @@
+import filepath
+import fs
+import fstest
+import json
+import option
+import slices
+import strings
+
+// RecordVariable names the directory recording uncached closure-sweep runs.
+let RecordVariable string = "ERGO_CLOSURE_RECORD"
+
+// RecordFile names a recorded run's JSON manifest.
+let RecordFile string = "record.json"
+
+// RecordLog names the companion test log file in a recording directory.
+let RecordLog string = "test.log"
+
+// RecordIdentity names the companion access-identity JSON file.
+let RecordIdentity string = "identity.json"
+
+// CacheVariable names the private Ergo emission cache variable.
+let CacheVariable string = "ERGO_CACHE"
+
+// UserNamespacesRefused prefixes Record.UserNamespaces when unprivileged user
+// namespaces are disallowed.
+let UserNamespacesRefused string = "refused: "
+
+// Record stores metadata captured by an uncached recorded test process.
+type Record {
+	Package        string,
+	Dir            string,
+	Root           string,
+	Args           []string,
+	Env            []string,
+	Cache          string,
+	Writable       []string,
+	Scratch        string,
+	TreeReadOnly   bool,
+	TreeProbe      string,
+	UserNamespaces string,
+	Exit           uint32,
+}
+
+// RecordError reports an invalid or unreadable recorded run manifest.
+type RecordError {
+	Target string,
+	Reason string,
+}
+
+// WritablePlaces returns sorted unique writable scratch/cache directories
+// including /dev/shm, scratch, optional GOTMPDIR/XDG_CACHE_HOME, and extra.
+func WritablePlaces(scratch string, gotmpdir string, xdgCacheHome string, extra []string) []string {
+	let mut places = []string{"/dev/shm", scratch}
+	if gotmpdir != "" {
+		places = places.Append(gotmpdir)
+	}
+	if xdgCacheHome != "" {
+		places = places.Append(xdgCacheHome)
+	}
+	for _, p in extra {
+		places = places.Append(p)
+	}
+	let sorted = slices.Sort(places)
+	let mut compact = []string{}
+	for _, p in sorted {
+		if compact.Len() == 0 || compact[compact.Len()-1] != p {
+			compact = compact.Append(p)
+		}
+	}
+	compact
+}
+
+// EncodeRecordJSON encodes r into two-space indented JSON matching Go's Record
+// JSON encoding.
+func EncodeRecordJSON(r Record) string fails json.Malformed {
+	let t = json.NewText()
+	t.BeginObject(12)
+	t.Key("Package")
+	t.String(r.Package)
+	t.Key("Dir")
+	t.String(r.Dir)
+	t.Key("Root")
+	t.String(r.Root)
+	writeStringListField(t, "Args", r.Args)
+	writeStringListField(t, "Env", r.Env)
+	t.Key("Cache")
+	t.String(r.Cache)
+	writeStringListField(t, "Writable", r.Writable)
+	t.Key("Scratch")
+	t.String(r.Scratch)
+	t.Key("TreeReadOnly")
+	t.Bool(r.TreeReadOnly)
+	t.Key("TreeProbe")
+	t.String(r.TreeProbe)
+	t.Key("UserNamespaces")
+	t.String(r.UserNamespaces)
+	t.Key("Exit")
+	t.Uint(uint64(r.Exit))
+	t.EndObject()
+	try json.Indent(t.Written(), "", "  ")
+}
+
+func writeStringListField(t json.Text, name string, xs []string) {
+	t.Key(name)
+	if xs.Len() == 0 {
+		t.Null()
+		return
+	}
+	t.BeginList(xs.Len())
+	for _, x in xs {
+		t.String(x)
+	}
+	t.EndList()
+}
+
+// DecodeRecordJSON decodes a Record from its JSON manifest text.
+func DecodeRecordJSON(text string) Record fails RecordError {
+	let r = json.Open(text, 0, 0) catch {
+	case json.Malformed as e:
+		return RecordError{Target: RecordFile, Reason: e.Reason}
+	}
+	r.BeginObject() catch {
+	case WireWrongKind as e:
+		return RecordError{Target: RecordFile, Reason: "wrong kind at " + e.Path}
+	}
+	let mut pkg = ""
+	let mut dir = ""
+	let mut root = ""
+	let mut args = []string{}
+	let mut env = []string{}
+	let mut cache = ""
+	let mut writable = []string{}
+	let mut scratch = ""
+	let mut treeRO = false
+	let mut treeProbe = ""
+	let mut userNs = ""
+	let mut exit = uint32(0)
+	for r.More() {
+		let k = r.Key()
+		if k == "Package" {
+			pkg = readJSONString(r) catch {
+			case RecordError as e:
+				return e
+			}
+		} else if k == "Dir" {
+			dir = readJSONString(r) catch {
+			case RecordError as e:
+				return e
+			}
+		} else if k == "Root" {
+			root = readJSONString(r) catch {
+			case RecordError as e:
+				return e
+			}
+		} else if k == "Args" {
+			args = readJSONStringList(r) catch {
+			case RecordError as e:
+				return e
+			}
+		} else if k == "Env" {
+			env = readJSONStringList(r) catch {
+			case RecordError as e:
+				return e
+			}
+		} else if k == "Cache" {
+			cache = readJSONString(r) catch {
+			case RecordError as e:
+				return e
+			}
+		} else if k == "Writable" {
+			writable = readJSONStringList(r) catch {
+			case RecordError as e:
+				return e
+			}
+		} else if k == "Scratch" {
+			scratch = readJSONString(r) catch {
+			case RecordError as e:
+				return e
+			}
+		} else if k == "TreeReadOnly" {
+			treeRO = r.Bool() catch {
+			case WireWrongKind as e:
+				return RecordError{Target: RecordFile, Reason: "wrong kind at " + e.Path}
+			}
+		} else if k == "TreeProbe" {
+			treeProbe = readJSONString(r) catch {
+			case RecordError as e:
+				return e
+			}
+		} else if k == "UserNamespaces" {
+			userNs = readJSONString(r) catch {
+			case RecordError as e:
+				return e
+			}
+		} else if k == "Exit" {
+			let v = r.Uint() catch {
+			case WireWrongKind as e:
+				return RecordError{Target: RecordFile, Reason: "wrong kind at " + e.Path}
+			}
+			exit = uint32(v)
+		} else {
+			r.Skip()
+		}
+	}
+	r.End()
+	Record{
+		Package:        pkg,
+		Dir:            dir,
+		Root:           root,
+		Args:           args,
+		Env:            env,
+		Cache:          cache,
+		Writable:       writable,
+		Scratch:        scratch,
+		TreeReadOnly:   treeRO,
+		TreeProbe:      treeProbe,
+		UserNamespaces: userNs,
+		Exit:           exit,
+	}
+}
+
+func readJSONString(r json.Reader) string fails RecordError {
+	r.String() catch {
+	case WireWrongKind as e:
+		return RecordError{Target: RecordFile, Reason: "wrong kind at " + e.Path}
+	}
+}
+
+func readJSONStringList(r json.Reader) []string fails RecordError {
+	if r.TakeNull() {
+		return []string{}
+	}
+	r.BeginList() catch {
+	case WireWrongKind as e:
+		return RecordError{Target: RecordFile, Reason: "wrong kind at " + e.Path}
+	}
+	let mut out = []string{}
+	for r.More() {
+		let item = readJSONString(r) catch {
+		case RecordError as e:
+			return e
+		}
+		out = out.Append(item)
+	}
+	r.End()
+	out
+}
+
+// WriteRecord encodes rec and writes RecordFile inside dir.
+func WriteRecord(dir string, rec Record) fails RecordError needs fs.Writes {
+	let encoded = EncodeRecordJSON(rec) catch {
+	case json.Malformed as e:
+		return RecordError{Target: dir, Reason: e.Reason}
+	}
+	let path = filepath.Join([]string{dir, RecordFile})
+	fs.Writes.WriteFile(path, encoded) catch {
+	case fs.NotFound as e:
+		return RecordError{Target: e.Path, Reason: "not found"}
+	case fs.Denied as e:
+		return RecordError{Target: e.Path, Reason: "permission denied"}
+	case fs.Failed as e:
+		return RecordError{Target: e.Path, Reason: e.Reason}
+	}
+}
+
+// ReadRecords reads every recorded run manifest for pkg under base, returning
+// the decoded records and their run directory paths.
+func ReadRecords(base string, pkg string) ([]Record, []string) fails RecordError needs fs.Files {
+	let sub = strings.ReplaceAll(pkg, "/", "_")
+	let runs = filepath.Join([]string{base, "runs", sub})
+	let entries = fs.Files.ReadDir(runs) catch {
+	case fs.NotFound:
+		return ([]Record{}, []string{})
+	case fs.Denied as e:
+		return RecordError{Target: e.Path, Reason: "permission denied"}
+	case fs.Failed as e:
+		return RecordError{Target: e.Path, Reason: e.Reason}
+	}
+	let mut recs = slices.WithCapacity[Record](entries.Len())
+	let mut dirs = slices.WithCapacity[string](entries.Len())
+	for _, e in entries {
+		let dir = filepath.Join([]string{runs, e})
+		let recPath = filepath.Join([]string{dir, RecordFile})
+		let text = fs.Files.ReadFile(recPath) catch {
+		case fs.NotFound as err:
+			return RecordError{Target: dir, Reason: err.Path + ": not found"}
+		case fs.Denied as err:
+			return RecordError{Target: dir, Reason: err.Path + ": permission denied"}
+		case fs.Failed as err:
+			return RecordError{Target: dir, Reason: err.Reason}
+		}
+		let rec = DecodeRecordJSON(text) catch {
+		case RecordError as err:
+			return RecordError{Target: dir, Reason: err.Reason}
+		}
+		recs = recs.Append(rec)
+		dirs = dirs.Append(dir)
+	}
+	(recs, dirs)
+}
+
+// TestLogFlag extracts the -test.testlogfile path from command-line args
+// before any "--" separator, returning "" when absent.
+func TestLogFlag(args []string) string {
+	for i, arg in args {
+		if arg == "--" {
+			return ""
+		}
+		let trimmed = strings.TrimPrefix(arg, "-")
+		let (name, value, hasValue) = match strings.Cut(trimmed, "=") {
+		case option.Some{Value: h}:
+			(h.Before, h.After, true)
+		case option.None:
+			(trimmed, "", false)
+		}
+		if name != "-test.testlogfile" && name != "test.testlogfile" {
+			continue
+		}
+		if hasValue {
+			return value
+		}
+		if i+1 < args.Len() {
+			return args[i+1]
+		}
+	}
+	""
+}
+
+// FormatUnobserved formats the line appended without a trailing newline to mark
+// a test log as uncacheable.
+func FormatUnobserved(reason string) string {
+	"testinputs: unobserved: " + strings.ReplaceAll(reason, "\n", " ")
+}
+
+// FailedCode converts exit code 0 into 1 so failures are never replayed.
+func FailedCode(code uint32) uint32 {
+	if code == uint32(0) { uint32(1) } else { code }
+}
+
+// AppendLog appends text to an existing test log file, returning without error
+// when no test log file exists.
+func AppendLog(path string, text string) fails RecordError needs fs.Files | fs.Writes {
+	let _ = fs.Files.Stat(path) catch {
+	case fs.NotFound:
+		return
+	case fs.Denied as e:
+		return RecordError{Target: e.Path, Reason: "permission denied"}
+	case fs.Failed as e:
+		return RecordError{Target: e.Path, Reason: e.Reason}
+	}
+	fs.Writes.AppendFile(path, text) catch {
+	case fs.NotFound:
+	case fs.Denied as e:
+		return RecordError{Target: e.Path, Reason: "permission denied"}
+	case fs.Failed as e:
+		return RecordError{Target: e.Path, Reason: e.Reason}
+	}
+}
+
+// ModuleRoot walks upward from startDir until a directory containing go.mod is
+// found.
+func ModuleRoot(startDir string) option.Option[string] needs fs.Files {
+	let mut dir = filepath.Clean(startDir)
+	for true {
+		let candidate = filepath.Join([]string{dir, "go.mod"})
+		let found = fs.Files.Stat(candidate) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			let parent = filepath.Dir(dir)
+			if parent == dir {
+				return option.None
+			}
+			dir = parent
+			continue
+		}
+		let _ = found
+		return option.Some[string]{Value: dir}
+	}
+	option.None
+}
+
+// ProbeTree checks whether a probe file can be created under root and reports
+// read-only status alongside diagnostic text.
+func ProbeTree(root string, pid uint32) (bool, string) needs fs.Files | fs.Writes {
+	let probe = filepath.Join([]string{root, ".ergo-closure-probe-" + formatUint32(pid)})
+	fs.Writes.WriteFileMode(probe, "", fs.Private()) catch {
+	case fs.NotFound as e:
+		return (false, e.Path + ": no such file or directory")
+	case fs.Denied:
+		return (false, "permission denied")
+	case fs.Failed as e:
+		if strings.Contains(strings.ToLower(e.Reason), "read-only file system") {
+			return (true, "read-only file system")
+		}
+		return (false, e.Reason)
+	}
+	fs.Writes.Remove(probe) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+	}
+	(false, "the module root is writable")
+}
+
+func formatUint32(n uint32) string {
+	if n == uint32(0) {
+		return "0"
+	}
+	let digits = "0123456789".Bytes()
+	let mut v = n
+	let mut rev = []byte{}
+	for v > uint32(0) {
+		rev = rev.Append(digits[int(v%uint32(10))])
+		v = v / uint32(10)
+	}
+	let mut out = []byte{}
+	let mut i = rev.Len() - 1
+	for i >= 0 {
+		out = out.Append(rev[i])
+		i = i - 1
+	}
+	out.Text()
+}
+
+law TestLogFlagStopsAtDashDash(after string) {
+	TestLogFlag([]string{"-v", "--", "-test.testlogfile=" + after}) == ""
+}
+
+test RecordRoundTripAndTestLogParsing {
+	assert TestLogFlag([]string{"-test.testlogfile=/tmp/a.log"}) == "/tmp/a.log"
+	assert TestLogFlag([]string{"--test.testlogfile=/tmp/b.log"}) == "/tmp/b.log"
+	assert TestLogFlag([]string{"-test.testlogfile", "/tmp/c.log"}) == "/tmp/c.log"
+	assert TestLogFlag([]string{"-test.testlogfile"}) == ""
+	assert FormatUnobserved("clone\nbad") == "testinputs: unobserved: clone bad"
+	assert FailedCode(uint32(0)) == uint32(1)
+	assert FailedCode(uint32(2)) == uint32(2)
+
+	let places = WritablePlaces("/tmp", "/tmp", "/home/u/.cache", []string{"/var/tmp", "/tmp"})
+	assert places.Len() == 4
+	assert places[0] == "/dev/shm"
+
+	let mem = fstest.NewMemory()
+	let rec = Record{
+		Package:        "cmd/ergo",
+		Dir:            "ws/cmd/ergo",
+		Root:           "ws",
+		Args:           []string{"-v"},
+		Env:            []string{"HOME=/tmp"},
+		Cache:          "cache",
+		Writable:       places,
+		Scratch:        "/tmp",
+		TreeReadOnly:   true,
+		TreeProbe:      "read-only file system",
+		UserNamespaces: UserNamespacesRefused + "EPERM",
+		Exit:           uint32(0),
+	}
+	with context { fs.Files: mem, fs.Writes: mem } {
+		fs.Writes.MkdirAll("recbase/runs/cmd_ergo/1-a") catch {
+		case _:
+			assert false
+			return
+		}
+		WriteRecord("recbase/runs/cmd_ergo/1-a", rec) catch {
+		case RecordError:
+			assert false
+			return
+		}
+		let (gotRecs, gotDirs) = ReadRecords("recbase", "cmd/ergo") catch {
+		case RecordError:
+			assert false
+			return
+		}
+		assert gotRecs.Len() == 1
+		assert gotDirs.Len() == 1
+		assert gotRecs[0].Package == "cmd/ergo"
+		assert gotRecs[0].TreeReadOnly
+	}
+}

@@ -1,0 +1,210 @@
+import compiler/check/bind
+import compiler/syntax
+import dense
+import option
+import slices
+import strings
+
+func lowerFirstRune(name string) string {
+	if name.Len() == 0 {
+		return ""
+	}
+	let b = name[0]
+	if b >= byte(65) && b <= byte(90) {
+		return strings.ToLower(name[0:1]) + name[1:name.Len()]
+	}
+	name
+}
+
+// LowerExportedName returns name with its leading ASCII uppercase letter lowered.
+func LowerExportedName(name string) string {
+	lowerFirstRune(name)
+}
+
+func isIdentByte(b byte) bool {
+	b == byte(95) || (b >= byte(48) && b <= byte(57)) || (b >= byte(97) && b <= byte(122)) || (b >= byte(65) && b <= byte(90))
+}
+
+type textEdit { from int, to int, replace string }
+
+func sortTextEditsDesc(eds0 []textEdit) []textEdit {
+	let mut eds = eds0
+	for i in 1..eds.Len() {
+		let mut j = i
+		for j > 0 && eds[j].from > eds[j-1].from {
+			let tmp = eds[j]
+			eds[j] = eds[j-1]
+			eds[j-1] = tmp
+			j = j - 1
+		}
+	}
+	eds
+}
+
+func docFirstLineEnd(src string, start int) int {
+	let mut i = start
+	for i < src.Len() && src[i] != byte(10) {
+		i = i + 1
+	}
+	i
+}
+
+// Unexport lowers candidate exported function helpers in g, rewriting their
+// declarations, package-internal references, and doc-comment prefixes without
+// reformatting files.
+func Unexport(g LawGraph, candIDs []uint32) (Map[string, string], []string) {
+	let mut used = Map[string, bool]{}
+	for nm in g.DeclName {
+		if nm != "" {
+			used[nm] = true
+		}
+	}
+	let nDecls = g.DeclKind.Len()
+	let mut isCand = MakeSlice[bool](nDecls)
+	let mut renameTo = MakeSlice[string](nDecls)
+	for _ in 0..nDecls {
+		isCand = isCand.Append(false)
+		renameTo = renameTo.Append("")
+	}
+	let mut done = []string{}
+	for cid in candIDs {
+		let idx = int(cid)
+		if idx < 0 || idx >= nDecls || g.DeclKind[idx] != KDFunc {
+			continue
+		}
+		let from = g.DeclName[idx]
+		let to = LowerExportedName(from)
+		if to == from {
+			continue
+		}
+		let already = match used.Get(to) {
+		case option.Some{Value: v}:
+			v
+		case option.None:
+			false
+		}
+		if already {
+			continue
+		}
+		used[to] = true
+		isCand[idx] = true
+		renameTo[idx] = to
+		done = done.Append("\(from) -> \(to)")
+	}
+	let mut out = Map[string, string]{}
+	if done.Len() == 0 {
+		return (out, done)
+	}
+	for fi, f in g.Files {
+		if f.Parsed.Failed {
+			continue
+		}
+		let tr = f.Parsed.Tree
+		let nNodes = syntax.NumNodes(tr)
+		let mut isSel = MakeSlice[bool](nNodes)
+		for _ in 0..nNodes {
+			isSel = isSel.Append(false)
+		}
+		for i in 0..nNodes {
+			let nid = syntax.NodeAt(tr, i)
+			if syntax.KindOf(tr, nid) == syntax.KSelectorExpr {
+				isSel[dense.Index(syntax.SelectorExprOf(tr, nid).Sel)] = true
+			}
+		}
+		let mut edits = []textEdit{}
+		for i in 0..nNodes {
+			let nid = syntax.NodeAt(tr, i)
+			if syntax.KindOf(tr, nid) != syntax.KIdent {
+				continue
+			}
+			let pn = bind.PNodeOf(g.Parents, fi, nid)
+			let nm = identText(f.Parsed, nid)
+			let mut hitDecl = NoDecl
+			let owner = g.PNodeDecl[dense.Index(pn)]
+			if owner != NoDecl && isCand[int(owner)] && g.DeclNameNode[int(owner)] == nid {
+				hitDecl = owner
+			} else if !isSel[i] {
+				match bind.ResolutionOf(g.Uses, g.Parents, pn) {
+				case bind.Declared as dec:
+					let dIdx = dense.Index(dec.At)
+					if dIdx >= 0 && dIdx < g.PNodeDecl.Len() {
+						let target = g.PNodeDecl[dIdx]
+						if target != NoDecl && isCand[int(target)] {
+							hitDecl = target
+						}
+					}
+				case bind.NotUse, bind.Outside, bind.Imported:
+				}
+			}
+			if hitDecl != NoDecl && nm == g.DeclName[int(hitDecl)] {
+				let pos = syntax.NodePos(f.Parsed, nid)
+				let end = syntax.NodeEnd(f.Parsed, nid)
+				edits = edits.Append(textEdit{from: pos, to: end, replace: renameTo[int(hitDecl)]})
+			}
+		}
+		for cid in candIDs {
+			let idx = int(cid)
+			if !isCand[idx] || int(g.DeclFile[idx]) != fi {
+				continue
+			}
+			let doc = declDocGroup(tr, g.DeclNode[idx])
+			if doc < 0 || doc >= syntax.NumGroups(f.Parsed) {
+				continue
+			}
+			let gp = syntax.GroupPos(f.Parsed, doc)
+			let lineEnd = docFirstLineEnd(f.Src, gp)
+			let text = f.Src[gp:lineEnd]
+			let from = g.DeclName[idx]
+			let to = renameTo[idx]
+			let i = strings.Index(text, from)
+			if i >= 0 && strings.TrimSpace(strings.TrimPrefix(text[0:i], "//")) == "" {
+				let end = i + from.Len()
+				if end == text.Len() || !isIdentByte(text[end]) {
+					edits = edits.Append(textEdit{from: gp + i, to: gp + end, replace: to})
+				}
+			}
+		}
+		if edits.Len() == 0 {
+			continue
+		}
+		let sorted = sortTextEditsDesc(edits)
+		let mut src = f.Src
+		let mut last = -1
+		for ed in sorted {
+			if ed.from == last {
+				continue
+			}
+			last = ed.from
+			src = src[0:ed.from] + ed.replace + src[ed.to:src.Len()]
+		}
+		out[f.Name] = src
+	}
+	let sortedDone = slices.Sort(done)
+	(out, sortedDone)
+}
+
+// LowerExportedNameIdempotent checks that lowering an identifier name twice is idempotent.
+law LowerExportedNameIdempotent(s string) {
+	LowerExportedName(LowerExportedName(s)) == LowerExportedName(s)
+}
+
+// UnexportRenamesDeclUsesAndDocTest checks doc-comment, def, and use rewriting in Unexport.
+test UnexportRenamesDeclUsesAndDocTest {
+	let fA = "func Target(x int) int { x }\n"
+	let fL = "// HelpTarget doubles x.\nfunc HelpTarget(x int) int { Target(x) }\n\nlaw TargetEq(x int) { HelpTarget(x) == Target(x) }\n"
+	let g = BuildGraph("demo", []SourceFile{
+		SourceFile{Name: "a.ergo", Src: fA, Parsed: syntax.Parse(fA)},
+		SourceFile{Name: "laws.ergo", Src: fL, Parsed: syntax.Parse(fL)},
+	})
+	let cands = ExportedLawHelpers(g)
+	let (edited, done) = Unexport(g, cands)
+	assert done.Len() == 1 && done[0] == "HelpTarget -> helpTarget"
+	match edited.Get("laws.ergo") {
+	case option.Some{Value: txt}:
+		assert strings.Contains(txt, "// helpTarget doubles x.")
+		assert strings.Contains(txt, "func helpTarget(x int)")
+		assert strings.Contains(txt, "helpTarget(x) == Target(x)")
+	case option.None:
+		assert false
+	}
+}

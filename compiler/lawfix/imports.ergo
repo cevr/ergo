@@ -1,0 +1,717 @@
+import compiler/check/bind
+import compiler/syntax
+import dense
+import option
+import slices
+import strings
+
+// ImpSpec records a parsed file-level import declaration entry.
+type ImpSpec {
+	Path      string,
+	RawPath   string,
+	Alias     string,
+	IsGo      bool,
+	IsNamed   bool,
+	LocalName string,
+	DeclNode  dense.ID[syntax.Node],
+	From      uint32,
+	To        uint32,
+	DeclPos   uint32,
+	DeclEnd   uint32,
+}
+
+// QualifierRewrite maps an old import qualifier to its replacement in a moved declaration.
+type QualifierRewrite { Decl uint32, OldLocal string, NewLocal string }
+
+// FileEdit accumulates declaration cuts, insertions, and arrivals for one source file.
+type FileEdit {
+	FileIdx    uint32,
+	CutFrom    []uint32,
+	CutTo      []uint32,
+	InsertAt   []uint32,
+	InsertText []string,
+	InsertSeq  []int,
+	MovedMask  []bool,
+	Arrived    []uint32,
+}
+
+// NewFileEdit creates an empty FileEdit for fileIdx across numDecls declarations.
+func NewFileEdit(fileIdx uint32, numDecls int) FileEdit {
+	let mut moved = MakeSlice[bool](numDecls)
+	for _ in 0..numDecls {
+		moved = moved.Append(false)
+	}
+	FileEdit{
+		FileIdx:    fileIdx,
+		CutFrom:    []uint32{},
+		CutTo:      []uint32{},
+		InsertAt:   []uint32{},
+		InsertText: []string{},
+		InsertSeq:  []int{},
+		MovedMask:  moved,
+		Arrived:    []uint32{},
+	}
+}
+
+// SanitizeIdent rewrites s into a valid non-keyword Ergo identifier prefix.
+func SanitizeIdent(s string) string {
+	let mut b = strings.NewBuilder()
+	for i in 0..s.Len() {
+		let ch = s[i]
+		let letter = (ch >= byte(65) && ch <= byte(90)) || (ch >= byte(97) && ch <= byte(122)) || ch == byte(95)
+		let digit = ch >= byte(48) && ch <= byte(57)
+		if letter || (i > 0 && digit) {
+			b.WriteByte(ch)
+		} else {
+			b.WriteByte(byte(95))
+		}
+	}
+	let out = b.String()
+	if out == "" || out == "_" || (out[0] >= byte(48) && out[0] <= byte(57)) {
+		return "pkg" + out
+	}
+	out
+}
+
+func importKey(isGo bool, path string) string {
+	if isGo { "go:" + path } else { "ergo:" + path }
+}
+
+func formatImportLine(isGo bool, alias string, rawPath string) string {
+	let mut b = strings.NewBuilder()
+	b.WriteString("import ")
+	if isGo {
+		b.WriteString("go ")
+	}
+	if alias != "" {
+		b.WriteString(alias)
+		b.WriteByte(byte(32))
+	}
+	b.WriteString(rawPath)
+	b.String()
+}
+
+// FileImports lists all import declarations in source file f in source order.
+func FileImports(f SourceFile) []ImpSpec {
+	let mut out = []ImpSpec{}
+	if f.Parsed.Failed {
+		return out
+	}
+	let tr = f.Parsed.Tree
+	let root = syntax.Root(tr)
+	if syntax.KindOf(tr, root) != syntax.KFile {
+		return out
+	}
+	let decls = syntax.FileOf(tr, root).Decls
+	for i in 0..syntax.Len(decls) {
+		let d = syntax.Item(tr, decls, i)
+		if syntax.KindOf(tr, d) != syntax.KImportDecl {
+			continue
+		}
+		let specNode = syntax.ImportDeclOf(tr, d).Spec
+		if syntax.KindOf(tr, specNode) != syntax.KImportSpec {
+			continue
+		}
+		let is = syntax.ImportSpecOf(tr, specNode)
+		let isGo = ImportIsGo(f.Parsed, is)
+		let path = ImportPath(f.Parsed, is)
+		let rawPath = tokenTextOfNode(f.Parsed, is.Path)
+		let mut alias = ""
+		let mut isNamed = false
+		match dense.Unpack(is.Name) {
+		case option.Some{Value: nm}:
+			let t = identText(f.Parsed, nm)
+			if t != "go" {
+				alias = t
+				isNamed = true
+			}
+		case option.None:
+		}
+		let (from, to) = DeclLineSpan(f, d)
+		out = out.Append(ImpSpec{
+			Path:      path,
+			RawPath:   rawPath,
+			Alias:     alias,
+			IsGo:      isGo,
+			IsNamed:   isNamed,
+			LocalName: ImportLocalName(f.Parsed, is),
+			DeclNode:  d,
+			From:      from,
+			To:        to,
+			DeclPos:   uint32(DeclStartWithDoc(f.Parsed, d)),
+			DeclEnd:   uint32(syntax.NodeEnd(f.Parsed, d)),
+		})
+	}
+	out
+}
+
+func isPkgQualifierUse(g LawGraph, fi int, fileImps []ImpSpec, seX dense.ID[syntax.Node], bodyFrom int) bool {
+	let f = g.Files[fi]
+	let nm = identText(f.Parsed, seX)
+	if nm == "" {
+		return false
+	}
+	let pn = bind.PNodeOf(g.Parents, fi, seX)
+	let isDef = match bind.DefOf(g.Uses, pn) {
+	case bind.NoDef:
+		false
+	case bind.Local, bind.Law:
+		true
+	}
+	if isDef {
+		return false
+	}
+	let mut inFileImps = false
+	for sp in fileImps {
+		if sp.LocalName == nm {
+			inFileImps = true
+			break
+		}
+	}
+	match bind.ResolutionOf(g.Uses, g.Parents, pn) {
+	case bind.Imported, bind.NotUse, bind.Outside:
+		true
+	case bind.Declared as dec:
+		let dIdx = dense.Index(dec.At)
+		if dIdx >= 0 && dIdx < g.PNodeIsImport.Len() && g.PNodeIsImport[dIdx] {
+			return true
+		}
+		if !inFileImps {
+			return false
+		}
+		if dIdx >= 0 && dIdx < g.PNodeDecl.Len() {
+			let target = g.PNodeDecl[dIdx]
+			if target != NoDecl && int(g.DeclFile[int(target)]) != fi {
+				return true
+			}
+			let (df, dn) = bind.RowOf(g.Parents, dec.At)
+			if df == fi && dn < syntax.NumNodes(f.Parsed.Tree) {
+				let decNode = syntax.NodeAt(f.Parsed.Tree, dn)
+				if syntax.NodePos(f.Parsed, decNode) >= bodyFrom && g.DeclNameNode[int(target)] != decNode {
+					return false
+				}
+				return true
+			}
+		}
+		false
+	}
+}
+
+func selectorUsedNames(g LawGraph, fi int, from int, to int, fileImps []ImpSpec) Map[string, bool] {
+	let mut names = Map[string, bool]{}
+	let f = g.Files[fi]
+	if f.Parsed.Failed {
+		return names
+	}
+	let tr = f.Parsed.Tree
+	for i in 0..syntax.NumNodes(tr) {
+		let nid = syntax.NodeAt(tr, i)
+		if syntax.KindOf(tr, nid) != syntax.KSelectorExpr {
+			continue
+		}
+		let np = syntax.NodePos(f.Parsed, nid)
+		let ne = syntax.NodeEnd(f.Parsed, nid)
+		if np < from || ne > to {
+			continue
+		}
+		let se = syntax.SelectorExprOf(tr, nid)
+		if syntax.KindOf(tr, se.X) != syntax.KIdent {
+			continue
+		}
+		if isPkgQualifierUse(g, fi, fileImps, se.X, from) {
+			let nm = identText(f.Parsed, se.X)
+			if nm != "" {
+				names[nm] = true
+			}
+		}
+	}
+	names
+}
+
+// UsedImports lists the ImpSpecs of f whose local qualifiers decl dID references.
+func UsedImports(g LawGraph, dID uint32, fileImps []ImpSpec) []ImpSpec {
+	let idx = int(dID)
+	let fi = int(g.DeclFile[idx])
+	let names = selectorUsedNames(g, fi, int(g.DeclFrom[idx]), int(g.DeclTo[idx]), fileImps)
+	let mut out = []ImpSpec{}
+	for sp in fileImps {
+		match names.Get(sp.LocalName) {
+		case option.Some:
+			out = out.Append(sp)
+		case option.None:
+		}
+	}
+	out
+}
+
+func pkgDeclaredNames(g LawGraph) Map[string, bool] {
+	let mut out = Map[string, bool]{}
+	for i in 0..g.DeclKind.Len() {
+		let k = g.DeclKind[i]
+		if k == KDLaw || k == KDTest || k == KDMemberLaw || k == KDMachineLaw || g.DeclDotted[i] {
+			continue
+		}
+		if k == KDVar {
+			for nm in strings.Split(g.DeclName[i], ", ") {
+				let trimmed = strings.TrimSpace(nm)
+				if trimmed != "" {
+					out[trimmed] = true
+				}
+			}
+		} else if g.DeclName[i] != "" {
+			out[g.DeclName[i]] = true
+		}
+	}
+	out
+}
+
+type missingImport { isGo bool, path string, line string }
+
+func sortMissingImports(ms0 []missingImport) []missingImport {
+	let mut ms = ms0
+	for i in 1..ms.Len() {
+		let mut j = i
+		for j > 0 {
+			let a = ms[j]
+			let b = ms[j-1]
+			let before = if a.isGo != b.isGo { !a.isGo } else { a.path < b.path }
+			if !before {
+				break
+			}
+			ms[j] = b
+			ms[j-1] = a
+			j = j - 1
+		}
+	}
+	ms
+}
+
+// PlanImports updates edit's cuts and inserts for unused/arriving imports and
+// returns qualifier rewrites needed inside arrived declarations.
+func PlanImports(g LawGraph, edit mut FileEdit, allImps [][]ImpSpec) []QualifierRewrite {
+	let fi = int(edit.FileIdx)
+	let f = g.Files[fi]
+	let fileImps = allImps[fi]
+	let declNames = pkgDeclaredNames(g)
+	let mut arrivedByKey = Map[string, bool]{}
+	let mut arrivedLocals = Map[string, bool]{}
+	for d in edit.Arrived {
+		let dIdx = int(d)
+		let sFi = int(g.DeclFile[dIdx])
+		for sp in UsedImports(g, d, allImps[sFi]) {
+			arrivedByKey[importKey(sp.IsGo, sp.Path)] = true
+		}
+		let usedNms = selectorUsedNames(g, sFi, int(g.DeclFrom[dIdx]), int(g.DeclTo[dIdx]), allImps[sFi])
+		for nm, _ in usedNms {
+			arrivedLocals[nm] = true
+		}
+	}
+	let mut gone = MakeSlice[bool](fileImps.Len())
+	for _ in 0..fileImps.Len() {
+		gone = gone.Append(false)
+	}
+	let mut anyMoved = false
+	for d in 0..g.DeclKind.Len() {
+		if int(g.DeclFile[d]) == fi && edit.MovedMask[d] {
+			anyMoved = true
+			break
+		}
+	}
+	if anyMoved {
+		for d in 0..g.DeclKind.Len() {
+			if int(g.DeclFile[d]) != fi || !edit.MovedMask[d] {
+				continue
+			}
+			for sp in UsedImports(g, uint32(d), fileImps) {
+				for ii, cand in fileImps {
+					if cand.DeclNode == sp.DeclNode {
+						gone[ii] = true
+					}
+				}
+			}
+		}
+		for d in 0..g.DeclKind.Len() {
+			if int(g.DeclFile[d]) != fi || edit.MovedMask[d] {
+				continue
+			}
+			let dk = g.DeclKind[d]
+			if dk == KDMemberLaw || dk == KDMachineLaw {
+				continue
+			}
+			for sp in UsedImports(g, uint32(d), fileImps) {
+				for ii, cand in fileImps {
+					if cand.DeclNode == sp.DeclNode {
+						gone[ii] = false
+					}
+				}
+			}
+		}
+	}
+	let mut prelimKept = Map[string, bool]{}
+	for ii, sp in fileImps {
+		if !gone[ii] && sp.LocalName != "" && sp.LocalName != "_" {
+			prelimKept[sp.LocalName] = true
+		}
+	}
+	let hasMap = func(m Map[string, bool], key string) bool {
+		match m.Get(key) {
+		case option.Some{Value: v}:
+			v
+		case option.None:
+			false
+		}
+	}
+	for ii, sp in fileImps {
+		if !gone[ii] {
+			continue
+		}
+		if !hasMap(arrivedByKey, importKey(sp.IsGo, sp.Path)) {
+			continue
+		}
+		if !sp.IsNamed {
+			gone[ii] = false
+			continue
+		}
+		let def = ImportDefaultName(sp.Path, sp.IsGo)
+		if hasMap(declNames, def) || hasMap(prelimKept, def) || !IsValidImportName(def) {
+			gone[ii] = false
+		}
+	}
+
+	let mut haveByKey = Map[string, string]{}
+	let mut usedLocalNames = Map[string, bool]{}
+	let mut keptErgo = []ImpSpec{}
+	let mut keptGo = []ImpSpec{}
+	let mut lastCutEnd = 0
+	let mut keptCount = 0
+	let mut goneCount = 0
+	for ii, sp in fileImps {
+		if gone[ii] {
+			goneCount = goneCount + 1
+			edit.CutFrom = edit.CutFrom.Append(sp.From)
+			edit.CutTo = edit.CutTo.Append(sp.To)
+			if int(sp.To) > lastCutEnd {
+				lastCutEnd = int(sp.To)
+			}
+			continue
+		}
+		keptCount = keptCount + 1
+		haveByKey[importKey(sp.IsGo, sp.Path)] = sp.LocalName
+		if sp.LocalName != "" && sp.LocalName != "_" {
+			usedLocalNames[sp.LocalName] = true
+		}
+		if sp.IsGo {
+			keptGo = keptGo.Append(sp)
+		} else {
+			keptErgo = keptErgo.Append(sp)
+		}
+	}
+
+	let mut hasFirstImp = false
+	let mut firstImpPos = 0
+	if fileImps.Len() > 0 {
+		hasFirstImp = true
+		firstImpPos = int(fileImps[0].From)
+	}
+	let mut hasFirstNonImp = false
+	let mut firstNonImpPos = 0
+	let mut firstAnyPos = 0
+	let mut hasAnyDecl = false
+	if !f.Parsed.Failed {
+		let tr = f.Parsed.Tree
+		let root = syntax.Root(tr)
+		if syntax.KindOf(tr, root) == syntax.KFile {
+			let decls = syntax.FileOf(tr, root).Decls
+			for i in 0..syntax.Len(decls) {
+				let dn = syntax.Item(tr, decls, i)
+				let (dFrom, _) = DeclLineSpan(f, dn)
+				if !hasAnyDecl {
+					hasAnyDecl = true
+					firstAnyPos = int(dFrom)
+				}
+				if syntax.KindOf(tr, dn) == syntax.KImportDecl {
+					continue
+				}
+				let mut isMoved = false
+				for d in 0..g.DeclKind.Len() {
+					if int(g.DeclFile[d]) == fi && g.DeclNode[d] == dn && edit.MovedMask[d] {
+						isMoved = true
+						break
+					}
+				}
+				if !isMoved && !hasFirstNonImp {
+					hasFirstNonImp = true
+					firstNonImpPos = int(dFrom)
+					break
+				}
+			}
+		}
+	}
+
+	let nameClashes = func(name string) bool {
+		if name == "" || name == "_" || !IsValidImportName(name) {
+			return true
+		}
+		hasMap(usedLocalNames, name) || hasMap(declNames, name)
+	}
+
+	let mut missing = []missingImport{}
+	let mut rewrites = []QualifierRewrite{}
+	for d in edit.Arrived {
+		let sFi = int(g.DeclFile[int(d)])
+		for sp in UsedImports(g, d, allImps[sFi]) {
+			let k = importKey(sp.IsGo, sp.Path)
+			let oldLocal = sp.LocalName
+			let mut newLocal = match haveByKey.Get(k) {
+			case option.Some{Value: existing}:
+				existing
+			case option.None:
+				""
+			}
+			if newLocal == "" {
+				let def = ImportDefaultName(sp.Path, sp.IsGo)
+				if !nameClashes(def) {
+					newLocal = def
+					missing = missing.Append(missingImport{isGo: sp.IsGo, path: sp.Path, line: formatImportLine(sp.IsGo, "", sp.RawPath)})
+				} else {
+					let mut alias = ""
+					if oldLocal != def && !nameClashes(oldLocal) && !hasMap(arrivedLocals, oldLocal) {
+						alias = oldLocal
+					} else {
+						let base = SanitizeIdent(def)
+						let mut n = 2
+						for {
+							let cand = "\(base)\(n)"
+							if !nameClashes(cand) && !hasMap(arrivedLocals, cand) {
+								alias = cand
+								break
+							}
+							n = n + 1
+						}
+					}
+					newLocal = alias
+					missing = missing.Append(missingImport{isGo: sp.IsGo, path: sp.Path, line: formatImportLine(sp.IsGo, alias, sp.RawPath)})
+				}
+				haveByKey[k] = newLocal
+				usedLocalNames[newLocal] = true
+			}
+			if newLocal != oldLocal {
+				rewrites = rewrites.Append(QualifierRewrite{Decl: d, OldLocal: oldLocal, NewLocal: newLocal})
+			}
+		}
+	}
+
+	if missing.Len() == 0 {
+		if keptCount == 0 && goneCount > 0 && hasFirstNonImp {
+			if lastCutEnd < firstNonImpPos && strings.TrimSpace(f.Src[lastCutEnd:firstNonImpPos]) == "" {
+				edit.CutFrom = edit.CutFrom.Append(uint32(lastCutEnd))
+				edit.CutTo = edit.CutTo.Append(uint32(firstNonImpPos))
+			}
+		}
+		return rewrites
+	}
+
+	let sortedMissing = sortMissingImports(missing)
+	let mut missingErgo = []missingImport{}
+	let mut missingGo = []missingImport{}
+	for m in sortedMissing {
+		if m.isGo {
+			missingGo = missingGo.Append(m)
+		} else {
+			missingErgo = missingErgo.Append(m)
+		}
+	}
+
+	let mut seq = -100000
+	if keptErgo.Len() == 0 && keptGo.Len() == 0 {
+		let mut lines = []string{}
+		for m in missingErgo {
+			lines = lines.Append(m.line)
+		}
+		for m in missingGo {
+			lines = lines.Append(m.line)
+		}
+		let mut at = f.Src.Len()
+		let mut text = strings.Join(lines, "\n") + "\n"
+		if goneCount > 0 && hasFirstImp {
+			at = firstImpPos
+			if hasFirstNonImp && lastCutEnd == firstNonImpPos {
+				text = text + "\n"
+			}
+		} else if hasFirstNonImp {
+			at = firstNonImpPos
+			text = text + "\n"
+		} else if hasAnyDecl {
+			at = firstAnyPos
+			text = text + "\n"
+		}
+		edit.InsertAt = edit.InsertAt.Append(uint32(at))
+		edit.InsertText = edit.InsertText.Append(text)
+		edit.InsertSeq = edit.InsertSeq.Append(seq)
+		return rewrites
+	}
+
+	if missingErgo.Len() > 0 {
+		if keptErgo.Len() > 0 {
+			let lastEnd = LineEndAt(f.Src, int(keptErgo[keptErgo.Len()-1].DeclEnd))
+			for m in missingErgo {
+				let mut at = lastEnd
+				for ke in keptErgo {
+					if m.path < ke.Path {
+						at = int(ke.DeclPos)
+						break
+					}
+				}
+				edit.InsertAt = edit.InsertAt.Append(uint32(at))
+				edit.InsertText = edit.InsertText.Append(m.line + "\n")
+				edit.InsertSeq = edit.InsertSeq.Append(seq)
+				seq = seq + 1
+			}
+		} else {
+			let mut lines = []string{}
+			for m in missingErgo {
+				lines = lines.Append(m.line)
+			}
+			edit.InsertAt = edit.InsertAt.Append(keptGo[0].DeclPos)
+			edit.InsertText = edit.InsertText.Append(strings.Join(lines, "\n") + "\n")
+			edit.InsertSeq = edit.InsertSeq.Append(seq)
+			seq = seq + 1
+		}
+	}
+
+	if missingGo.Len() > 0 {
+		if keptGo.Len() > 0 {
+			let lastEnd = LineEndAt(f.Src, int(keptGo[keptGo.Len()-1].DeclEnd))
+			for m in missingGo {
+				let mut at = lastEnd
+				for kg in keptGo {
+					if m.path < kg.Path {
+						at = int(kg.DeclPos)
+						break
+					}
+				}
+				edit.InsertAt = edit.InsertAt.Append(uint32(at))
+				edit.InsertText = edit.InsertText.Append(m.line + "\n")
+				edit.InsertSeq = edit.InsertSeq.Append(seq)
+				seq = seq + 1
+			}
+		} else {
+			let lastEnd = LineEndAt(f.Src, int(keptErgo[keptErgo.Len()-1].DeclEnd))
+			let mut lines = []string{}
+			for m in missingGo {
+				lines = lines.Append(m.line)
+			}
+			edit.InsertAt = edit.InsertAt.Append(uint32(lastEnd))
+			edit.InsertText = edit.InsertText.Append(strings.Join(lines, "\n") + "\n")
+			edit.InsertSeq = edit.InsertSeq.Append(seq)
+		}
+	}
+	rewrites
+}
+
+// RewriteDeclImports replaces qualified package identifiers inside a sliced declaration span.
+func RewriteDeclImports(g LawGraph, dID uint32, from int, to int, rws []QualifierRewrite, allImps [][]ImpSpec) string {
+	let idx = int(dID)
+	let fi = int(g.DeclFile[idx])
+	let f = g.Files[fi]
+	let mut text = f.Src[from:to]
+	let mut rw = Map[string, string]{}
+	let mut count = 0
+	for item in rws {
+		if item.Decl == dID {
+			rw[item.OldLocal] = item.NewLocal
+			count = count + 1
+		}
+	}
+	if count == 0 || f.Parsed.Failed {
+		return text
+	}
+	let tr = f.Parsed.Tree
+	let mut edits = []textEdit{}
+	for i in 0..syntax.NumNodes(tr) {
+		let nid = syntax.NodeAt(tr, i)
+		if syntax.KindOf(tr, nid) != syntax.KSelectorExpr {
+			continue
+		}
+		let np = syntax.NodePos(f.Parsed, nid)
+		let ne = syntax.NodeEnd(f.Parsed, nid)
+		if np < from || ne > to {
+			continue
+		}
+		let se = syntax.SelectorExprOf(tr, nid)
+		if syntax.KindOf(tr, se.X) != syntax.KIdent {
+			continue
+		}
+		let nm = identText(f.Parsed, se.X)
+		match rw.Get(nm) {
+		case option.Some{Value: target}:
+			if isPkgQualifierUse(g, fi, allImps[fi], se.X, from) {
+				let eFrom = syntax.NodePos(f.Parsed, se.X) - from
+				let eTo = syntax.NodeEnd(f.Parsed, se.X) - from
+				if eFrom >= 0 && eTo <= text.Len() {
+					edits = edits.Append(textEdit{from: eFrom, to: eTo, replace: target})
+				}
+			}
+		case option.None:
+		}
+	}
+	if edits.Len() == 0 {
+		return text
+	}
+	let sorted = sortTextEditsDesc(edits)
+	let mut last = -1
+	for ed in sorted {
+		if ed.from == last {
+			continue
+		}
+		last = ed.from
+		text = text[0:ed.from] + ed.replace + text[ed.to:text.Len()]
+	}
+	text
+}
+
+// SanitizeIdentProducesValidIdent checks SanitizeIdent guarantees non-empty valid identifier prefixes.
+law SanitizeIdentProducesValidIdent(raw string) {
+	IsValidImportName(SanitizeIdent(raw))
+}
+
+// ImportPlanSortClashAndUnaliasTest checks import sorting (Ergo before Go), unaliasing, and clash numbering.
+test ImportPlanSortClashAndUnaliasTest {
+	let fA = "import alias strings\n\nfunc stringsFn() int { 1 }\n\nfunc Target(x int) int {\n\tlet n = alias.TrimSpace(\" a \").Len()\n\tn + stringsFn() + x\n}\n"
+	let fL = "import stdstrings strings\nimport go sort\n\nlaw CheckT(x int) {\n\tstdstrings.TrimSpace(\" a \") == \"a\" && sort.IntsAreSorted([]int{x}) && Target(x) >= 0\n}\n"
+	let g = BuildGraph("demo", []SourceFile{
+		SourceFile{Name: "a.ergo", Src: fA, Parsed: syntax.Parse(fA)},
+		SourceFile{Name: "laws.ergo", Src: fL, Parsed: syntax.Parse(fL)},
+	})
+	let imps = [][]ImpSpec{FileImports(g.Files[0]), FileImports(g.Files[1])}
+	let mut edA = NewFileEdit(uint32(0), g.DeclKind.Len())
+	let mut checkTID = NoDecl
+	for i in 0..g.DeclKind.Len() {
+		if g.DeclName[i] == "CheckT" {
+			checkTID = uint32(i)
+		}
+	}
+	edA.Arrived = edA.Arrived.Append(checkTID)
+	let rws = PlanImports(g, &edA, imps)
+	assert rws.Len() == 1 && rws[0].OldLocal == "stdstrings" && rws[0].NewLocal == "alias"
+	assert slices.Contains(edA.InsertText, "import go sort\n")
+
+	let fB = "func strings() int { 1 }\n\nfunc TargetB(x int) int { strings() + x }\n"
+	let fL2 = "import stdstrings strings\n\nlaw CheckB(x int) {\n\tstdstrings.TrimSpace(\"a\") == \"a\" && TargetB(x) >= 0\n}\n"
+	let g2 = BuildGraph("demo", []SourceFile{
+		SourceFile{Name: "b.ergo", Src: fB, Parsed: syntax.Parse(fB)},
+		SourceFile{Name: "laws.ergo", Src: fL2, Parsed: syntax.Parse(fL2)},
+	})
+	let imps2 = [][]ImpSpec{FileImports(g2.Files[0]), FileImports(g2.Files[1])}
+	let mut checkBID = NoDecl
+	for i in 0..g2.DeclKind.Len() {
+		if g2.DeclName[i] == "CheckB" {
+			checkBID = uint32(i)
+		}
+	}
+	let mut edL2 = NewFileEdit(uint32(1), g2.DeclKind.Len())
+	edL2.MovedMask[int(checkBID)] = true
+	edL2.Arrived = edL2.Arrived.Append(checkBID)
+	let _ = PlanImports(g2, &edL2, imps2)
+	assert edL2.CutFrom.Len() == 0
+}

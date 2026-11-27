@@ -1,0 +1,469 @@
+import cmp
+import compiler/front
+import compiler/syntax
+import dense
+import filepath
+import fs
+import fstest
+import json
+import option
+import slices
+import strconv
+import strings
+
+// NodeModule identifies a module node in GraphTable.
+let NodeModule = uint8(1)
+
+// NodePackage identifies a package node in GraphTable.
+let NodePackage = uint8(2)
+
+// NodeFile identifies a source file node in GraphTable.
+let NodeFile = uint8(3)
+
+// NodeDecl identifies a top-level declaration node in GraphTable.
+let NodeDecl = uint8(4)
+
+// NodeTask identifies a workspace task node in GraphTable.
+let NodeTask = uint8(5)
+
+// DeclNone identifies a non-declaration node.
+let DeclNone = uint8(0)
+
+// DeclFunc identifies a function declaration node.
+let DeclFunc = uint8(1)
+
+// DeclType identifies a type or context declaration node.
+let DeclType = uint8(2)
+
+// DeclLet identifies a value or variable declaration node.
+let DeclLet = uint8(3)
+
+// DeclLaw identifies a law declaration node.
+let DeclLaw = uint8(4)
+
+// DeclTest identifies a test declaration node.
+let DeclTest = uint8(5)
+
+// EdgeContains connects a parent container node to a child node.
+let EdgeContains = uint8(1)
+
+// EdgeImports connects a package node to an imported package node.
+let EdgeImports = uint8(2)
+
+// EdgeReplaces connects a workspace member module to a locally replaced member module.
+let EdgeReplaces = uint8(3)
+
+// EdgeRequires connects a task or member to a prerequisite dependency.
+let EdgeRequires = uint8(4)
+
+// GraphTable stores canonical dependency graph nodes, edges, and interned strings in dense uint32 SoA columns.
+type GraphTable {
+	Strings    []string,
+	StrIndex   Map[string, uint32],
+	NodeKind   []uint8,
+	NodeSub    []uint8,
+	NodeName   []uint32,
+	NodeQual   []uint32,
+	NodePkgID  []uint32,
+	NodeFileID []uint32,
+	NodeLine   []uint32,
+	NodeCol    []uint32,
+	NodeKeys   Map[string, uint32],
+	EdgeKind   []uint8,
+	EdgeFrom   []uint32,
+	EdgeTo     []uint32,
+	EdgeFileID []uint32,
+	EdgeLine   []uint32,
+	EdgeCol    []uint32,
+	EdgeKeys   Map[string, bool],
+}
+
+// NewGraphTable allocates an empty pointer-free GraphTable.
+func NewGraphTable() GraphTable {
+	GraphTable{
+		Strings:    []string{""},
+		StrIndex:   Map[string, uint32]{},
+		NodeKind:   []uint8{},
+		NodeSub:    []uint8{},
+		NodeName:   []uint32{},
+		NodeQual:   []uint32{},
+		NodePkgID:  []uint32{},
+		NodeFileID: []uint32{},
+		NodeLine:   []uint32{},
+		NodeCol:    []uint32{},
+		NodeKeys:   Map[string, uint32]{},
+		EdgeKind:   []uint8{},
+		EdgeFrom:   []uint32{},
+		EdgeTo:     []uint32{},
+		EdgeFileID: []uint32{},
+		EdgeLine:   []uint32{},
+		EdgeCol:    []uint32{},
+		EdgeKeys:   Map[string, bool]{},
+	}
+}
+
+// InternGraphString deduplicates string values in GraphTable and returns its dense uint32 ID.
+func InternGraphString(g mut GraphTable, s string) uint32 {
+	if s == "" {
+		return uint32(0)
+	}
+	match (*g).StrIndex.Get(s) {
+	case option.Some[uint32] as id:
+		return id.Value
+	case option.None:
+	}
+	let id = uint32((*g).Strings.Len())
+	(*g).Strings = (*g).Strings.Append(s)
+	(*g).StrIndex = (*g).StrIndex.Put(s, id)
+	id
+}
+
+// NodeKindName returns the canonical lowercase name of a GraphTable node kind.
+func NodeKindName(k uint8) string {
+	if k == NodeModule {
+		return "module"
+	}
+	if k == NodePackage {
+		return "package"
+	}
+	if k == NodeFile {
+		return "file"
+	}
+	if k == NodeDecl {
+		return "decl"
+	}
+	if k == NodeTask {
+		return "task"
+	}
+	"unknown"
+}
+
+// DeclKindName returns the canonical lowercase sub-kind label for a declaration or node.
+func DeclKindName(k uint8) string {
+	if k == DeclFunc {
+		return "func"
+	}
+	if k == DeclType {
+		return "type"
+	}
+	if k == DeclLet {
+		return "let"
+	}
+	if k == DeclLaw {
+		return "law"
+	}
+	if k == DeclTest {
+		return "test"
+	}
+	""
+}
+
+// EdgeKindName returns the canonical lowercase name of a GraphTable edge kind.
+func EdgeKindName(k uint8) string {
+	if k == EdgeContains {
+		return "contains"
+	}
+	if k == EdgeImports {
+		return "imports"
+	}
+	if k == EdgeReplaces {
+		return "replaces"
+	}
+	if k == EdgeRequires {
+		return "requires"
+	}
+	"unknown"
+}
+
+// AddGraphNode adds or returns a deduplicated node in g using deterministic canonical identity key.
+func AddGraphNode(g mut GraphTable, kind uint8, sub uint8, name string, qual string, pkgID uint32, fileID uint32, line uint32, col uint32) uint32 {
+	let key = NodeKindName(kind) + ":" + DeclKindName(sub) + ":" + qual + ":" + name
+	match (*g).NodeKeys.Get(key) {
+	case option.Some[uint32] as existing:
+		return existing.Value
+	case option.None:
+	}
+	let id = uint32((*g).NodeKind.Len())
+	let nameID = InternGraphString(g, name)
+	let qualID = InternGraphString(g, qual)
+	(*g).NodeKind = (*g).NodeKind.Append(kind)
+	(*g).NodeSub = (*g).NodeSub.Append(sub)
+	(*g).NodeName = (*g).NodeName.Append(nameID)
+	(*g).NodeQual = (*g).NodeQual.Append(qualID)
+	(*g).NodePkgID = (*g).NodePkgID.Append(pkgID)
+	(*g).NodeFileID = (*g).NodeFileID.Append(fileID)
+	(*g).NodeLine = (*g).NodeLine.Append(line)
+	(*g).NodeCol = (*g).NodeCol.Append(col)
+	(*g).NodeKeys = (*g).NodeKeys.Put(key, id)
+	id
+}
+
+// AddGraphEdge adds a deduplicated directed edge to g.
+func AddGraphEdge(g mut GraphTable, kind uint8, fromID uint32, toID uint32, fileID uint32, line uint32, col uint32) {
+	let key = EdgeKindName(kind) + ":" + strconv.Itoa(int(fromID)) + "->" + strconv.Itoa(int(toID))
+	if (*g).EdgeKeys.Get(key) != option.None {
+		return
+	}
+	(*g).EdgeKeys = (*g).EdgeKeys.Put(key, true)
+	(*g).EdgeKind = (*g).EdgeKind.Append(kind)
+	(*g).EdgeFrom = (*g).EdgeFrom.Append(fromID)
+	(*g).EdgeTo = (*g).EdgeTo.Append(toID)
+	(*g).EdgeFileID = (*g).EdgeFileID.Append(fileID)
+	(*g).EdgeLine = (*g).EdgeLine.Append(line)
+	(*g).EdgeCol = (*g).EdgeCol.Append(col)
+}
+
+// GraphOfAnalysis projects checked packages, files, declarations, and imports into a GraphTable.
+func GraphOfAnalysis(a AnalysisTable) GraphTable {
+	let mut g = NewGraphTable()
+	let mut modNodes = Map[string, uint32]{}
+	let mut pkgNodes = Map[string, uint32]{}
+	for i in 0..a.PkgPath.Len() {
+		let pPath = a.PkgPath[i]
+		let modName = a.PkgModuleName[i]
+		let mut mid = front.NoID
+		if modName != "" {
+			mid = match modNodes.Get(modName) {
+			case option.Some[uint32] as id:
+				id.Value
+			case option.None:
+				let created = AddGraphNode(&g, NodeModule, DeclNone, modName, a.PkgModuleRoot[i], front.NoID, front.NoID, uint32(0), uint32(0))
+				modNodes = modNodes.Put(modName, created)
+				created
+			}
+		}
+		let pid = AddGraphNode(&g, NodePackage, DeclNone, pPath, modName, uint32(i), front.NoID, uint32(0), uint32(0))
+		pkgNodes = pkgNodes.Put(pPath, pid)
+		if mid != front.NoID {
+			AddGraphEdge(&g, EdgeContains, mid, pid, front.NoID, uint32(0), uint32(0))
+		}
+		let fStart = int(a.PkgFileStart[i])
+		let fCount = int(a.PkgFileLen[i])
+		for fi in fStart..fStart+fCount {
+			let fRel = a.FileRel[fi]
+			let fid = AddGraphNode(&g, NodeFile, DeclNone, fRel, pPath, pid, uint32(fi), uint32(0), uint32(0))
+			AddGraphEdge(&g, EdgeContains, pid, fid, uint32(fi), uint32(0), uint32(0))
+			if strings.HasSuffix(fRel, ".ergo") {
+				let p = syntax.Parse(a.FileSrc[fi])
+				if !p.Failed {
+					match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
+					case syntax.File as fv:
+						let lines = syntax.LinesOf(a.FileSrc[fi])
+						for di in 0..syntax.Len(fv.Decls) {
+							let declID = syntax.Item(p.Tree, fv.Decls, di)
+							let (dSub, dName) = classifyDeclNode(p, declID)
+							if dSub != DeclNone && dName != "" {
+								let pos = syntax.PositionOf(lines, syntax.NodePos(p, declID))
+								let did = AddGraphNode(&g, NodeDecl, dSub, dName, pPath, pid, uint32(fi), uint32(pos.Line), uint32(pos.Column))
+								AddGraphEdge(&g, EdgeContains, fid, did, uint32(fi), uint32(pos.Line), uint32(pos.Column))
+							}
+						}
+					case _:
+					}
+				}
+			}
+		}
+	}
+	for i in 0..a.PkgPath.Len() {
+		let fromID = match pkgNodes.Get(a.PkgPath[i]) {
+		case option.Some[uint32] as id:
+			id.Value
+		case option.None:
+			front.NoID
+		}
+		if fromID == front.NoID {
+			continue
+		}
+		for imp in PackageImports(a, uint32(i)) {
+			let toID = match pkgNodes.Get(imp) {
+			case option.Some[uint32] as id:
+				id.Value
+			case option.None:
+				AddGraphNode(&g, NodePackage, DeclNone, imp, "", front.NoID, front.NoID, uint32(0), uint32(0))
+			}
+			AddGraphEdge(&g, EdgeImports, fromID, toID, front.NoID, uint32(0), uint32(0))
+		}
+	}
+	g
+}
+
+func classifyDeclNode(p syntax.Parsed, declID dense.ID[syntax.Node]) (uint8, string) {
+	match syntax.ViewOf(p.Tree, declID) {
+	case syntax.FuncDecl as fd:
+		(DeclFunc, syntax.TokText(p, syntax.NameOf(p.Tree, fd.Name).Tok))
+	case syntax.TypeDecl as td:
+		(DeclType, syntax.TokText(p, syntax.NameOf(p.Tree, td.Name).Tok))
+	case syntax.LawDecl as ld:
+		(DeclLaw, syntax.TokText(p, syntax.NameOf(p.Tree, ld.Name).Tok))
+	case syntax.TestDecl as td:
+		(DeclTest, syntax.TokText(p, syntax.NameOf(p.Tree, td.Name).Tok))
+	case _:
+		(DeclNone, "")
+	}
+}
+
+// GraphOfWorkspace builds a GraphTable for a workspace root or single module using compiler/front.
+func GraphOfWorkspace(rootDir string) GraphTable needs fs.Files {
+	let cleanRoot = if rootDir == "" { "." } else { filepath.Clean(rootDir) }
+	let mut g = NewGraphTable()
+	if front.IsWorkspaceRoot(cleanRoot) {
+		let ws = front.DiscoverWorkspace(cleanRoot) catch {
+		case _:
+			return g
+		}
+		let mut modNodeIDs = slices.WithCapacity[uint32](ws.Members.Dir.Len())
+		for i in 0..ws.Members.Dir.Len() {
+			let name = if ws.Members.Name[i] != "" { ws.Members.Name[i] } else { ws.Members.Rel[i] }
+			let nid = AddGraphNode(&g, NodeModule, DeclNone, name, ws.Members.Dir[i], front.NoID, front.NoID, uint32(0), uint32(0))
+			modNodeIDs = modNodeIDs.Append(nid)
+		}
+		for i in 0..ws.Edges.From.Len() {
+			let fIdx = int(ws.Edges.From[i])
+			let tIdx = int(ws.Edges.To[i])
+			if fIdx < modNodeIDs.Len() && tIdx < modNodeIDs.Len() {
+				AddGraphEdge(&g, EdgeReplaces, modNodeIDs[fIdx], modNodeIDs[tIdx], front.NoID, uint32(0), uint32(0))
+			}
+		}
+		return g
+	}
+	let stdIdx = front.NewStdIndex()
+	let (disc, _) = front.DiscoverPackages(cleanRoot, []string{}, stdIdx) catch {
+	case _:
+		return g
+	}
+	let mut pNodes = Map[string, uint32]{}
+	for i in 0..disc.ImportPath.Len() {
+		let pPath = disc.ImportPath[i]
+		let pid = AddGraphNode(&g, NodePackage, DeclNone, pPath, disc.ModuleName[i], uint32(i), front.NoID, uint32(0), uint32(0))
+		pNodes = pNodes.Put(pPath, pid)
+	}
+	for i in 0..disc.ImportPath.Len() {
+		let fromID = match pNodes.Get(disc.ImportPath[i]) {
+		case option.Some[uint32] as id:
+			id.Value
+		case option.None:
+			continue
+		}
+		let start = int(disc.DepStart[i])
+		let n = int(disc.DepCount[i])
+		for di in start..start+n {
+			let dep = disc.DepPaths[di]
+			let toID = match pNodes.Get(dep) {
+			case option.Some[uint32] as id:
+				id.Value
+			case option.None:
+				AddGraphNode(&g, NodePackage, DeclNone, dep, "", front.NoID, front.NoID, uint32(0), uint32(0))
+			}
+			AddGraphEdge(&g, EdgeImports, fromID, toID, front.NoID, uint32(0), uint32(0))
+		}
+	}
+	g
+}
+
+// GraphText renders canonical sorted human-readable node and edge lines for GraphTable g.
+func GraphText(g GraphTable) string {
+	let mut nodeLines = slices.WithCapacity[string](g.NodeKind.Len())
+	for i in 0..g.NodeKind.Len() {
+		let k = NodeKindName(g.NodeKind[i])
+		let s = DeclKindName(g.NodeSub[i])
+		let name = g.Strings[int(g.NodeName[i])]
+		let qual = g.Strings[int(g.NodeQual[i])]
+		let label = if s != "" { k + " " + s } else { k }
+		let mut line = "node " + label + " " + name
+		if qual != "" {
+			line = line + " (" + qual + ")"
+		}
+		nodeLines = nodeLines.Append(line)
+	}
+	let mut edgeLines = slices.WithCapacity[string](g.EdgeKind.Len())
+	for i in 0..g.EdgeKind.Len() {
+		let ek = EdgeKindName(g.EdgeKind[i])
+		let fn = g.Strings[int(g.NodeName[int(g.EdgeFrom[i])])]
+		let tn = g.Strings[int(g.NodeName[int(g.EdgeTo[i])])]
+		edgeLines = edgeLines.Append("edge " + ek + " " + fn + " -> " + tn)
+	}
+	let mut b = strings.NewBuilder()
+	for l in slices.Sort(nodeLines) {
+		b.WriteString(l)
+		b.WriteByte('\n')
+	}
+	for l in slices.Sort(edgeLines) {
+		b.WriteString(l)
+		b.WriteByte('\n')
+	}
+	b.String()
+}
+
+// GraphJSON serializes GraphTable into compact deterministic JSON with sorted node/edge records.
+func GraphJSON(g GraphTable) string {
+	let q = func(s string) string {
+		json.Encode(json.Codec[string]{MaxBytes: 0, MaxDepth: 0}, s)
+	}
+	let mut nodes = slices.WithCapacity[string](g.NodeKind.Len())
+	for i in 0..g.NodeKind.Len() {
+		let item = "{\"id\":" + strconv.Itoa(i) + ",\"kind\":" + q(NodeKindName(g.NodeKind[i])) + ",\"sub\":" + q(DeclKindName(g.NodeSub[i])) + ",\"name\":" + q(g.Strings[int(g.NodeName[i])]) + ",\"qual\":" + q(g.Strings[int(g.NodeQual[i])]) + "}"
+		nodes = nodes.Append(item)
+	}
+	let mut edges = slices.WithCapacity[string](g.EdgeKind.Len())
+	for i in 0..g.EdgeKind.Len() {
+		let item = "{\"kind\":" + q(EdgeKindName(g.EdgeKind[i])) + ",\"from\":" + strconv.Itoa(int(g.EdgeFrom[i])) + ",\"to\":" + strconv.Itoa(int(g.EdgeTo[i])) + "}"
+		edges = edges.Append(item)
+	}
+	"{\"nodes\":[" + strings.Join(nodes, ",") + "],\"edges\":[" + strings.Join(edges, ",") + "]}"
+}
+
+// GraphEdgesReferenceValidNodes verifies every edge endpoint ID indexes an existing node in g.
+law GraphEdgesReferenceValidNodes(n int) {
+	let count = if n < 0 { 0 } else if n > 8 { 8 } else { n }
+	let mut g = NewGraphTable()
+	for i in 0..count {
+		let _ = AddGraphNode(&g, NodePackage, DeclNone, "p"+strconv.Itoa(i), "m", uint32(i), front.NoID, uint32(0), uint32(0))
+	}
+	if count >= 2 {
+		AddGraphEdge(&g, EdgeImports, uint32(0), uint32(count-1), front.NoID, uint32(0), uint32(0))
+	}
+	let nodeLen = uint32(g.NodeKind.Len())
+	for i in 0..g.EdgeKind.Len() {
+		if g.EdgeFrom[i] >= nodeLen || g.EdgeTo[i] >= nodeLen {
+			return false
+		}
+	}
+	true
+}
+
+test GraphOfAnalysisAndWorkspace {
+	let mem = fstest.NewMemory()
+	mem.MkdirAll("/repo/lib") catch {
+	case fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.WriteFile("/repo/ergo.mod", "module sample\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.WriteFile("/repo/lib/lib.ergo", "func Util() int { 1 }\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.WriteFile("/repo/main.ergo", "import sample/lib\nfunc Main() int { lib.Util() }\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+	let tbl = with context { fs.Files: mem } {
+		CheckTree("/repo", DefaultCheckOptions())
+	}
+	let g = GraphOfAnalysis(tbl)
+	let text = GraphText(g)
+	assert strings.Contains(text, "node package sample")
+	assert strings.Contains(text, "edge imports sample -> sample/lib")
+	assert strings.Contains(text, "node decl func Main")
+	let js = GraphJSON(g)
+	assert strings.HasPrefix(js, "{\"nodes\":[") && strings.Contains(js, "\"edges\":[")
+	let mut dg = NewGraphTable()
+	let n0 = AddGraphNode(&dg, NodePackage, DeclNone, "a", "m", uint32(0), front.NoID, uint32(0), uint32(0))
+	let n1 = AddGraphNode(&dg, NodePackage, DeclNone, "b", "m", uint32(1), front.NoID, uint32(0), uint32(0))
+	AddGraphEdge(&dg, EdgeImports, n0, n1, front.NoID, uint32(0), uint32(0))
+	AddGraphEdge(&dg, EdgeImports, n0, n1, front.NoID, uint32(0), uint32(0))
+	assert dg.EdgeKind.Len() == 1
+	let _ = cmp.Compare("a", "b")
+}

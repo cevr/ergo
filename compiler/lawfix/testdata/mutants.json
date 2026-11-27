@@ -1,0 +1,55 @@
+{
+  "about": "compiler/lawfix: law/test placement graph, S115 diagnostics, unexporting, import merging/unaliasing, leftover test joining, and concept renaming.",
+  "mutants": [
+    {
+      "name": "selfhost-testplan-lawfix-wordat-longer-tiebreak",
+      "origin": "SELFHOST-TESTPLAN-LAWFIX",
+      "file": "compiler/lawfix/plan.ergo",
+      "decl": "mainSubject",
+      "from": "\t\tif bestAt < 0 || i < bestAt || (i == bestAt && s.Name.Len() > best.Name.Len()) {\n",
+      "to": "\t\tif bestAt < 0 || i < bestAt {\n",
+      "rule": "When two subjects match at the same earliest word offset, mainSubject selects the longer subject name.",
+      "killers": ["compiler/lawfix:PlanAndRunRelocatesLawsTestsAndHelpersTest"]
+    },
+    {
+      "name": "selfhost-testplan-lawfix-unalias-keeps-clashing",
+      "origin": "SELFHOST-TESTPLAN-LAWFIX",
+      "file": "compiler/lawfix/imports.ergo",
+      "decl": "PlanImports",
+      "from": "\t\tif hasMap(declNames, def) || hasMap(prelimKept, def) || !IsValidImportName(def) {\n\t\t\tgone[ii] = false\n\t\t}\n",
+      "to": "\t\tif false && (hasMap(declNames, def) || hasMap(prelimKept, def) || !IsValidImportName(def)) {\n\t\t\tgone[ii] = false\n\t\t}\n",
+      "rule": "PlanImports keeps a gone aliased import when its default name clashes with a package declaration.",
+      "killers": ["compiler/lawfix:ImportPlanSortClashAndUnaliasTest"]
+    },
+    {
+      "name": "selfhost-testplan-lawfix-suffixed-test-kept",
+      "origin": "SELFHOST-TESTPLAN-LAWFIX",
+      "file": "compiler/lawfix/plan.ergo",
+      "decl": "Plan",
+      "from": "\t\t\t\t} else if k == KDTest {\n\t\t\t\t\tif rank == 5 && !TestsFileName(f.Name) {\n",
+      "to": "\t\t\t\t} else if k == KDTest {\n\t\t\t\t\tif rank == 5 {\n",
+      "rule": "Files already named for tests holding only unplaced tests are not renamed to tests.ergo.",
+      "killers": ["compiler/lawfix:PlanAndRunRelocatesLawsTestsAndHelpersTest"]
+    },
+    {
+      "name": "selfhost-testplan-lawfix-unexport-rewrites-doc",
+      "origin": "SELFHOST-TESTPLAN-LAWFIX",
+      "file": "compiler/lawfix/unexport.ergo",
+      "decl": "Unexport",
+      "from": "\t\t\tif i >= 0 && strings.TrimSpace(strings.TrimPrefix(text[0:i], \"//\")) == \"\" {\n",
+      "to": "\t\t\tif false && i >= 0 && strings.TrimSpace(strings.TrimPrefix(text[0:i], \"//\")) == \"\" {\n",
+      "rule": "Unexport lowers the exported helper name at the start of its doc comment line.",
+      "killers": ["compiler/lawfix:UnexportRenamesDeclUsesAndDocTest"]
+    },
+    {
+      "name": "selfhost-testplan-lawfix-graph-exported-helper-needs-fixpass",
+      "origin": "SELFHOST-TESTPLAN-LAWFIX",
+      "file": "compiler/lawfix/graph.ergo",
+      "decl": "solveHelpers",
+      "from": "\t\tlet kindOk = isKind && (exported || !g.DeclExported[i])\n",
+      "to": "\t\tlet kindOk = isKind\n",
+      "rule": "Base helper analysis (exported=false) excludes exported declarations so ExportedLawHelpers separates unplaced exported helpers from private helpers.",
+      "killers": ["compiler/lawfix:LawGraphHelperFixpointTest"]
+    }
+  ]
+}

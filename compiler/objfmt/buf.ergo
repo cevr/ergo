@@ -1,0 +1,465 @@
+import slices
+
+// Buf accumulates little-endian binary bytes for object files and instruction streams.
+type Buf {
+	b []byte,
+}
+
+// NewBuf creates an empty Buf.
+func NewBuf() Buf {
+	Buf{b: []byte{}}
+}
+
+// NewBufCap creates an empty Buf with pre-reserved capacity.
+func NewBufCap(capacity int) Buf {
+	if capacity <= 0 {
+		return NewBuf()
+	}
+	Buf{b: MakeSlice[byte](capacity)}
+}
+
+// Size returns the number of bytes currently written to w.
+func Size(w Buf) int {
+	w.b.Len()
+}
+
+// Bytes returns a copy of the bytes currently written to w.
+func Bytes(w Buf) []byte {
+	w.b.Clone()
+}
+
+// Text returns the bytes currently written to w as a raw byte string.
+func Text(w Buf) string {
+	w.b.Text()
+}
+
+// U8 appends the low 8 bits of x.
+func U8(w mut Buf, x uint32) {
+	w.b = w.b.Append(byte(x & uint32(0xff)))
+}
+
+// U16 appends the low 16 bits of x in little-endian order.
+func U16(w mut Buf, x uint32) {
+	w.U8(x)
+	w.U8(x >> uint32(8))
+}
+
+// U32 appends x in little-endian 32-bit order.
+func U32(w mut Buf, x uint32) {
+	w.U8(x)
+	w.U8(x >> uint32(8))
+	w.U8(x >> uint32(16))
+	w.U8(x >> uint32(24))
+}
+
+// U64 appends x in little-endian 64-bit order.
+func U64(w mut Buf, x uint64) {
+	w.U32(uint32(x & uint64(0xffffffff)))
+	w.U32(uint32(x >> uint64(32)))
+}
+
+// Put16 overwrites 2 bytes at offset at with x in little-endian order.
+func Put16(w mut Buf, at int, x uint32) {
+	w.b[at] = byte(x & uint32(0xff))
+	w.b[at+1] = byte((x >> uint32(8)) & uint32(0xff))
+}
+
+// Put32 overwrites 4 bytes at offset at with x in little-endian order.
+func Put32(w mut Buf, at int, x uint32) {
+	w.b[at] = byte(x & uint32(0xff))
+	w.b[at+1] = byte((x >> uint32(8)) & uint32(0xff))
+	w.b[at+2] = byte((x >> uint32(16)) & uint32(0xff))
+	w.b[at+3] = byte((x >> uint32(24)) & uint32(0xff))
+}
+
+// Put64 overwrites 8 bytes at offset at with x in little-endian order.
+func Put64(w mut Buf, at int, x uint64) {
+	w.Put32(at, uint32(x&uint64(0xffffffff)))
+	w.Put32(at+4, uint32(x>>uint64(32)))
+}
+
+// RawBytes appends all bytes in bs.
+func RawBytes(w mut Buf, bs []byte) {
+	w.b = w.b.AppendBytes(bs)
+}
+
+// RawText appends the raw bytes of s.
+func RawText(w mut Buf, s string) {
+	w.b = w.b.AppendString(s)
+}
+
+// FixedString appends s padded with NUL bytes or truncated to width bytes.
+func FixedString(w mut Buf, s string, width int) {
+	let n = if s.Len() < width { s.Len() } else { width }
+	for i in 0..n {
+		w.b = w.b.Append(s[i])
+	}
+	w.Zeros(width - n)
+}
+
+// CString appends the bytes of s followed by a NUL terminator.
+func CString(w mut Buf, s string) {
+	w.b = w.b.AppendString(s)
+	w.b = w.b.Append(byte(0))
+}
+
+// Zeros appends count zero bytes.
+func Zeros(w mut Buf, count int) {
+	if count <= 0 {
+		return
+	}
+	w.b = w.b.Grow(count)
+	for _ in 0..count {
+		w.b = w.b.Append(byte(0))
+	}
+}
+
+// AlignTo pads w with zero bytes until its size is a multiple of align.
+func AlignTo(w mut Buf, align int) {
+	if align <= 1 {
+		return
+	}
+	let rem = w.b.Len() % align
+	if rem != 0 {
+		w.Zeros(align - rem)
+	}
+}
+
+// Short reports a truncated read past the end of an input buffer.
+type Short {
+	At   uint32,
+	Want uint32,
+}
+
+// Reader sequentially decodes little-endian fields from a byte slice.
+type Reader {
+	Data []byte,
+	At   int,
+}
+
+// NewReader constructs a Reader positioned at byte 0 of data.
+func NewReader(data []byte) Reader {
+	Reader{Data: data, At: 0}
+}
+
+// Remaining returns the number of unread bytes left in r.
+func Remaining(r Reader) int {
+	r.Data.Len() - r.At
+}
+
+// R8 reads one byte and advances At.
+func R8(r mut Reader) uint8 fails Short {
+	if r.At+1 > r.Data.Len() {
+		return Short{At: uint32(r.At), Want: uint32(1)}
+	}
+	let v = r.Data[r.At]
+	r.At = r.At + 1
+	v
+}
+
+// R16 reads a little-endian uint16 and advances At.
+func R16(r mut Reader) uint16 fails Short {
+	let v = try ReadU16At(r.Data, r.At)
+	r.At = r.At + 2
+	v
+}
+
+// R32 reads a little-endian uint32 and advances At.
+func R32(r mut Reader) uint32 fails Short {
+	let v = try ReadU32At(r.Data, r.At)
+	r.At = r.At + 4
+	v
+}
+
+// R64 reads a little-endian uint64 and advances At.
+func R64(r mut Reader) uint64 fails Short {
+	let v = try ReadU64At(r.Data, r.At)
+	r.At = r.At + 8
+	v
+}
+
+// RBytes reads n raw bytes and advances At.
+func RBytes(r mut Reader, n int) []byte fails Short {
+	if n < 0 || r.At+n > r.Data.Len() {
+		return Short{At: uint32(r.At), Want: uint32(if n < 0 { 0 } else { n })}
+	}
+	let out = r.Data[r.At : r.At+n].Clone()
+	r.At = r.At + n
+	out
+}
+
+// RFixedString reads a NUL-padded fixed-width ASCII field and advances At.
+func RFixedString(r mut Reader, width int) string fails Short {
+	if width < 0 || r.At+width > r.Data.Len() {
+		return Short{At: uint32(r.At), Want: uint32(if width < 0 { 0 } else { width })}
+	}
+	let mut end = width
+	for i in 0..width {
+		if r.Data[r.At+i] == byte(0) {
+			end = i
+			break
+		}
+	}
+	let s = r.Data[r.At : r.At+end].Text()
+	r.At = r.At + width
+	s
+}
+
+// ReadU16At reads a little-endian uint16 at byte offset at.
+func ReadU16At(bs []byte, at int) uint16 fails Short {
+	if at < 0 || at+2 > bs.Len() {
+		return Short{At: uint32(if at < 0 { 0 } else { at }), Want: uint32(2)}
+	}
+	uint16(bs[at]) | (uint16(bs[at+1]) << uint16(8))
+}
+
+// ReadU32At reads a little-endian uint32 at byte offset at.
+func ReadU32At(bs []byte, at int) uint32 fails Short {
+	if at < 0 || at+4 > bs.Len() {
+		return Short{At: uint32(if at < 0 { 0 } else { at }), Want: uint32(4)}
+	}
+		uint32(bs[at]) |
+		(uint32(bs[at+1]) << uint32(8)) |
+		(uint32(bs[at+2]) << uint32(16)) |
+		(uint32(bs[at+3]) << uint32(24))
+}
+
+// ReadU64At reads a little-endian uint64 at byte offset at.
+func ReadU64At(bs []byte, at int) uint64 fails Short {
+	if at < 0 || at+8 > bs.Len() {
+		return Short{At: uint32(if at < 0 { 0 } else { at }), Want: uint32(8)}
+	}
+	let lo = uint64(try ReadU32At(bs, at))
+	let hi = uint64(try ReadU32At(bs, at+4))
+	lo | (hi << uint64(32))
+}
+
+// ReadCStringAt reads a NUL-terminated string starting at off inside bs.
+func ReadCStringAt(bs []byte, off uint32) string fails Short {
+	let start = int(off)
+	if start < 0 || start >= bs.Len() {
+		return Short{At: off, Want: uint32(1)}
+	}
+	for i in start..bs.Len() {
+		if bs[i] == byte(0) {
+			return bs[start:i].Text()
+		}
+	}
+	Short{At: uint32(bs.Len()), Want: uint32(1)}
+}
+
+// AlignUpUint64 rounds v upward to the next multiple of power-of-two align.
+func AlignUpUint64(v uint64, align uint32) uint64 {
+	if align <= uint32(1) {
+		return v
+	}
+	let a = uint64(align)
+	let rem = v % a
+	if rem == uint64(0) {
+		return v
+	}
+	v + (a - rem)
+}
+
+// AlignUpUint32 rounds v upward to the next multiple of power-of-two align.
+func AlignUpUint32(v uint32, align uint32) uint32 {
+	if align <= uint32(1) {
+		return v
+	}
+	let rem = v % align
+	if rem == uint32(0) {
+		return v
+	}
+	v + (align - rem)
+}
+
+// StrPool interns strings in a flat NUL-terminated byte slab with O(1) lookup.
+type StrPool {
+	Data    []byte,
+	Offs    []uint32,
+	Lens    []uint32,
+	Buckets []uint32,
+}
+
+// NewStrPool creates a StrPool initialized with the canonical empty string at index 0.
+func NewStrPool() StrPool {
+	let mut pool = StrPool{
+		Data:    []byte{byte(0)},
+		Offs:    []uint32{uint32(0)},
+		Lens:    []uint32{uint32(0)},
+		Buckets: slices.Repeat([]uint32{uint32(0)}, 16),
+	}
+	pool.Buckets[int(fnvHashStr("")&uint32(15))] = uint32(1)
+	pool
+}
+
+func fnvHashStr(s string) uint32 {
+	let mut h = uint32(2166136261)
+	for i in 0..s.Len() {
+		h = (h ^ uint32(s[i])) * uint32(16777619)
+	}
+	h
+}
+
+func poolMatches(p StrPool, id uint32, s string) bool {
+	let idx = int(id)
+	let slen = int(p.Lens[idx])
+	if slen != s.Len() {
+		return false
+	}
+	let off = int(p.Offs[idx])
+	for i in 0..slen {
+		if p.Data[off+i] != s[i] {
+			return false
+		}
+	}
+	true
+}
+
+func growPoolBuckets(p mut StrPool) {
+	let oldCap = p.Buckets.Len()
+	let newCap = if oldCap < 16 { 16 } else { oldCap * 2 }
+	let mask = uint32(newCap - 1)
+	let mut nb = slices.Repeat([]uint32{uint32(0)}, newCap)
+	for i in 0..p.Offs.Len() {
+		let off = int(p.Offs[i])
+		let n = int(p.Lens[i])
+		let mut h = uint32(2166136261)
+		for j in 0..n {
+			h = (h ^ uint32(p.Data[off+j])) * uint32(16777619)
+		}
+		let mut slot = int(h & mask)
+		for nb[slot] != uint32(0) {
+			slot = (slot + 1) & int(mask)
+		}
+		nb[slot] = uint32(i + 1)
+	}
+	p.Buckets = nb
+}
+
+// Intern returns the dense string ID of s, appending s and a NUL byte if unseen.
+func Intern(p mut StrPool, s string) uint32 {
+	if s == "" {
+		return uint32(0)
+	}
+	let cap = p.Buckets.Len()
+	if (p.Offs.Len()+1)*4 >= cap*3 {
+		p.growPoolBuckets()
+	}
+	let mask = uint32(p.Buckets.Len() - 1)
+	let mut slot = int(fnvHashStr(s) & mask)
+	for p.Buckets[slot] != uint32(0) {
+		let cand = p.Buckets[slot] - uint32(1)
+		if poolMatches(*p, cand, s) {
+			return cand
+		}
+		slot = (slot + 1) & int(mask)
+	}
+	let id = uint32(p.Offs.Len())
+	let off = uint32(p.Data.Len())
+	p.Data = p.Data.AppendString(s)
+	p.Data = p.Data.Append(byte(0))
+	p.Offs = p.Offs.Append(off)
+	p.Lens = p.Lens.Append(uint32(s.Len()))
+	p.Buckets[slot] = id + uint32(1)
+	id
+}
+
+// Count returns the number of interned strings including the empty sentinel at 0.
+func Count(p StrPool) uint32 {
+	uint32(p.Offs.Len())
+}
+
+// OffsetOf returns the NUL-terminated byte offset of interned string id in Data.
+func OffsetOf(p StrPool, id uint32) uint32 {
+	p.Offs[int(id)]
+}
+
+// At returns the string stored at dense ID id.
+func At(p StrPool, id uint32) string {
+	let off = int(p.Offs[int(id)])
+	let n = int(p.Lens[int(id)])
+	p.Data[off : off+n].Text()
+}
+
+// BufPrimitivesRoundTrip verifies little-endian encode/decode and C-string round-trip fidelity.
+law BufPrimitivesRoundTrip(a uint32, b uint64, raw string) {
+	let clean = if raw == "" { "sym" } else { raw }
+	let mut cleanBytes = []byte{}
+	for i in 0..clean.Len() {
+		if clean[i] != byte(0) {
+			cleanBytes = cleanBytes.Append(clean[i])
+		}
+	}
+	let word = cleanBytes.Text()
+	let mut w = NewBuf()
+	w.U8(a)
+	w.U16(a)
+	w.U32(a)
+	w.U64(b)
+	w.CString(word)
+	w.AlignTo(8)
+	let out = w.Bytes()
+	let mut r = NewReader(out)
+	let g8 = r.R8() catch {
+	case Short:
+		return false
+	}
+	let g16 = r.R16() catch {
+	case Short:
+		return false
+	}
+	let g32 = r.R32() catch {
+	case Short:
+		return false
+	}
+	let g64 = r.R64() catch {
+	case Short:
+		return false
+	}
+	let strGot = ReadCStringAt(out, uint32(r.At)) catch {
+	case Short:
+		return false
+	}
+		out.Len()%8 == 0 &&
+		uint32(g8) == (a&uint32(0xff)) &&
+		uint32(g16) == (a&uint32(0xffff)) &&
+		g32 == a &&
+		g64 == b &&
+		strGot == word
+}
+
+// StrPoolInternRoundTrips verifies deduplication and NUL-terminated slab offsets in StrPool.
+law StrPoolInternRoundTrips(xs []string) {
+	let mut pool = NewStrPool()
+	let mut ids = []uint32{}
+	let mut clean = []string{}
+	for s in xs {
+		let mut b = []byte{}
+		for i in 0..s.Len() {
+			if s[i] != byte(0) {
+				b = b.Append(s[i])
+			}
+		}
+		let t = b.Text()
+		clean = clean.Append(t)
+		ids = ids.Append(pool.Intern(t))
+	}
+	for i, s in clean {
+		let id = ids[i]
+		if pool.At(id) != s {
+			return false
+		}
+		let cstr = ReadCStringAt(pool.Data, pool.OffsetOf(id)) catch {
+		case Short:
+			return false
+		}
+		if cstr != s {
+			return false
+		}
+		if pool.Intern(s) != id {
+			return false
+		}
+	}
+	pool.Data[0] == byte(0) && pool.Data[pool.Data.Len()-1] == byte(0)
+}

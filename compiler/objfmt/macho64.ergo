@@ -1,0 +1,502 @@
+// MachoMagic64 is the 64-bit little-endian Mach-O header magic number.
+let MachoMagic64 uint32 = uint32(0xfeedfacf)
+
+// MachoCpuTypeX86_64 is the Mach-O CPU type for x86_64.
+let MachoCpuTypeX86_64 uint32 = uint32(0x01000007)
+
+// MachoCpuTypeArm64 is the Mach-O CPU type for 64-bit ARM.
+let MachoCpuTypeArm64 uint32 = uint32(0x0100000c)
+
+// MachoCpuSubtypeX86_64All is the standard x86_64 CPU subtype.
+let MachoCpuSubtypeX86_64All uint32 = uint32(3)
+
+// MachoCpuSubtypeArm64All is the standard ARM64 CPU subtype.
+let MachoCpuSubtypeArm64All uint32 = uint32(0)
+
+// MachoFileObject identifies a relocatable Mach-O object file (MH_OBJECT).
+let MachoFileObject uint32 = uint32(1)
+
+// LcSymtab identifies the LC_SYMTAB load command.
+let LcSymtab uint32 = uint32(0x02)
+
+// LcSegment64 identifies the LC_SEGMENT_64 load command.
+let LcSegment64 uint32 = uint32(0x19)
+
+// MachoSecRegular marks a regular Mach-O section.
+let MachoSecRegular uint32 = uint32(0x0)
+
+// MachoSecZerofill marks a zero-filled Mach-O section (S_ZEROFILL).
+let MachoSecZerofill uint32 = uint32(0x1)
+
+// MachoSecCStringLiterals marks a NUL-terminated C-string literal section.
+let MachoSecCStringLiterals uint32 = uint32(0x2)
+
+// MachoAttrPureInstructions marks a section containing only executable instructions.
+let MachoAttrPureInstructions uint32 = uint32(0x80000000)
+
+// MachoAttrSomeInstructions marks a section containing executable instructions.
+let MachoAttrSomeInstructions uint32 = uint32(0x00000400)
+
+// NListUndf marks an undefined symbol in nlist_64.
+let NListUndf uint8 = uint8(0x00)
+
+// NListAbs marks an absolute symbol in nlist_64.
+let NListAbs uint8 = uint8(0x02)
+
+// NListSect marks a section-defined symbol in nlist_64.
+let NListSect uint8 = uint8(0x0e)
+
+// NListExt marks an external symbol in nlist_64.
+let NListExt uint8 = uint8(0x01)
+
+// NListTypeMask isolates the symbol type bits of n_type.
+let NListTypeMask uint8 = uint8(0x0e)
+
+// MachoWeakRef marks an undefined weak symbol reference in n_desc.
+let MachoWeakRef uint32 = uint32(0x0040)
+
+// MachoWeakDef marks a weak symbol definition in n_desc.
+let MachoWeakDef uint32 = uint32(0x0080)
+
+// Arm64RelocUnsigned encodes an absolute pointer Mach-O ARM64 relocation.
+let Arm64RelocUnsigned uint32 = uint32(0)
+
+// Arm64RelocSubtractor encodes a section difference Mach-O ARM64 relocation.
+let Arm64RelocSubtractor uint32 = uint32(1)
+
+// Arm64RelocBranch26 encodes a 26-bit PC-relative branch Mach-O ARM64 relocation.
+let Arm64RelocBranch26 uint32 = uint32(2)
+
+// Arm64RelocPage21 encodes a 21-bit ADRP page Mach-O ARM64 relocation.
+let Arm64RelocPage21 uint32 = uint32(3)
+
+// Arm64RelocPageOff12 encodes a 12-bit page-offset Mach-O ARM64 relocation.
+let Arm64RelocPageOff12 uint32 = uint32(4)
+
+// Arm64RelocGotLoadPage21 encodes a GOT page Mach-O ARM64 relocation.
+let Arm64RelocGotLoadPage21 uint32 = uint32(5)
+
+// Arm64RelocGotLoadPageOff12 encodes a GOT page-offset Mach-O ARM64 relocation.
+let Arm64RelocGotLoadPageOff12 uint32 = uint32(6)
+
+// Arm64RelocAddend encodes an explicit addend prefix for the next Mach-O ARM64 relocation.
+let Arm64RelocAddend uint32 = uint32(10)
+
+// X86_64RelocUnsigned encodes an absolute pointer Mach-O x86_64 relocation.
+let X86_64RelocUnsigned uint32 = uint32(0)
+
+// X86_64RelocSigned encodes a 32-bit PC-relative displacement Mach-O x86_64 relocation.
+let X86_64RelocSigned uint32 = uint32(1)
+
+// X86_64RelocBranch encodes a 32-bit PC-relative call/branch Mach-O x86_64 relocation.
+let X86_64RelocBranch uint32 = uint32(2)
+
+// X86_64RelocGotLoad encodes a relaxable GOT load Mach-O x86_64 relocation.
+let X86_64RelocGotLoad uint32 = uint32(3)
+
+// X86_64RelocGot encodes a GOT reference Mach-O x86_64 relocation.
+let X86_64RelocGot uint32 = uint32(4)
+
+type machoSecLayout {
+	sectName  string,
+	segName   string,
+	addr      uint64,
+	size      uint64,
+	fileOff   uint32,
+	alignLog2 uint32,
+	reloff    uint32,
+	nreloc    uint32,
+	flags     uint32,
+}
+
+func machoLog2(align uint32) uint32 {
+	let mut p = uint32(0)
+	let mut v = align
+	for v > uint32(1) {
+		v = v >> uint32(1)
+		p = p + uint32(1)
+	}
+	p
+}
+
+func machoCpuForArch(arch Arch) (uint32, uint32) {
+	match arch {
+	case ArchX86_64:
+		(MachoCpuTypeX86_64, MachoCpuSubtypeX86_64All)
+	case ArchARM64:
+		(MachoCpuTypeArm64, MachoCpuSubtypeArm64All)
+	}
+}
+
+func machoSectIndex(sec uint32) uint8 {
+	if sec == SecText {
+		return uint8(1)
+	}
+	if sec == SecRodata {
+		return uint8(2)
+	}
+	if sec == SecData {
+		return uint8(3)
+	}
+	if sec == SecBss {
+		return uint8(4)
+	}
+	uint8(0)
+}
+
+func machoRelocSpec(arch Arch, kind uint8) (uint32, uint32, uint32) {
+	match arch {
+	case ArchX86_64:
+		if kind == RelocCall || kind == RelocJump {
+			return (X86_64RelocBranch, uint32(1), uint32(2))
+		}
+		if kind == RelocPCRel32 {
+			return (X86_64RelocSigned, uint32(1), uint32(2))
+		}
+		if kind == RelocGotPCRel {
+			return (X86_64RelocGot, uint32(1), uint32(2))
+		}
+		if kind == RelocRexGotPCRelX {
+			return (X86_64RelocGotLoad, uint32(1), uint32(2))
+		}
+		return (X86_64RelocUnsigned, uint32(0), uint32(3))
+	case ArchARM64:
+		if kind == RelocCall || kind == RelocJump {
+			return (Arm64RelocBranch26, uint32(1), uint32(2))
+		}
+		if kind == RelocArm64Page21 {
+			return (Arm64RelocPage21, uint32(1), uint32(2))
+		}
+		if kind == RelocArm64PageOff12 {
+			return (Arm64RelocPageOff12, uint32(0), uint32(2))
+		}
+		return (Arm64RelocUnsigned, uint32(0), uint32(3))
+	}
+}
+
+func writeMachoHeader(w mut Buf, cpuType uint32, cpuSub uint32, sizeofcmds uint32) {
+	w.U32(MachoMagic64)
+	w.U32(cpuType)
+	w.U32(cpuSub)
+	w.U32(MachoFileObject)
+	w.U32(uint32(2))
+	w.U32(sizeofcmds)
+	w.U32(uint32(0))
+	w.U32(uint32(0))
+}
+
+func writeMachoSegmentHeader(w mut Buf, vmSize uint64, fileOff uint64, fileSize uint64) {
+	w.U32(LcSegment64)
+	w.U32(uint32(72 + 4*80))
+	w.FixedString("", 16)
+	w.U64(uint64(0))
+	w.U64(vmSize)
+	w.U64(fileOff)
+	w.U64(fileSize)
+	w.U32(uint32(7))
+	w.U32(uint32(7))
+	w.U32(uint32(4))
+	w.U32(uint32(0))
+}
+
+func writeMachoSection64(w mut Buf, s machoSecLayout) {
+	w.FixedString(s.sectName, 16)
+	w.FixedString(s.segName, 16)
+	w.U64(s.addr)
+	w.U64(s.size)
+	w.U32(s.fileOff)
+	w.U32(s.alignLog2)
+	w.U32(s.reloff)
+	w.U32(s.nreloc)
+	w.U32(s.flags)
+	w.U32(uint32(0))
+	w.U32(uint32(0))
+	w.U32(uint32(0))
+}
+
+func writeMachoRelocEntry(w mut Buf, addr uint32, symNum uint32, pcrel uint32, length uint32, ext uint32, rtype uint32) {
+	let word = (symNum & uint32(0x00ffffff)) |
+		((pcrel & uint32(1)) << uint32(24)) |
+		((length & uint32(3)) << uint32(25)) |
+		((ext & uint32(1)) << uint32(27)) |
+		((rtype & uint32(0xf)) << uint32(28))
+	w.U32(addr)
+	w.U32(word)
+}
+
+func writeMachoSymEntry(w mut Buf, o Object, symIdx int, secAddrs []uint64) {
+	let nameOff = o.Names.OffsetOf(o.SymNameID[symIdx])
+	let bind = o.SymBind[symIdx]
+	let sec = o.SymSec[symIdx]
+	let mut nType = NListSect
+	let mut nSect = uint32(machoSectIndex(sec))
+	let mut nDesc = uint32(0)
+	let mut nValue = uint64(0)
+	if sec == SecUndef {
+		nType = NListUndf | NListExt
+		nSect = uint32(0)
+		if bind == BindWeak {
+			nDesc = MachoWeakRef
+		}
+	} else {
+		nValue = secAddrs[int(sec)] + o.SymValue[symIdx]
+		if bind != BindLocal {
+			nType = NListSect | NListExt
+		}
+		if bind == BindWeak {
+			nDesc = MachoWeakDef
+		}
+	}
+	w.U32(nameOff)
+	w.U8(uint32(nType))
+	w.U8(nSect)
+	w.U16(nDesc)
+	w.U64(nValue)
+}
+
+func computeMachoSymOrder(o Object) ([]uint32, []uint32) {
+	let nSyms = o.SymNameID.Len()
+	let mut order = MakeSlice[uint32](nSyms)
+	let mut symToMacho = MakeSlice[uint32](nSyms)
+	for _ in 0..nSyms {
+		symToMacho = symToMacho.Append(uint32(0))
+	}
+	let mut idx = uint32(0)
+	for i in 0..nSyms {
+		if o.SymBind[i] == BindLocal {
+			symToMacho[i] = idx
+			order = order.Append(uint32(i))
+			idx = idx + uint32(1)
+		}
+	}
+	for i in 0..nSyms {
+		if o.SymBind[i] != BindLocal && o.SymSec[i] != SecUndef {
+			symToMacho[i] = idx
+			order = order.Append(uint32(i))
+			idx = idx + uint32(1)
+		}
+	}
+	for i in 0..nSyms {
+		if o.SymBind[i] != BindLocal && o.SymSec[i] == SecUndef {
+			symToMacho[i] = idx
+			order = order.Append(uint32(i))
+			idx = idx + uint32(1)
+		}
+	}
+	(order, symToMacho)
+}
+
+func writeMachoSymtabOrdered(w mut Buf, o Object, order []uint32, secAddrs []uint64) (uint32, uint32) {
+	w.AlignTo(8)
+	let symOff = uint32(w.Size())
+	for symIdx in order {
+		writeMachoSymEntry(w, o, int(symIdx), secAddrs)
+	}
+	(symOff, uint32(order.Len()))
+}
+
+func patchMachoBytes(buf mut []byte, off int, width uint32, addend uint64) {
+	if width == uint32(8) {
+		for k in 0..8 {
+			(*buf)[off+k] = byte((addend >> uint64(8*k)) & uint64(0xff))
+		}
+		return
+	}
+	if addend != uint64(0) {
+		let v = uint32(addend & uint64(0xffffffff))
+		(*buf)[off] = byte(v & uint32(0xff))
+		(*buf)[off+1] = byte((v >> uint32(8)) & uint32(0xff))
+		(*buf)[off+2] = byte((v >> uint32(16)) & uint32(0xff))
+		(*buf)[off+3] = byte((v >> uint32(24)) & uint32(0xff))
+	}
+}
+
+func clonePatchedMachoSections(o Object) ([]byte, []byte) {
+	let mut textCopy = o.Text.Clone()
+	let mut dataCopy = o.Data.Clone()
+	let isX86 = match o.Arch {
+	case ArchX86_64:
+		true
+	case ArchARM64:
+		false
+	}
+	for i in 0..o.RelocSec.Len() {
+		let kind = o.RelocKind[i]
+		if isX86 || kind == RelocAbs64 {
+			let off = int(o.RelocOff[i])
+			let width = RelocPatchWidth(kind)
+			if o.RelocSec[i] == SecText {
+				patchMachoBytes(&textCopy, off, width, o.RelocAddend[i])
+			} else if o.RelocSec[i] == SecData {
+				patchMachoBytes(&dataCopy, off, width, o.RelocAddend[i])
+			}
+		}
+	}
+	(textCopy, dataCopy)
+}
+
+func writeMachoSecRelocs(w mut Buf, o Object, sec uint32, symToMacho []uint32) (uint32, uint32) {
+	w.AlignTo(4)
+	let start = uint32(w.Size())
+	let mut count = uint32(0)
+	let isArm64 = match o.Arch {
+	case ArchARM64:
+		true
+	case ArchX86_64:
+		false
+	}
+	for i in 0..o.RelocSec.Len() {
+		if o.RelocSec[i] != sec {
+			continue
+		}
+		let kind = o.RelocKind[i]
+		let off = o.RelocOff[i]
+		let addend = o.RelocAddend[i]
+		let mSym = symToMacho[int(o.RelocSym[i])]
+		let (rType, pcrel, length) = machoRelocSpec(o.Arch, kind)
+		if isArm64 && kind != RelocAbs64 && addend != uint64(0) {
+			writeMachoRelocEntry(w, off, uint32(addend)&uint32(0x00ffffff), uint32(0), uint32(2), uint32(0), Arm64RelocAddend)
+			count = count + uint32(1)
+		}
+		writeMachoRelocEntry(w, off, mSym, pcrel, length, uint32(1), rType)
+		count = count + uint32(1)
+	}
+	if count == uint32(0) {
+		return (uint32(0), uint32(0))
+	}
+	(start, count)
+}
+
+func machoCStringFlags(ro []byte) uint32 {
+	if ro.Len() == 0 || ro[ro.Len()-1] == byte(0) {
+		return MachoSecCStringLiterals
+	}
+	MachoSecRegular
+}
+
+func machoMaxAlign(a uint32, b uint32) uint32 {
+	if a > b { a } else { b }
+}
+
+func buildMachoSectionLayouts(o Object, segFileOff uint32) ([]machoSecLayout, []uint64, uint64, uint64) {
+	let textAlign = machoMaxAlign(o.TextAlign, uint32(16))
+	let roAlign = machoMaxAlign(o.RodataAlign, uint32(8))
+	let dataAlign = machoMaxAlign(o.DataAlign, uint32(8))
+	let bssAlign = machoMaxAlign(o.BssAlign, uint32(8))
+
+	let textAddr = uint64(0)
+	let textSize = uint64(o.Text.Len())
+	let roAddr = AlignUpUint64(textAddr+textSize, roAlign)
+	let roSize = uint64(o.Rodata.Len())
+	let dataAddr = AlignUpUint64(roAddr+roSize, dataAlign)
+	let dataSize = uint64(o.Data.Len())
+	let bssAddr = AlignUpUint64(dataAddr+dataSize, bssAlign)
+	let fileSize = dataAddr + dataSize
+	let vmSize = bssAddr + o.BssSize
+	let secAddrs = []uint64{textAddr, roAddr, dataAddr, bssAddr}
+	let textFlags = MachoSecRegular | MachoAttrPureInstructions | MachoAttrSomeInstructions
+	let secs = []machoSecLayout{
+		machoSecLayout{
+			sectName:  "__text",
+			segName:   "__TEXT",
+			addr:      textAddr,
+			size:      textSize,
+			fileOff:   if textSize == uint64(0) { uint32(0) } else { segFileOff },
+			alignLog2: machoLog2(textAlign),
+			reloff:    uint32(0),
+			nreloc:    uint32(0),
+			flags:     textFlags,
+		},
+		machoSecLayout{
+			sectName:  "__cstring",
+			segName:   "__TEXT",
+			addr:      roAddr,
+			size:      roSize,
+			fileOff:   if roSize == uint64(0) { uint32(0) } else { segFileOff + uint32(roAddr) },
+			alignLog2: machoLog2(roAlign),
+			reloff:    uint32(0),
+			nreloc:    uint32(0),
+			flags:     machoCStringFlags(o.Rodata),
+		},
+		machoSecLayout{
+			sectName:  "__data",
+			segName:   "__DATA",
+			addr:      dataAddr,
+			size:      dataSize,
+			fileOff:   if dataSize == uint64(0) { uint32(0) } else { segFileOff + uint32(dataAddr) },
+			alignLog2: machoLog2(dataAlign),
+			reloff:    uint32(0),
+			nreloc:    uint32(0),
+			flags:     MachoSecRegular,
+		},
+		machoSecLayout{
+			sectName:  "__bss",
+			segName:   "__DATA",
+			addr:      bssAddr,
+			size:      o.BssSize,
+			fileOff:   uint32(0),
+			alignLog2: machoLog2(bssAlign),
+			reloff:    uint32(0),
+			nreloc:    uint32(0),
+			flags:     MachoSecZerofill,
+		},
+	}
+	(secs, secAddrs, fileSize, vmSize)
+}
+
+// WriteMachO64 serializes o into a standard Mach-O64 relocatable object file (MH_OBJECT).
+func WriteMachO64(o Object) []byte fails ObjError {
+	try ValidateObject(o)
+	let (cpuType, cpuSub) = machoCpuForArch(o.Arch)
+	let segCmdSize = uint32(72 + 4*80)
+	let symCmdSize = uint32(24)
+	let sizeofcmds = segCmdSize + symCmdSize
+	let maxAlign = machoMaxAlign(
+		machoMaxAlign(o.TextAlign, uint32(16)),
+		machoMaxAlign(machoMaxAlign(o.RodataAlign, uint32(8)), machoMaxAlign(o.DataAlign, uint32(8))),
+	)
+	let segFileOff = AlignUpUint32(uint32(32)+sizeofcmds, maxAlign)
+	let (secs, secAddrs, fileSize, vmSize) = buildMachoSectionLayouts(o, segFileOff)
+	let (textCopy, dataCopy) = clonePatchedMachoSections(o)
+
+	let mut w = NewBufCap(int(segFileOff) + int(fileSize) + 512)
+	writeMachoHeader(&w, cpuType, cpuSub, sizeofcmds)
+	writeMachoSegmentHeader(&w, vmSize, uint64(segFileOff), fileSize)
+	let secHdrBase = w.Size()
+	for s in secs {
+		writeMachoSection64(&w, s)
+	}
+	let symCmdOff = w.Size()
+	w.U32(LcSymtab)
+	w.U32(symCmdSize)
+	w.Zeros(16)
+
+	w.Zeros(int(segFileOff) - w.Size())
+	w.RawBytes(textCopy)
+	w.Zeros(int(secAddrs[1] - uint64(textCopy.Len())))
+	w.RawBytes(o.Rodata)
+	w.Zeros(int(secAddrs[2] - (secAddrs[1] + uint64(o.Rodata.Len()))))
+	w.RawBytes(dataCopy)
+
+	let (symOrder, symToMacho) = computeMachoSymOrder(o)
+	let (textRelOff, textNReloc) = writeMachoSecRelocs(&w, o, SecText, symToMacho)
+	let (dataRelOff, dataNReloc) = writeMachoSecRelocs(&w, o, SecData, symToMacho)
+	let (symOff, nsyms) = writeMachoSymtabOrdered(&w, o, symOrder, secAddrs)
+
+	let strOff = uint32(w.Size())
+	w.RawBytes(o.Names.Data)
+	w.AlignTo(4)
+	let strSize = uint32(w.Size()) - strOff
+
+	w.Put32(secHdrBase+56, textRelOff)
+	w.Put32(secHdrBase+60, textNReloc)
+	w.Put32(secHdrBase+2*80+56, dataRelOff)
+	w.Put32(secHdrBase+2*80+60, dataNReloc)
+
+	w.Put32(symCmdOff+8, symOff)
+	w.Put32(symCmdOff+12, nsyms)
+	w.Put32(symCmdOff+16, strOff)
+	w.Put32(symCmdOff+20, strSize)
+
+	w.Bytes()
+}

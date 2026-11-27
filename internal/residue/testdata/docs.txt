@@ -121,6 +121,8 @@ docs/specs/atlas/units.md	-	ordered atlas build units starting with KERNEL-ENGIN
 docs/specs/bench.md	-	delete: SPECS-CITED (merged into docs/spec)
 docs/specs/custom-lint.md	-	delete: SPECS-CITED (merged into docs/spec)
 docs/specs/formatting.md	-	delete: SPECS-CITED (merged into docs/spec)
+docs/specs/native-backend/architecture.md	-	native ELF64/Mach-O64/.wasm backend architecture, 16B Perceus RC ABI, arenas, actor heaps, fiber scheduler, C & TS FFI, and Stage-0 Go deletion criteria
+docs/specs/native-backend/units.md	-	ordered native backend build units NB-1 through NB-7 with owned paths, dependencies, and verification gates
 docs/testing.md	-	delete: TOOLING (merged into its home)
 docs/tooling.md	-	the repository's own tooling rules: gate tiers, mutant ledger, closure rule, toolchain pin, regeneration order
 docs/wayfinder/ARCHIVE.md	-	delete: DEL-DEAD

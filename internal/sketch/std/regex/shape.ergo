@@ -38,7 +38,7 @@ func quantForRepeat(minVal int, maxVal int) int {
 	if maxVal == -1 || maxVal > 1 {
 		return quantMany
 	}
-	if minVal == 0 && maxVal == 1 {
+	if minVal == 0 && (maxVal == 0 || maxVal == 1) {
 		return quantOpt
 	}
 	quantOne
@@ -101,10 +101,31 @@ func analyzeShape(ast regexAST) (patternShape, []int) {
 	(patternShape{isUnion: false, variants: []captureNode{}, fields: fields, nextTag: nt, diags: diags}, t2)
 }
 
+func hasManyFields(fields []captureNode) bool {
+	for f in fields {
+		if f.quant == quantMany || hasManyFields(f.children) {
+			return true
+		}
+	}
+	false
+}
+
+func shapeHasMany(shape patternShape) bool {
+	if shape.isUnion {
+		for v in shape.variants {
+			if hasManyFields(v.children) {
+				return true
+			}
+		}
+		return false
+	}
+	hasManyFields(shape.fields)
+}
+
 func collectCaptures(ast regexAST, id int, quant int, inAlt bool, inRepeat bool, nextTag int, tags []int) ([]captureNode, int, []int, []content.MapperDiag) {
 	let n = ast.nodes[id]
 	let mut t = tags
-	if n.kind == kindEmpty || n.kind == kindBytes {
+	if n.kind == kindEmpty || n.kind == kindBytes || n.kind == kindStart || n.kind == kindEnd {
 		return ([]captureNode{}, nextTag, t, []content.MapperDiag{})
 	}
 	if n.kind == kindConcat {
