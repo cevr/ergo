@@ -6,6 +6,38 @@ import option
 import strconv
 import utf8
 
+func buildAssertMeta(prog mut Program, ctx mut CompileUnitCtx, fb FnBuilder, stmtNode dense.ID[syntax.Node], exprNode dense.ID[syntax.Node]) uint32 {
+	let p = ctx.K.Parsed[int(fb.File)]
+	let tr = p.Tree
+	let xPos = syntax.NodePos(p, exprNode)
+	let xEnd = syntax.NodeEnd(p, exprNode)
+	let src = syntax.SourceOf(p)
+	let exprText = if xPos >= 0 && xEnd <= src.Len() && xPos <= xEnd { src[xPos:xEnd] } else { "" }
+	let mut binNode = uint32(0xffffffff)
+	let mut leftT = TypeVoid
+	let mut rightT = TypeVoid
+	let ux = unparenNode(tr, exprNode)
+	if syntax.KindOf(tr, ux) == syntax.KBinaryExpr {
+		let b = syntax.BinaryExprOf(tr, ux)
+		let op = syntax.TokKind(p, b.Op)
+		if op == syntax.Eql || op == syntax.Neq || op == syntax.Lss || op == syntax.Leq || op == syntax.Gtr || op == syntax.Geq {
+			binNode = uint32(dense.Index(ux))
+			leftT = ResolveExprType(prog, ctx, fb, b.X, TypeVoid)
+			rightT = ResolveExprType(prog, ctx, fb, b.Y, TypeVoid)
+		}
+	}
+	let mut fname = ""
+	let mut ln = uint32(1)
+	let mut cl = uint32(1)
+	if int(ctx.PkgIdx) < prog.FileNames.Len() && int(fb.File) < prog.FileNames[int(ctx.PkgIdx)].Len() {
+		fname = prog.FileNames[int(ctx.PkgIdx)][int(fb.File)]
+		let pos = syntax.PositionOf(prog.FileLines[int(ctx.PkgIdx)][int(fb.File)], syntax.NodePos(p, stmtNode))
+		ln = uint32(pos.Line)
+		cl = uint32(pos.Column)
+	}
+	AddAssertMeta(prog, exprText, binNode, leftT, rightT, fname, ln, cl)
+}
+
 // CompileStmtList compiles a statement list, optionally producing a tail expression value.
 func CompileStmtList(prog mut Program, ctx mut CompileUnitCtx, fb mut FnBuilder, list syntax.List, wantsVal bool, wantType uint32) {
 	let p = ctx.K.Parsed[int(fb.File)]
@@ -131,20 +163,22 @@ func CompileStmtNode(prog mut Program, ctx mut CompileUnitCtx, fb mut FnBuilder,
 	}
 	if kd == syntax.KAssertStmt {
 		let a = syntax.AssertStmtOf(tr, id)
+		let aMeta = buildAssertMeta(prog, ctx, *fb, id, a.X)
 		CompileExprNode(prog, ctx, fb, a.X, TypeBool, false)
-		EmitOp(prog, OpAssert, uint8(0), uint32(0), uint32(0), uint32(0), fb.File, a.X)
+		EmitOp(prog, OpAssert, uint8(0), aMeta, uint32(0), uint32(0), fb.File, a.X)
 		return
 	}
 	if kd == syntax.KAlwaysStmt {
 		let a = syntax.AlwaysStmtOf(tr, id)
+		let aMeta = buildAssertMeta(prog, ctx, *fb, id, a.X)
 		CompileExprNode(prog, ctx, fb, a.X, TypeBool, false)
-		EmitOp(prog, OpAlways, uint8(0), uint32(0), uint32(0), uint32(0), fb.File, a.X)
+		EmitOp(prog, OpAlways, uint8(0), aMeta, uint32(0), uint32(0), fb.File, a.X)
 		return
 	}
 	if kd == syntax.KSometimesStmt {
 		let s = syntax.SometimesStmtOf(tr, id)
 		CompileExprNode(prog, ctx, fb, s.X, TypeBool, false)
-		EmitOp(prog, OpSometimes, uint8(0), uint32(0), uint32(0), uint32(0), fb.File, s.X)
+		EmitOp(prog, OpSometimes, uint8(0), uint32(0), uint32(0), uint32(0), fb.File, id)
 		return
 	}
 	if kd == syntax.KSkipStmt {

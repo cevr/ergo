@@ -348,66 +348,124 @@ type GlobalMeta {
 
 // Program holds all compiled bytecode, types, literals, functions, and source mappings.
 type Program {
-	Insns         []Insn,
-	Consts        []Val,
-	Fns           []FnMeta,
-	ParamTypes    []uint32,
-	ParamMut      []bool,
-	ParamNames    []string,
-	CapRefs       []ClosureCapRef,
-	ClosureTpls   []RunSpan,
-	Globals       []GlobalMeta,
-	Pats          []PatNode,
-	PatFields     []PatField,
-	PatChildren   []uint32,
-	Places        []PlaceStep,
-	UpdateFields  []uint32,
-	TypeArgPool   []uint32,
-	TypeArgRuns   []RunSpan,
-	Types         TypePool,
-	Arena         ValArena,
-	PkgPaths      []string,
-	FileNames     [][]string,
-	FileLines     [][]syntax.Lines,
-	FnByKey       Map[string, uint32],
-	FnByDefNode   Map[string, uint32],
-	GlobalByDef   Map[string, uint32],
-	RefinedTypes  []uint32,
-	RefinedParses []uint32,
-	RootPkg       uint32,
+	Insns              []Insn,
+	Consts             []Val,
+	Fns                []FnMeta,
+	ParamTypes         []uint32,
+	ParamMut           []bool,
+	ParamNames         []string,
+	CapRefs            []ClosureCapRef,
+	ClosureTpls        []RunSpan,
+	Globals            []GlobalMeta,
+	Pats               []PatNode,
+	PatFields          []PatField,
+	PatChildren        []uint32,
+	Places             []PlaceStep,
+	UpdateFields       []uint32,
+	TypeArgPool        []uint32,
+	TypeArgRuns        []RunSpan,
+	Types              TypePool,
+	Arena              ValArena,
+	PkgPaths           []string,
+	FileNames          [][]string,
+	FileLines          [][]syntax.Lines,
+	FnByKey            Map[string, uint32],
+	FnByDefNode        Map[string, uint32],
+	GlobalByDef        Map[string, uint32],
+	RefinedTypes       []uint32,
+	RefinedParses      []uint32,
+	Witnesses          WitnessTable,
+	RefSpecs           RefinementTable,
+	AssertExpr         []string,
+	AssertBinNode      []uint32,
+	AssertLeftT        []uint32,
+	AssertRightT       []uint32,
+	AssertLine         []uint32,
+	AssertCol          []uint32,
+	AssertFile         []string,
+	SyntheticCBVariant []uint32,
+	SyntheticCBA       []Val,
+	SyntheticCBB       []Val,
+	RootPkg            uint32,
 }
 
 // NewProgram constructs an empty compiled bytecode program container.
 func NewProgram() Program {
 	Program{
-		Insns:         []Insn{},
-		Consts:        []Val{},
-		Fns:           []FnMeta{},
-		ParamTypes:    []uint32{},
-		ParamMut:      []bool{},
-		ParamNames:    []string{},
-		CapRefs:       []ClosureCapRef{},
-		ClosureTpls:   []RunSpan{},
-		Globals:       []GlobalMeta{},
-		Pats:          []PatNode{},
-		PatFields:     []PatField{},
-		PatChildren:   []uint32{},
-		Places:        []PlaceStep{},
-		UpdateFields:  []uint32{},
-		TypeArgPool:   []uint32{},
-		TypeArgRuns:   []RunSpan{RunSpan{Start: uint32(0), Len: uint32(0)}},
-		Types:         NewTypePool(),
-		Arena:         NewValArena(),
-		PkgPaths:      []string{},
-		FileNames:     [][]string{},
-		FileLines:     [][]syntax.Lines{},
-		FnByKey:       Map[string, uint32]{},
-		FnByDefNode:   Map[string, uint32]{},
-		GlobalByDef:   Map[string, uint32]{},
-		RefinedTypes:  []uint32{},
-		RefinedParses: []uint32{},
-		RootPkg:       uint32(0),
+		Insns:              []Insn{},
+		Consts:             []Val{},
+		Fns:                []FnMeta{},
+		ParamTypes:         []uint32{},
+		ParamMut:           []bool{},
+		ParamNames:         []string{},
+		CapRefs:            []ClosureCapRef{},
+		ClosureTpls:        []RunSpan{},
+		Globals:            []GlobalMeta{},
+		Pats:               []PatNode{},
+		PatFields:          []PatField{},
+		PatChildren:        []uint32{},
+		Places:             []PlaceStep{},
+		UpdateFields:       []uint32{},
+		TypeArgPool:        []uint32{},
+		TypeArgRuns:        []RunSpan{RunSpan{Start: uint32(0), Len: uint32(0)}},
+		Types:              NewTypePool(),
+		Arena:              NewValArena(),
+		PkgPaths:           []string{},
+		FileNames:          [][]string{},
+		FileLines:          [][]syntax.Lines{},
+		FnByKey:            Map[string, uint32]{},
+		FnByDefNode:        Map[string, uint32]{},
+		GlobalByDef:        Map[string, uint32]{},
+		RefinedTypes:       []uint32{},
+		RefinedParses:      []uint32{},
+		Witnesses:          NewWitnessTable(),
+		RefSpecs:           NewRefinementTable(),
+		AssertExpr:         []string{},
+		AssertBinNode:      []uint32{},
+		AssertLeftT:        []uint32{},
+		AssertRightT:       []uint32{},
+		AssertLine:         []uint32{},
+		AssertCol:          []uint32{},
+		AssertFile:         []string{},
+		SyntheticCBVariant: []uint32{},
+		SyntheticCBA:       []Val{},
+		SyntheticCBB:       []Val{},
+		RootPkg:            uint32(0),
 	}
+}
+
+// AddAssertMeta records compiled assertion metadata and returns its index (1-based; 0 means none).
+func AddAssertMeta(prog mut Program, exprText string, binNode uint32, leftT uint32, rightT uint32, file string, line uint32, col uint32) uint32 {
+	prog.AssertExpr = prog.AssertExpr.Append(exprText)
+	prog.AssertBinNode = prog.AssertBinNode.Append(binNode)
+	prog.AssertLeftT = prog.AssertLeftT.Append(leftT)
+	prog.AssertRightT = prog.AssertRightT.Append(rightT)
+	prog.AssertFile = prog.AssertFile.Append(file)
+	prog.AssertLine = prog.AssertLine.Append(line)
+	prog.AssertCol = prog.AssertCol.Append(col)
+	uint32(prog.AssertExpr.Len())
+}
+
+// AddSyntheticCallback registers a deterministic property-test callback variant and returns its index.
+func AddSyntheticCallback(prog mut Program, variant uint32, a Val, b Val, funcType uint32) Val {
+	let cbIdx = uint32(prog.SyntheticCBVariant.Len())
+	prog.SyntheticCBVariant = prog.SyntheticCBVariant.Append(variant)
+	prog.SyntheticCBA = prog.SyntheticCBA.Append(a)
+	prog.SyntheticCBB = prog.SyntheticCBB.Append(b)
+	let clIdx = uint32(prog.Arena.Closures.Len())
+	prog.Arena.Closures = prog.Arena.Closures.Append(ClosureObj{
+		FnIdx:        uint32(0),
+		CapStart:     uint32(0),
+		CapCount:     uint32(0),
+		TypeArgStart: uint32(0),
+		TypeArgCount: variant,
+		BoundRecv:    cbIdx,
+		HasRecv:      false,
+		NativeName:   "__law_cb",
+		IsNative:     true,
+		IsMethodVal:  false,
+	})
+	Val{Tag: TagFunc, Type: funcType, Aux: clIdx, Data: uint64(cbIdx)}
 }
 
 // AddConst appends constant value v to Program.Consts and returns its pool index.

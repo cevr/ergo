@@ -1,0 +1,785 @@
+import compiler/check/expr
+import compiler/check/facts
+import compiler/check/footprint
+import compiler/check/load
+import compiler/check/types
+import compiler/syntax
+import dense
+import option
+import slices
+import strings
+
+// OpArena holds runtime operation-type provider cells and mutability tracking in flat SoA tables.
+type OpArena {
+	ProviderVal  []Val,
+	ProviderType []uint32,
+	OpType       []uint32,
+	ClaimIdx     []uint32,
+	PkgIdx       []uint32,
+	Mutated      []bool,
+}
+
+// NewOpArena constructs an empty runtime operation cell arena.
+func NewOpArena() OpArena {
+	OpArena{
+		ProviderVal:  []Val{},
+		ProviderType: []uint32{},
+		OpType:       []uint32{},
+		ClaimIdx:     []uint32{},
+		PkgIdx:       []uint32{},
+		Mutated:      []bool{},
+	}
+}
+
+// AllocOperation allocates an operation cell wrapping provVal under claimIdx and returns its Val handle.
+func AllocOperation(oa mut OpArena, opType uint32, claimIdx uint32, pkgIdx uint32, provType uint32, provVal Val) Val {
+	let idx = uint32(oa.ProviderVal.Len())
+	oa.ProviderVal = oa.ProviderVal.Append(provVal)
+	oa.ProviderType = oa.ProviderType.Append(provType)
+	oa.OpType = oa.OpType.Append(opType)
+	oa.ClaimIdx = oa.ClaimIdx.Append(claimIdx)
+	oa.PkgIdx = oa.PkgIdx.Append(pkgIdx)
+	oa.Mutated = oa.Mutated.Append(false)
+	Val{Tag: TagOperation, Type: opType, Aux: idx, Data: uint64(claimIdx)}
+}
+
+// ReadOperationCell returns the provider value, provider type, and claim index for opCellIdx.
+func ReadOperationCell(oa OpArena, opCellIdx uint32) (Val, uint32, uint32, bool) {
+	if int(opCellIdx) >= oa.ProviderVal.Len() {
+		return (UnitVal(), TypeVoid, uint32(0xffffffff), false)
+	}
+	(oa.ProviderVal[int(opCellIdx)], oa.ProviderType[int(opCellIdx)], oa.ClaimIdx[int(opCellIdx)], true)
+}
+
+// UpdateOperationCell writes the post-call provider state into opCellIdx when mutated via receiver borrow.
+func UpdateOperationCell(oa mut OpArena, opCellIdx uint32, v Val) {
+	if int(opCellIdx) < oa.ProviderVal.Len() {
+		oa.ProviderVal[int(opCellIdx)] = v
+		oa.Mutated[int(opCellIdx)] = true
+	}
+}
+
+// WitnessTable stores dense SoA operation interfaces, implements claims, builders, contexts, and law specs.
+type WitnessTable {
+	OpPkg              []uint32,
+	OpName             []string,
+	OpTypeIdx          []uint32,
+	OpMethodStart      []uint32,
+	OpMethodCount      []uint32,
+	OpMethodName       []string,
+	OpMethodTypeIdx    []uint32,
+	OpMethodMut        []bool,
+	OpByKey            Map[string, uint32],
+	ClaimPkg           []uint32,
+	ClaimTypeIdx       []uint32,
+	ClaimOpTypeIdx     []uint32,
+	ClaimName          []string,
+	ClaimMethodStart   []uint32,
+	ClaimMethodCount   []uint32,
+	ClaimMethodName    []string,
+	ClaimMethodFnIdx   []uint32,
+	ClaimMethodMut     []bool,
+	ClaimByKey         Map[string, uint32],
+	BuilderOpType      []uint32,
+	BuilderFnIdx       []uint32,
+	BuilderWorld       []bool,
+	CtxPkg             []uint32,
+	CtxName            []string,
+	CtxProvidesType    []uint32,
+	CtxEntryStart      []uint32,
+	CtxEntryCount      []uint32,
+	CtxEntryKey        []string,
+	CtxEntryFnIdx      []uint32,
+	CtxEntryReplace    []bool,
+	CtxByKey           Map[string, uint32],
+	LawFnIdx           []uint32,
+	LawIdxByFn         []uint32,
+	LawQualified       []string,
+	LawIsRewrite       []bool,
+	LawIsSometimes     []bool,
+	LawHasWhere        []bool,
+	LawHasAdmit        []bool,
+	LawUnrun           []string,
+	LawFootprintEmpty  []bool,
+	LawFootprintCaps   []string,
+	LawContextName     []string,
+	LawOwnerType       []uint32,
+	LawClaimIdx        []uint32,
+	LawParamWhereStart []uint32,
+	LawParamWhereCount []uint32,
+	WhereParamIdx      []uint32,
+	WhereExprNode      []uint32,
+	WhereFile          []uint32,
+	WhereIsAdmit       []bool,
+	WhereRefIdx        []uint32,
+	LawSometimesStart  []uint32,
+	LawSometimesCount  []uint32,
+	SometimesNodeKey   []uint32,
+	SometimesExpr      []string,
+	SometimesFile      []string,
+	SometimesLine      []uint32,
+	SometimesCol       []uint32,
+}
+
+// NewWitnessTable initializes empty SoA witness and law metadata tables.
+func NewWitnessTable() WitnessTable {
+	WitnessTable{
+		OpPkg:              []uint32{},
+		OpName:             []string{},
+		OpTypeIdx:          []uint32{},
+		OpMethodStart:      []uint32{},
+		OpMethodCount:      []uint32{},
+		OpMethodName:       []string{},
+		OpMethodTypeIdx:    []uint32{},
+		OpMethodMut:        []bool{},
+		OpByKey:            Map[string, uint32]{},
+		ClaimPkg:           []uint32{},
+		ClaimTypeIdx:       []uint32{},
+		ClaimOpTypeIdx:     []uint32{},
+		ClaimName:          []string{},
+		ClaimMethodStart:   []uint32{},
+		ClaimMethodCount:   []uint32{},
+		ClaimMethodName:    []string{},
+		ClaimMethodFnIdx:   []uint32{},
+		ClaimMethodMut:     []bool{},
+		ClaimByKey:         Map[string, uint32]{},
+		BuilderOpType:      []uint32{},
+		BuilderFnIdx:       []uint32{},
+		BuilderWorld:       []bool{},
+		CtxPkg:             []uint32{},
+		CtxName:            []string{},
+		CtxProvidesType:    []uint32{},
+		CtxEntryStart:      []uint32{},
+		CtxEntryCount:      []uint32{},
+		CtxEntryKey:        []string{},
+		CtxEntryFnIdx:      []uint32{},
+		CtxEntryReplace:    []bool{},
+		CtxByKey:           Map[string, uint32]{},
+		LawFnIdx:           []uint32{},
+		LawIdxByFn:         []uint32{},
+		LawQualified:       []string{},
+		LawIsRewrite:       []bool{},
+		LawIsSometimes:     []bool{},
+		LawHasWhere:        []bool{},
+		LawHasAdmit:        []bool{},
+		LawUnrun:           []string{},
+		LawFootprintEmpty:  []bool{},
+		LawFootprintCaps:   []string{},
+		LawContextName:     []string{},
+		LawOwnerType:       []uint32{},
+		LawClaimIdx:        []uint32{},
+		LawParamWhereStart: []uint32{},
+		LawParamWhereCount: []uint32{},
+		WhereParamIdx:      []uint32{},
+		WhereExprNode:      []uint32{},
+		WhereFile:          []uint32{},
+		WhereIsAdmit:       []bool{},
+		WhereRefIdx:        []uint32{},
+		LawSometimesStart:  []uint32{},
+		LawSometimesCount:  []uint32{},
+		SometimesNodeKey:   []uint32{},
+		SometimesExpr:      []string{},
+		SometimesFile:      []string{},
+		SometimesLine:      []uint32{},
+		SometimesCol:       []uint32{},
+	}
+}
+
+// RegisterOpInterface stores one operation interface declaration and its methods.
+func RegisterOpInterface(wt mut WitnessTable, pkg uint32, name string, typeIdx uint32, mNames []string, mTypes []uint32, mMuts []bool) uint32 {
+	let idx = uint32(wt.OpName.Len())
+	let start = uint32(wt.OpMethodName.Len())
+	for i in 0..mNames.Len() {
+		wt.OpMethodName = wt.OpMethodName.Append(mNames[i])
+		wt.OpMethodTypeIdx = wt.OpMethodTypeIdx.Append(if i < mTypes.Len() { mTypes[i] } else { TypeVoid })
+		wt.OpMethodMut = wt.OpMethodMut.Append(if i < mMuts.Len() { mMuts[i] } else { false })
+	}
+	wt.OpPkg = wt.OpPkg.Append(pkg)
+	wt.OpName = wt.OpName.Append(name)
+	wt.OpTypeIdx = wt.OpTypeIdx.Append(typeIdx)
+	wt.OpMethodStart = wt.OpMethodStart.Append(start)
+	wt.OpMethodCount = wt.OpMethodCount.Append(uint32(mNames.Len()))
+	wt.OpByKey = wt.OpByKey.Put("\(pkg):\(name)", idx)
+	idx
+}
+
+// RegisterClaim stores an `implements` binding from concrete typeIdx to opTypeIdx with method mappings.
+func RegisterClaim(wt mut WitnessTable, pkg uint32, name string, typeIdx uint32, opTypeIdx uint32, mNames []string, mFns []uint32, mMuts []bool) uint32 {
+	let idx = uint32(wt.ClaimName.Len())
+	let start = uint32(wt.ClaimMethodName.Len())
+	for i in 0..mNames.Len() {
+		wt.ClaimMethodName = wt.ClaimMethodName.Append(mNames[i])
+		wt.ClaimMethodFnIdx = wt.ClaimMethodFnIdx.Append(if i < mFns.Len() { mFns[i] } else { uint32(0xffffffff) })
+		wt.ClaimMethodMut = wt.ClaimMethodMut.Append(if i < mMuts.Len() { mMuts[i] } else { false })
+	}
+	wt.ClaimPkg = wt.ClaimPkg.Append(pkg)
+	wt.ClaimTypeIdx = wt.ClaimTypeIdx.Append(typeIdx)
+	wt.ClaimOpTypeIdx = wt.ClaimOpTypeIdx.Append(opTypeIdx)
+	wt.ClaimName = wt.ClaimName.Append(name)
+	wt.ClaimMethodStart = wt.ClaimMethodStart.Append(start)
+	wt.ClaimMethodCount = wt.ClaimMethodCount.Append(uint32(mNames.Len()))
+	wt.ClaimByKey = wt.ClaimByKey.Put("\(typeIdx)->\(opTypeIdx)", idx)
+	idx
+}
+
+// ResolveClaimMethod looks up methodName on claimIdx returning (fnIdx, mutatesReceiver, found).
+func ResolveClaimMethod(wt WitnessTable, claimIdx uint32, methodName string) (uint32, bool, bool) {
+	if int(claimIdx) >= wt.ClaimMethodStart.Len() {
+		return (uint32(0xffffffff), false, false)
+	}
+	let start = int(wt.ClaimMethodStart[int(claimIdx)])
+	let cnt = int(wt.ClaimMethodCount[int(claimIdx)])
+	for i in 0..cnt {
+		if wt.ClaimMethodName[start+i] == methodName {
+			return (wt.ClaimMethodFnIdx[start+i], wt.ClaimMethodMut[start+i], true)
+		}
+	}
+	(uint32(0xffffffff), false, false)
+}
+
+// RegisterBuilder records a builder function producing an operation interface value.
+func RegisterBuilder(wt mut WitnessTable, opType uint32, fnIdx uint32, world bool) {
+	wt.BuilderOpType = wt.BuilderOpType.Append(opType)
+	wt.BuilderFnIdx = wt.BuilderFnIdx.Append(fnIdx)
+	wt.BuilderWorld = wt.BuilderWorld.Append(world)
+}
+
+// FindBuilderForOp returns the builder function index and world flag for opType.
+func FindBuilderForOp(wt WitnessTable, opType uint32) (uint32, bool, bool) {
+	for i, ot in wt.BuilderOpType {
+		if ot == opType {
+			return (wt.BuilderFnIdx[i], wt.BuilderWorld[i], true)
+		}
+	}
+	(uint32(0xffffffff), false, false)
+}
+
+// RegisterContext records a named `context` declaration and its provider/entry bindings.
+func RegisterContext(wt mut WitnessTable, pkg uint32, name string, providesType uint32, keys []string, fnIdxs []uint32, replaces []bool) uint32 {
+	let idx = uint32(wt.CtxName.Len())
+	let start = uint32(wt.CtxEntryKey.Len())
+	for i in 0..keys.Len() {
+		wt.CtxEntryKey = wt.CtxEntryKey.Append(keys[i])
+		wt.CtxEntryFnIdx = wt.CtxEntryFnIdx.Append(if i < fnIdxs.Len() { fnIdxs[i] } else { uint32(0xffffffff) })
+		wt.CtxEntryReplace = wt.CtxEntryReplace.Append(if i < replaces.Len() { replaces[i] } else { false })
+	}
+	wt.CtxPkg = wt.CtxPkg.Append(pkg)
+	wt.CtxName = wt.CtxName.Append(name)
+	wt.CtxProvidesType = wt.CtxProvidesType.Append(providesType)
+	wt.CtxEntryStart = wt.CtxEntryStart.Append(start)
+	wt.CtxEntryCount = wt.CtxEntryCount.Append(uint32(keys.Len()))
+	wt.CtxByKey = wt.CtxByKey.Put("\(pkg):\(name)", idx)
+	idx
+}
+
+// LookupContext finds a named context registered in pkgIdx or any package matching name.
+func LookupContext(wt WitnessTable, pkg uint32, name string) (uint32, bool) {
+	match wt.CtxByKey.Get("\(pkg):\(name)") {
+	case option.Some{Value: idx}:
+		return (idx, true)
+	case option.None:
+	}
+	for i, cn in wt.CtxName {
+		if cn == name {
+			return (uint32(i), true)
+		}
+	}
+	(uint32(0xffffffff), false)
+}
+
+// FindLawMetaIndex returns the WitnessTable law index for fnIdx if registered.
+func FindLawMetaIndex(wt WitnessTable, fnIdx uint32) (uint32, bool) {
+	if int(fnIdx) >= wt.LawIdxByFn.Len() {
+		return (uint32(0), false)
+	}
+	let idx = wt.LawIdxByFn[int(fnIdx)]
+	if idx == uint32(0xffffffff) {
+		return (uint32(0), false)
+	}
+	(idx, true)
+}
+
+func exprMentionsAnyName(p syntax.Parsed, root dense.ID[syntax.Node], names []string) bool {
+	let mut hit = false
+	walkSyntaxNames(p, root, names, &hit)
+	hit
+}
+
+func walkSyntaxNames(p syntax.Parsed, node dense.ID[syntax.Node], names []string, hit mut bool) {
+	if *hit {
+		return
+	}
+	let kd = syntax.KindOf(p.Tree, node)
+	if kd == syntax.KIdent {
+		let txt = types.NameText(p, node)
+		for n in names {
+			if n == txt {
+				*hit = true
+				return
+			}
+		}
+		return
+	}
+	if kd == syntax.KParenExpr {
+		walkSyntaxNames(p, syntax.ParenExprOf(p.Tree, node).X, names, hit)
+		return
+	}
+	if kd == syntax.KUnaryExpr {
+		walkSyntaxNames(p, syntax.UnaryExprOf(p.Tree, node).X, names, hit)
+		return
+	}
+	if kd == syntax.KBinaryExpr {
+		let b = syntax.BinaryExprOf(p.Tree, node)
+		walkSyntaxNames(p, b.X, names, hit)
+		walkSyntaxNames(p, b.Y, names, hit)
+		return
+	}
+	if kd == syntax.KCallExpr {
+		let c = syntax.CallExprOf(p.Tree, node)
+		walkSyntaxNames(p, c.Fun, names, hit)
+		for i in 0..syntax.Len(c.Args) {
+			walkSyntaxNames(p, syntax.Item(p.Tree, c.Args, i), names, hit)
+		}
+		return
+	}
+	if kd == syntax.KSelectorExpr {
+		walkSyntaxNames(p, syntax.SelectorExprOf(p.Tree, node).X, names, hit)
+		return
+	}
+	if kd == syntax.KIndexExpr {
+		let ix = syntax.IndexExprOf(p.Tree, node)
+		walkSyntaxNames(p, ix.X, names, hit)
+		for i in 0..syntax.Len(ix.Indices) {
+			walkSyntaxNames(p, syntax.Item(p.Tree, ix.Indices, i), names, hit)
+		}
+		return
+	}
+}
+
+func collectOpCallsInNode(p syntax.Parsed, k expr.Pkg, file int, fs footprint.Facts, node dense.ID[syntax.Node], impureNames mut []string, seen mut []bool) {
+	let kd = syntax.KindOf(p.Tree, node)
+	if kd == syntax.KCallExpr {
+		let c = syntax.CallExprOf(p.Tree, node)
+		let fidx = footprint.Callee(k, file, node)
+		if fidx >= 0 && fidx < (*seen).Len() && !(*seen)[fidx] {
+			(*seen)[fidx] = true
+			if footprint.Caps(fs, fidx).Len() > 0 {
+				if fidx < k.Fns.Len() {
+					let fname = types.NameText(k.Parsed[k.Fns[fidx].File], k.Fns[fidx].Name)
+					*impureNames = (*impureNames).Append(fname)
+				}
+			}
+		}
+		collectOpCallsInNode(p, k, file, fs, c.Fun, impureNames, seen)
+		for i in 0..syntax.Len(c.Args) {
+			collectOpCallsInNode(p, k, file, fs, syntax.Item(p.Tree, c.Args, i), impureNames, seen)
+		}
+		match dense.Unpack(c.Trailing) {
+		case option.Some{Value: tr}:
+			collectOpCallsInNode(p, k, file, fs, tr, impureNames, seen)
+		case option.None:
+		}
+		return
+	}
+	if kd == syntax.KBlockStmt {
+		let bl = syntax.BlockStmtOf(p.Tree, node)
+		for i in 0..syntax.Len(bl.List) {
+			collectOpCallsInNode(p, k, file, fs, syntax.Item(p.Tree, bl.List, i), impureNames, seen)
+		}
+		return
+	}
+	if kd == syntax.KIfStmt {
+		let s = syntax.IfStmtOf(p.Tree, node)
+		collectOpCallsInNode(p, k, file, fs, s.Cond, impureNames, seen)
+		collectOpCallsInNode(p, k, file, fs, s.Body, impureNames, seen)
+		match dense.Unpack(s.Else) {
+		case option.Some{Value: el}:
+			collectOpCallsInNode(p, k, file, fs, el, impureNames, seen)
+		case option.None:
+		}
+		return
+	}
+	if kd == syntax.KExprStmt {
+		collectOpCallsInNode(p, k, file, fs, syntax.ExprStmtOf(p.Tree, node).X, impureNames, seen)
+		return
+	}
+	if kd == syntax.KAssertStmt {
+		collectOpCallsInNode(p, k, file, fs, syntax.AssertStmtOf(p.Tree, node).X, impureNames, seen)
+		return
+	}
+	if kd == syntax.KAlwaysStmt {
+		collectOpCallsInNode(p, k, file, fs, syntax.AlwaysStmtOf(p.Tree, node).X, impureNames, seen)
+		return
+	}
+	if kd == syntax.KSometimesStmt {
+		collectOpCallsInNode(p, k, file, fs, syntax.SometimesStmtOf(p.Tree, node).X, impureNames, seen)
+		return
+	}
+	if kd == syntax.KReturnStmt {
+		match dense.Unpack(syntax.ReturnStmtOf(p.Tree, node).Result) {
+		case option.Some{Value: r}:
+			collectOpCallsInNode(p, k, file, fs, r, impureNames, seen)
+		case option.None:
+		}
+		return
+	}
+	if kd == syntax.KDeclStmt {
+		let dl = syntax.DeclStmtOf(p.Tree, node).Decl
+		if syntax.KindOf(p.Tree, dl) == syntax.KVarDecl {
+			let vs = syntax.VarSpecOf(p.Tree, syntax.VarDeclOf(p.Tree, dl).Spec)
+			match dense.Unpack(vs.Value) {
+			case option.Some{Value: v}:
+				collectOpCallsInNode(p, k, file, fs, v, impureNames, seen)
+			case option.None:
+			}
+		}
+		return
+	}
+	if kd == syntax.KAssignStmt {
+		let assignSt = syntax.AssignStmtOf(p.Tree, node)
+		collectOpCallsInNode(p, k, file, fs, assignSt.Rhs, impureNames, seen)
+		return
+	}
+	if kd == syntax.KForStmt {
+		let fsStmt = syntax.ForStmtOf(p.Tree, node)
+		match dense.Unpack(fsStmt.Cond) {
+		case option.Some{Value: c}:
+			collectOpCallsInNode(p, k, file, fs, c, impureNames, seen)
+		case option.None:
+		}
+		collectOpCallsInNode(p, k, file, fs, fsStmt.Body, impureNames, seen)
+		return
+	}
+	if kd == syntax.KRangeStmt {
+		let rs = syntax.RangeStmtOf(p.Tree, node)
+		collectOpCallsInNode(p, k, file, fs, rs.X, impureNames, seen)
+		collectOpCallsInNode(p, k, file, fs, rs.Body, impureNames, seen)
+		return
+	}
+	if kd == syntax.KParenExpr {
+		collectOpCallsInNode(p, k, file, fs, syntax.ParenExprOf(p.Tree, node).X, impureNames, seen)
+		return
+	}
+	if kd == syntax.KUnaryExpr {
+		collectOpCallsInNode(p, k, file, fs, syntax.UnaryExprOf(p.Tree, node).X, impureNames, seen)
+		return
+	}
+	if kd == syntax.KBinaryExpr {
+		let b = syntax.BinaryExprOf(p.Tree, node)
+		collectOpCallsInNode(p, k, file, fs, b.X, impureNames, seen)
+		collectOpCallsInNode(p, k, file, fs, b.Y, impureNames, seen)
+		return
+	}
+	if kd == syntax.KTryExpr {
+		collectOpCallsInNode(p, k, file, fs, syntax.TryExprOf(p.Tree, node).X, impureNames, seen)
+		return
+	}
+	if kd == syntax.KCatchExpr {
+		let ce = syntax.CatchExprOf(p.Tree, node)
+		collectOpCallsInNode(p, k, file, fs, ce.X, impureNames, seen)
+		return
+	}
+	if kd == syntax.KFuncLit {
+		let fl = syntax.FuncLitOf(p.Tree, node)
+		collectOpCallsInNode(p, k, file, fs, fl.Body, impureNames, seen)
+		return
+	}
+}
+
+func collectSometimesInNode(prog Program, pkgIdx uint32, file int, p syntax.Parsed, node dense.ID[syntax.Node], wt mut WitnessTable) {
+	let kd = syntax.KindOf(p.Tree, node)
+	if kd == syntax.KSometimesStmt {
+		let sm = syntax.SometimesStmtOf(p.Tree, node)
+		let xPos = syntax.NodePos(p, sm.X)
+		let xEnd = syntax.NodeEnd(p, sm.X)
+		let src = syntax.SourceOf(p)
+		let exprText = if xPos >= 0 && xEnd <= src.Len() && xPos <= xEnd { src[xPos:xEnd] } else { "" }
+		let mut fname = ""
+		let mut lineNo = uint32(1)
+		let mut colNo = uint32(1)
+		if int(pkgIdx) < prog.FileNames.Len() && file < prog.FileNames[int(pkgIdx)].Len() {
+			fname = prog.FileNames[int(pkgIdx)][file]
+			let pos = syntax.PositionOf(prog.FileLines[int(pkgIdx)][file], syntax.NodePos(p, node))
+			lineNo = uint32(pos.Line)
+			colNo = uint32(pos.Column)
+		}
+		wt.SometimesNodeKey = wt.SometimesNodeKey.Append((uint32(file) << uint32(20)) | uint32(dense.Index(node)))
+		wt.SometimesExpr = wt.SometimesExpr.Append(exprText)
+		wt.SometimesFile = wt.SometimesFile.Append(fname)
+		wt.SometimesLine = wt.SometimesLine.Append(lineNo)
+		wt.SometimesCol = wt.SometimesCol.Append(colNo)
+		return
+	}
+	if kd == syntax.KBlockStmt {
+		let bl = syntax.BlockStmtOf(p.Tree, node)
+		for i in 0..syntax.Len(bl.List) {
+			collectSometimesInNode(prog, pkgIdx, file, p, syntax.Item(p.Tree, bl.List, i), wt)
+		}
+		return
+	}
+	if kd == syntax.KIfStmt {
+		let s = syntax.IfStmtOf(p.Tree, node)
+		collectSometimesInNode(prog, pkgIdx, file, p, s.Body, wt)
+		match dense.Unpack(s.Else) {
+		case option.Some{Value: el}:
+			collectSometimesInNode(prog, pkgIdx, file, p, el, wt)
+		case option.None:
+		}
+		return
+	}
+	if kd == syntax.KForStmt {
+		collectSometimesInNode(prog, pkgIdx, file, p, syntax.ForStmtOf(p.Tree, node).Body, wt)
+		return
+	}
+	if kd == syntax.KRangeStmt {
+		collectSometimesInNode(prog, pkgIdx, file, p, syntax.RangeStmtOf(p.Tree, node).Body, wt)
+		return
+	}
+}
+
+// ExtractWitnessMetadata populates WitnessTable and RefinementTable from a checked load.Program.
+func ExtractWitnessMetadata(prog Program, loaded load.Program, wt mut WitnessTable, refTab mut RefinementTable) {
+	for i in 0..prog.Fns.Len() {
+		let _ = i
+		wt.LawIdxByFn = wt.LawIdxByFn.Append(uint32(0xffffffff))
+	}
+	for uIdx in 0..loaded.Loaded.Len() {
+		let typed = load.TypeAt(loaded, uIdx)
+		let pkgIdx = uint32(uIdx)
+		let mut sCopy = typed.S
+		let refs = facts.Refinements(&sCopy, typed.K)
+		for rf in refs {
+			match rf.R {
+			case option.Some{Value: ref}:
+				let p = typed.K.Parsed[rf.File]
+				if !p.Failed {
+					let tname = types.NameText(p, rf.Name)
+					let tid = LookupTypeByKey(prog.Types, LookupDeclKey(pkgIdx, tname, []uint32{}))
+					if tid != TypeVoid {
+						let under = UnwrapType(prog.Types, tid)
+						AddRefinement(refTab, tid, under, ref)
+					}
+				}
+			case option.None:
+			}
+		}
+		let fp = footprint.Of(typed.S, typed.K, typed.T)
+		for f, p in typed.K.Parsed {
+			if p.Failed {
+				continue
+			}
+			let root = syntax.Root(p.Tree)
+			if syntax.KindOf(p.Tree, root) == syntax.KFile {
+				let decls = syntax.FileOf(p.Tree, root).Decls
+				for i in 0..syntax.Len(decls) {
+					let dc = syntax.Item(p.Tree, decls, i)
+					let dk = syntax.KindOf(p.Tree, dc)
+					if dk == syntax.KTypeDecl {
+						let td = syntax.TypeDeclOf(p.Tree, dc)
+						let tname = types.NameText(p, td.Name)
+						match dense.Unpack(td.Spec) {
+						case option.Some{Value: sp}:
+							if syntax.KindOf(p.Tree, sp) == syntax.KInterfaceType {
+								let ifc = syntax.InterfaceTypeOf(p.Tree, sp)
+								let mut mNames = []string{}
+								let mut mTypes = []uint32{}
+								let mut mMuts = []bool{}
+								for mIdx in 0..syntax.Len(ifc.Members) {
+									let mem = syntax.Item(p.Tree, ifc.Members, mIdx)
+									if syntax.KindOf(p.Tree, mem) == syntax.KField {
+										let fld = syntax.FieldOf(p.Tree, mem)
+										for ni in 0..syntax.Len(fld.Names) {
+											let mn = types.NameText(p, syntax.Item(p.Tree, fld.Names, ni))
+											mNames = mNames.Append(mn)
+											mTypes = mTypes.Append(TypeVoid)
+											mMuts = mMuts.Append(fld.Mut >= 0)
+										}
+									}
+								}
+								let tid = LookupTypeByKey(prog.Types, LookupDeclKey(pkgIdx, tname, []uint32{}))
+								RegisterOpInterface(wt, pkgIdx, tname, tid, mNames, mTypes, mMuts)
+							}
+						case option.None:
+						}
+						for ci in 0..syntax.Len(td.Implements) {
+							let opNode = syntax.Item(p.Tree, td.Implements, ci)
+							let opName = if syntax.KindOf(p.Tree, opNode) == syntax.KIdent {
+								types.NameText(p, opNode)
+							} else {
+								""
+							}
+							if opName != "" {
+								let concT = LookupTypeByKey(prog.Types, LookupDeclKey(pkgIdx, tname, []uint32{}))
+								let opT = LookupTypeByKey(prog.Types, LookupDeclKey(pkgIdx, opName, []uint32{}))
+								match wt.OpByKey.Get("\(pkgIdx):\(opName)") {
+								case option.Some{Value: opIdx}:
+									let mStart = int(wt.OpMethodStart[int(opIdx)])
+									let mCnt = int(wt.OpMethodCount[int(opIdx)])
+									let mut cNames = []string{}
+									let mut cFns = []uint32{}
+									let mut cMuts = []bool{}
+									for mi in 0..mCnt {
+										let mn = wt.OpMethodName[mStart+mi]
+										cNames = cNames.Append(mn)
+										cMuts = cMuts.Append(wt.OpMethodMut[mStart+mi])
+										let mut fnResolved = uint32(0xffffffff)
+										match prog.FnByKey.Get("\(pkgIdx):\(tname).\(mn)") {
+										case option.Some{Value: found}:
+											fnResolved = found
+										case option.None:
+										}
+										cFns = cFns.Append(fnResolved)
+									}
+									RegisterClaim(wt, pkgIdx, tname, concT, opT, cNames, cFns, cMuts)
+								case option.None:
+								}
+							}
+						}
+					} else if dk == syntax.KContextDecl {
+						let cd = syntax.ContextDeclOf(p.Tree, dc)
+						let cname = types.NameText(p, cd.Name)
+						let cb = syntax.ContextBodyOf(p.Tree, cd.Body)
+						let mut keys = []string{}
+						let mut fns = []uint32{}
+						let mut replaces = []bool{}
+						for ei in 0..syntax.Len(cb.Entries) {
+							let ent = syntax.ContextEntryOf(p.Tree, syntax.Item(p.Tree, cb.Entries, ei))
+							let kname = types.NameText(p, ent.Key)
+							keys = keys.Append(kname)
+							replaces = replaces.Append(ent.Replace >= 0)
+							fns = fns.Append(uint32(0xffffffff))
+						}
+						RegisterContext(wt, pkgIdx, cname, TypeVoid, keys, fns, replaces)
+					} else if dk == syntax.KLawDecl {
+						let ld = syntax.LawDeclOf(p.Tree, dc)
+						let lname = types.NameText(p, ld.Name)
+						let mut fnIdx = uint32(0xffffffff)
+						for fi, fm in prog.Fns {
+							if fm.Pkg == pkgIdx && fm.Kind == FnKindLaw && fm.Name == lname && int(fm.File) == f && fm.Node == uint32(dense.Index(dc)) {
+								fnIdx = uint32(fi)
+								break
+							}
+						}
+						if fnIdx == uint32(0xffffffff) {
+							match prog.FnByKey.Get("\(pkgIdx):\(lname)") {
+							case option.Some{Value: found}:
+								fnIdx = found
+							case option.None:
+							}
+						}
+						if fnIdx == uint32(0xffffffff) {
+							continue
+						}
+						let mut paramNames = []string{}
+						let mut hasWhere = false
+						let mut hasAdmit = false
+						let wStart = uint32(wt.WhereParamIdx.Len())
+						let mut wCount = uint32(0)
+						match dense.Unpack(ld.Params) {
+						case option.Some{Value: fl}:
+							let flds = syntax.FieldListOf(p.Tree, fl)
+							for fi in 0..syntax.Len(flds.List) {
+								let fld = syntax.FieldOf(p.Tree, syntax.Item(p.Tree, flds.List, fi))
+								let mut groupNames = []string{}
+								for ni in 0..syntax.Len(fld.Names) {
+									groupNames = groupNames.Append(types.NameText(p, syntax.Item(p.Tree, fld.Names, ni)))
+								}
+								let hasW = match dense.Unpack(fld.Where) {
+								case option.Some{Value: wExpr}:
+									hasWhere = true
+									let isAdmit = exprMentionsAnyName(p, wExpr, paramNames)
+									if isAdmit {
+										hasAdmit = true
+									}
+									for gi in 0..groupNames.Len() {
+										let pIdx = uint32(paramNames.Len() + gi)
+										wt.WhereParamIdx = wt.WhereParamIdx.Append(pIdx)
+										wt.WhereExprNode = wt.WhereExprNode.Append(uint32(dense.Index(wExpr)))
+										wt.WhereFile = wt.WhereFile.Append(uint32(f))
+										wt.WhereIsAdmit = wt.WhereIsAdmit.Append(isAdmit)
+										wt.WhereRefIdx = wt.WhereRefIdx.Append(uint32(0xffffffff))
+										wCount = wCount + uint32(1)
+									}
+									true
+								case option.None:
+									false
+								}
+								let _ = hasW
+								for gn in groupNames {
+									paramNames = paramNames.Append(gn)
+								}
+							}
+						case option.None:
+						}
+						let mut impure = []string{}
+						let mut seen = slices.WithCapacity[bool](typed.K.Fns.Len())
+						for si in 0..typed.K.Fns.Len() {
+							let _ = si
+							seen = seen.Append(false)
+						}
+						let smStart = uint32(wt.SometimesNodeKey.Len())
+						match dense.Unpack(ld.Body) {
+						case option.Some{Value: body}:
+							collectOpCallsInNode(p, typed.K, f, fp, body, &impure, &seen)
+							collectSometimesInNode(prog, pkgIdx, f, p, body, wt)
+						case option.None:
+						}
+						let smCount = uint32(wt.SometimesNodeKey.Len()) - smStart
+						let isSometimes = ld.Quant >= 0 && syntax.TokText(p, ld.Quant) == "sometimes"
+						let lidx = uint32(wt.LawFnIdx.Len())
+						wt.LawFnIdx = wt.LawFnIdx.Append(fnIdx)
+						wt.LawIdxByFn[int(fnIdx)] = lidx
+						wt.LawQualified = wt.LawQualified.Append("law " + lname)
+						wt.LawIsRewrite = wt.LawIsRewrite.Append(ld.Rewrite)
+						wt.LawIsSometimes = wt.LawIsSometimes.Append(isSometimes)
+						wt.LawHasWhere = wt.LawHasWhere.Append(hasWhere)
+						wt.LawHasAdmit = wt.LawHasAdmit.Append(hasAdmit)
+						wt.LawUnrun = wt.LawUnrun.Append(if impure.Len() > 0 { "calls effectful function " + impure[0] } else { "" })
+						wt.LawFootprintEmpty = wt.LawFootprintEmpty.Append(impure.Len() == 0)
+						wt.LawFootprintCaps = wt.LawFootprintCaps.Append(strings.Join(impure, ", "))
+						wt.LawContextName = wt.LawContextName.Append("")
+						wt.LawOwnerType = wt.LawOwnerType.Append(TypeVoid)
+						wt.LawClaimIdx = wt.LawClaimIdx.Append(uint32(0xffffffff))
+						wt.LawParamWhereStart = wt.LawParamWhereStart.Append(wStart)
+						wt.LawParamWhereCount = wt.LawParamWhereCount.Append(wCount)
+						wt.LawSometimesStart = wt.LawSometimesStart.Append(smStart)
+						wt.LawSometimesCount = wt.LawSometimesCount.Append(smCount)
+					}
+				}
+			}
+		}
+	}
+}
+
+law OpCellAllocationRoundtripsAndMutationPersists(v uint64) {
+	let mut oa = NewOpArena()
+	let prog = NewProgram()
+	let initVal = MakeIntVal(prog.Types, TypeInt, v)
+	let handle = AllocOperation(&oa, TypeInt, uint32(0), uint32(0), TypeInt, initVal)
+	let (got1, _, cidx, ok1) = ReadOperationCell(oa, handle.Aux)
+	assert ok1
+	assert cidx == uint32(0)
+	assert got1.Data == v
+	let nextVal = MakeIntVal(prog.Types, TypeInt, v+uint64(1))
+	UpdateOperationCell(&oa, handle.Aux, nextVal)
+	let (got2, _, _, ok2) = ReadOperationCell(oa, handle.Aux)
+	assert ok2
+	assert got2.Data == v+uint64(1)
+	true
+}
+
+test WitnessTableClaimMethodAndContextLookup {
+	let mut wt = NewWitnessTable()
+	let opIdx = RegisterOpInterface(&wt, uint32(0), "Counter", TypeInt, []string{"Inc"}, []uint32{TypeVoid}, []bool{true})
+	assert opIdx == uint32(0)
+	let cIdx = RegisterClaim(&wt, uint32(0), "MemCounter", TypeInt, TypeInt, []string{"Inc"}, []uint32{uint32(42)}, []bool{true})
+	assert cIdx == uint32(0)
+	let (fnIdx, isMut, ok) = ResolveClaimMethod(wt, cIdx, "Inc")
+	assert ok
+	assert fnIdx == uint32(42)
+	assert isMut
+	let ctxIdx = RegisterContext(&wt, uint32(0), "MemCtx", TypeInt, []string{"counter"}, []uint32{uint32(7)}, []bool{false})
+	let (foundCtx, okCtx) = LookupContext(wt, uint32(0), "MemCtx")
+	assert okCtx
+	assert foundCtx == ctxIdx
+}

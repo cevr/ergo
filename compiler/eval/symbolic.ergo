@@ -1,0 +1,361 @@
+import slices
+import strings
+
+// SymbolicCases bounds enumerated cases during symbolic proof runs.
+let SymbolicCases = uint32(65536)
+
+// TermSymbol identifies an uninterpreted symbolic parameter or field placeholder.
+let TermSymbol = uint8(1)
+
+// TermExt identifies an uninterpreted call to a rowless pure Go function.
+let TermExt = uint8(2)
+
+// TermCat identifies a normalized associative string or slice concatenation tree.
+let TermCat = uint8(3)
+
+// TermChunk identifies a run of known elements inside a slice concatenation.
+let TermChunk = uint8(4)
+
+// TermLit identifies a known concrete value inside a symbolic concatenation tree.
+let TermLit = uint8(5)
+
+// SymPool stores symbolic terms and normal-form concatenations in flat unsigned SoA columns.
+type SymPool {
+	Tag        []uint8,
+	TypeIdx    []uint32,
+	Text       []string,
+	FnIdx      []uint32,
+	IsSlice    []bool,
+	ArgStart   []uint32,
+	ArgCount   []uint32,
+	ArgTerms   []uint32,
+	LitVal     []Val,
+	ChunkStart []uint32,
+	ChunkCount []uint32,
+	ChunkElems []Val,
+}
+
+// NewSymPool constructs an empty symbolic term pool.
+func NewSymPool() SymPool {
+	SymPool{
+		Tag:        []uint8{},
+		TypeIdx:    []uint32{},
+		Text:       []string{},
+		FnIdx:      []uint32{},
+		IsSlice:    []bool{},
+		ArgStart:   []uint32{},
+		ArgCount:   []uint32{},
+		ArgTerms:   []uint32{},
+		LitVal:     []Val{},
+		ChunkStart: []uint32{},
+		ChunkCount: []uint32{},
+		ChunkElems: []Val{},
+	}
+}
+
+func appendSymEntry(sp mut SymPool, tag uint8, typeIdx uint32, text string, fnIdx uint32, isSlice bool, lit Val) uint32 {
+	let id = uint32(sp.Tag.Len())
+	sp.Tag = sp.Tag.Append(tag)
+	sp.TypeIdx = sp.TypeIdx.Append(typeIdx)
+	sp.Text = sp.Text.Append(text)
+	sp.FnIdx = sp.FnIdx.Append(fnIdx)
+	sp.IsSlice = sp.IsSlice.Append(isSlice)
+	sp.ArgStart = sp.ArgStart.Append(uint32(0))
+	sp.ArgCount = sp.ArgCount.Append(uint32(0))
+	sp.LitVal = sp.LitVal.Append(lit)
+	sp.ChunkStart = sp.ChunkStart.Append(uint32(0))
+	sp.ChunkCount = sp.ChunkCount.Append(uint32(0))
+	id
+}
+
+// AllocSymSymbol interns a symbolic parameter placeholder with name and typeIdx.
+func AllocSymSymbol(sp mut SymPool, name string, typeIdx uint32) uint32 {
+	appendSymEntry(sp, TermSymbol, typeIdx, name, uint32(0xffffffff), false, UnitVal())
+}
+
+// AllocSymExt constructs an uninterpreted external function application term.
+func AllocSymExt(sp mut SymPool, fnIdx uint32, args []uint32, resType uint32) uint32 {
+	let start = uint32(sp.ArgTerms.Len())
+	for a in args {
+		sp.ArgTerms = sp.ArgTerms.Append(a)
+	}
+	let id = appendSymEntry(sp, TermExt, resType, "", fnIdx, false, UnitVal())
+	sp.ArgStart[int(id)] = start
+	sp.ArgCount[int(id)] = uint32(args.Len())
+	id
+}
+
+// AllocSymLit wraps a concrete scalar or value into a symbolic term entry.
+func AllocSymLit(sp mut SymPool, arena ValArena, v Val) uint32 {
+	let txt = if v.Tag == TagStr { ReadStr(arena, v) } else { "" }
+	appendSymEntry(sp, TermLit, v.Type, txt, uint32(0xffffffff), false, v)
+}
+
+// AllocSymChunk constructs a slice chunk term from known elements.
+func AllocSymChunk(sp mut SymPool, elems []Val, sliceType uint32) uint32 {
+	let start = uint32(sp.ChunkElems.Len())
+	for e in elems {
+		sp.ChunkElems = sp.ChunkElems.Append(e)
+	}
+	let id = appendSymEntry(sp, TermChunk, sliceType, "", uint32(0xffffffff), true, UnitVal())
+	sp.ChunkStart[int(id)] = start
+	sp.ChunkCount[int(id)] = uint32(elems.Len())
+	id
+}
+
+func appendNormStringPart(sp mut SymPool, arena mut ValArena, parts mut []uint32, tid uint32, typeIdx uint32) {
+	let tag = sp.Tag[int(tid)]
+	if tag == TermCat && !sp.IsSlice[int(tid)] {
+		let st = int(sp.ArgStart[int(tid)])
+		let cnt = int(sp.ArgCount[int(tid)])
+		for i in 0..cnt {
+			appendNormStringPart(sp, arena, parts, sp.ArgTerms[st+i], typeIdx)
+		}
+		return
+	}
+	if tag == TermLit && sp.LitVal[int(tid)].Tag == TagStr {
+		let s = sp.Text[int(tid)]
+		if s == "" {
+			return
+		}
+		let n = (*parts).Len()
+		if n > 0 {
+			let prevId = (*parts)[n-1]
+			if sp.Tag[int(prevId)] == TermLit && sp.LitVal[int(prevId)].Tag == TagStr {
+				let merged = sp.Text[int(prevId)] + s
+				let litVal = AllocStrVal(arena, typeIdx, merged)
+				(*parts)[n-1] = AllocSymLit(sp, *arena, litVal)
+				return
+			}
+		}
+	}
+	*parts = (*parts).Append(tid)
+}
+
+// ConcatSymStrings concatenates symbolic or string terms a and b in associative normal form.
+func ConcatSymStrings(sp mut SymPool, arena mut ValArena, a uint32, b uint32, typeIdx uint32) uint32 {
+	let mut parts = []uint32{}
+	appendNormStringPart(sp, arena, &parts, a, typeIdx)
+	appendNormStringPart(sp, arena, &parts, b, typeIdx)
+	if parts.Len() == 0 {
+		return AllocSymLit(sp, *arena, AllocStrVal(arena, typeIdx, ""))
+	}
+	if parts.Len() == 1 {
+		return parts[0]
+	}
+	let start = uint32(sp.ArgTerms.Len())
+	for p in parts {
+		sp.ArgTerms = sp.ArgTerms.Append(p)
+	}
+	let id = appendSymEntry(sp, TermCat, typeIdx, "", uint32(0xffffffff), false, UnitVal())
+	sp.ArgStart[int(id)] = start
+	sp.ArgCount[int(id)] = uint32(parts.Len())
+	id
+}
+
+func appendNormSlicePart(sp mut SymPool, parts mut []uint32, tid uint32, sliceType uint32) {
+	let tag = sp.Tag[int(tid)]
+	if tag == TermCat && sp.IsSlice[int(tid)] {
+		let st = int(sp.ArgStart[int(tid)])
+		let cnt = int(sp.ArgCount[int(tid)])
+		for i in 0..cnt {
+			appendNormSlicePart(sp, parts, sp.ArgTerms[st+i], sliceType)
+		}
+		return
+	}
+	if tag == TermChunk {
+		let cnt = int(sp.ChunkCount[int(tid)])
+		if cnt == 0 {
+			return
+		}
+		let n = (*parts).Len()
+		if n > 0 {
+			let prevId = (*parts)[n-1]
+			if sp.Tag[int(prevId)] == TermChunk {
+				let ps = int(sp.ChunkStart[int(prevId)])
+				let pc = int(sp.ChunkCount[int(prevId)])
+				let cs = int(sp.ChunkStart[int(tid)])
+				let mut combined = slices.WithCapacity[Val](pc + cnt)
+				for i in 0..pc {
+					combined = combined.Append(sp.ChunkElems[ps+i])
+				}
+				for i in 0..cnt {
+					combined = combined.Append(sp.ChunkElems[cs+i])
+				}
+				(*parts)[n-1] = AllocSymChunk(sp, combined, sliceType)
+				return
+			}
+		}
+	}
+	*parts = (*parts).Append(tid)
+}
+
+// ConcatSymSlices appends symbolic or slice term b onto a in associative normal form.
+func ConcatSymSlices(sp mut SymPool, a uint32, b uint32, sliceType uint32) uint32 {
+	let mut parts = []uint32{}
+	appendNormSlicePart(sp, &parts, a, sliceType)
+	appendNormSlicePart(sp, &parts, b, sliceType)
+	if parts.Len() == 0 {
+		return AllocSymChunk(sp, []Val{}, sliceType)
+	}
+	if parts.Len() == 1 {
+		return parts[0]
+	}
+	let start = uint32(sp.ArgTerms.Len())
+	for p in parts {
+		sp.ArgTerms = sp.ArgTerms.Append(p)
+	}
+	let id = appendSymEntry(sp, TermCat, sliceType, "", uint32(0xffffffff), true, UnitVal())
+	sp.ArgStart[int(id)] = start
+	sp.ArgCount[int(id)] = uint32(parts.Len())
+	id
+}
+
+// SymTermText formats symbolic term tid cleanly matching symbolic.go.
+func SymTermText(prog Program, arena ValArena, sp SymPool, tid uint32) string {
+	if int(tid) >= sp.Tag.Len() {
+		return ""
+	}
+	let tag = sp.Tag[int(tid)]
+	if tag == TermSymbol {
+		return sp.Text[int(tid)]
+	}
+	if tag == TermLit {
+		return DescribeVal(prog.Types, arena, sp.LitVal[int(tid)])
+	}
+	if tag == TermExt {
+		let fi = int(sp.FnIdx[int(tid)])
+		let fnName = if fi >= 0 && fi < prog.Fns.Len() { prog.Fns[fi].Name } else { "ext" }
+		let st = int(sp.ArgStart[int(tid)])
+		let cnt = int(sp.ArgCount[int(tid)])
+		let mut parts = slices.WithCapacity[string](cnt)
+		for i in 0..cnt {
+			parts = parts.Append(SymTermText(prog, arena, sp, sp.ArgTerms[st+i]))
+		}
+		return fnName + "(" + strings.Join(parts, ", ") + ")"
+	}
+	if tag == TermChunk {
+		let st = int(sp.ChunkStart[int(tid)])
+		let cnt = int(sp.ChunkCount[int(tid)])
+		let mut parts = slices.WithCapacity[string](cnt)
+		for i in 0..cnt {
+			parts = parts.Append(DescribeVal(prog.Types, arena, sp.ChunkElems[st+i]))
+		}
+		return "[" + strings.Join(parts, ", ") + "]"
+	}
+	if tag == TermCat {
+		let st = int(sp.ArgStart[int(tid)])
+		let cnt = int(sp.ArgCount[int(tid)])
+		let mut parts = slices.WithCapacity[string](cnt)
+		for i in 0..cnt {
+			parts = parts.Append(SymTermText(prog, arena, sp, sp.ArgTerms[st+i]))
+		}
+		return strings.Join(parts, " + ")
+	}
+	""
+}
+
+// SymTermsEqual checks structural and bit-identical equivalence of two normal-form symbolic terms.
+func SymTermsEqual(arena ValArena, sp SymPool, a uint32, b uint32) bool {
+	if a == b {
+		return true
+	}
+	if int(a) >= sp.Tag.Len() || int(b) >= sp.Tag.Len() {
+		return false
+	}
+	let ta = sp.Tag[int(a)]
+	let tb = sp.Tag[int(b)]
+	if ta != tb {
+		return false
+	}
+	if ta == TermSymbol {
+		return sp.Text[int(a)] == sp.Text[int(b)] && sp.TypeIdx[int(a)] == sp.TypeIdx[int(b)]
+	}
+	if ta == TermLit {
+		return IdenticalVals(arena, sp.LitVal[int(a)], sp.LitVal[int(b)])
+	}
+	if ta == TermExt {
+		if sp.FnIdx[int(a)] != sp.FnIdx[int(b)] {
+			return false
+		}
+		let sa = int(sp.ArgStart[int(a)])
+		let ca = int(sp.ArgCount[int(a)])
+		let sb = int(sp.ArgStart[int(b)])
+		let cb = int(sp.ArgCount[int(b)])
+		if ca != cb {
+			return false
+		}
+		for i in 0..ca {
+			if !SymTermsEqual(arena, sp, sp.ArgTerms[sa+i], sp.ArgTerms[sb+i]) {
+				return false
+			}
+		}
+		return true
+	}
+	if ta == TermChunk {
+		let sa = int(sp.ChunkStart[int(a)])
+		let ca = int(sp.ChunkCount[int(a)])
+		let sb = int(sp.ChunkStart[int(b)])
+		let cb = int(sp.ChunkCount[int(b)])
+		if ca != cb {
+			return false
+		}
+		for i in 0..ca {
+			if !IdenticalVals(arena, sp.ChunkElems[sa+i], sp.ChunkElems[sb+i]) {
+				return false
+			}
+		}
+		return true
+	}
+	if ta == TermCat {
+		if sp.IsSlice[int(a)] != sp.IsSlice[int(b)] {
+			return false
+		}
+		let sa = int(sp.ArgStart[int(a)])
+		let ca = int(sp.ArgCount[int(a)])
+		let sb = int(sp.ArgStart[int(b)])
+		let cb = int(sp.ArgCount[int(b)])
+		if ca != cb {
+			return false
+		}
+		for i in 0..ca {
+			if !SymTermsEqual(arena, sp, sp.ArgTerms[sa+i], sp.ArgTerms[sb+i]) {
+				return false
+			}
+		}
+		return true
+	}
+	false
+}
+
+law SymbolicConcatAssociativeAndNormalized(a string, b string) {
+	let prog = NewProgram()
+	let mut arena = prog.Arena
+	let mut sp = NewSymPool()
+	let sx = AllocSymSymbol(&sp, "x", TypeString)
+	let la = AllocSymLit(&sp, arena, AllocStrVal(&arena, TypeString, a))
+	let lb = AllocSymLit(&sp, arena, AllocStrVal(&arena, TypeString, b))
+	let left = ConcatSymStrings(&sp, &arena, ConcatSymStrings(&sp, &arena, la, lb, TypeString), sx, TypeString)
+	let right = ConcatSymStrings(&sp, &arena, la, ConcatSymStrings(&sp, &arena, lb, sx, TypeString), TypeString)
+	assert SymTermsEqual(arena, sp, left, right)
+	true
+}
+
+test SymbolicEmptyStringAndSliceChunksNormalize {
+	let prog = NewProgram()
+	let mut arena = prog.Arena
+	let mut sp = NewSymPool()
+	let sx = AllocSymSymbol(&sp, "s", TypeString)
+	let empty = AllocSymLit(&sp, arena, AllocStrVal(&arena, TypeString, ""))
+	let res = ConcatSymStrings(&sp, &arena, empty, ConcatSymStrings(&sp, &arena, sx, empty, TypeString), TypeString)
+	assert res == sx
+	let xs = AllocSymSymbol(&sp, "xs", TypeBytes)
+	let c1 = AllocSymChunk(&sp, []Val{MakeIntVal(prog.Types, TypeInt, uint64(1))}, TypeBytes)
+	let c2 = AllocSymChunk(&sp, []Val{MakeIntVal(prog.Types, TypeInt, uint64(2))}, TypeBytes)
+	let emptySlice = AllocSymChunk(&sp, []Val{}, TypeBytes)
+	let singleSlice = ConcatSymSlices(&sp, emptySlice, ConcatSymSlices(&sp, xs, emptySlice, TypeBytes), TypeBytes)
+	assert singleSlice == xs
+	let joined = ConcatSymSlices(&sp, ConcatSymSlices(&sp, xs, c1, TypeBytes), c2, TypeBytes)
+	assert sp.Tag[int(joined)] == TermCat
+	assert sp.ArgCount[int(joined)] == uint32(2)
+}

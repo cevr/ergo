@@ -1,0 +1,1591 @@
+import go math
+import option
+import slices
+import strconv
+import strings
+import utf8
+
+// NativeObjJsonCursor identifies a json.Cursor native object handle.
+let NativeObjJsonCursor = uint64(1)
+
+// NativeObjFsMapped identifies an fs.Mapped native object handle.
+let NativeObjFsMapped = uint64(2)
+
+// NativeObjArena holds flat SoA backing storage for native operation objects (json.Cursor, fs.Mapped).
+type NativeObjArena {
+	FsMappedText       []string,
+	JsonNodeKind       []uint8,
+	JsonNodeText       []string,
+	JsonNodeRaw        []string,
+	JsonNodeSpan       []string,
+	JsonNodeEdgeStart  []uint32,
+	JsonNodeEdgeCount  []uint32,
+	JsonEdgeKey        []string,
+	JsonEdgeElem       []uint32,
+	JsonCursorRoot     []uint32,
+	JsonCursorRooted   []bool,
+	JsonCursorDone     []bool,
+	JsonCursorWrong    []bool,
+	JsonCursorFrameTop []uint32,
+	JsonFrameNode      []uint32,
+	JsonFrameNext      []uint32,
+	JsonFrameListN     []uint32,
+	JsonFrameKey       []string,
+	JsonFrameHas       []bool,
+	JsonFrameParent    []uint32,
+}
+
+// NewNativeObjArena constructs an initialized flat arena for native operation objects.
+func NewNativeObjArena() NativeObjArena {
+	NativeObjArena{
+		FsMappedText:       []string{},
+		JsonNodeKind:       []uint8{},
+		JsonNodeText:       []string{},
+		JsonNodeRaw:        []string{},
+		JsonNodeSpan:       []string{},
+		JsonNodeEdgeStart:  []uint32{},
+		JsonNodeEdgeCount:  []uint32{},
+		JsonEdgeKey:        []string{},
+		JsonEdgeElem:       []uint32{},
+		JsonCursorRoot:     []uint32{},
+		JsonCursorRooted:   []bool{},
+		JsonCursorDone:     []bool{},
+		JsonCursorWrong:    []bool{},
+		JsonCursorFrameTop: []uint32{},
+		JsonFrameNode:      []uint32{},
+		JsonFrameNext:      []uint32{},
+		JsonFrameListN:     []uint32{},
+		JsonFrameKey:       []string{},
+		JsonFrameHas:       []bool{},
+		JsonFrameParent:    []uint32{},
+	}
+}
+
+// AllocFsMapped stores a mapped-text handle and returns its native object Val.
+func AllocFsMapped(na mut NativeObjArena, typeIdx uint32, text string) Val {
+	let id = uint32(na.FsMappedText.Len())
+	na.FsMappedText = na.FsMappedText.Append(text)
+	Val{Tag: TagNativeObj, Type: typeIdx, Aux: id, Data: NativeObjFsMapped}
+}
+
+func hex2Lower(c byte) string {
+	let digits = "0123456789abcdef"
+	strings.FromBytes([]byte{digits[int(c>>4)], digits[int(c&0xf)]})
+}
+
+// JsonQuote formats string s as a JSON string literal matching jsonQuote in nativesjson.go.
+func JsonQuote(s string, html bool) string {
+	let mut out = slices.WithCapacity[byte](s.Len() + 2)
+	out = out.Append(byte('"'))
+	let mut i = 0
+	for i < s.Len() {
+		let d = utf8.DecodeRuneInString(s[i:])
+		let r = d.Rune
+		let size = d.Size
+		if r == rune(0xfffd) && size == 1 {
+			let hx = "\\udc" + hex2Lower(s[i])
+			for k in 0..hx.Len() {
+				out = out.Append(hx[k])
+			}
+		} else if r == '"' || r == '\\' {
+			out = out.Append(byte('\\'))
+			out = out.Append(byte(r))
+		} else if r == '\n' {
+			out = out.Append(byte('\\'))
+			out = out.Append(byte('n'))
+		} else if r == '\r' {
+			out = out.Append(byte('\\'))
+			out = out.Append(byte('r'))
+		} else if r == '\t' {
+			out = out.Append(byte('\\'))
+			out = out.Append(byte('t'))
+		} else if int(r) < 0x20 {
+			let hx = "\\u00" + hex2Lower(byte(r))
+			for k in 0..hx.Len() {
+				out = out.Append(hx[k])
+			}
+		} else if r == '\u2028' || r == '\u2029' {
+			let loHex = hex2Lower(byte(int(r) & 0xf))[1:]
+			let esc = "\\u202" + loHex
+			for k in 0..esc.Len() {
+				out = out.Append(esc[k])
+			}
+		} else if html && (r == '<' || r == '>' || r == '&') {
+			let hx = "\\u00" + hex2Lower(byte(r))
+			for k in 0..hx.Len() {
+				out = out.Append(hx[k])
+			}
+		} else {
+			for k in i..(i + size) {
+				out = out.Append(s[k])
+			}
+		}
+		i = i + size
+	}
+	out = out.Append(byte('"'))
+	strings.FromBytes(out)
+}
+
+// JsonFloat formats float64 f identically to encoding/json plus special float names.
+func JsonFloat(f float64) string {
+	if math.IsNaN(f) {
+		return "\"NaN\""
+	}
+	if math.IsInf(f, 1) {
+		return "\"Infinity\""
+	}
+	if math.IsInf(f, -1) {
+		return "\"-Infinity\""
+	}
+	let abs = math.Abs(f)
+	let fmtByte = if abs != 0.0 && (abs < 1e-6 || abs >= 1e21) { byte('e') } else { byte('f') }
+	let s = strconv.FormatFloat(f, fmtByte, -1)
+	if fmtByte == byte('e') && s.Len() >= 4 {
+		let n = s.Len()
+		if s[n-4] == byte('e') && s[n-3] == byte('-') && s[n-2] == byte('0') {
+			return s[:n-2] + s[n-1:]
+		}
+	}
+	s
+}
+
+type jsonParseState {
+	Src      string,
+	Pos      int,
+	MaxDepth int,
+	Why      string,
+}
+
+func jsonSkipSpace(st mut jsonParseState) {
+	for st.Pos < st.Src.Len() {
+		let c = st.Src[st.Pos]
+		if c != byte(' ') && c != byte('\t') && c != byte('\n') && c != byte('\r') {
+			break
+		}
+		st.Pos = st.Pos + 1
+	}
+}
+
+func unhexNibble(c byte) (rune, bool) {
+	if c >= byte('0') && c <= byte('9') {
+		return (rune(c - byte('0')), true)
+	}
+	if c >= byte('a') && c <= byte('f') {
+		return (rune(c-byte('a')) + rune(10), true)
+	}
+	if c >= byte('A') && c <= byte('F') {
+		return (rune(c-byte('A')) + rune(10), true)
+	}
+	(rune(0), false)
+}
+
+func jsonHex4At(src string, i int) (rune, bool) {
+	if src.Len()-i < 4 {
+		return (rune(0), false)
+	}
+	let mut r = rune(0)
+	for k in 0..4 {
+		let (d, ok) = unhexNibble(src[i+k])
+		if !ok {
+			return (rune(0), false)
+		}
+		r = (r << 4) | d
+	}
+	(r, true)
+}
+
+func jsonParseStr(st mut jsonParseState) (string, bool) {
+	st.Pos = st.Pos + 1
+	let mut b = []byte{}
+	for st.Pos < st.Src.Len() {
+		let c = st.Src[st.Pos]
+		if c == byte('"') {
+			st.Pos = st.Pos + 1
+			return (strings.FromBytes(b), true)
+		}
+		if c < byte(0x20) {
+			st.Why = "a control byte inside a string"
+			return ("", false)
+		}
+		if c != byte('\\') {
+			b = b.Append(c)
+			st.Pos = st.Pos + 1
+			continue
+		}
+		st.Pos = st.Pos + 1
+		if st.Pos >= st.Src.Len() {
+			st.Why = "the text ends inside a string"
+			return ("", false)
+		}
+		let e = st.Src[st.Pos]
+		let namedEsc = "\"\\/bfnrt"
+		let mut namedIdx = -1
+		for k in 0..namedEsc.Len() {
+			if namedEsc[k] == e {
+				namedIdx = k
+				break
+			}
+		}
+		if namedIdx >= 0 {
+			let rep = []byte{byte('"'), byte('\\'), byte('/'), byte(8), byte(12), byte('\n'), byte('\r'), byte('\t')}
+			b = b.Append(rep[namedIdx])
+			st.Pos = st.Pos + 1
+			continue
+		}
+		if e != byte('u') {
+			st.Why = "an invalid escape"
+			return ("", false)
+		}
+		if st.Src.Len()-st.Pos < 5 {
+			st.Why = "a short \\u escape"
+			return ("", false)
+		}
+		for k in 1..5 {
+			let (_, okH) = unhexNibble(st.Src[st.Pos+k])
+			if !okH {
+				st.Pos = st.Pos + k
+				st.Why = "a \\u escape that is not hexadecimal"
+				return ("", false)
+			}
+		}
+		let (r0, _) = jsonHex4At(st.Src, st.Pos+1)
+		st.Pos = st.Pos + 5
+		let mut r = r0
+		if r >= rune(0xd800) && r < rune(0xdc00) && strings.HasPrefix(st.Src[st.Pos:], "\\u") {
+			let (low, okLow) = jsonHex4At(st.Src, st.Pos+2)
+			if okLow && low >= rune(0xdc00) && low < rune(0xe000) {
+				r = ((r - rune(0xd800)) << 10) + (low - rune(0xdc00)) + rune(0x10000)
+				st.Pos = st.Pos + 6
+			}
+		}
+		if r >= rune(0xdc80) && r <= rune(0xdcff) {
+			b = b.Append(byte(int(r) - 0xdc00))
+		} else if r >= rune(0xd800) && r < rune(0xe000) {
+			b = utf8.AppendRune(b, rune(0xfffd))
+		} else {
+			b = utf8.AppendRune(b, r)
+		}
+	}
+	st.Why = "the text ends inside a string"
+	("", false)
+}
+
+func allocJsonNode(na mut NativeObjArena, kind uint8, text string, raw string, span string) uint32 {
+	let id = uint32(na.JsonNodeKind.Len())
+	na.JsonNodeKind = na.JsonNodeKind.Append(kind)
+	na.JsonNodeText = na.JsonNodeText.Append(text)
+	na.JsonNodeRaw = na.JsonNodeRaw.Append(raw)
+	na.JsonNodeSpan = na.JsonNodeSpan.Append(span)
+	na.JsonNodeEdgeStart = na.JsonNodeEdgeStart.Append(uint32(0))
+	na.JsonNodeEdgeCount = na.JsonNodeEdgeCount.Append(uint32(0))
+	id
+}
+
+func jsonCountDigits(st mut jsonParseState) int {
+	let start = st.Pos
+	for st.Pos < st.Src.Len() && st.Src[st.Pos] >= byte('0') && st.Src[st.Pos] <= byte('9') {
+		st.Pos = st.Pos + 1
+	}
+	st.Pos - start
+}
+
+func jsonParseValue(na mut NativeObjArena, st mut jsonParseState, depth int) (uint32, bool) {
+	let start = st.Pos
+	let (nid, ok) = jsonParseValueAt(na, st, depth)
+	if ok {
+		na.JsonNodeSpan[int(nid)] = st.Src[start:st.Pos]
+	}
+	(nid, ok)
+}
+
+func jsonParseContainer(na mut NativeObjArena, st mut jsonParseState, depth int) (uint32, bool) {
+	let isObj = st.Src[st.Pos] == byte('{')
+	let closer = if isObj { byte('}') } else { byte(']') }
+	let kind = if isObj { uint8(5) } else { uint8(4) }
+	st.Pos = st.Pos + 1
+	jsonSkipSpace(st)
+	let nid = allocJsonNode(na, kind, "", "", "")
+	if st.Pos < st.Src.Len() && st.Src[st.Pos] == closer {
+		st.Pos = st.Pos + 1
+		return (nid, true)
+	}
+	let mut keys = []string{}
+	let mut elems = []uint32{}
+	for {
+		if isObj {
+			if st.Pos >= st.Src.Len() || st.Src[st.Pos] != byte('"') {
+				st.Why = "an object key that is not a string"
+				return (uint32(0), false)
+			}
+			let (k, okK) = jsonParseStr(st)
+			if !okK {
+				return (uint32(0), false)
+			}
+			jsonSkipSpace(st)
+			if st.Pos >= st.Src.Len() || st.Src[st.Pos] != byte(':') {
+				st.Why = "no colon after an object key"
+				return (uint32(0), false)
+			}
+			st.Pos = st.Pos + 1
+			jsonSkipSpace(st)
+			keys = keys.Append(k)
+		} else {
+			keys = keys.Append("")
+		}
+		let (eid, okE) = jsonParseValue(na, st, depth+1)
+		if !okE {
+			return (uint32(0), false)
+		}
+		elems = elems.Append(eid)
+		jsonSkipSpace(st)
+		if st.Pos >= st.Src.Len() {
+			st.Why = "the text ends inside a list or object"
+			return (uint32(0), false)
+		}
+		let sep = st.Src[st.Pos]
+		if sep == byte(',') {
+			st.Pos = st.Pos + 1
+			jsonSkipSpace(st)
+		} else if sep == closer {
+			st.Pos = st.Pos + 1
+			let eStart = uint32(na.JsonEdgeElem.Len())
+			for i in 0..elems.Len() {
+				na.JsonEdgeKey = na.JsonEdgeKey.Append(keys[i])
+				na.JsonEdgeElem = na.JsonEdgeElem.Append(elems[i])
+			}
+			na.JsonNodeEdgeStart[int(nid)] = eStart
+			na.JsonNodeEdgeCount[int(nid)] = uint32(elems.Len())
+			return (nid, true)
+		} else {
+			st.Why = "no comma or closing bracket"
+			return (uint32(0), false)
+		}
+	}
+}
+
+func jsonParseValueAt(na mut NativeObjArena, st mut jsonParseState, depth int) (uint32, bool) {
+	if st.Pos >= st.Src.Len() {
+		st.Why = "the text ends before a value"
+		return (uint32(0), false)
+	}
+	let c = st.Src[st.Pos]
+	if c == byte('[') || c == byte('{') {
+		if depth >= st.MaxDepth {
+			st.Why = "nesting deeper than MaxDepth " + strconv.Itoa(st.MaxDepth)
+			return (uint32(0), false)
+		}
+		return jsonParseContainer(na, st, depth)
+	}
+	if c == byte('"') {
+		let start = st.Pos
+		let (s, ok) = jsonParseStr(st)
+		if !ok {
+			return (uint32(0), false)
+		}
+		return (allocJsonNode(na, uint8(3), s, st.Src[start:st.Pos], ""), true)
+	}
+	if c == byte('t') || c == byte('f') || c == byte('n') {
+		let words = []string{"true", "false", "null"}
+		for w in words {
+			if strings.HasPrefix(st.Src[st.Pos:], w) {
+				st.Pos = st.Pos + w.Len()
+				let kind = if w == "null" { uint8(0) } else { uint8(1) }
+				return (allocJsonNode(na, kind, w, "", ""), true)
+			}
+		}
+		st.Why = "an invalid literal"
+		return (uint32(0), false)
+	}
+	if c == byte('-') || (c >= byte('0') && c <= byte('9')) {
+		let start = st.Pos
+		if st.Src[st.Pos] == byte('-') {
+			st.Pos = st.Pos + 1
+		}
+		if st.Pos < st.Src.Len() && st.Src[st.Pos] == byte('0') {
+			st.Pos = st.Pos + 1
+		} else if jsonCountDigits(st) == 0 {
+			st.Why = "a number with no digits"
+			return (uint32(0), false)
+		}
+		if st.Pos < st.Src.Len() && st.Src[st.Pos] == byte('.') {
+			st.Pos = st.Pos + 1
+			if jsonCountDigits(st) == 0 {
+				st.Why = "no digits after a decimal point"
+				return (uint32(0), false)
+			}
+		}
+		if st.Pos < st.Src.Len() && (st.Src[st.Pos] == byte('e') || st.Src[st.Pos] == byte('E')) {
+			st.Pos = st.Pos + 1
+			if st.Pos < st.Src.Len() && (st.Src[st.Pos] == byte('+') || st.Src[st.Pos] == byte('-')) {
+				st.Pos = st.Pos + 1
+			}
+			if jsonCountDigits(st) == 0 {
+				st.Why = "no digits in an exponent"
+				return (uint32(0), false)
+			}
+		}
+		return (allocJsonNode(na, uint8(2), st.Src[start:st.Pos], "", ""), true)
+	}
+	let d = utf8.DecodeRuneInString(st.Src[st.Pos:])
+	st.Why = "an unexpected " + strconv.Quote(st.Src[st.Pos:(st.Pos+d.Size)]) + " where a value belongs"
+	(uint32(0), false)
+}
+
+// JsonParse validates RFC 8259 JSON text and builds a flat SoA node graph, returning (rootIdx, errOffset, errReason).
+func JsonParse(na mut NativeObjArena, text string, maxBytes int64, maxDepth int64) (uint32, int, string) {
+	if maxBytes > int64(0) && int64(text.Len()) > maxBytes {
+		return (uint32(0), int(maxBytes), "the text is longer than MaxBytes " + strconv.FormatInt(maxBytes, 10))
+	}
+	let md = if maxDepth <= int64(0) { 10000 } else { int(maxDepth) }
+	let mut st = jsonParseState{Src: text, Pos: 0, MaxDepth: md, Why: ""}
+	jsonSkipSpace(&st)
+	let (root, ok) = jsonParseValue(na, &st, 0)
+	if !ok {
+		return (uint32(0), st.Pos, st.Why)
+	}
+	jsonSkipSpace(&st)
+	if st.Pos < st.Src.Len() {
+		return (uint32(0), st.Pos, "text after the value")
+	}
+	(root, 0, "")
+}
+
+// AllocJsonCursor allocates a json.Cursor rooted at node rootIdx and returns its Val handle.
+func AllocJsonCursor(na mut NativeObjArena, typeIdx uint32, rootIdx uint32) Val {
+	let cid = uint32(na.JsonCursorRoot.Len())
+	na.JsonCursorRoot = na.JsonCursorRoot.Append(rootIdx)
+	na.JsonCursorRooted = na.JsonCursorRooted.Append(false)
+	na.JsonCursorDone = na.JsonCursorDone.Append(false)
+	na.JsonCursorWrong = na.JsonCursorWrong.Append(false)
+	na.JsonCursorFrameTop = na.JsonCursorFrameTop.Append(uint32(0xffffffff))
+	Val{Tag: TagNativeObj, Type: typeIdx, Aux: cid, Data: NativeObjJsonCursor}
+}
+
+func cursorPeek(na NativeObjArena, cid int) (uint32, bool) {
+	let top = na.JsonCursorFrameTop[cid]
+	if top == uint32(0xffffffff) {
+		if na.JsonCursorDone[cid] {
+			return (uint32(0), false)
+		}
+		return (na.JsonCursorRoot[cid], true)
+	}
+	let nid = na.JsonFrameNode[int(top)]
+	let next = na.JsonFrameNext[int(top)]
+	if next >= na.JsonNodeEdgeCount[int(nid)] {
+		return (uint32(0), false)
+	}
+	let eStart = na.JsonNodeEdgeStart[int(nid)]
+	(na.JsonEdgeElem[int(eStart+next)], true)
+}
+
+func cursorAt(na mut NativeObjArena, cid int) {
+	let top = na.JsonCursorFrameTop[cid]
+	if top == uint32(0xffffffff) {
+		na.JsonCursorRooted[cid] = true
+		return
+	}
+	let nid = na.JsonFrameNode[int(top)]
+	if na.JsonNodeKind[int(nid)] != uint8(5) {
+		na.JsonFrameListN[int(top)] = na.JsonFrameListN[int(top)] + uint32(1)
+	}
+	na.JsonFrameHas[int(top)] = true
+}
+
+func cursorTake(na mut NativeObjArena, cid int) {
+	let top = na.JsonCursorFrameTop[cid]
+	if top == uint32(0xffffffff) {
+		na.JsonCursorDone[cid] = true
+		return
+	}
+	na.JsonFrameNext[int(top)] = na.JsonFrameNext[int(top)] + uint32(1)
+}
+
+func cursorMore(na mut NativeObjArena, cid int) bool {
+	let (_, has) = cursorPeek(*na, cid)
+	if !has {
+		return false
+	}
+	let top = na.JsonCursorFrameTop[cid]
+	if top != uint32(0xffffffff) {
+		let nid = na.JsonFrameNode[int(top)]
+		if na.JsonNodeKind[int(nid)] == uint8(5) {
+			let eIdx = na.JsonNodeEdgeStart[int(nid)] + na.JsonFrameNext[int(top)]
+			na.JsonFrameKey[int(top)] = na.JsonEdgeKey[int(eIdx)]
+			na.JsonFrameHas[int(top)] = true
+		}
+	}
+	true
+}
+
+func cursorReadKind(na mut NativeObjArena, cid int, wantKind uint8) (uint32, bool) {
+	cursorAt(na, cid)
+	let (nid, ok) = cursorPeek(*na, cid)
+	if !ok {
+		return (uint32(0), false)
+	}
+	if na.JsonNodeKind[int(nid)] == wantKind {
+		cursorTake(na, cid)
+		return (nid, true)
+	}
+	(uint32(0), false)
+}
+
+func cursorPath(na NativeObjArena, cid int) string {
+	let mut chain = []uint32{}
+	let mut cur = na.JsonCursorFrameTop[cid]
+	for cur != uint32(0xffffffff) {
+		chain = chain.Append(cur)
+		cur = na.JsonFrameParent[int(cur)]
+	}
+	let mut out = ""
+	let mut i = chain.Len() - 1
+	for i >= 0 {
+		let fi = int(chain[i])
+		if !na.JsonFrameHas[fi] {
+			break
+		}
+		let nid = na.JsonFrameNode[fi]
+		if na.JsonNodeKind[int(nid)] != uint8(5) {
+			out = out + "[" + FormatUintBase(uint64(na.JsonFrameListN[fi]-uint32(1)), 10) + "]"
+		} else {
+			if out.Len() > 0 {
+				out = out + "."
+			}
+			out = out + na.JsonFrameKey[fi]
+		}
+		i = i - 1
+	}
+	out
+}
+
+func cursorFloat(na mut NativeObjArena, cid int) (float64, bool) {
+	cursorAt(na, cid)
+	let (nid, ok) = cursorPeek(*na, cid)
+	if !ok {
+		return (0.0, true)
+	}
+	let kd = na.JsonNodeKind[int(nid)]
+	if kd == uint8(3) {
+		let raw = na.JsonNodeRaw[int(nid)]
+		if raw == "\"NaN\"" {
+			cursorTake(na, cid)
+			return (math.NaN(), false)
+		}
+		if raw == "\"Infinity\"" {
+			cursorTake(na, cid)
+			return (math.Inf(1), false)
+		}
+		if raw == "\"-Infinity\"" {
+			cursorTake(na, cid)
+			return (math.Inf(-1), false)
+		}
+		return (0.0, true)
+	}
+	if kd == uint8(2) {
+		cursorTake(na, cid)
+		let mut bad = false
+		let f = strconv.ParseFloat(na.JsonNodeText[int(nid)]) catch {
+		case _:
+			bad = true
+			0.0
+		}
+		return (f, bad)
+	}
+	(0.0, true)
+}
+
+// InvokeNativeObjMethod dispatches a method call on a NativeObjArena object handle (json.Cursor or fs.Mapped).
+func InvokeNativeObjMethod(prog mut Program, na mut NativeObjArena, recv Val, name string, args []Val) (Val, bool) {
+	if recv.Data == NativeObjFsMapped {
+		let idx = int(recv.Aux)
+		if idx >= na.FsMappedText.Len() {
+			return (UnitVal(), false)
+		}
+		let txt = na.FsMappedText[idx]
+		if name == "Text" {
+			return (AllocStrVal(&prog.Arena, TypeString, txt), true)
+		}
+		if name == "Close" {
+			return (UnitVal(), true)
+		}
+		if name == "Size" {
+			return (MakeIntVal(prog.Types, TypeInt, uint64(txt.Len())), true)
+		}
+		if name == "PhysicalPath" {
+			return (AllocStrVal(&prog.Arena, TypeString, ""), true)
+		}
+		return (UnitVal(), false)
+	}
+	if recv.Data != NativeObjJsonCursor {
+		return (UnitVal(), false)
+	}
+	let cid = int(recv.Aux)
+	if cid >= na.JsonCursorRoot.Len() {
+		return (UnitVal(), false)
+	}
+	if name == "TakeNull" {
+		let (nid, ok) = cursorPeek(*na, cid)
+		if ok && na.JsonNodeKind[int(nid)] == uint8(0) {
+			cursorAt(na, cid)
+			cursorTake(na, cid)
+			return (BoolVal(TypeBool, true), true)
+		}
+		return (BoolVal(TypeBool, false), true)
+	}
+	if name == "Kind" {
+		let (nid, ok) = cursorPeek(*na, cid)
+		if ok {
+			return (MakeIntVal(prog.Types, TypeInt, uint64(na.JsonNodeKind[int(nid)])), true)
+		}
+		return (MakeIntVal(prog.Types, TypeInt, uint64(6)), true)
+	}
+	if name == "Path" {
+		return (AllocStrVal(&prog.Arena, TypeString, cursorPath(*na, cid)), true)
+	}
+	if name == "Wrong" {
+		return (BoolVal(TypeBool, na.JsonCursorWrong[cid]), true)
+	}
+	if name == "Bool" {
+		let (nid, ok) = cursorReadKind(na, cid, uint8(1))
+		na.JsonCursorWrong[cid] = !ok
+		return (BoolVal(TypeBool, ok && na.JsonNodeText[int(nid)] == "true"), true)
+	}
+	if name == "Number" {
+		let (nid, ok) = cursorReadKind(na, cid, uint8(2))
+		na.JsonCursorWrong[cid] = !ok
+		let out = if ok { na.JsonNodeText[int(nid)] } else { "" }
+		return (AllocStrVal(&prog.Arena, TypeString, out), true)
+	}
+	if name == "Int" {
+		let (nid, ok) = cursorReadKind(na, cid, uint8(2))
+		na.JsonCursorWrong[cid] = !ok
+		let mut v = int64(0)
+		if ok {
+			let (pv, st) = ParseSignedIntBase(na.JsonNodeText[int(nid)], 10, 64)
+			v = pv
+			na.JsonCursorWrong[cid] = st != uint8(0)
+		}
+		return (MakeIntVal(prog.Types, TypeInt64, uint64(v)), true)
+	}
+	if name == "Uint" {
+		let (nid, ok) = cursorReadKind(na, cid, uint8(2))
+		na.JsonCursorWrong[cid] = !ok
+		let mut v = uint64(0)
+		if ok {
+			let (pv, okU) = ParseUint64Dec(na.JsonNodeText[int(nid)])
+			v = pv
+			na.JsonCursorWrong[cid] = !okU
+		}
+		return (MakeIntVal(prog.Types, TypeUint64, v), true)
+	}
+	if name == "Float" {
+		let (f, bad) = cursorFloat(na, cid)
+		na.JsonCursorWrong[cid] = bad
+		return (MakeFloatVal(prog.Types, TypeFloat64, f), true)
+	}
+	if name == "String" {
+		let (nid, ok) = cursorReadKind(na, cid, uint8(3))
+		na.JsonCursorWrong[cid] = !ok
+		let out = if ok { na.JsonNodeText[int(nid)] } else { "" }
+		return (AllocStrVal(&prog.Arena, TypeString, out), true)
+	}
+	if name == "StringBytes" {
+		let (nid, ok) = cursorReadKind(na, cid, uint8(3))
+		na.JsonCursorWrong[cid] = !ok
+		let s = if ok { na.JsonNodeText[int(nid)] } else { "" }
+		let mut buf = if args.Len() > 0 { args[0] } else { MakeSliceVal(&prog.Arena, TypeBytes, []Val{}, uint32(0)) }
+		for i in 0..s.Len() {
+			buf = AppendSliceValCOW(&prog.Arena, buf, MakeIntVal(prog.Types, TypeUint8, uint64(s[i])))
+		}
+		return (buf, true)
+	}
+	if name == "BeginList" || name == "BeginObject" {
+		let want = if name == "BeginObject" { uint8(5) } else { uint8(4) }
+		cursorAt(na, cid)
+		let (nid, ok) = cursorPeek(*na, cid)
+		if !ok || na.JsonNodeKind[int(nid)] != want {
+			return (BoolVal(TypeBool, false), true)
+		}
+		let fIdx = uint32(na.JsonFrameNode.Len())
+		na.JsonFrameNode = na.JsonFrameNode.Append(nid)
+		na.JsonFrameNext = na.JsonFrameNext.Append(uint32(0))
+		na.JsonFrameListN = na.JsonFrameListN.Append(uint32(0))
+		na.JsonFrameKey = na.JsonFrameKey.Append("")
+		na.JsonFrameHas = na.JsonFrameHas.Append(false)
+		na.JsonFrameParent = na.JsonFrameParent.Append(na.JsonCursorFrameTop[cid])
+		na.JsonCursorFrameTop[cid] = fIdx
+		return (BoolVal(TypeBool, true), true)
+	}
+	if name == "Tag" {
+		na.JsonCursorWrong[cid] = true
+		let mut out = ""
+		let top = na.JsonCursorFrameTop[cid]
+		if top != uint32(0xffffffff) {
+			let nid = na.JsonFrameNode[int(top)]
+			let eStart = int(na.JsonNodeEdgeStart[int(nid)])
+			let eCnt = int(na.JsonNodeEdgeCount[int(nid)])
+			let mut i = int(na.JsonFrameNext[int(top)])
+			for i < eCnt {
+				if na.JsonEdgeKey[eStart+i] == "_tag" {
+					let elem = na.JsonEdgeElem[eStart+i]
+					if na.JsonNodeKind[int(elem)] == uint8(3) {
+						out = na.JsonNodeText[int(elem)]
+						na.JsonCursorWrong[cid] = false
+						break
+					}
+				}
+				i = i + 1
+			}
+		}
+		return (AllocStrVal(&prog.Arena, TypeString, out), true)
+	}
+	if name == "More" {
+		return (BoolVal(TypeBool, cursorMore(na, cid)), true)
+	}
+	if name == "Key" {
+		let top = na.JsonCursorFrameTop[cid]
+		let out = if top != uint32(0xffffffff) { na.JsonFrameKey[int(top)] } else { "" }
+		return (AllocStrVal(&prog.Arena, TypeString, out), true)
+	}
+	if name == "Skip" {
+		cursorAt(na, cid)
+		let (_, ok) = cursorPeek(*na, cid)
+		if ok {
+			cursorTake(na, cid)
+		}
+		return (UnitVal(), true)
+	}
+	if name == "SkipText" {
+		cursorAt(na, cid)
+		let (nid, ok) = cursorPeek(*na, cid)
+		if ok {
+			cursorTake(na, cid)
+			return (AllocStrVal(&prog.Arena, TypeString, na.JsonNodeSpan[int(nid)]), true)
+		}
+		return (AllocStrVal(&prog.Arena, TypeString, ""), true)
+	}
+	if name == "End" {
+		for cursorMore(na, cid) {
+			cursorTake(na, cid)
+		}
+		let top = na.JsonCursorFrameTop[cid]
+		if top != uint32(0xffffffff) {
+			let parent = na.JsonFrameParent[int(top)]
+			na.JsonCursorFrameTop[cid] = parent
+			if parent == uint32(0xffffffff) {
+				na.JsonCursorDone[cid] = true
+			} else {
+				cursorTake(na, cid)
+			}
+		}
+		return (UnitVal(), true)
+	}
+	(UnitVal(), false)
+}
+
+type tomlPool {
+	Kind       []uint8,
+	Raw        []string,
+	Made       []bool,
+	Header     []bool,
+	Sealed     []bool,
+	Headers    []bool,
+	EntryStart []uint32,
+	EntryCount []uint32,
+	EntryKey   []string,
+	EntryVal   []uint32,
+	ListElems  []uint32,
+}
+
+func newTomlPool() tomlPool {
+	tomlPool{
+		Kind:       []uint8{},
+		Raw:        []string{},
+		Made:       []bool{},
+		Header:     []bool{},
+		Sealed:     []bool{},
+		Headers:    []bool{},
+		EntryStart: []uint32{},
+		EntryCount: []uint32{},
+		EntryKey:   []string{},
+		EntryVal:   []uint32{},
+		ListElems:  []uint32{},
+	}
+}
+
+func tomlNewNode(p mut tomlPool, kind uint8, raw string, made bool) uint32 {
+	let id = uint32(p.Kind.Len())
+	p.Kind = p.Kind.Append(kind)
+	p.Raw = p.Raw.Append(raw)
+	p.Made = p.Made.Append(made)
+	p.Header = p.Header.Append(false)
+	p.Sealed = p.Sealed.Append(false)
+	p.Headers = p.Headers.Append(false)
+	p.EntryStart = p.EntryStart.Append(uint32(0))
+	p.EntryCount = p.EntryCount.Append(uint32(0))
+	id
+}
+
+func tomlTableLookup(p tomlPool, tid uint32, key string) (uint32, bool) {
+	let st = int(p.EntryStart[int(tid)])
+	let cnt = int(p.EntryCount[int(tid)])
+	for i in 0..cnt {
+		if p.EntryKey[st+i] == key {
+			return (p.EntryVal[st+i], true)
+		}
+	}
+	(uint32(0), false)
+}
+
+func tomlTableSet(p mut tomlPool, tid uint32, key string, val uint32) {
+	let st = int(p.EntryStart[int(tid)])
+	let cnt = int(p.EntryCount[int(tid)])
+	for i in 0..cnt {
+		if p.EntryKey[st+i] == key {
+			p.EntryVal[st+i] = val
+			return
+		}
+	}
+	let newStart = uint32(p.EntryKey.Len())
+	for i in 0..cnt {
+		p.EntryKey = p.EntryKey.Append(p.EntryKey[st+i])
+		p.EntryVal = p.EntryVal.Append(p.EntryVal[st+i])
+	}
+	p.EntryKey = p.EntryKey.Append(key)
+	p.EntryVal = p.EntryVal.Append(val)
+	p.EntryStart[int(tid)] = newStart
+	p.EntryCount[int(tid)] = uint32(cnt + 1)
+}
+
+func tomlListPush(p mut tomlPool, lid uint32, val uint32) {
+	let st = int(p.EntryStart[int(lid)])
+	let cnt = int(p.EntryCount[int(lid)])
+	let newStart = uint32(p.ListElems.Len())
+	for i in 0..cnt {
+		p.ListElems = p.ListElems.Append(p.ListElems[st+i])
+	}
+	p.ListElems = p.ListElems.Append(val)
+	p.EntryStart[int(lid)] = newStart
+	p.EntryCount[int(lid)] = uint32(cnt + 1)
+}
+
+func tomlWriteJSON(p tomlPool, id uint32) string {
+	let kd = p.Kind[int(id)]
+	if kd == uint8(1) {
+		return JsonQuote(p.Raw[int(id)], false)
+	}
+	if kd == uint8(2) {
+		return p.Raw[int(id)]
+	}
+	if kd == uint8(3) {
+		let st = int(p.EntryStart[int(id)])
+		let cnt = int(p.EntryCount[int(id)])
+		let mut parts = slices.WithCapacity[string](cnt)
+		for i in 0..cnt {
+			parts = parts.Append(tomlWriteJSON(p, p.ListElems[st+i]))
+		}
+		return "[" + strings.Join(parts, ",") + "]"
+	}
+	let st = int(p.EntryStart[int(id)])
+	let cnt = int(p.EntryCount[int(id)])
+	let mut names = slices.WithCapacity[string](cnt)
+	for i in 0..cnt {
+		names = names.Append(p.EntryKey[st+i])
+	}
+	let sorted = slices.Sort(names)
+	let mut parts = slices.WithCapacity[string](sorted.Len())
+	for k in sorted {
+		let (v, _) = tomlTableLookup(p, id, k)
+		parts = parts.Append(JsonQuote(k, false) + ":" + tomlWriteJSON(p, v))
+	}
+	"{" + strings.Join(parts, ",") + "}"
+}
+
+type tomlReader {
+	Src      string,
+	Pos      int,
+	Line     int,
+	Key      string,
+	Depth    int,
+	Failed   bool,
+	FailLine int,
+	FailKey  string,
+	Reason   string,
+}
+
+func tomlFail(r mut tomlReader, reason string) {
+	if !r.Failed {
+		r.Failed = true
+		r.FailLine = r.Line
+		r.FailKey = r.Key
+		r.Reason = reason
+	}
+}
+
+func tomlDone(r tomlReader) bool {
+	r.Failed || r.Pos >= r.Src.Len()
+}
+
+func tomlCur(r tomlReader) byte {
+	if tomlDone(r) {
+		return byte(0)
+	}
+	r.Src[r.Pos]
+}
+
+func tomlStep(r mut tomlReader) byte {
+	if tomlDone(*r) {
+		tomlFail(r, "unexpected end of document")
+		return byte(0)
+	}
+	let c = r.Src[r.Pos]
+	r.Pos = r.Pos + 1
+	if c == byte('\n') {
+		r.Line = r.Line + 1
+	}
+	c
+}
+
+func tomlWant(r mut tomlReader, c byte) {
+	if tomlDone(*r) || r.Src[r.Pos] != c {
+		tomlFail(r, "expected '"+strings.FromBytes([]byte{c})+"'")
+		return
+	}
+	tomlStep(r)
+}
+
+func tomlBlanks(r mut tomlReader) {
+	for {
+		let c = tomlCur(*r)
+		if c != byte(' ') && c != byte('\t') {
+			break
+		}
+		tomlStep(r)
+	}
+}
+
+func tomlGap(r mut tomlReader, lines bool) {
+	for !tomlDone(*r) {
+		let c = r.Src[r.Pos]
+		if c == byte(' ') || c == byte('\t') {
+			tomlStep(r)
+		} else if c == byte('\n') {
+			if !lines {
+				return
+			}
+			tomlStep(r)
+		} else if c == byte('#') {
+			for !tomlDone(*r) && r.Src[r.Pos] != byte('\n') {
+				let ch = tomlStep(r)
+				if (ch < byte(0x20) && ch != byte('\t')) || ch == byte(0x7f) {
+					tomlFail(r, "control character in comment")
+				}
+			}
+			if !lines {
+				return
+			}
+		} else {
+			return
+		}
+	}
+}
+
+func tomlBareKeyByte(c byte) bool {
+	(c >= byte('a') && c <= byte('z')) || (c >= byte('A') && c <= byte('Z')) || (c >= byte('0') && c <= byte('9')) || c == byte('-') || c == byte('_')
+}
+
+func tomlReadStr(r mut tomlReader, multi bool) string {
+	let q = tomlStep(r)
+	let mut long = false
+	if multi && r.Pos+1 < r.Src.Len() && r.Src[r.Pos] == q && r.Src[r.Pos+1] == q {
+		tomlStep(r)
+		tomlStep(r)
+		long = true
+		if tomlCur(*r) == byte('\n') {
+			tomlStep(r)
+		}
+	}
+	let mut b = []byte{}
+	for !tomlDone(*r) {
+		if r.Src[r.Pos] == q {
+			let mut run = 0
+			for r.Pos+run < r.Src.Len() && r.Src[r.Pos+run] == q {
+				run = run + 1
+			}
+			if !long {
+				tomlStep(r)
+				return strings.FromBytes(b)
+			}
+			if run >= 3 {
+				let n = if run < 5 { run } else { 5 }
+				for k in 0..(n - 3) {
+					let _ = k
+					b = b.Append(q)
+				}
+				r.Pos = r.Pos + n
+				return strings.FromBytes(b)
+			}
+			for k in 0..run {
+				let _ = k
+				b = b.Append(tomlStep(r))
+			}
+			continue
+		}
+		let c = tomlStep(r)
+		if c == byte('\\') && q == byte('"') {
+			if long {
+				let n = tomlCur(*r)
+				if n == byte('\n') || n == byte(' ') || n == byte('\t') {
+					tomlBlanks(r)
+					tomlWant(r, byte('\n'))
+					for {
+						let nc = tomlCur(*r)
+						if nc != byte(' ') && nc != byte('\t') && nc != byte('\n') {
+							break
+						}
+						tomlStep(r)
+					}
+					continue
+				}
+			}
+			let e = tomlStep(r)
+			if e == byte('b') {
+				b = b.Append(byte(8))
+			} else if e == byte('t') {
+				b = b.Append(byte('\t'))
+			} else if e == byte('n') {
+				b = b.Append(byte('\n'))
+			} else if e == byte('f') {
+				b = b.Append(byte(12))
+			} else if e == byte('r') {
+				b = b.Append(byte('\r'))
+			} else if e == byte('"') || e == byte('\\') {
+				b = b.Append(e)
+			} else if e == byte('u') || e == byte('U') {
+				let n = if e == byte('U') { 8 } else { 4 }
+				if r.Src.Len()-r.Pos < n {
+					tomlFail(r, "incomplete Unicode escape")
+					return ""
+				}
+				let mut v = uint64(0)
+				for k in 0..n {
+					let (d, okH) = unhexNibble(r.Src[r.Pos+k])
+					if !okH {
+						tomlFail(r, "invalid Unicode escape")
+						return ""
+					}
+					v = (v << 4) | uint64(d)
+				}
+				if v > uint64(0x10ffff) || (v >= uint64(0xd800) && v <= uint64(0xdfff)) {
+					tomlFail(r, "escape is not a Unicode scalar")
+					return ""
+				}
+				r.Pos = r.Pos + n
+				b = utf8.AppendRune(b, rune(v))
+			} else {
+				tomlFail(r, "unknown string escape")
+				return ""
+			}
+			continue
+		}
+		if c == byte(0x7f) || (c < byte(0x20) && c != byte('\t') && !(long && c == byte('\n'))) {
+			if c == byte('\n') {
+				r.Line = r.Line - 1
+			}
+			tomlFail(r, "control character in string")
+			return ""
+		}
+		b = b.Append(c)
+	}
+	tomlFail(r, "unclosed string")
+	""
+}
+
+func tomlReadPath(r mut tomlReader) []string {
+	let mut out = []string{}
+	for {
+		tomlBlanks(r)
+		let c = tomlCur(*r)
+		if c == byte('"') || c == byte('\'') {
+			out = out.Append(tomlReadStr(r, false))
+		} else {
+			let from = r.Pos
+			for !tomlDone(*r) && tomlBareKeyByte(r.Src[r.Pos]) {
+				tomlStep(r)
+			}
+			if r.Pos == from {
+				tomlFail(r, "expected key")
+				return []string{}
+			}
+			out = out.Append(r.Src[from:r.Pos])
+		}
+		tomlBlanks(r)
+		if tomlCur(*r) != byte('.') {
+			return out
+		}
+		tomlStep(r)
+	}
+}
+
+func tomlWalk(p mut tomlPool, r mut tomlReader, tid uint32, keys []string, dotted bool) (uint32, bool) {
+	let mut cur = tid
+	for k in keys {
+		if p.Sealed[int(cur)] {
+			tomlFail(r, "cannot extend an inline table")
+			return (uint32(0), false)
+		}
+		let (found, ok) = tomlTableLookup(*p, cur, k)
+		let mut next = found
+		if !ok {
+			next = tomlNewNode(p, uint8(4), "", dotted)
+			tomlTableSet(p, cur, k, next)
+		}
+		if dotted && (p.Header[int(next)] || p.Headers[int(next)]) {
+			tomlFail(r, "cannot extend a header table by dotted key")
+			return (uint32(0), false)
+		}
+		if p.Kind[int(next)] == uint8(3) && p.Headers[int(next)] {
+			let st = int(p.EntryStart[int(next)])
+			let cnt = int(p.EntryCount[int(next)])
+			next = p.ListElems[st+cnt-1]
+		}
+		if p.Kind[int(next)] != uint8(4) || p.Sealed[int(next)] {
+			tomlFail(r, "key is already a value")
+			return (uint32(0), false)
+		}
+		cur = next
+	}
+	(cur, true)
+}
+
+func tomlHeader(p mut tomlPool, r mut tomlReader, root uint32, keys []string, many bool) (uint32, bool) {
+	if r.Failed {
+		return (uint32(0), false)
+	}
+	if keys.Len() > r.Depth {
+		tomlFail(r, "table exceeds MaxDepth")
+		return (uint32(0), false)
+	}
+	let (parent, okP) = tomlWalk(p, r, root, keys[:(keys.Len()-1)], false)
+	if !okP || r.Failed {
+		return (uint32(0), false)
+	}
+	let last = keys[keys.Len()-1]
+	let (existing, okE) = tomlTableLookup(*p, parent, last)
+	if many {
+		let mut arr = existing
+		if !okE {
+			arr = tomlNewNode(p, uint8(3), "", false)
+			p.Headers[int(arr)] = true
+			tomlTableSet(p, parent, last, arr)
+		}
+		if p.Kind[int(arr)] != uint8(3) || !p.Headers[int(arr)] {
+			tomlFail(r, "key is already a value or table")
+			return (uint32(0), false)
+		}
+		let elem = tomlNewNode(p, uint8(4), "", true)
+		tomlListPush(p, arr, elem)
+		return (elem, true)
+	}
+	let mut tab = existing
+	if !okE {
+		tab = tomlNewNode(p, uint8(4), "", false)
+		tomlTableSet(p, parent, last, tab)
+	}
+	if p.Kind[int(tab)] != uint8(4) || p.Made[int(tab)] || p.Sealed[int(tab)] {
+		tomlFail(r, "table already defined")
+		return (uint32(0), false)
+	}
+	p.Made[int(tab)] = true
+	p.Header[int(tab)] = true
+	(tab, true)
+}
+
+func tomlAllDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i in 0..s.Len() {
+		if s[i] < byte('0') || s[i] > byte('9') {
+			return false
+		}
+	}
+	true
+}
+
+func tomlDigitsIn(s string, alphabet string) bool {
+	if s == "" {
+		return false
+	}
+	for k in 0..s.Len() {
+		if s[k] == byte('_') {
+			if k == 0 || k == s.Len()-1 || s[k-1] == byte('_') {
+				return false
+			}
+			continue
+		}
+		if !strings.Contains(alphabet, s[k:(k+1)]) {
+			return false
+		}
+	}
+	true
+}
+
+func tomlDecimalText(s string) bool {
+	tomlDigitsIn(s, "0123456789") && (s.Len() == 1 || s[0] != byte('0'))
+}
+
+func tomlUnsigned(s string) string {
+	if s != "" && (s[0] == byte('+') || s[0] == byte('-')) {
+		return s[1:]
+	}
+	s
+}
+
+func tomlIntText(s string) (int, string, bool) {
+	if s.Len() > 2 && s[0] == byte('0') {
+		if s[1] == byte('x') {
+			return (16, s[2:], tomlDigitsIn(s[2:], "0123456789abcdefABCDEF"))
+		}
+		if s[1] == byte('o') {
+			return (8, s[2:], tomlDigitsIn(s[2:], "01234567"))
+		}
+		if s[1] == byte('b') {
+			return (2, s[2:], tomlDigitsIn(s[2:], "01"))
+		}
+	}
+	if s.Len() == 2 && s[0] == byte('0') && (s[1] == byte('x') || s[1] == byte('o') || s[1] == byte('b')) {
+		return (0, "", false)
+	}
+	(10, s, tomlDecimalText(tomlUnsigned(s)))
+}
+
+func tomlFloatText(s string) bool {
+	let lower = strings.ToLower(tomlUnsigned(s))
+	let mut mant = lower
+	let mut exp = ""
+	let mut hasExp = false
+	match strings.Cut(lower, "e") {
+	case option.Some{Value: h}:
+		mant = h.Before
+		exp = h.After
+		hasExp = true
+	case option.None:
+	}
+	if hasExp && !tomlDigitsIn(tomlUnsigned(exp), "0123456789") {
+		return false
+	}
+	let mut whole = mant
+	let mut frac = ""
+	let mut hasFrac = false
+	match strings.Cut(mant, ".") {
+	case option.Some{Value: h}:
+		whole = h.Before
+		frac = h.After
+		hasFrac = true
+	case option.None:
+	}
+	(hasExp || hasFrac) && tomlDecimalText(whole) && (!hasFrac || tomlDigitsIn(frac, "0123456789"))
+}
+
+func tomlIsDate(s string) bool {
+	s.Len() == 10 && s[4] == byte('-') && s[7] == byte('-') && tomlAllDigits(s[:4]) && tomlAllDigits(s[5:7]) && tomlAllDigits(s[8:])
+}
+
+func tomlIsTime(s string) bool {
+	if s.Len() < 8 || s[2] != byte(':') || s[5] != byte(':') || !tomlAllDigits(s[:2]) || !tomlAllDigits(s[3:5]) || !tomlAllDigits(s[6:8]) {
+		return false
+	}
+	s.Len() == 8 || (s[8] == byte('.') && tomlAllDigits(s[9:]))
+}
+
+func tomlIsDateTime(s string) bool {
+	if s.Len() < 19 || !tomlIsDate(s[:10]) || (s[10] != byte('T') && s[10] != byte('t') && s[10] != byte(' ')) {
+		return false
+	}
+	let mut t = s[11:]
+	if strings.HasSuffix(t, "Z") || strings.HasSuffix(t, "z") {
+		t = t[:(t.Len() - 1)]
+	} else if t.Len() >= 14 && (t[t.Len()-6] == byte('+') || t[t.Len()-6] == byte('-')) {
+		let off = t[(t.Len() - 5):]
+		if off[2] != byte(':') || !tomlAllDigits(off[:2]) || !tomlAllDigits(off[3:]) {
+			return false
+		}
+		t = t[:(t.Len() - 6)]
+	}
+	tomlIsTime(t)
+}
+
+func tomlAtomEnd(c byte) bool {
+	c == byte(' ') || c == byte('\t') || c == byte('\n') || c == byte(',') || c == byte(']') || c == byte('}') || c == byte('#')
+}
+
+func tomlReadScalar(p mut tomlPool, r mut tomlReader) uint32 {
+	let from = r.Pos
+	for !tomlDone(*r) && !tomlAtomEnd(r.Src[r.Pos]) {
+		tomlStep(r)
+	}
+	if tomlCur(*r) == byte(' ') && r.Pos-from == 10 && tomlIsDate(r.Src[from:r.Pos]) && r.Pos+1 < r.Src.Len() && r.Src[r.Pos+1] >= byte('0') && r.Src[r.Pos+1] <= byte('9') {
+		tomlStep(r)
+		for !tomlDone(*r) && !tomlAtomEnd(r.Src[r.Pos]) {
+			tomlStep(r)
+		}
+	}
+	let mut s = r.Src[from:r.Pos]
+	if s == "true" || s == "false" {
+		return tomlNewNode(p, uint8(2), s, false)
+	}
+	let (base, digits, okInt) = tomlIntText(s)
+	if okInt {
+		let (n, st) = ParseSignedIntBase(strings.ReplaceAll(digits, "_", ""), base, 64)
+		if st != uint8(0) {
+			tomlFail(r, "integer outside int64 range")
+			return uint32(0)
+		}
+		return tomlNewNode(p, uint8(2), strconv.FormatInt(n, 10), false)
+	}
+	if s == "nan" || s == "+nan" || s == "-nan" {
+		return tomlNewNode(p, uint8(1), "NaN", false)
+	}
+	if s == "inf" || s == "+inf" {
+		return tomlNewNode(p, uint8(1), "Infinity", false)
+	}
+	if s == "-inf" {
+		return tomlNewNode(p, uint8(1), "-Infinity", false)
+	}
+	if tomlFloatText(s) {
+		let mut okF = true
+		let f = strconv.ParseFloat(strings.ReplaceAll(s, "_", "")) catch {
+		case _:
+			okF = false
+			0.0
+		}
+		if !okF {
+			tomlFail(r, "float outside float64 range")
+			return uint32(0)
+		}
+		let mut out = strconv.FormatFloat(f, byte('g'), -1)
+		if !strings.Contains(out, ".") && !strings.Contains(out, "e") && !strings.Contains(out, "E") {
+			out = out + ".0"
+		}
+		return tomlNewNode(p, uint8(2), out, false)
+	}
+	if tomlIsDateTime(s) {
+		s = s[:10] + "T" + s[11:]
+		if strings.HasSuffix(s, "z") {
+			s = s[:(s.Len()-1)] + "Z"
+		}
+		let zoned = strings.HasSuffix(s, "Z")
+		if !zoned && s.Len() >= 6 && (s[s.Len()-6] == byte('+') || s[s.Len()-6] == byte('-')) {
+			let h = s[(s.Len() - 5):(s.Len() - 3)]
+			let m = s[(s.Len() - 2):]
+			if h > "23" || m > "59" {
+				tomlFail(r, "invalid UTC offset")
+				return uint32(0)
+			}
+		}
+		return tomlNewNode(p, uint8(1), s, false)
+	}
+	if tomlIsTime(s) || tomlIsDate(s) {
+		return tomlNewNode(p, uint8(1), s, false)
+	}
+	tomlFail(r, "invalid value")
+	uint32(0)
+}
+
+func tomlReadValue(p mut tomlPool, r mut tomlReader, depth int) uint32 {
+	if depth > r.Depth {
+		tomlFail(r, "value exceeds MaxDepth")
+		return uint32(0)
+	}
+	let c = tomlCur(*r)
+	if c == byte('"') || c == byte('\'') {
+		return tomlNewNode(p, uint8(1), tomlReadStr(r, true), false)
+	}
+	if c == byte('[') {
+		tomlStep(r)
+		let lid = tomlNewNode(p, uint8(3), "", false)
+		tomlGap(r, true)
+		for !tomlDone(*r) && tomlCur(*r) != byte(']') {
+			tomlListPush(p, lid, tomlReadValue(p, r, depth+1))
+			tomlGap(r, true)
+			if tomlCur(*r) != byte(',') {
+				break
+			}
+			tomlStep(r)
+			tomlGap(r, true)
+		}
+		tomlWant(r, byte(']'))
+		return lid
+	}
+	if c == byte('{') {
+		tomlStep(r)
+		let tid = tomlNewNode(p, uint8(4), "", true)
+		tomlBlanks(r)
+		for !tomlDone(*r) && tomlCur(*r) != byte('}') {
+			let savedK = r.Key
+			tomlReadPair(p, r, tid, []string{}, depth+1)
+			r.Key = savedK
+			tomlBlanks(r)
+			if tomlCur(*r) != byte(',') {
+				break
+			}
+			tomlStep(r)
+			tomlBlanks(r)
+			if tomlCur(*r) == byte('}') {
+				tomlFail(r, "trailing comma in inline table")
+				return uint32(0)
+			}
+		}
+		tomlWant(r, byte('}'))
+		p.Sealed[int(tid)] = true
+		return tid
+	}
+	tomlReadScalar(p, r)
+}
+
+func tomlReadPair(p mut tomlPool, r mut tomlReader, tid uint32, at []string, depth int) {
+	let outer = r.Key
+	let keys = tomlReadPath(r)
+	if r.Failed {
+		return
+	}
+	let mut full = slices.WithCapacity[string](at.Len() + keys.Len())
+	for a in at {
+		full = full.Append(a)
+	}
+	for k in keys {
+		full = full.Append(k)
+	}
+	r.Key = strings.Join(full, ".")
+	if depth > 0 && outer != "" {
+		r.Key = outer + "." + r.Key
+	}
+	if depth+full.Len() > r.Depth {
+		tomlFail(r, "key exceeds MaxDepth")
+		return
+	}
+	tomlWant(r, byte('='))
+	if r.Failed {
+		return
+	}
+	tomlBlanks(r)
+	let (parent, okW) = tomlWalk(p, r, tid, keys[:(keys.Len()-1)], true)
+	if !okW || r.Failed {
+		return
+	}
+	let last = keys[keys.Len()-1]
+	let (_, exists) = tomlTableLookup(*p, parent, last)
+	if exists {
+		tomlFail(r, "key already defined")
+		return
+	}
+	let vid = tomlReadValue(p, r, depth+full.Len())
+	if !r.Failed {
+		tomlTableSet(p, parent, last, vid)
+	}
+}
+
+// TomlParse parses TOML 1.0 text into canonical JSON or returns (line, key, reason) on error.
+func TomlParse(text string, maxBytes int64, maxDepth int64) (string, int, string, string) {
+	let md = if maxDepth <= int64(0) { 10000 } else { int(maxDepth) }
+	let mut r = tomlReader{
+		Src:      strings.ReplaceAll(text, "\r\n", "\n"),
+		Pos:      0,
+		Line:     1,
+		Key:      "",
+		Depth:    md,
+		Failed:   false,
+		FailLine: 0,
+		FailKey:  "",
+		Reason:   "",
+	}
+	if maxBytes > int64(0) && int64(text.Len()) > maxBytes {
+		return ("", 1, "", "document exceeds MaxBytes")
+	}
+	if !utf8.ValidString(text) {
+		let mut line = 1
+		let mut k = 0
+		for k < text.Len() {
+			let d = utf8.DecodeRuneInString(text[k:])
+			if d.Rune == rune(0xfffd) && d.Size == 1 {
+				break
+			}
+			if d.Rune == '\n' {
+				line = line + 1
+			}
+			k = k + d.Size
+		}
+		return ("", line, "", "document is not UTF-8")
+	}
+	let mut p = newTomlPool()
+	let root = tomlNewNode(&p, uint8(4), "", false)
+	let mut table = root
+	let mut at = []string{}
+	for {
+		tomlGap(&r, true)
+		if tomlDone(r) {
+			break
+		}
+		r.Key = strings.Join(at, ".")
+		if tomlCur(r) == byte('[') {
+			r.Key = ""
+			tomlStep(&r)
+			let many = tomlCur(r) == byte('[')
+			if many {
+				tomlStep(&r)
+			}
+			at = tomlReadPath(&r)
+			if r.Failed {
+				break
+			}
+			r.Key = strings.Join(at, ".")
+			tomlWant(&r, byte(']'))
+			if many {
+				tomlWant(&r, byte(']'))
+			}
+			let (nextTab, okH) = tomlHeader(&p, &r, root, at, many)
+			if !okH || r.Failed {
+				break
+			}
+			table = nextTab
+		} else {
+			tomlReadPair(&p, &r, table, at, 0)
+		}
+		tomlGap(&r, false)
+		if !tomlDone(r) && tomlCur(r) != byte('\n') {
+			tomlFail(&r, "expected end of line")
+		}
+	}
+	if r.Failed {
+		return ("", r.FailLine, r.FailKey, r.Reason)
+	}
+	(tomlWriteJSON(p, root), 0, "", "")
+}
+
+law JsonQuoteAlwaysWrappedInQuotes(s string, html bool) {
+	let q = JsonQuote(s, html)
+	assert q.Len() >= 2
+	assert q[0] == byte('"')
+	assert q[q.Len()-1] == byte('"')
+	true
+}
+
+test JsonCursorAndTomlParseRoundtrip {
+	let mut na = NewNativeObjArena()
+	let (root, _, why) = JsonParse(&na, "{\"_tag\":\"ok\",\"nums\":[1,2]}", int64(0), int64(0))
+	assert why == ""
+	let cur = AllocJsonCursor(&na, TypeVoid, root)
+	let mut prog = NewProgram()
+	let (bObj, ok1) = InvokeNativeObjMethod(&prog, &na, cur, "BeginObject", []Val{})
+	assert ok1 && bObj.Data == uint64(1)
+	let (tagV, ok2) = InvokeNativeObjMethod(&prog, &na, cur, "Tag", []Val{})
+	assert ok2 && ReadStr(prog.Arena, tagV) == "ok"
+	let (more1, _) = InvokeNativeObjMethod(&prog, &na, cur, "More", []Val{})
+	assert more1.Data == uint64(1)
+	let (k1, _) = InvokeNativeObjMethod(&prog, &na, cur, "Key", []Val{})
+	assert ReadStr(prog.Arena, k1) == "_tag"
+	let (j, line, _, msg) = TomlParse("[a]\nx = 42\ny = \"hi\"\n", int64(0), int64(0))
+	assert msg == "" && line == 0
+	assert j == "{\"a\":{\"x\":42,\"y\":\"hi\"}}"
+}

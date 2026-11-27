@@ -1268,6 +1268,7 @@ func CompileProgram(loadProg load.Program) (Program, []EvalError) {
 	if nPkgs > 0 {
 		prog.RootPkg = uint32(nPkgs - 1)
 	}
+	ExtractWitnessMetadata(prog, loadProg, &prog.Witnesses, &prog.RefSpecs)
 	(prog, errs)
 }
 
