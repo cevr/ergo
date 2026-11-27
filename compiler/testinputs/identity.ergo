@@ -1,0 +1,672 @@
+import filepath
+import json
+import option
+import slices
+import strings
+
+// IdentityVariable names the environment variable holding the identity JSON
+// path during identity-mode runs.
+let IdentityVariable string = "ERGO_TESTINPUTS_IDENTITY"
+
+// KindAbsent marks a lookup location where no entry existed.
+let KindAbsent string = "absent"
+
+// KindDir marks a lookup location that held a directory.
+let KindDir string = "dir"
+
+// KindFile marks a lookup location that held a regular file.
+let KindFile string = "file"
+
+// KindLink marks a lookup location that held a symbolic link.
+let KindLink string = "link"
+
+// KindOther marks a non-regular, non-dir, non-symlink entry.
+let KindOther string = "other"
+
+// KindError marks a lookup location whose stat failed with an error.
+let KindError string = "error"
+
+// InAttrib is Linux IN_ATTRIB.
+let InAttrib uint32 = 4
+
+// InModify is Linux IN_MODIFY.
+let InModify uint32 = 2
+
+// InCloseWrite is Linux IN_CLOSE_WRITE.
+let InCloseWrite uint32 = 8
+
+// InMovedFrom is Linux IN_MOVED_FROM.
+let InMovedFrom uint32 = 64
+
+// InMovedTo is Linux IN_MOVED_TO.
+let InMovedTo uint32 = 128
+
+// InCreate is Linux IN_CREATE.
+let InCreate uint32 = 256
+
+// InDelete is Linux IN_DELETE.
+let InDelete uint32 = 512
+
+// InDeleteSelf is Linux IN_DELETE_SELF.
+let InDeleteSelf uint32 = 1024
+
+// InMoveSelf is Linux IN_MOVE_SELF.
+let InMoveSelf uint32 = 2048
+
+// InUnmount is Linux IN_UNMOUNT.
+let InUnmount uint32 = 8192
+
+// InQOverflow is Linux IN_Q_OVERFLOW.
+let InQOverflow uint32 = 16384
+
+// InIgnored is Linux IN_IGNORED.
+let InIgnored uint32 = 32768
+
+// InIsDir is Linux IN_ISDIR.
+let InIsDir uint32 = 1073741824
+
+// WatchMask is the inotify event mask watched on non-checkout directories.
+let WatchMask uint32 = InAttrib | InCreate | InDelete | InDeleteSelf | InMoveSelf | InMovedFrom | InMovedTo
+
+// CheckoutMask is the inotify event mask watched on checkout directories.
+let CheckoutMask uint32 = WatchMask | InModify | InCloseWrite
+
+// BindingEvents masks events that alter what a directory entry name points to.
+let BindingEvents uint32 = InCreate | InDelete | InMovedFrom | InMovedTo
+
+// SelfEvents masks events that alter a watched directory itself.
+let SelfEvents uint32 = InDeleteSelf | InMoveSelf | InUnmount | InIgnored | InAttrib
+
+// Visit describes one filesystem path step observed without following a
+// trailing symlink.
+type Visit {
+	At     string,
+	Kind   string,
+	Dev    uint64,
+	Ino    uint64,
+	Target string,
+	Err    string,
+}
+
+// IdentityTable stores distinct lookup walks per cleaned path key and any
+// post-lookup changed paths as flat dense columns.
+type IdentityTable {
+	PathKeys       []string,
+	WalkStart      []uint32,
+	WalkLen        []uint32,
+	WalkKeyStart   []uint32,
+	WalkKeyLen     []uint32,
+	WalkKeys       []string,
+	WalkVisitStart []uint32,
+	WalkVisitLen   []uint32,
+	Visits         []Visit,
+	Changed        []string,
+}
+
+// IdentityError reports a malformed identity JSON document.
+type IdentityError {
+	Reason string,
+}
+
+// InotifyEvent represents one decoded fixed+name Linux inotify event header.
+type InotifyEvent {
+	Wd     uint32,
+	Mask   uint32,
+	Cookie uint32,
+	Name   string,
+}
+
+// IdentityKey returns the canonical lookup map key for a log path.
+func IdentityKey(path string) string {
+	CleanPath(path)
+}
+
+// NewIdentityTable returns an empty IdentityTable.
+func NewIdentityTable() IdentityTable {
+	IdentityTable{
+		PathKeys:       []string{},
+		WalkStart:      []uint32{},
+		WalkLen:        []uint32{},
+		WalkKeyStart:   []uint32{},
+		WalkKeyLen:     []uint32{},
+		WalkKeys:       []string{},
+		WalkVisitStart: []uint32{},
+		WalkVisitLen:   []uint32{},
+		Visits:         []Visit{},
+		Changed:        []string{},
+	}
+}
+
+// Look inspects one path component without following a symlink there.
+func Look(at string) Visit needs PathResolver {
+	match PathResolver.EntryKindAt(at) {
+	case LinkMissing:
+		Visit{At: at, Kind: KindAbsent, Dev: uint64(0), Ino: uint64(0), Target: "", Err: ""}
+	case LinkDir:
+		Visit{At: at, Kind: KindDir, Dev: uint64(0), Ino: uint64(0), Target: "", Err: ""}
+	case LinkFile:
+		Visit{At: at, Kind: KindFile, Dev: uint64(0), Ino: uint64(0), Target: "", Err: ""}
+	case LinkOther:
+		Visit{At: at, Kind: KindOther, Dev: uint64(0), Ino: uint64(0), Target: "", Err: ""}
+	case LinkSymlink{Target: target}:
+		Visit{At: at, Kind: KindLink, Dev: uint64(0), Ino: uint64(0), Target: target, Err: ""}
+	}
+}
+
+// IdentifyWalk traverses path from "/" recording every component Visit and
+// whether the lookup entered logicalRoot/physicalRoot.
+func IdentifyWalk(path string, logicalRoot string, physicalRoot string) (bool, string, []Visit) needs PathResolver {
+	let rec = NewRecorder(logicalRoot, physicalRoot)
+	let mut pending = strings.Split(path, "/")
+	let mut current = "/"
+	let mut entered = false
+	let mut logged = ""
+	let mut visits = []Visit{}
+	let mut hops = 0
+	for true {
+		if !entered {
+			let (rest0, ok) = Within(rec, current)
+			let mut rest = rest0
+			if ok {
+				for _, name in pending {
+					if name != "" && name != "." {
+						rest = rest + "/" + name
+					}
+				}
+				logged = rec.Logical + rest
+				entered = true
+			}
+		}
+		if pending.Len() == 0 {
+			return (entered, logged, visits)
+		}
+		let name = pending[0]
+		pending = slices.Slice(pending, 1, pending.Len())
+		if name == "" || name == "." {
+			continue
+		}
+		if name == ".." {
+			current = filepath.Dir(current)
+			continue
+		}
+		let next = if current == "/" { "/" + name } else { current + "/" + name }
+		let v = Look(next)
+		visits = visits.Append(v)
+		if v.Kind == KindLink {
+			hops = hops + 1
+			if hops > 40 {
+				return (entered, logged, visits)
+			}
+			if strings.HasPrefix(v.Target, "/") {
+				current = "/"
+			}
+			pending = slices.Concat(strings.Split(v.Target, "/"), pending)
+		} else if v.Kind == KindDir {
+			current = next
+		} else {
+			return (entered, logged, visits)
+		}
+	}
+	(entered, logged, visits)
+}
+
+// EncodeVisitListJSON renders one walk slice into canonical compact JSON matching
+// Go's encoding/json struct field layout.
+func EncodeVisitListJSON(visits []Visit) string {
+	let t = json.NewText()
+	t.BeginList(visits.Len())
+	for _, v in visits {
+		writeVisitJSON(t, v)
+	}
+	t.EndList()
+	t.Written()
+}
+
+func writeVisitJSON(t json.Text, v Visit) {
+	t.BeginObject(6)
+	t.Key("at")
+	t.String(v.At)
+	t.Key("kind")
+	t.String(v.Kind)
+	if v.Dev != uint64(0) {
+		t.Key("dev")
+		t.Uint(v.Dev)
+	}
+	if v.Ino != uint64(0) {
+		t.Key("ino")
+		t.Uint(v.Ino)
+	}
+	if v.Target != "" {
+		t.Key("target")
+		t.String(v.Target)
+	}
+	if v.Err != "" {
+		t.Key("err")
+		t.String(v.Err)
+	}
+	t.EndObject()
+}
+
+// KeepWalk appends a walk for key to t if its serialized visit sequence is not
+// already present for key, keeping path keys sorted lexicographically.
+func KeepWalk(t mut IdentityTable, key string, visits []Visit) {
+	let fp = EncodeVisitListJSON(visits)
+	let mut keyIdx = -1
+	for i, k in t.PathKeys {
+		if k == key {
+			keyIdx = i
+			break
+		}
+	}
+	if keyIdx >= 0 {
+		let ws = int(t.WalkKeyStart[keyIdx])
+		let wl = int(t.WalkKeyLen[keyIdx])
+		for j in ws..(ws + wl) {
+			if t.WalkKeys[j] == fp {
+				return
+			}
+		}
+	}
+	let newVStart = uint32(t.Visits.Len())
+	for _, v in visits {
+		t.Visits = t.Visits.Append(v)
+	}
+	let walkID = uint32(t.WalkVisitStart.Len())
+	t.WalkVisitStart = t.WalkVisitStart.Append(newVStart)
+	t.WalkVisitLen = t.WalkVisitLen.Append(uint32(visits.Len()))
+	if keyIdx < 0 {
+		t.PathKeys = t.PathKeys.Append(key)
+		t.WalkStart = t.WalkStart.Append(walkID)
+		t.WalkLen = t.WalkLen.Append(uint32(1))
+		let ks = uint32(t.WalkKeys.Len())
+		t.WalkKeys = t.WalkKeys.Append(fp)
+		t.WalkKeyStart = t.WalkKeyStart.Append(ks)
+		t.WalkKeyLen = t.WalkKeyLen.Append(uint32(1))
+		return
+	}
+	let oldStart = int(t.WalkKeyStart[keyIdx])
+	let oldLen = int(t.WalkKeyLen[keyIdx])
+	let newStart = uint32(t.WalkKeys.Len())
+	for j in oldStart..(oldStart + oldLen) {
+		t.WalkKeys = t.WalkKeys.Append(t.WalkKeys[j])
+	}
+	t.WalkKeys = t.WalkKeys.Append(fp)
+	t.WalkKeyStart[keyIdx] = newStart
+	t.WalkKeyLen[keyIdx] = uint32(oldLen + 1)
+}
+
+// EncodeIdentityJSON encodes t into Go's Identity JSON wire format with sorted
+// walk path keys and walks sorted by visit fingerprint.
+func EncodeIdentityJSON(t IdentityTable) string {
+	let sortedKeys = slices.Sort(t.PathKeys)
+	let txt = json.NewText()
+	txt.BeginObject(2)
+	txt.Key("walks")
+	txt.BeginObject(sortedKeys.Len())
+	for _, key in sortedKeys {
+		let mut keyIdx = -1
+		for i, k in t.PathKeys {
+			if k == key {
+				keyIdx = i
+				break
+			}
+		}
+		if keyIdx < 0 {
+			continue
+		}
+		txt.Key(key)
+		let ks = int(t.WalkKeyStart[keyIdx])
+		let kl = int(t.WalkKeyLen[keyIdx])
+		let fps = slices.Sort(slices.Slice(t.WalkKeys, ks, ks+kl))
+		txt.BeginList(fps.Len())
+		for _, fp in fps {
+			for wi in 0..t.WalkVisitStart.Len() {
+				let vs = int(t.WalkVisitStart[wi])
+				let vl = int(t.WalkVisitLen[wi])
+				let cand = slices.Slice(t.Visits, vs, vs+vl)
+				if EncodeVisitListJSON(cand) == fp {
+					txt.BeginList(cand.Len())
+					for _, v in cand {
+						writeVisitJSON(txt, v)
+					}
+					txt.EndList()
+					break
+				}
+			}
+		}
+		txt.EndList()
+	}
+	txt.EndObject()
+	if t.Changed.Len() > 0 {
+		txt.Key("changed")
+		txt.BeginList(t.Changed.Len())
+		for _, c in t.Changed {
+			txt.String(c)
+		}
+		txt.EndList()
+	}
+	txt.EndObject()
+	txt.Written()
+}
+
+// DecodeIdentityJSON parses an Identity JSON document into an IdentityTable.
+func DecodeIdentityJSON(text string) IdentityTable fails IdentityError {
+	let r = json.Open(text, 0, 0) catch {
+	case json.Malformed as e:
+		return IdentityError{Reason: e.Reason}
+	}
+	let mut table = NewIdentityTable()
+	r.BeginObject() catch {
+	case WireWrongKind as e:
+		return IdentityError{Reason: "wrong kind at " + e.Path}
+	}
+	for r.More() {
+		let field = r.Key()
+		if field == "walks" {
+			r.BeginObject() catch {
+			case WireWrongKind as e:
+				return IdentityError{Reason: "wrong kind at " + e.Path}
+			}
+			for r.More() {
+				let pathKey = r.Key()
+				r.BeginList() catch {
+				case WireWrongKind as e:
+					return IdentityError{Reason: "wrong kind at " + e.Path}
+				}
+				for r.More() {
+					r.BeginList() catch {
+					case WireWrongKind as e:
+						return IdentityError{Reason: "wrong kind at " + e.Path}
+					}
+					let mut visits = []Visit{}
+					for r.More() {
+						let v = readVisitJSON(r) catch {
+						case IdentityError as e:
+							return e
+						}
+						visits = visits.Append(v)
+					}
+					r.End()
+					KeepWalk(&table, pathKey, visits)
+				}
+				r.End()
+			}
+			r.End()
+		} else if field == "changed" {
+			r.BeginList() catch {
+			case WireWrongKind as e:
+				return IdentityError{Reason: "wrong kind at " + e.Path}
+			}
+			for r.More() {
+				let ch = r.String() catch {
+				case WireWrongKind as e:
+					return IdentityError{Reason: "wrong kind at " + e.Path}
+				}
+				table.Changed = table.Changed.Append(ch)
+			}
+			r.End()
+		} else {
+			r.Skip()
+		}
+	}
+	r.End()
+	table
+}
+
+func readVisitJSON(r json.Reader) Visit fails IdentityError {
+	r.BeginObject() catch {
+	case WireWrongKind as e:
+		return IdentityError{Reason: "wrong kind at " + e.Path}
+	}
+	let mut at = ""
+	let mut kind = ""
+	let mut dev = uint64(0)
+	let mut ino = uint64(0)
+	let mut target = ""
+	let mut err = ""
+	for r.More() {
+		let k = r.Key()
+		if k == "at" {
+			at = r.String() catch {
+			case WireWrongKind as e:
+				return IdentityError{Reason: e.Path}
+			}
+		} else if k == "kind" {
+			kind = r.String() catch {
+			case WireWrongKind as e:
+				return IdentityError{Reason: e.Path}
+			}
+		} else if k == "dev" {
+			dev = r.Uint() catch {
+			case WireWrongKind as e:
+				return IdentityError{Reason: e.Path}
+			}
+		} else if k == "ino" {
+			ino = r.Uint() catch {
+			case WireWrongKind as e:
+				return IdentityError{Reason: e.Path}
+			}
+		} else if k == "target" {
+			target = r.String() catch {
+			case WireWrongKind as e:
+				return IdentityError{Reason: e.Path}
+			}
+		} else if k == "err" {
+			err = r.String() catch {
+			case WireWrongKind as e:
+				return IdentityError{Reason: e.Path}
+			}
+		} else {
+			r.Skip()
+		}
+	}
+	r.End()
+	Visit{At: at, Kind: kind, Dev: dev, Ino: ino, Target: target, Err: err}
+}
+
+// DecodeMountPoint unescapes octal "\DDD" sequences in a /proc/self/mountinfo
+// fifth-column mount point string.
+func DecodeMountPoint(raw string) string {
+	let b = raw.Bytes()
+	let mut out = []byte{}
+	let mut i = 0
+	for i < b.Len() {
+		if b[i] == '\\' && i+3 < b.Len() && isOctalByte(b[i+1]) && isOctalByte(b[i+2]) && isOctalByte(b[i+3]) {
+			let v = ((b[i+1] - '0') << uint8(6)) | ((b[i+2] - '0') << uint8(3)) | (b[i+3] - '0')
+			out = out.Append(v)
+			i = i + 4
+			continue
+		}
+		out = out.Append(b[i])
+		i = i + 1
+	}
+	out.Text()
+}
+
+func isOctalByte(c byte) bool {
+	c >= '0' && c <= '7'
+}
+
+// ParseMountLines parses /proc/self/mountinfo text into a map from mount ID
+// string to full line, returning an error text when invalid or empty.
+func ParseMountLines(text string) (Map[string, string], string) {
+	let mut out = Map[string, string]{}
+	for _, line in strings.Split(text, "\n") {
+		if line == "" {
+			continue
+		}
+		let fields = strings.Fields(line)
+		if fields.Len() < 5 {
+			return (out, "mountinfo line \"" + line + "\": too few fields")
+		}
+		out[fields[0]] = line
+	}
+	if out.Len() == 0 {
+		return (out, "no mount")
+	}
+	(out, "")
+}
+
+// MountPointFromLine returns the unescaped mount point field from a validated
+// mountinfo line.
+func MountPointFromLine(line string) string {
+	let fields = strings.Fields(line)
+	if fields.Len() < 5 {
+		return ""
+	}
+	DecodeMountPoint(fields[4])
+}
+
+// MountVerdict reports why a change in /proc/self/mountinfo from start to end
+// leaves test inputs unknown, or "" when no watched/visited mount changed.
+func MountVerdict(start string, end string, watchedDirs []string, visitedKeys []string) string {
+	let prefix = "the mount table changed during the run, and the tree cannot mount: a process outside it did"
+	let (a, errA) = ParseMountLines(start)
+	let (b, errB) = ParseMountLines(end)
+	if errA != "" || errB != "" {
+		let sep = if errA != "" && errB != "" { "\n" } else { "" }
+		return prefix + ", and the table cannot be read: " + errA + sep + errB
+	}
+	let mut points = []string{}
+	for id, line in a {
+		let matchLine = match b.Get(id) {
+		case option.Some{Value: bl}:
+			bl == line
+		case option.None:
+			false
+		}
+		if !matchLine {
+			points = points.Append(MountPointFromLine(line))
+		}
+	}
+	for id, line in b {
+		match a.Get(id) {
+		case option.None:
+			points = points.Append(MountPointFromLine(line))
+		case option.Some:
+		}
+	}
+	if points.Len() == 0 {
+		return prefix + ", and changed back, so where is unknown"
+	}
+	let sorted = slices.Sort(points)
+	let mut prev = ""
+	for i, p in sorted {
+		if i > 0 && p == prev {
+			continue
+		}
+		prev = p
+		if isMountLookedIn(p, watchedDirs, visitedKeys) {
+			return prefix + ": the mount at " + p + " changed, and a lookup of the run passed it"
+		}
+	}
+	""
+}
+
+func isMountLookedIn(p string, watchedDirs []string, visitedKeys []string) bool {
+	let parentDir = filepath.Dir(p)
+	let baseName = filepath.Base(p)
+	let visitKey = parentDir + "\x00" + baseName
+	if slices.Contains(visitedKeys, visitKey) {
+		return true
+	}
+	for _, d in watchedDirs {
+		if p == "/" || d == p || strings.HasPrefix(d, p+"/") {
+			return true
+		}
+	}
+	false
+}
+
+// ParseInotifyEvents decodes raw little-endian Linux inotify_event structs.
+func ParseInotifyEvents(raw []byte) ([]InotifyEvent, string) {
+	let mut events = []InotifyEvent{}
+	let mut off = 0
+	for raw.Len()-off >= 16 {
+		let wd = readU32LE(raw, off)
+		let mask = readU32LE(raw, off+4)
+		let cookie = readU32LE(raw, off+8)
+		let size = int(readU32LE(raw, off+12))
+		if off+16+size > raw.Len() {
+			return (events, "a truncated inotify event")
+		}
+		let nameBytes = slices.Slice(raw, off+16, off+16+size)
+		let name = strings.TrimRight(nameBytes.Text(), "\x00")
+		events = events.Append(InotifyEvent{Wd: wd, Mask: mask, Cookie: cookie, Name: name})
+		off = off + 16 + size
+	}
+	(events, "")
+}
+
+// ShouldRecordInotifyEvent decides whether an event on a watched directory
+// alters an observed checkout path or visited lookup entry.
+func ShouldRecordInotifyEvent(ev InotifyEvent, isCheckout bool, visitedName bool) bool {
+	if (ev.Mask & InQOverflow) != uint32(0) {
+		return true
+	}
+	if isCheckout {
+		return true
+	}
+	if ev.Name == "" {
+		return (ev.Mask & SelfEvents) != uint32(0)
+	}
+	if !visitedName {
+		return false
+	}
+	(ev.Mask&BindingEvents) != uint32(0) || ((ev.Mask&InAttrib) != uint32(0) && (ev.Mask&InIsDir) != uint32(0))
+}
+
+func readU32LE(b []byte, off int) uint32 {
+	uint32(b[off]) | (uint32(b[off+1]) << uint32(8)) | (uint32(b[off+2]) << uint32(16)) | (uint32(b[off+3]) << uint32(24))
+}
+
+law IdentityKeyCleansWithoutDotDot(dir string, name string) {
+	if strings.Contains(dir, "..") || strings.Contains(name, "..") || dir == "" || name == "" {
+		return true
+	}
+	let p = "/" + dir + "//" + name + "/"
+	!strings.Contains(IdentityKey(p), "//")
+}
+
+test IdentityJSONMountVerdictAndInotify {
+	let mut tbl = NewIdentityTable()
+	let visits = []Visit{
+		Visit{At: "/tmp", Kind: KindDir, Dev: uint64(1), Ino: uint64(2), Target: "", Err: ""},
+		Visit{At: "/tmp/a", Kind: KindLink, Dev: uint64(1), Ino: uint64(3), Target: "/ws/a", Err: ""},
+	}
+	KeepWalk(&tbl, "/tmp/a", visits)
+	KeepWalk(&tbl, "/tmp/a", visits)
+	tbl.Changed = []string{"/tmp/a"}
+	let js = EncodeIdentityJSON(tbl)
+	let dec = DecodeIdentityJSON(js) catch {
+	case IdentityError:
+		assert false
+		return
+	}
+	assert dec.PathKeys.Len() == 1
+	assert dec.Visits.Len() == 2
+	assert dec.Changed.Len() == 1
+
+	assert DecodeMountPoint("/mnt/my\\040drive") == "/mnt/my drive"
+	let m1 = "10 1 0:1 / / rw - ext4 /dev/sda rw\n"
+	let m2 = m1 + "20 10 0:2 / /work rw - ext4 /dev/sdb rw\n"
+	assert MountVerdict(m1, m1, []string{"/work"}, []string{}) == "the mount table changed during the run, and the tree cannot mount: a process outside it did, and changed back, so where is unknown"
+	assert strings.Contains(MountVerdict(m1, m2, []string{"/work/sub"}, []string{}), "the mount at /work changed")
+	assert MountVerdict(m1, m2, []string{"/other"}, []string{}) == ""
+
+	let rawEv = []byte{
+		byte(3), byte(0), byte(0), byte(0),
+		byte(0), byte(1), byte(0), byte(0),
+		byte(0), byte(0), byte(0), byte(0),
+		byte(4), byte(0), byte(0), byte(0),
+		'f', 'o', 'o', byte(0),
+	}
+	let (evs, evErr) = ParseInotifyEvents(rawEv)
+	assert evErr == ""
+	assert evs.Len() == 1
+	assert evs[0].Wd == uint32(3)
+	assert evs[0].Mask == InCreate
+	assert evs[0].Name == "foo"
+	assert ShouldRecordInotifyEvent(evs[0], false, true)
+	assert !ShouldRecordInotifyEvent(evs[0], false, false)
+}

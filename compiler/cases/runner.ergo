@@ -1,0 +1,718 @@
+import exec
+import filepath
+import fs
+import fstest
+import option
+import os
+import slices
+import strings
+
+// MemoryVariable names the environment variable configuring the case memory
+// limit.
+let MemoryVariable string = "ERGO_PROGRAM_MEMORY"
+
+// DefaultMemory is the default per-case memory cap (2 GiB).
+let DefaultMemory uint64 = 2147483648
+
+// CauseNone reports no OOM signature in child stderr.
+let CauseNone uint8 = 0
+
+// CauseRuntimeReport reports a Go runtime OOM or allocation refusal message.
+let CauseRuntimeReport uint8 = 1
+
+// CauseQueueFault reports a Go 1.27 span-queue nil-ring SIGSEGV under memory cap.
+let CauseQueueFault uint8 = 2
+
+let signalLine string = "SIGSEGV: segmentation violation"
+let faultFrame string = "runtime.(*spanQueue)."
+let lineKeep int = 256
+
+// Outcome holds the bounded outputs and exit disposition of one executed
+// command.
+type Outcome {
+	Stdout     string,
+	Stderr     string,
+	StdoutOver bool,
+	StderrOver bool,
+	Status     uint32,
+	HasSignal  bool,
+	Signal     string,
+	TimedOut   bool,
+	Limited    bool,
+}
+
+// CaseFailure explains why a case's setup script or command could not run.
+type CaseFailure {
+	What      string,
+	HasOutput bool,
+	Output    Outcome,
+}
+
+// Verdict records how an executed case compares against its golden expectations.
+type Verdict {
+	Fatal  string,
+	What   []string,
+	Stdout bool,
+	Stderr bool,
+}
+
+// FormatSize renders byte count n using the largest exact binary unit or bytes.
+func FormatSize(n uint64) string {
+	let gib = uint64(1) << uint64(30)
+	let mib = uint64(1) << uint64(20)
+	let kib = uint64(1) << uint64(10)
+	if n != uint64(0) && n%gib == uint64(0) {
+		return formatUint64(n/gib) + " GiB"
+	}
+	if n != uint64(0) && n%mib == uint64(0) {
+		return formatUint64(n/mib) + " MiB"
+	}
+	if n != uint64(0) && n%kib == uint64(0) {
+		return formatUint64(n/kib) + " KiB"
+	}
+	formatUint64(n) + " bytes"
+}
+
+// ParseSize parses a memory limit specification ("off", bytes, KiB, MiB, GiB).
+func ParseSize(s string) option.Option[uint64] {
+	let mut trimmed = strings.TrimSpace(s)
+	if trimmed == "off" {
+		return option.Some[uint64]{Value: uint64(0)}
+	}
+	let mut shift = uint64(0)
+	if strings.HasSuffix(trimmed, "KiB") {
+		trimmed = strings.TrimSuffix(trimmed, "KiB")
+		shift = uint64(10)
+	} else if strings.HasSuffix(trimmed, "MiB") {
+		trimmed = strings.TrimSuffix(trimmed, "MiB")
+		shift = uint64(20)
+	} else if strings.HasSuffix(trimmed, "GiB") {
+		trimmed = strings.TrimSuffix(trimmed, "GiB")
+		shift = uint64(30)
+	}
+	let numText = strings.TrimSpace(trimmed)
+	match parseUint64Decimal(numText) {
+	case option.None:
+		option.None
+	case option.Some{Value: n}:
+		let maxUint64 uint64 = 18446744073709551615
+		let maxVal = maxUint64 >> shift
+		if n > maxVal {
+			return option.None
+		}
+		option.Some[uint64]{Value: n << shift}
+	}
+}
+
+// CauseOf classifies stderr as CauseNone, CauseRuntimeReport, or CauseQueueFault.
+func CauseOf(stderr string) uint8 {
+	if strings.Contains(stderr, "out of memory") || strings.Contains(stderr, "cannot allocate memory") {
+		return CauseRuntimeReport
+	}
+	let mut state = 0
+	let withNL = stderr + "\n"
+	let mut pos = 0
+	let bytes = withNL.Bytes()
+	for pos < bytes.Len() {
+		let mut end = pos
+		for end < bytes.Len() && bytes[end] != '\n' {
+			end = end + 1
+		}
+		let capEnd = if end-pos > lineKeep { pos + lineKeep } else { end }
+		let line = strings.Slice(withNL, pos, capEnd)
+		if state == 1 {
+			if strings.HasPrefix(line, "PC=") && hasField(line, "addr=0x0") {
+				state = 2
+				pos = end + 1
+				continue
+			}
+		} else if state == 2 {
+			if line == "" || strings.HasPrefix(line, "goroutine ") {
+				pos = end + 1
+				continue
+			}
+			if strings.HasPrefix(line, faultFrame) {
+				return CauseQueueFault
+			}
+		}
+		state = if line == signalLine { 1 } else { 0 }
+		pos = end + 1
+	}
+	CauseNone
+}
+
+// OutcomePassed reports whether a command finished cleanly within output caps.
+func OutcomePassed(o Outcome) bool {
+	!o.TimedOut && !o.HasSignal && o.Status == uint32(0) && !o.StdoutOver && !o.StderrOver
+}
+
+// OverCap formats any stream-cap exceedance message, or "" when within cap.
+func OverCap(o Outcome) string {
+	if o.StdoutOver && o.StderrOver {
+		return "stdout over " + formatUint64(uint64(OutputCap)) + " bytes; stderr over " + formatUint64(uint64(OutputCap)) + " bytes"
+	}
+	if o.StdoutOver {
+		return "stdout over " + formatUint64(uint64(OutputCap)) + " bytes"
+	}
+	if o.StderrOver {
+		return "stderr over " + formatUint64(uint64(OutputCap)) + " bytes"
+	}
+	""
+}
+
+// StatusText formats the command's exit status or terminating signal.
+func StatusText(o Outcome) string {
+	if o.HasSignal {
+		return "signal " + o.Signal
+	}
+	formatUint64(uint64(o.Status))
+}
+
+// OutcomeWhy describes a timeout or signal termination after a colon, or "".
+func OutcomeWhy(o Outcome, timeoutText string) string {
+	if o.TimedOut {
+		return " hung: no end after " + timeoutText + ", stopped"
+	}
+	if o.HasSignal {
+		return " ended by signal " + o.Signal
+	}
+	""
+}
+
+// ClassifyOutcome builds a bounded Outcome from raw streams, status, timeout,
+// and active memory limit.
+func ClassifyOutcome(stdout string, stderr string, status int, timedOut bool, memory uint64) Outcome {
+	let capLen = int(OutputCap)
+	let outOver = stdout.Len() > capLen
+	let errOver = stderr.Len() > capLen
+	let cappedOut = if outOver { "" } else { stdout }
+	let cappedErr = if errOver { "" } else { stderr }
+	let hasSig = status < 0
+	let st = if hasSig { uint32(0) } else { uint32(status) }
+	let limited = memory > uint64(0) && status != 0 && CauseOf(cappedErr) != CauseNone
+	Outcome{
+		Stdout:     cappedOut,
+		Stderr:     cappedErr,
+		StdoutOver: outOver,
+		StderrOver: errOver,
+		Status:     st,
+		HasSignal:  hasSig,
+		Signal:     "",
+		TimedOut:   timedOut,
+		Limited:    limited,
+	}
+}
+
+// VerdictPassed reports whether v recorded no fatal errors or mismatches.
+func VerdictPassed(v Verdict) bool {
+	v.Fatal == "" && v.What.Len() == 0
+}
+
+// Judge compares an Outcome o for case c against expected goldens and bounds.
+func Judge(c CaseView, o Outcome, program string, memory uint64, timeoutText string) Verdict {
+	if o.Limited {
+		return Verdict{
+			Fatal:  "program " + program + " exceeded its memory limit of " + FormatSize(memory) + " (set " + MemoryVariable + " to change it, 0 for none)",
+			What:   []string{},
+			Stdout: false,
+			Stderr: false,
+		}
+	}
+	let capMsg = OverCap(o)
+	if capMsg != "" {
+		return Verdict{
+			Fatal:  capMsg,
+			What:   []string{},
+			Stdout: false,
+			Stderr: false,
+		}
+	}
+	if o.TimedOut {
+		return Verdict{
+			Fatal:  strings.TrimPrefix(OutcomeWhy(o, timeoutText), " "),
+			What:   []string{},
+			Stdout: false,
+			Stderr: false,
+		}
+	}
+	let stdoutDiff = o.Stdout != c.Out || !c.HasOut
+	let stderrDiff = o.Stderr != c.Err
+	let mut what = []string{}
+	if stdoutDiff {
+		what = what.Append("stdout differs")
+	}
+	if stderrDiff {
+		what = what.Append("stderr differs")
+	}
+	if o.HasSignal || o.Status != c.Status {
+		what = what.Append("status differs: got " + StatusText(o) + ", want " + formatUint64(uint64(c.Status)))
+	}
+	Verdict{
+		Fatal:  "",
+		What:   what,
+		Stdout: stdoutDiff,
+		Stderr: stderrDiff,
+	}
+}
+
+// FormatVerdictDiff formats unified diffs for any differing golden stream.
+func FormatVerdictDiff(v Verdict, c CaseView, o Outcome) string {
+	let mut out = ""
+	if v.Stdout {
+		out = out + "stdout:\n" + Diff(c.Out, o.Stdout)
+	}
+	if v.Stderr {
+		out = out + "stderr:\n" + Diff(c.Err, o.Stderr)
+	}
+	out
+}
+
+// FormatProblems renders layout problems from Load, returning the text and exit
+// code (1 when any problem exists, else 0).
+func FormatProblems(problems []string) (string, uint32) {
+	if problems.Len() == 0 {
+		return ("", uint32(0))
+	}
+	let mut out = ""
+	for _, p in problems {
+		out = out + "FAIL " + p + "\n"
+	}
+	out = out + "FAIL\n"
+	(out, uint32(1))
+}
+
+// ExecCase runs case c in a fresh temporary working directory using command,
+// setup.sh when present, stdin file, and exact environment.
+func ExecCase(c CaseView, command []string, memory uint64) (Outcome, option.Option[CaseFailure]) needs exec.Runner | fs.Entries | fs.Files | fs.Writes | os.Process {
+	if command.Len() == 0 {
+		return (emptyOutcome(), option.Some[CaseFailure]{Value: CaseFailure{What: "could not start: empty command", HasOutput: false, Output: emptyOutcome()}})
+	}
+	let tmpRoot = chooseTempRoot()
+	let work = fs.MkdirTemp(tmpRoot, "ergo-case-") catch {
+	case fs.NotFound as e:
+		return (emptyOutcome(), option.Some[CaseFailure]{Value: CaseFailure{What: "make its directory: " + e.Path + ": no such file or directory", HasOutput: false, Output: emptyOutcome()}})
+	case fs.Denied as e:
+		return (emptyOutcome(), option.Some[CaseFailure]{Value: CaseFailure{What: "make its directory: " + e.Path + ": permission denied", HasOutput: false, Output: emptyOutcome()}})
+	case fs.Failed as e:
+		return (emptyOutcome(), option.Some[CaseFailure]{Value: CaseFailure{What: "make its directory: " + e.Reason, HasOutput: false, Output: emptyOutcome()}})
+	}
+	let mut env = Map[string, string]{}
+	match os.Process.Getenv("PATH") {
+	case option.Some{Value: pathVal}:
+		env["PATH"] = pathVal
+	case option.None:
+	}
+	env["HOME"] = work
+	for _, kv in c.Env {
+		match strings.Cut(kv, "=") {
+		case option.Some{Value: h}:
+			env[h.Before] = h.After
+		case option.None:
+		}
+	}
+	if c.Setup {
+		let setupPath = filepath.Join([]string{c.Dir, "setup.sh"})
+		let setupRes = runBoundedCommand("sh", []string{setupPath, c.Dir}, work, env, "", uint64(0))
+		match setupRes {
+		case runErr{msg: msg}:
+			cleanupCaseDir(work)
+			return (emptyOutcome(), option.Some[CaseFailure]{Value: CaseFailure{What: "setup.sh could not start: " + msg, HasOutput: false, Output: emptyOutcome()}})
+		case runOK{outcome: so}:
+			if !OutcomePassed(so) {
+				let capMsg = OverCap(so)
+				let what = if capMsg != "" {
+					"setup.sh " + capMsg
+				} else if so.TimedOut || so.HasSignal {
+					"setup.sh" + OutcomeWhy(so, "0s")
+				} else {
+					"setup.sh exit " + formatUint64(uint64(so.Status))
+				}
+				cleanupCaseDir(work)
+				return (emptyOutcome(), option.Some[CaseFailure]{
+					Value: CaseFailure{
+						What:      what,
+						HasOutput: capMsg == "",
+						Output:    so,
+					},
+				})
+			}
+		}
+	}
+	let mut stdinText = ""
+	if c.Stdin != "" {
+		stdinText = fs.Files.ReadFile(c.Stdin) catch {
+		case fs.NotFound as e:
+			cleanupCaseDir(work)
+			return (emptyOutcome(), option.Some[CaseFailure]{Value: CaseFailure{What: "could not start: " + e.Path + ": no such file or directory", HasOutput: false, Output: emptyOutcome()}})
+		case fs.Denied as e:
+			cleanupCaseDir(work)
+			return (emptyOutcome(), option.Some[CaseFailure]{Value: CaseFailure{What: "could not start: " + e.Path + ": permission denied", HasOutput: false, Output: emptyOutcome()}})
+		case fs.Failed as e:
+			cleanupCaseDir(work)
+			return (emptyOutcome(), option.Some[CaseFailure]{Value: CaseFailure{What: "could not start: " + e.Reason, HasOutput: false, Output: emptyOutcome()}})
+		}
+	}
+	let mut args = slices.WithCapacity[string](command.Len() - 1 + c.Args.Len())
+	for i in 1..command.Len() {
+		args = args.Append(command[i])
+	}
+	for _, a in c.Args {
+		args = args.Append(a)
+	}
+	let res = runBoundedCommand(command[0], args, work, env, stdinText, memory)
+	cleanupCaseDir(work)
+	match res {
+	case runErr{msg: msg}:
+		(emptyOutcome(), option.Some[CaseFailure]{Value: CaseFailure{What: "could not start: " + msg, HasOutput: false, Output: emptyOutcome()}})
+	case runOK{outcome: o}:
+		(o, option.None)
+	}
+}
+
+// Run executes every loaded case in table against binary and returns the
+// formatted report and exit code (0 when all pass, 1 when any fails).
+func Run(binary string, table CaseTable, memory uint64) (string, uint32) needs exec.Runner | fs.Entries | fs.Files | fs.Writes | os.Process {
+	let views = Views(table)
+	let mut out = ""
+	let mut failed = uint32(0)
+	for _, c in views {
+		let (o, failOpt) = ExecCase(c, []string{binary}, memory)
+		match failOpt {
+		case option.Some{Value: f}:
+			out = out + "FAIL " + c.Name + ": " + f.What + "\n"
+			if f.HasOutput {
+				out = out + formatIndented(f.Output)
+			}
+			failed = failed + uint32(1)
+		case option.None:
+			let v = Judge(c, o, binary, memory, "0s")
+			if v.Fatal != "" {
+				out = out + "FAIL " + c.Name + ": " + v.Fatal + "\n"
+				failed = failed + uint32(1)
+			} else if v.What.Len() > 0 {
+				out = out + "FAIL " + c.Name + ": " + strings.Join(v.What, "; ") + "\n"
+				out = out + FormatVerdictDiff(v, c, o)
+				failed = failed + uint32(1)
+			} else {
+				out = out + "ok " + c.Name + "\n"
+			}
+		}
+	}
+	if failed > uint32(0) {
+		out = out + "FAIL (" + formatUint64(uint64(failed)) + " of " + formatUint64(uint64(views.Len())) + " cases)\n"
+		return (out, uint32(1))
+	}
+	out = out + "PASS (" + formatUint64(uint64(views.Len())) + " cases)\n"
+	(out, uint32(0))
+}
+
+type runOutcome = runOK{outcome Outcome} | runErr{msg string}
+
+func runBoundedCommand(name string, args []string, dir string, env Map[string, string], stdinText string, memory uint64) runOutcome needs exec.Runner {
+	let mut cmd = exec.New(name, args)
+	cmd = exec.WithDir(cmd, dir)
+	cmd = exec.WithStdin(cmd, stdinText)
+	cmd = exec.WithEnvFrom(cmd, env)
+	let p = exec.Runner.Start(cmd, exec.Streams{Stdout: exec.ToCaller, Stderr: exec.ToCaller}) catch {
+	case exec.NotFound as e:
+		return runErr{msg: e.Name + ": executable file not found"}
+	case exec.Denied as e:
+		return runErr{msg: e.Name + ": permission denied"}
+	case exec.Failed as e:
+		return runErr{msg: e.Reason}
+	}
+	let capLen = int(OutputCap)
+	let mut stdoutBuf = ""
+	let mut stderrBuf = ""
+	let mut outOver = false
+	let mut errOver = false
+	for ch in p.Chunks() {
+		if ch.Text == "" {
+			continue
+		}
+		if ch.Stderr {
+			if !errOver {
+				if stderrBuf.Len()+ch.Text.Len() > capLen {
+					errOver = true
+					stderrBuf = ""
+					break
+				}
+				stderrBuf = stderrBuf + ch.Text
+			}
+		} else {
+			if !outOver {
+				if stdoutBuf.Len()+ch.Text.Len() > capLen {
+					outOver = true
+					stdoutBuf = ""
+					break
+				}
+				stdoutBuf = stdoutBuf + ch.Text
+			}
+		}
+	}
+	let status = if outOver || errOver { p.Stop() } else { p.Wait() }
+	let hasSig = status < 0
+	let st = if hasSig { uint32(0) } else { uint32(status) }
+	let limited = memory > uint64(0) && status != 0 && CauseOf(stderrBuf) != CauseNone
+	runOK{
+		outcome: Outcome{
+			Stdout:     stdoutBuf,
+			Stderr:     stderrBuf,
+			StdoutOver: outOver,
+			StderrOver: errOver,
+			Status:     st,
+			HasSignal:  hasSig,
+			Signal:     "",
+			TimedOut:   false,
+			Limited:    limited,
+		},
+	}
+}
+
+func chooseTempRoot() string needs fs.Entries | fs.Files | os.Process {
+	match os.Process.Getenv("TMPDIR") {
+	case option.Some{Value: d}:
+		if d != "" {
+			return d
+		}
+	case option.None:
+	}
+	let _ = fs.Files.Stat("/tmp") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return "."
+	}
+	"/tmp"
+}
+
+func cleanupCaseDir(dir string) needs fs.Entries | fs.Files | fs.Writes {
+	fs.RemoveAll(dir) catch {
+	case fs.Denied, fs.Failed:
+		chmodDirsWritable(dir)
+		fs.RemoveAll(dir) catch {
+		case fs.Denied, fs.Failed:
+		}
+	}
+}
+
+func chmodDirsWritable(dir string) needs fs.Entries | fs.Files | fs.Writes {
+	let entries = fs.Files.ReadDir(dir) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return
+	}
+	fs.Writes.Chmod(dir, fs.PrivateDir()) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+	}
+	for _, entry in entries {
+		let child = filepath.Join([]string{dir, entry})
+		let meta = fs.Entries.ReadEntry(child) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			continue
+		}
+		match meta.Kind {
+		case fs.DirEntry:
+			chmodDirsWritable(child)
+		case fs.FileEntry, fs.SymlinkEntry, fs.OtherEntry:
+		}
+	}
+}
+
+func formatIndented(o Outcome) string {
+	let mut out = ""
+	for _, stream in []string{o.Stdout, o.Stderr} {
+		for _, line in Lines(stream) {
+			out = out + "    " + line + "\n"
+		}
+	}
+	out
+}
+
+func emptyOutcome() Outcome {
+	Outcome{
+		Stdout:     "",
+		Stderr:     "",
+		StdoutOver: false,
+		StderrOver: false,
+		Status:     uint32(0),
+		HasSignal:  false,
+		Signal:     "",
+		TimedOut:   false,
+		Limited:    false,
+	}
+}
+
+func hasField(line string, target string) bool {
+	for _, f in strings.Fields(line) {
+		if f == target {
+			return true
+		}
+	}
+	false
+}
+
+func parseUint64Decimal(s string) option.Option[uint64] {
+	let b = s.Bytes()
+	if b.Len() == 0 {
+		return option.None
+	}
+	let mut acc = uint64(0)
+	let maxDiv10 = uint64(1844674407370955161)
+	for _, c in b {
+		if c < '0' || c > '9' {
+			return option.None
+		}
+		let d = uint64(c - '0')
+		if acc > maxDiv10 || (acc == maxDiv10 && d > uint64(5)) {
+			return option.None
+		}
+		acc = acc*uint64(10) + d
+	}
+	option.Some[uint64]{Value: acc}
+}
+
+func formatUint64(n uint64) string {
+	if n == uint64(0) {
+		return "0"
+	}
+	let digits = "0123456789".Bytes()
+	let mut v = n
+	let mut rev = []byte{}
+	for v > uint64(0) {
+		rev = rev.Append(digits[int(v%uint64(10))])
+		v = v / uint64(10)
+	}
+	let mut out = []byte{}
+	let mut i = rev.Len() - 1
+	for i >= 0 {
+		out = out.Append(rev[i])
+		i = i - 1
+	}
+	out.Text()
+}
+
+law FormatProblemsExitMatchesCount(problems []string) {
+	let (text, code) = FormatProblems(problems)
+	if problems.Len() == 0 {
+		return text == "" && code == uint32(0)
+	}
+	code == uint32(1) && strings.HasSuffix(text, "FAIL\n")
+}
+
+law CauseOfRespectsRuntimeReports(prefix string) {
+	CauseOf(prefix+"fatal error: runtime: out of memory\n") == CauseRuntimeReport && CauseOf(prefix+"cannot allocate memory\n") == CauseRuntimeReport
+}
+
+type memProcess { env Map[string, string], dir string } implements os.Process
+
+func Args(_ memProcess) []string {
+	[]string{}
+}
+
+func Getenv(p memProcess, key string) option.Option[string] {
+	p.env.Get(key)
+}
+
+func Environ(p memProcess) Map[string, string] {
+	p.env
+}
+
+func Getwd(p memProcess) string fails os.NoWorkdir {
+	if p.dir == "" || !filepath.IsAbs(p.dir) {
+		return os.NoWorkdir{Message: "unset"}
+	}
+	p.dir
+}
+
+test LoadAndRunCasesOverMemoryFSAndScript {
+	let mem = fstest.NewMemory()
+	let proc = memProcess{env: Map[string, string]{}, dir: ""}
+	let bin = "myprog"
+	let mut results = Map[string, exec.Result]{}
+	with context { fs.Files: mem, fs.Writes: mem, fs.Entries: mem, os.Process: proc } {
+		fs.Writes.MkdirAll("cases/okcase") catch {
+		case _:
+			assert false
+			return
+		}
+		fs.Writes.WriteFile("cases/okcase/args", "--hello\n") catch {
+		case _:
+			assert false
+			return
+		}
+		fs.Writes.WriteFile("cases/okcase/expected.out", "hi\n") catch {
+		case _:
+			assert false
+			return
+		}
+		fs.Writes.WriteFile("cases/okcase/expected.err", "") catch {
+		case _:
+			assert false
+			return
+		}
+		fs.Writes.WriteFile("cases/okcase/expected.status", "0\n") catch {
+		case _:
+			assert false
+			return
+		}
+		fs.Writes.MkdirAll("cases/bad") catch {
+		case _:
+			assert false
+			return
+		}
+		fs.Writes.WriteFile("cases/bad/stranger", "x") catch {
+		case _:
+			assert false
+			return
+		}
+		fs.Writes.WriteFile("cases/bad/expected.status", "01\n") catch {
+		case _:
+			assert false
+			return
+		}
+		let (badTable, probs) = LoadFrom("", "cases", false)
+		assert Count(badTable) == uint32(1)
+		assert probs.Len() == 3
+
+		fs.Writes.Remove("cases/bad/stranger") catch {
+		case _:
+			assert false
+			return
+		}
+		fs.Writes.Remove("cases/bad/expected.status") catch {
+		case _:
+			assert false
+			return
+		}
+		fs.Writes.Remove("cases/bad") catch {
+		case _:
+			assert false
+			return
+		}
+		let (goodTable, goodProbs) = LoadFrom("", "cases", false)
+		assert goodProbs.Len() == 0
+		assert Count(goodTable) == uint32(1)
+		let cmdPass = exec.New(bin, []string{"--hello"})
+		results[exec.Key(cmdPass)] = exec.Result{Status: 0, Stdout: "hi\n", Stderr: ""}
+		with context { exec.Runner: exec.Script{Results: results} } {
+			let (rep, code) = Run(bin, goodTable, DefaultMemory)
+			assert code == uint32(0)
+			assert rep == "ok okcase\nPASS (1 cases)\n"
+		}
+		results[exec.Key(cmdPass)] = exec.Result{Status: 2, Stdout: "bye\n", Stderr: "fatal error: runtime: out of memory\n"}
+		with context { exec.Runner: exec.Script{Results: results} } {
+			let (rep, code) = Run(bin, goodTable, DefaultMemory)
+			assert code == uint32(1)
+			assert strings.Contains(rep, "FAIL okcase: program myprog exceeded its memory limit of 2 GiB")
+		}
+	}
+}
+
+test CauseOfDetectsQueueFaultAndFormatSize {
+	let qf = "SIGSEGV: segmentation violation\nPC=0x42d21c m=3 sigcode=1 addr=0x0\n\ngoroutine 0 [idle]:\nruntime.(*spanQueue).tryDrain()\n"
+	assert CauseOf(qf) == CauseQueueFault
+	assert CauseOf("SIGSEGV: segmentation violation\nPC=0x1 addr=0x10\nruntime.(*spanQueue).x\n") == CauseNone
+	assert FormatSize(uint64(2)<<uint64(30)) == "2 GiB"
+	assert FormatSize(uint64(512)<<uint64(20)) == "512 MiB"
+	assert FormatSize(uint64(1500)) == "1500 bytes"
+	assert ParseSize("2 GiB") == option.Some[uint64]{Value: DefaultMemory}
+	assert ParseSize("off") == option.Some[uint64]{Value: uint64(0)}
+}

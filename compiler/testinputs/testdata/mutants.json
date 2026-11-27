@@ -1,0 +1,65 @@
+{
+  "about": "compiler/testinputs mutants covering env filtering order, genprogram seed parity, testlog dash-dash cutoff, recorder symlink statting, mount verdict, access peer safety, and seccomp target mode",
+  "mutants": [
+    {
+      "name": "selfhost-testinputs-testenv-allow-all",
+      "origin": "wf10 SELFHOST-TESTINPUTS-CASES",
+      "file": "compiler/testinputs/testenv.ergo",
+      "decl": "Environment",
+      "from": "\t\tif slices.Contains(allowed, key) {\n\t\t\tkept = kept.Append(entry)\n\t\t}\n",
+      "to": "\t\tif true || slices.Contains(allowed, key) {\n\t\t\tkept = kept.Append(entry)\n\t\t}\n",
+      "rule": "Environment must retain only variables listed in Names.",
+      "killers": ["compiler/testinputs:EnvironmentFiltersAndPreservesOrder"]
+    },
+    {
+      "name": "selfhost-testinputs-testlog-after-separator",
+      "origin": "wf10 SELFHOST-TESTINPUTS-CASES",
+      "file": "compiler/testinputs/record.ergo",
+      "decl": "TestLogFlag",
+      "from": "\t\tif arg == \"--\" {\n\t\t\treturn \"\"\n\t\t}\n",
+      "to": "",
+      "rule": "TestLogFlag must stop scanning args at the \"--\" separator.",
+      "killers": ["compiler/testinputs:law:TestLogFlagStopsAtDashDash"]
+    },
+    {
+      "name": "selfhost-testinputs-recorder-drop-tool-digest",
+      "origin": "wf10 SELFHOST-TESTINPUTS-CASES",
+      "file": "compiler/testinputs/recorder.ergo",
+      "decl": "RecorderLines",
+      "from": "\tif r.Execs > uint32(0) {\n\t\taddRecordedEnv(r, ToolDigest)\n\t}\n",
+      "to": "",
+      "rule": "RecorderLines must emit ERGO_TOOL_VERSIONS whenever any child executable ran.",
+      "killers": ["compiler/testinputs:RecorderWalkAndLinesCoverSymlinksAndEnv"]
+    },
+    {
+      "name": "selfhost-testinputs-identity-mount-changed-back",
+      "origin": "wf10 SELFHOST-TESTINPUTS-CASES",
+      "file": "compiler/testinputs/identity.ergo",
+      "decl": "MountVerdict",
+      "from": "\tif points.Len() == 0 {\n\t\treturn prefix + \", and changed back, so where is unknown\"\n\t}\n",
+      "to": "\tif points.Len() == 0 {\n\t\treturn \"\"\n\t}\n",
+      "rule": "MountVerdict must fail closed when a mount table poll changed even if the before and after tables match.",
+      "killers": ["compiler/testinputs:IdentityJSONMountVerdictAndInotify"]
+    },
+    {
+      "name": "selfhost-testinputs-access-allow-abstract-unix",
+      "origin": "wf10 SELFHOST-TESTINPUTS-CASES",
+      "file": "compiler/testinputs/access.ergo",
+      "decl": "AccessPeer",
+      "from": "\tif p.Family == FamilyUnix && p.Path == \"\" {\n\t\tif l.Failure == \"\" {\n\t\t\tl.Failure = \"the command used an abstract Unix socket\"\n\t\t}\n\t\treturn\n\t}\n",
+      "to": "",
+      "rule": "AccessPeer must refuse any connection or binding to an abstract Unix socket.",
+      "killers": ["compiler/testinputs:AccessLogPolicyAndSocketDecoding"]
+    },
+    {
+      "name": "selfhost-testinputs-seccomp-drop-writefd-in-target",
+      "origin": "wf10 SELFHOST-TESTINPUTS-CASES",
+      "file": "compiler/testinputs/seccomp.ergo",
+      "decl": "BuildFilter",
+      "from": "\t\tif !target && kind == KindWriteFD {\n\t\t\tcontinue\n\t\t}\n",
+      "to": "\t\tif kind == KindWriteFD {\n\t\t\tcontinue\n\t\t}\n",
+      "rule": "BuildFilter must include descriptor-write syscalls when target observation mode is enabled.",
+      "killers": ["compiler/testinputs:SyscallTablesAndBPFFilterLengths"]
+    }
+  ]
+}

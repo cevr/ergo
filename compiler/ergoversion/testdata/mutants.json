@@ -1,0 +1,35 @@
+{
+  "about": "compiler/ergoversion mutants covering short VCS revisions, pre-release numeric leading zeros, and pre-release vs release precedence",
+  "mutants": [
+    {
+      "name": "selfhost-ergoversion-of-short-revision",
+      "origin": "wf10 SELFHOST-TESTINPUTS-CASES",
+      "file": "compiler/ergoversion/version.ergo",
+      "decl": "Of",
+      "from": "\tif rev.Len() < 12 {\n\t\treturn Devel\n\t}\n",
+      "to": "\tif rev.Len() < 11 {\n\t\treturn Devel\n\t}\n",
+      "rule": "Of must require at least 12 characters of vcs.revision before formatting a VCS version.",
+      "killers": ["compiler/ergoversion:OfFormatsVCSAndMainVersion"]
+    },
+    {
+      "name": "selfhost-ergoversion-valid-pre-leading-zero",
+      "origin": "wf10 SELFHOST-TESTINPUTS-CASES",
+      "file": "compiler/ergoversion/version.ergo",
+      "decl": "Valid",
+      "from": "\tif hasPre && !validIdentifiers(pre, true) {\n",
+      "to": "\tif hasPre && !validIdentifiers(pre, false) {\n",
+      "rule": "Valid must reject numeric pre-release identifiers with leading zeros while allowing them in build metadata.",
+      "killers": ["compiler/ergoversion:ValidAndCompareFollowSemver"]
+    },
+    {
+      "name": "selfhost-ergoversion-compare-prerelease-order",
+      "origin": "wf10 SELFHOST-TESTINPUTS-CASES",
+      "file": "compiler/ergoversion/version.ergo",
+      "decl": "Compare",
+      "from": "\tif !aHas {\n\t\treturn 1\n\t}\n\tif !bHas {\n\t\treturn -1\n\t}\n",
+      "to": "\tif !aHas {\n\t\treturn -1\n\t}\n\tif !bHas {\n\t\treturn 1\n\t}\n",
+      "rule": "Compare must order a release without pre-release identifiers above the same version with pre-release identifiers.",
+      "killers": ["compiler/ergoversion:ValidAndCompareFollowSemver"]
+    }
+  ]
+}

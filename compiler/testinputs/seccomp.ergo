@@ -1,0 +1,431 @@
+import option
+import slices
+
+// ArchAMD64 selects Linux x86_64 seccomp syscall numbers and audit arch.
+let ArchAMD64 uint8 = 1
+
+// ArchARM64 selects Linux aarch64 seccomp syscall numbers and audit arch.
+let ArchARM64 uint8 = 2
+
+// NoArg marks an unused syscall argument slot.
+let NoArg uint32 = 4294967295
+
+// NoCall is the sentinel dense index returned when a syscall number is
+// outside the filtered table.
+let NoCall uint32 = 4294967295
+
+// HighestKnownCall is the highest Linux 6.12 syscall number classified by the
+// observer table (mseal).
+let HighestKnownCall uint32 = 462
+
+// KindOpen classifies file-opening syscalls (open, openat).
+let KindOpen uint8 = 1
+
+// KindOpenat2 classifies openat2 whose flags live in struct open_how.
+let KindOpenat2 uint8 = 2
+
+// KindStat classifies path metadata lookup syscalls.
+let KindStat uint8 = 3
+
+// KindWriteFD classifies descriptor-based write metadata syscalls.
+let KindWriteFD uint8 = 4
+
+// KindChdir classifies working-directory change syscalls.
+let KindChdir uint8 = 5
+
+// KindSocket classifies socket calls carrying sockaddr directly.
+let KindSocket uint8 = 6
+
+// KindSocketMsg classifies sendmsg carrying struct msghdr.
+let KindSocketMsg uint8 = 7
+
+// KindSocketMsgs classifies sendmmsg carrying struct mmsghdr arrays.
+let KindSocketMsgs uint8 = 8
+
+// KindExec classifies execve and execveat.
+let KindExec uint8 = 9
+
+// KindClone3 classifies clone3 whose namespace flags reside in user memory.
+let KindClone3 uint8 = 10
+
+// KindSeccomp classifies seccomp(2) invocations installing nested filters.
+let KindSeccomp uint8 = 11
+
+// KindNamespaceClone classifies clone(2) invocations gated on namespace bits.
+let KindNamespaceClone uint8 = 12
+
+// KindUnobservable classifies syscalls that escape path-based observation.
+let KindUnobservable uint8 = 13
+
+// KindRefused classifies syscalls rejected with ENOSYS directly in BPF.
+let KindRefused uint8 = 14
+
+// BpfLdAbs is BPF_LD | BPF_W | BPF_ABS.
+let BpfLdAbs uint16 = 32
+
+// BpfJeqK is BPF_JMP | BPF_JEQ | BPF_K.
+let BpfJeqK uint16 = 21
+
+// BpfJgtK is BPF_JMP | BPF_JGT | BPF_K.
+let BpfJgtK uint16 = 37
+
+// BpfJgeK is BPF_JMP | BPF_JGE | BPF_K.
+let BpfJgeK uint16 = 53
+
+// BpfJsetK is BPF_JMP | BPF_JSET | BPF_K.
+let BpfJsetK uint16 = 69
+
+// BpfRetK is BPF_RET | BPF_K.
+let BpfRetK uint16 = 6
+
+// OffNr is seccomp_data.nr offset.
+let OffNr uint32 = 0
+
+// OffArc is seccomp_data.arch offset.
+let OffArc uint32 = 4
+
+// OffArg is seccomp_data.args[0] offset.
+let OffArg uint32 = 16
+
+// ArgLength is the byte stride of each seccomp_data argument slot.
+let ArgLength uint32 = 8
+
+// SeccompRetAllow is SECCOMP_RET_ALLOW.
+let SeccompRetAllow uint32 = 2147418112
+
+// SeccompRetUserNotif is SECCOMP_RET_USER_NOTIF.
+let SeccompRetUserNotif uint32 = 2143289344
+
+// SeccompRetErrno is SECCOMP_RET_ERRNO base action.
+let SeccompRetErrno uint32 = 327680
+
+// Enosys is Linux ENOSYS errno value.
+let Enosys uint32 = 38
+
+// NamespaceFlags combines Linux CLONE_NEW* bits checked by BPF/clone3.
+let NamespaceFlags uint32 = 2114060288
+
+// SockFilter represents one classic cBPF instruction matching Linux
+// struct sock_filter.
+type SockFilter {
+	Code uint16,
+	JT   uint8,
+	JF   uint8,
+	K    uint32,
+}
+
+// SyscallTable stores per-architecture seccomp call descriptors as flat
+// parallel SoA columns.
+type SyscallTable {
+	AuditArch         uint32,
+	SysSeccomp        uint32,
+	SysProcessVMReadv uint32,
+	CheckX32          bool,
+	X32SyscallBit     uint32,
+	Nr                []uint32,
+	Kind              []uint8,
+	DirFD             []uint32,
+	PathArg           []uint32,
+	FlagsArg          []uint32,
+	AtFlagsArg        []uint32,
+	EnvArg            []uint32,
+	HasSecond         []bool,
+	DirFD2            []uint32,
+	Path2Arg          []uint32,
+	Name              []string,
+	WriteRole         []uint8,
+	WriteRole2        []uint8,
+}
+
+func emptyTable(auditArch uint32, sysSeccomp uint32, sysVMReadv uint32, checkX32 bool, x32Bit uint32) SyscallTable {
+	SyscallTable{
+		AuditArch:         auditArch,
+		SysSeccomp:        sysSeccomp,
+		SysProcessVMReadv: sysVMReadv,
+		CheckX32:          checkX32,
+		X32SyscallBit:     x32Bit,
+		Nr:                []uint32{},
+		Kind:              []uint8{},
+		DirFD:             []uint32{},
+		PathArg:           []uint32{},
+		FlagsArg:          []uint32{},
+		AtFlagsArg:        []uint32{},
+		EnvArg:            []uint32{},
+		HasSecond:         []bool{},
+		DirFD2:            []uint32{},
+		Path2Arg:          []uint32{},
+		Name:              []string{},
+		WriteRole:         []uint8{},
+		WriteRole2:        []uint8{},
+	}
+}
+
+func pushSimple(t mut SyscallTable, nr uint32, kind uint8, dirfd uint32, pathArg uint32, flagsArg uint32, atFlagsArg uint32, write uint8, name string) {
+	pushFull(t, nr, kind, dirfd, pathArg, flagsArg, atFlagsArg, NoArg, false, NoArg, NoArg, write, WriteNone, name)
+}
+
+func pushFull(t mut SyscallTable, nr uint32, kind uint8, dirfd uint32, pathArg uint32, flagsArg uint32, atFlagsArg uint32, envArg uint32, second bool, dirfd2 uint32, path2Arg uint32, write uint8, write2 uint8, name string) {
+	t.Nr = t.Nr.Append(nr)
+	t.Kind = t.Kind.Append(kind)
+	t.DirFD = t.DirFD.Append(dirfd)
+	t.PathArg = t.PathArg.Append(pathArg)
+	t.FlagsArg = t.FlagsArg.Append(flagsArg)
+	t.AtFlagsArg = t.AtFlagsArg.Append(atFlagsArg)
+	t.EnvArg = t.EnvArg.Append(envArg)
+	t.HasSecond = t.HasSecond.Append(second)
+	t.DirFD2 = t.DirFD2.Append(dirfd2)
+	t.Path2Arg = t.Path2Arg.Append(path2Arg)
+	t.Name = t.Name.Append(name)
+	t.WriteRole = t.WriteRole.Append(write)
+	t.WriteRole2 = t.WriteRole2.Append(write2)
+}
+
+// TableForArch builds the seccomp syscall table for ArchAMD64 or ArchARM64.
+func TableForArch(arch uint8) SyscallTable {
+	if arch == ArchARM64 {
+		return arm64Table()
+	}
+	amd64Table()
+}
+
+func amd64Table() SyscallTable {
+	let mut t = emptyTable(uint32(3221225534), uint32(317), uint32(310), true, uint32(1073741824))
+	pushSimple(&t, uint32(77), KindWriteFD, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "")
+	pushSimple(&t, uint32(91), KindWriteFD, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "")
+	pushSimple(&t, uint32(93), KindWriteFD, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "")
+	pushSimple(&t, uint32(190), KindWriteFD, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "")
+	pushSimple(&t, uint32(199), KindWriteFD, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "")
+	pushSimple(&t, uint32(2), KindOpen, NoArg, uint32(0), uint32(1), uint32(0), WriteNone, "")
+	pushSimple(&t, uint32(85), KindStat, NoArg, uint32(0), uint32(0), uint32(0), WriteWhole, "")
+	pushSimple(&t, uint32(257), KindOpen, uint32(0), uint32(1), uint32(2), uint32(0), WriteNone, "")
+	pushSimple(&t, uint32(437), KindOpenat2, uint32(0), uint32(1), uint32(2), uint32(0), WriteNone, "")
+	pushSimple(&t, uint32(4), KindStat, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "")
+	pushSimple(&t, uint32(6), KindStat, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "")
+	pushSimple(&t, uint32(262), KindStat, uint32(0), uint32(1), uint32(0), uint32(3), WriteNone, "")
+	pushSimple(&t, uint32(332), KindStat, uint32(0), uint32(1), uint32(0), uint32(2), WriteNone, "")
+	pushSimple(&t, uint32(21), KindStat, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "")
+	pushSimple(&t, uint32(269), KindStat, uint32(0), uint32(1), uint32(0), uint32(0), WriteNone, "")
+	pushSimple(&t, uint32(439), KindStat, uint32(0), uint32(1), uint32(0), uint32(3), WriteNone, "")
+	pushSimple(&t, uint32(89), KindStat, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "")
+	pushSimple(&t, uint32(267), KindStat, uint32(0), uint32(1), uint32(0), uint32(0), WriteNone, "")
+	pushSimple(&t, uint32(191), KindStat, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "")
+	pushSimple(&t, uint32(192), KindStat, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "")
+	pushSimple(&t, uint32(194), KindStat, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "")
+	pushSimple(&t, uint32(195), KindStat, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "")
+	pushSimple(&t, uint32(137), KindStat, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "")
+	pushSimple(&t, uint32(303), KindStat, uint32(0), uint32(1), uint32(0), uint32(4), WriteNone, "")
+	pushSimple(&t, uint32(254), KindStat, NoArg, uint32(1), uint32(0), uint32(0), WriteNone, "")
+	pushSimple(&t, uint32(83), KindStat, NoArg, uint32(0), uint32(0), uint32(0), WriteWhole, "")
+	pushSimple(&t, uint32(84), KindStat, NoArg, uint32(0), uint32(0), uint32(0), WriteWhole, "")
+	pushSimple(&t, uint32(87), KindStat, NoArg, uint32(0), uint32(0), uint32(0), WriteWhole, "")
+	pushFull(&t, uint32(82), KindStat, NoArg, uint32(0), uint32(0), uint32(0), NoArg, true, NoArg, uint32(1), WriteMove, WriteWhole, "")
+	pushFull(&t, uint32(86), KindStat, NoArg, uint32(0), uint32(0), uint32(0), NoArg, true, NoArg, uint32(1), WriteRead, WriteWhole, "")
+	pushSimple(&t, uint32(88), KindStat, NoArg, uint32(1), uint32(0), uint32(0), WriteWhole, "")
+	pushSimple(&t, uint32(90), KindStat, NoArg, uint32(0), uint32(0), uint32(0), WritePart, "")
+	pushSimple(&t, uint32(92), KindStat, NoArg, uint32(0), uint32(0), uint32(0), WritePart, "")
+	pushSimple(&t, uint32(94), KindStat, NoArg, uint32(0), uint32(0), uint32(0), WritePart, "")
+	pushSimple(&t, uint32(76), KindStat, NoArg, uint32(0), uint32(0), uint32(0), WritePart, "")
+	pushSimple(&t, uint32(132), KindStat, NoArg, uint32(0), uint32(0), uint32(0), WritePart, "")
+	pushSimple(&t, uint32(235), KindStat, NoArg, uint32(0), uint32(0), uint32(0), WritePart, "")
+	pushSimple(&t, uint32(133), KindStat, NoArg, uint32(0), uint32(0), uint32(0), WriteWhole, "")
+	pushSimple(&t, uint32(258), KindStat, uint32(0), uint32(1), uint32(0), uint32(0), WriteWhole, "")
+	pushSimple(&t, uint32(259), KindStat, uint32(0), uint32(1), uint32(0), uint32(0), WriteWhole, "")
+	pushSimple(&t, uint32(260), KindStat, uint32(0), uint32(1), uint32(0), uint32(4), WritePart, "")
+	pushSimple(&t, uint32(261), KindStat, uint32(0), uint32(1), uint32(0), uint32(0), WritePart, "")
+	pushSimple(&t, uint32(263), KindStat, uint32(0), uint32(1), uint32(0), uint32(0), WriteWhole, "")
+	pushFull(&t, uint32(264), KindStat, uint32(0), uint32(1), uint32(0), uint32(0), NoArg, true, uint32(2), uint32(3), WriteMove, WriteWhole, "")
+	pushFull(&t, uint32(265), KindStat, uint32(0), uint32(1), uint32(0), uint32(4), NoArg, true, uint32(2), uint32(3), WriteRead, WriteWhole, "")
+	pushSimple(&t, uint32(266), KindStat, uint32(1), uint32(2), uint32(0), uint32(0), WriteWhole, "")
+	pushSimple(&t, uint32(268), KindStat, uint32(0), uint32(1), uint32(0), uint32(0), WritePart, "")
+	pushSimple(&t, uint32(280), KindStat, uint32(0), uint32(1), uint32(0), uint32(3), WritePart, "utimensat")
+	pushFull(&t, uint32(316), KindStat, uint32(0), uint32(1), uint32(4), uint32(0), NoArg, true, uint32(2), uint32(3), WriteMove, WriteWhole, "renameat2")
+	pushSimple(&t, uint32(452), KindStat, uint32(0), uint32(1), uint32(0), uint32(3), WritePart, "")
+	pushSimple(&t, uint32(188), KindStat, NoArg, uint32(0), uint32(0), uint32(0), WritePart, "")
+	pushSimple(&t, uint32(189), KindStat, NoArg, uint32(0), uint32(0), uint32(0), WritePart, "")
+	pushSimple(&t, uint32(197), KindStat, NoArg, uint32(0), uint32(0), uint32(0), WritePart, "")
+	pushSimple(&t, uint32(198), KindStat, NoArg, uint32(0), uint32(0), uint32(0), WritePart, "")
+	pushSimple(&t, uint32(80), KindChdir, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "")
+	pushSimple(&t, uint32(42), KindSocket, NoArg, uint32(1), uint32(2), uint32(0), WriteNone, "")
+	pushSimple(&t, uint32(49), KindSocket, NoArg, uint32(1), uint32(2), uint32(0), WriteNone, "bind")
+	pushSimple(&t, uint32(44), KindSocket, NoArg, uint32(4), uint32(5), uint32(0), WriteNone, "")
+	pushSimple(&t, uint32(46), KindSocketMsg, NoArg, uint32(1), uint32(0), uint32(0), WriteNone, "")
+	pushSimple(&t, uint32(307), KindSocketMsgs, NoArg, uint32(1), uint32(2), uint32(0), WriteNone, "")
+	pushFull(&t, uint32(59), KindExec, NoArg, uint32(0), uint32(0), uint32(0), uint32(2), false, NoArg, NoArg, WriteNone, WriteNone, "")
+	pushFull(&t, uint32(322), KindExec, uint32(0), uint32(1), uint32(0), uint32(4), uint32(3), false, NoArg, NoArg, WriteNone, WriteNone, "")
+	pushSimple(&t, uint32(435), KindClone3, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "")
+	pushSimple(&t, uint32(317), KindSeccomp, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "")
+	pushSimple(&t, uint32(161), KindUnobservable, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "chroot")
+	pushSimple(&t, uint32(155), KindUnobservable, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "pivot_root")
+	pushSimple(&t, uint32(272), KindUnobservable, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "unshare")
+	pushSimple(&t, uint32(308), KindUnobservable, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "setns")
+	pushSimple(&t, uint32(165), KindUnobservable, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "mount")
+	pushSimple(&t, uint32(166), KindUnobservable, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "umount2")
+	pushSimple(&t, uint32(428), KindUnobservable, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "open_tree")
+	pushSimple(&t, uint32(429), KindUnobservable, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "move_mount")
+	pushSimple(&t, uint32(430), KindUnobservable, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "fsopen")
+	pushSimple(&t, uint32(432), KindUnobservable, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "fsmount")
+	pushSimple(&t, uint32(433), KindUnobservable, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "fspick")
+	pushSimple(&t, uint32(442), KindUnobservable, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "mount_setattr")
+	pushSimple(&t, uint32(304), KindUnobservable, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "open_by_handle_at")
+	pushSimple(&t, uint32(134), KindUnobservable, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "uselib")
+	pushSimple(&t, uint32(301), KindUnobservable, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "fanotify_mark")
+	pushSimple(&t, uint32(179), KindUnobservable, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "quotactl")
+	pushSimple(&t, uint32(443), KindUnobservable, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "quotactl_fd")
+	pushSimple(&t, uint32(321), KindUnobservable, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "bpf")
+	pushSimple(&t, uint32(425), KindRefused, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "io_uring_setup")
+	pushSimple(&t, uint32(56), KindNamespaceClone, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "clone")
+	t
+}
+
+func arm64Table() SyscallTable {
+	let mut t = emptyTable(uint32(3221225655), uint32(277), uint32(270), false, uint32(0))
+	pushSimple(&t, uint32(46), KindWriteFD, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "")
+	pushSimple(&t, uint32(52), KindWriteFD, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "")
+	pushSimple(&t, uint32(55), KindWriteFD, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "")
+	pushSimple(&t, uint32(7), KindWriteFD, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "")
+	pushSimple(&t, uint32(16), KindWriteFD, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "")
+	pushSimple(&t, uint32(56), KindOpen, uint32(0), uint32(1), uint32(2), uint32(0), WriteNone, "")
+	pushSimple(&t, uint32(437), KindOpenat2, uint32(0), uint32(1), uint32(2), uint32(0), WriteNone, "")
+	pushSimple(&t, uint32(79), KindStat, uint32(0), uint32(1), uint32(0), uint32(3), WriteNone, "")
+	pushSimple(&t, uint32(291), KindStat, uint32(0), uint32(1), uint32(0), uint32(2), WriteNone, "")
+	pushSimple(&t, uint32(48), KindStat, uint32(0), uint32(1), uint32(0), uint32(0), WriteNone, "")
+	pushSimple(&t, uint32(439), KindStat, uint32(0), uint32(1), uint32(0), uint32(3), WriteNone, "")
+	pushSimple(&t, uint32(78), KindStat, uint32(0), uint32(1), uint32(0), uint32(0), WriteNone, "")
+	pushSimple(&t, uint32(8), KindStat, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "")
+	pushSimple(&t, uint32(9), KindStat, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "")
+	pushSimple(&t, uint32(11), KindStat, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "")
+	pushSimple(&t, uint32(12), KindStat, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "")
+	pushSimple(&t, uint32(43), KindStat, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "")
+	pushSimple(&t, uint32(264), KindStat, uint32(0), uint32(1), uint32(0), uint32(4), WriteNone, "")
+	pushSimple(&t, uint32(27), KindStat, NoArg, uint32(1), uint32(0), uint32(0), WriteNone, "")
+	pushSimple(&t, uint32(34), KindStat, uint32(0), uint32(1), uint32(0), uint32(0), WriteWhole, "")
+	pushSimple(&t, uint32(33), KindStat, uint32(0), uint32(1), uint32(0), uint32(0), WriteWhole, "")
+	pushSimple(&t, uint32(35), KindStat, uint32(0), uint32(1), uint32(0), uint32(0), WriteWhole, "")
+	pushSimple(&t, uint32(36), KindStat, uint32(1), uint32(2), uint32(0), uint32(0), WriteWhole, "")
+	pushFull(&t, uint32(37), KindStat, uint32(0), uint32(1), uint32(0), uint32(4), NoArg, true, uint32(2), uint32(3), WriteRead, WriteWhole, "")
+	pushFull(&t, uint32(38), KindStat, uint32(0), uint32(1), uint32(0), uint32(0), NoArg, true, uint32(2), uint32(3), WriteMove, WriteWhole, "")
+	pushSimple(&t, uint32(45), KindStat, NoArg, uint32(0), uint32(0), uint32(0), WritePart, "")
+	pushSimple(&t, uint32(53), KindStat, uint32(0), uint32(1), uint32(0), uint32(0), WritePart, "")
+	pushSimple(&t, uint32(54), KindStat, uint32(0), uint32(1), uint32(0), uint32(4), WritePart, "")
+	pushSimple(&t, uint32(88), KindStat, uint32(0), uint32(1), uint32(0), uint32(3), WritePart, "utimensat")
+	pushFull(&t, uint32(276), KindStat, uint32(0), uint32(1), uint32(4), uint32(0), NoArg, true, uint32(2), uint32(3), WriteMove, WriteWhole, "renameat2")
+	pushSimple(&t, uint32(452), KindStat, uint32(0), uint32(1), uint32(0), uint32(3), WritePart, "")
+	pushSimple(&t, uint32(5), KindStat, NoArg, uint32(0), uint32(0), uint32(0), WritePart, "")
+	pushSimple(&t, uint32(6), KindStat, NoArg, uint32(0), uint32(0), uint32(0), WritePart, "")
+	pushSimple(&t, uint32(14), KindStat, NoArg, uint32(0), uint32(0), uint32(0), WritePart, "")
+	pushSimple(&t, uint32(15), KindStat, NoArg, uint32(0), uint32(0), uint32(0), WritePart, "")
+	pushSimple(&t, uint32(49), KindChdir, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "")
+	pushSimple(&t, uint32(203), KindSocket, NoArg, uint32(1), uint32(2), uint32(0), WriteNone, "")
+	pushSimple(&t, uint32(200), KindSocket, NoArg, uint32(1), uint32(2), uint32(0), WriteNone, "bind")
+	pushSimple(&t, uint32(206), KindSocket, NoArg, uint32(4), uint32(5), uint32(0), WriteNone, "")
+	pushSimple(&t, uint32(211), KindSocketMsg, NoArg, uint32(1), uint32(0), uint32(0), WriteNone, "")
+	pushSimple(&t, uint32(269), KindSocketMsgs, NoArg, uint32(1), uint32(2), uint32(0), WriteNone, "")
+	pushFull(&t, uint32(221), KindExec, NoArg, uint32(0), uint32(0), uint32(0), uint32(2), false, NoArg, NoArg, WriteNone, WriteNone, "")
+	pushFull(&t, uint32(281), KindExec, uint32(0), uint32(1), uint32(0), uint32(4), uint32(3), false, NoArg, NoArg, WriteNone, WriteNone, "")
+	pushSimple(&t, uint32(435), KindClone3, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "")
+	pushSimple(&t, uint32(277), KindSeccomp, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "")
+	pushSimple(&t, uint32(51), KindUnobservable, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "chroot")
+	pushSimple(&t, uint32(41), KindUnobservable, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "pivot_root")
+	pushSimple(&t, uint32(97), KindUnobservable, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "unshare")
+	pushSimple(&t, uint32(268), KindUnobservable, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "setns")
+	pushSimple(&t, uint32(40), KindUnobservable, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "mount")
+	pushSimple(&t, uint32(39), KindUnobservable, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "umount2")
+	pushSimple(&t, uint32(428), KindUnobservable, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "open_tree")
+	pushSimple(&t, uint32(429), KindUnobservable, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "move_mount")
+	pushSimple(&t, uint32(430), KindUnobservable, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "fsopen")
+	pushSimple(&t, uint32(432), KindUnobservable, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "fsmount")
+	pushSimple(&t, uint32(433), KindUnobservable, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "fspick")
+	pushSimple(&t, uint32(442), KindUnobservable, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "mount_setattr")
+	pushSimple(&t, uint32(265), KindUnobservable, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "open_by_handle_at")
+	pushSimple(&t, uint32(263), KindUnobservable, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "fanotify_mark")
+	pushSimple(&t, uint32(60), KindUnobservable, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "quotactl")
+	pushSimple(&t, uint32(443), KindUnobservable, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "quotactl_fd")
+	pushSimple(&t, uint32(280), KindUnobservable, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "bpf")
+	pushSimple(&t, uint32(425), KindRefused, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "io_uring_setup")
+	pushSimple(&t, uint32(220), KindNamespaceClone, NoArg, uint32(0), uint32(0), uint32(0), WriteNone, "clone")
+	t
+}
+
+// LookupSyscall returns the dense row index for nr in tbl, or NoCall.
+func LookupSyscall(tbl SyscallTable, nr uint32) uint32 {
+	for i, c in tbl.Nr {
+		if c == nr {
+			return uint32(i)
+		}
+	}
+	NoCall
+}
+
+// BuildFilter emits the exact classic seccomp cBPF instruction stream matching
+// Go's observe_linux filter(target) for arch (ArchAMD64 or ArchARM64).
+func BuildFilter(arch uint8, target bool) []SockFilter {
+	let tbl = TableForArch(arch)
+	let mut prog = []SockFilter{
+		SockFilter{Code: BpfLdAbs, JT: uint8(0), JF: uint8(0), K: OffArc},
+		SockFilter{Code: BpfJeqK, JT: uint8(1), JF: uint8(0), K: tbl.AuditArch},
+		SockFilter{Code: BpfRetK, JT: uint8(0), JF: uint8(0), K: SeccompRetUserNotif},
+		SockFilter{Code: BpfLdAbs, JT: uint8(0), JF: uint8(0), K: OffNr},
+	}
+	if tbl.CheckX32 {
+		prog = prog.Append(SockFilter{Code: BpfJgeK, JT: uint8(0), JF: uint8(1), K: tbl.X32SyscallBit})
+		prog = prog.Append(SockFilter{Code: BpfRetK, JT: uint8(0), JF: uint8(0), K: SeccompRetUserNotif})
+	}
+	for i in 0..tbl.Nr.Len() {
+		let nr = tbl.Nr[i]
+		let kind = tbl.Kind[i]
+		let pathArg = tbl.PathArg[i]
+		if !target && kind == KindWriteFD {
+			continue
+		}
+		if kind == KindRefused {
+			prog = prog.Append(SockFilter{Code: BpfJeqK, JT: uint8(0), JF: uint8(1), K: nr})
+			prog = prog.Append(SockFilter{Code: BpfRetK, JT: uint8(0), JF: uint8(0), K: SeccompRetErrno | Enosys})
+		} else if kind == KindNamespaceClone {
+			prog = prog.Append(SockFilter{Code: BpfJeqK, JT: uint8(0), JF: uint8(4), K: nr})
+			prog = prog.Append(SockFilter{Code: BpfLdAbs, JT: uint8(0), JF: uint8(0), K: OffArg})
+			prog = prog.Append(SockFilter{Code: BpfJsetK, JT: uint8(0), JF: uint8(1), K: NamespaceFlags})
+			prog = prog.Append(SockFilter{Code: BpfRetK, JT: uint8(0), JF: uint8(0), K: SeccompRetUserNotif})
+			prog = prog.Append(SockFilter{Code: BpfRetK, JT: uint8(0), JF: uint8(0), K: SeccompRetAllow})
+		} else if kind == KindSocket {
+			prog = prog.Append(SockFilter{Code: BpfJeqK, JT: uint8(0), JF: uint8(6), K: nr})
+			prog = prog.Append(SockFilter{Code: BpfLdAbs, JT: uint8(0), JF: uint8(0), K: OffArg + pathArg*ArgLength})
+			prog = prog.Append(SockFilter{Code: BpfJeqK, JT: uint8(0), JF: uint8(3), K: uint32(0)})
+			prog = prog.Append(SockFilter{Code: BpfLdAbs, JT: uint8(0), JF: uint8(0), K: OffArg + pathArg*ArgLength + uint32(4)})
+			prog = prog.Append(SockFilter{Code: BpfJeqK, JT: uint8(0), JF: uint8(1), K: uint32(0)})
+			prog = prog.Append(SockFilter{Code: BpfRetK, JT: uint8(0), JF: uint8(0), K: SeccompRetAllow})
+			prog = prog.Append(SockFilter{Code: BpfRetK, JT: uint8(0), JF: uint8(0), K: SeccompRetUserNotif})
+		} else {
+			prog = prog.Append(SockFilter{Code: BpfJeqK, JT: uint8(0), JF: uint8(1), K: nr})
+			prog = prog.Append(SockFilter{Code: BpfRetK, JT: uint8(0), JF: uint8(0), K: SeccompRetUserNotif})
+		}
+	}
+	prog = prog.Append(SockFilter{Code: BpfJgtK, JT: uint8(0), JF: uint8(1), K: HighestKnownCall})
+	prog = prog.Append(SockFilter{Code: BpfRetK, JT: uint8(0), JF: uint8(0), K: SeccompRetUserNotif})
+	prog = prog.Append(SockFilter{Code: BpfRetK, JT: uint8(0), JF: uint8(0), K: SeccompRetAllow})
+	prog
+}
+
+law FilterAlwaysEndsWithAllow(arch uint8, target bool) {
+	let prog = BuildFilter(arch, target)
+	let last = slices.Last(prog)
+	match last {
+	case option.Some{Value: ins}:
+		ins.Code == BpfRetK && ins.K == SeccompRetAllow
+	case option.None:
+		false
+	}
+}
+
+test SyscallTablesAndBPFFilterLengths {
+	let amd = TableForArch(ArchAMD64)
+	let arm = TableForArch(ArchARM64)
+	assert amd.Nr.Len() == 84
+	assert arm.Nr.Len() == 64
+	assert LookupSyscall(amd, uint32(257)) != NoCall
+	assert LookupSyscall(arm, uint32(56)) != NoCall
+	assert LookupSyscall(arm, uint32(999)) == NoCall
+
+	let nonTarget = BuildFilter(ArchAMD64, false)
+	let target = BuildFilter(ArchAMD64, true)
+	assert target.Len() == nonTarget.Len()+10
+}

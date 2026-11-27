@@ -1,0 +1,773 @@
+import dense
+import filepath
+import option
+import slices
+import strconv
+import strings
+
+// SnapRead indicates reading a file's contents or listing a directory.
+let SnapRead uint8 = 1
+
+// SnapLookup indicates resolving a path lookup without reading file bytes.
+let SnapLookup uint8 = 2
+
+// SnapExists indicates checking existence or object kind on replacement.
+let SnapExists uint8 = 3
+
+// WriteNone marks a call that makes no modification at the path.
+let WriteNone uint8 = 0
+
+// WriteWhole marks a call replacing or unlinking a path regardless of prior contents.
+let WriteWhole uint8 = 1
+
+// WritePart marks a call altering an existing object while depending on prior content.
+let WritePart uint8 = 2
+
+// WriteMove marks a call renaming away a source path.
+let WriteMove uint8 = 3
+
+// WriteRead marks a call taking an input snapshot of an existing source before linking.
+let WriteRead uint8 = 4
+
+// FamilyUnix is AF_UNIX.
+let FamilyUnix uint16 = 1
+
+// FamilyInet is AF_INET.
+let FamilyInet uint16 = 2
+
+// FamilyInet6 is AF_INET6.
+let FamilyInet6 uint16 = 10
+
+// OrdOnly is Linux O_RDONLY.
+let OrdOnly uint32 = 0
+
+// OWrOnly is Linux O_WRONLY.
+let OWrOnly uint32 = 1
+
+// OAccMode is Linux O_ACCMODE.
+let OAccMode uint32 = 3
+
+// OCreat is Linux O_CREAT.
+let OCreat uint32 = 64
+
+// OExcl is Linux O_EXCL.
+let OExcl uint32 = 128
+
+// OTrunc is Linux O_TRUNC.
+let OTrunc uint32 = 512
+
+// OPath is Linux O_PATH.
+let OPath uint32 = 2097152
+
+// OTmpfile is Linux __O_TMPFILE.
+let OTmpfile uint32 = 4194304
+
+// InputEntry represents one ordered command input snapshot.
+type InputEntry {
+	Path  string,
+	Kind  uint8,
+	State string,
+}
+
+// Peer describes a socket endpoint bound, connected, or targeted by send calls.
+type Peer {
+	Family  uint16,
+	Path    string,
+	Name    string,
+	Addr    string,
+	Port    uint32,
+	Bind    bool,
+	SockPid uint32,
+	SockFd  uint32,
+	SockDev uint64,
+	SockIno uint64,
+}
+
+// PathVersion captures comparable metadata for input validation between read
+// and command exit using unsigned fields only.
+type PathVersion {
+	Dev      uint64,
+	Ino      uint64,
+	Size     uint64,
+	Mode     uint32,
+	ModSec   uint64,
+	ModNsec  uint64,
+	CtimSec  uint64,
+	CtimNsec uint64,
+	Err      string,
+}
+
+// AccessLogTable records ordered input dependencies, written paths, bound peers,
+// and validation failures using flat dense columns.
+type AccessLogTable {
+	InputKeys     dense.Strings,
+	InputPath     []string,
+	InputKind     []uint8,
+	InputState    []string,
+	WrittenPool   dense.Strings,
+	WrittenList   []string,
+	WrittenBefore []PathVersion,
+	ReadPool      dense.Strings,
+	ReadVer       []PathVersion,
+	BoundPeers    []Peer,
+	Failure       string,
+	Stopped       bool,
+}
+
+// VersionProvider supplies metadata and content snapshots for paths accessed
+// by an observed command.
+type VersionProvider {
+	Version(path string) PathVersion,
+	Snap(path string, kind uint8) string,
+}
+
+// MemVersionProvider is a pure map-backed VersionProvider for laws and tests.
+type MemVersionProvider {
+	Versions Map[string, PathVersion],
+	Snaps    Map[string, string],
+} implements VersionProvider
+
+// Version returns any configured PathVersion for path.
+func Version(m MemVersionProvider, path string) PathVersion {
+	match m.Versions.Get(path) {
+	case option.Some{Value: v}:
+		v
+	case option.None:
+		zeroPathVersion()
+	}
+}
+
+// Snap returns the snapshot state string configured for path and kind.
+func Snap(m MemVersionProvider, path string, kind uint8) string {
+	let key = snapKey(kind, path)
+	match m.Snaps.Get(key) {
+	case option.Some{Value: s}:
+		s
+	case option.None:
+		match m.Snaps.Get(path) {
+		case option.Some{Value: s2}:
+			s2
+		case option.None:
+			""
+		}
+	}
+}
+
+// NewAccessLog allocates an empty AccessLogTable.
+func NewAccessLog() AccessLogTable {
+	AccessLogTable{
+		InputKeys:     dense.NewStrings(),
+		InputPath:     []string{},
+		InputKind:     []uint8{},
+		InputState:    []string{},
+		WrittenPool:   dense.NewStrings(),
+		WrittenList:   []string{},
+		WrittenBefore: []PathVersion{},
+		ReadPool:      dense.NewStrings(),
+		ReadVer:       []PathVersion{},
+		BoundPeers:    []Peer{},
+		Failure:       "",
+		Stopped:       false,
+	}
+}
+
+// OpenRole classifies Linux open(2)/openat(2)/openat2(2) flags into whether the
+// call reads the object and which Write* role it performs.
+func OpenRole(flags uint32) (bool, uint8) {
+	let mode = flags & OAccMode
+	let read = mode != OWrOnly
+	if (flags & OTmpfile) != uint32(0) {
+		return (read, WriteNone)
+	}
+	if (flags&(OCreat|OExcl)) == (OCreat|OExcl) || (flags&OTrunc) != uint32(0) {
+		return (read, WriteWhole)
+	}
+	if mode != OrdOnly || (flags&OCreat) != uint32(0) {
+		return (read, WritePart)
+	}
+	(read, WriteNone)
+}
+
+// NormalPath cleans non-virtual paths and resolves ".." parent symlinks without
+// hiding failed intermediate lookups.
+func NormalPath(path string) (string, bool) needs PathResolver {
+	if Virtual(path) {
+		return ("", false)
+	}
+	if HasDotDot(path) {
+		let cut = lastSlashIndex(path) + 1
+		let mut dir = strings.Slice(path, 0, cut)
+		let mut base = strings.Slice(path, cut, path.Len())
+		if base == ".." || base == "." {
+			dir = path
+			base = ""
+		}
+		match PathResolver.PhysicalDir(dir) {
+		case option.Some{Value: phys}:
+			let joined = if base == "" { phys } else { filepath.Join([]string{phys, base}) }
+			return (joined, true)
+		case option.None:
+			return (path, true)
+		}
+	}
+	(filepath.Clean(path), true)
+}
+
+// AccessCapture snapshots raw path at kind when not already captured or made
+// stale by an earlier tree write.
+func AccessCapture(l mut AccessLogTable, raw string, kind uint8) needs PathResolver | VersionProvider {
+	let (path, ok) = NormalPath(raw)
+	if !ok {
+		return
+	}
+	captureNormalized(l, path, kind)
+}
+
+func captureNormalized(l mut AccessLogTable, path string, kind uint8) needs VersionProvider {
+	if l.Stopped {
+		return
+	}
+	let key = snapKey(kind, path)
+	match dense.FindText(l.InputKeys, key) {
+	case option.Some:
+		return
+	case option.None:
+	}
+	let mut ver = zeroPathVersion()
+	let writtenIdx = findWrittenIdx(l.WrittenPool, path)
+	if writtenIdx >= 0 || kind == SnapRead {
+		ver = VersionProvider.Version(path)
+		if writtenIdx >= 0 && l.WrittenBefore[writtenIdx] != ver {
+			return
+		}
+	}
+	if kind == SnapRead {
+		match dense.FindText(l.ReadPool, path) {
+		case option.Some:
+		case option.None:
+			let _ = dense.InternText(&l.ReadPool, path)
+			l.ReadVer = l.ReadVer.Append(ver)
+		}
+	}
+	let state = VersionProvider.Snap(path, kind)
+	let _ = dense.InternText(&l.InputKeys, key)
+	l.InputPath = l.InputPath.Append(path)
+	l.InputKind = l.InputKind.Append(kind)
+	l.InputState = l.InputState.Append(state)
+}
+
+// AccessOpen records a read-open dependency when read is true.
+func AccessOpen(l mut AccessLogTable, path string, read bool) needs PathResolver | VersionProvider {
+	if read {
+		AccessCapture(l, path, SnapRead)
+	}
+}
+
+// AccessStat records a lookup dependency for path.
+func AccessStat(l mut AccessLogTable, path string) needs PathResolver | VersionProvider {
+	AccessCapture(l, path, SnapLookup)
+}
+
+// AccessExec captures an executed binary and up to 4 chained shebang
+// interpreters as read dependencies.
+func AccessExec(l mut AccessLogTable, path string) needs PathResolver | VersionProvider {
+	let mut cur = path
+	for _ in 0..5 {
+		AccessCapture(l, cur, SnapRead)
+		let interp = Shebang(PathResolver.ReadHead(cur))
+		if interp == "" {
+			return
+		}
+		cur = interp
+	}
+}
+
+// AccessWrote records pre-write dependencies and first-seen written versions
+// according to how.
+func AccessWrote(l mut AccessLogTable, raw string, how uint8) needs PathResolver | VersionProvider {
+	let (path, ok) = NormalPath(raw)
+	if !ok || l.Stopped {
+		return
+	}
+	let before = VersionProvider.Version(path)
+	if how == WriteWhole {
+		captureNormalized(l, path, SnapExists)
+	} else if how == WritePart || how == WriteMove || how == WriteRead {
+		captureNormalized(l, path, SnapRead)
+	}
+	if how == WriteRead {
+		return
+	}
+	if findWrittenIdx(l.WrittenPool, path) < 0 {
+		let _ = dense.InternText(&l.WrittenPool, path)
+		l.WrittenList = l.WrittenList.Append(path)
+		l.WrittenBefore = l.WrittenBefore.Append(before)
+	}
+}
+
+// AccessPeer records socket bindings and refuses abstract Unix sockets, unbound
+// Unix peers, or non-bound / non-loopback network destinations.
+func AccessPeer(l mut AccessLogTable, pRaw Peer, boundCheck func(Peer, Peer) bool) needs PathResolver {
+	let mut p = pRaw
+	if p.Path != "" {
+		let (norm, ok) = NormalPath(p.Path)
+		if ok {
+			p = Peer{..p, Path: norm}
+		}
+	}
+	if l.Stopped {
+		return
+	}
+	if p.Family == FamilyUnix && p.Path == "" {
+		if l.Failure == "" {
+			l.Failure = "the command used an abstract Unix socket"
+		}
+		return
+	}
+	if p.Bind {
+		if hasSocketRef(p) {
+			l.BoundPeers = l.BoundPeers.Append(p)
+		}
+		return
+	}
+	if l.Failure != "" {
+		return
+	}
+	if p.Family == FamilyUnix || IsLoopbackIP(p.Addr) {
+		for _, binding in l.BoundPeers {
+			if boundCheck(binding, p) {
+				return
+			}
+		}
+	}
+	if p.Family == FamilyUnix {
+		l.Failure = "the command talked to a process outside it through socket " + p.Path
+	} else {
+		l.Failure = "the command used the network (" + formatAddrPort(p.Addr, p.Port) + ")"
+	}
+}
+
+// AccessValidate refuses the recorded run if any unwritten read input changed
+// while the command ran.
+func AccessValidate(l mut AccessLogTable) needs VersionProvider {
+	for i in 0..l.InputPath.Len() {
+		if l.InputKind[i] != SnapRead {
+			continue
+		}
+		let path = l.InputPath[i]
+		if findWrittenIdx(l.WrittenPool, path) >= 0 {
+			continue
+		}
+		match dense.FindText(l.ReadPool, path) {
+		case option.Some{Value: id}:
+			let idx = dense.Index(id)
+			if idx < l.ReadVer.Len() && l.ReadVer[idx] != VersionProvider.Version(path) {
+				if l.Failure == "" {
+					l.Failure = "a read input changed during the command: " + path
+				}
+				return
+			}
+		case option.None:
+		}
+	}
+}
+
+// AccessResult returns ordered captured inputs and sorted written paths.
+func AccessResult(l AccessLogTable) ([]InputEntry, []string) {
+	let mut inputs = slices.WithCapacity[InputEntry](l.InputPath.Len())
+	for i in 0..l.InputPath.Len() {
+		inputs = inputs.Append(InputEntry{
+			Path:  l.InputPath[i],
+			Kind:  l.InputKind[i],
+			State: l.InputState[i],
+		})
+	}
+	(inputs, slices.Sort(l.WrittenList))
+}
+
+// Undeleted strips the kernel " (deleted)" suffix from /proc readlink targets
+// unless a literal entry with that suffix exists.
+func Undeleted(target string, literalExists bool) string {
+	if !strings.HasSuffix(target, " (deleted)") || literalExists {
+		return target
+	}
+	strings.TrimSuffix(target, " (deleted)")
+}
+
+// ResolveMagicLink expands /dev/stdin|stdout|stderr|fd and /proc/.../fd|cwd|root
+// magic symlink prefixes via PathResolver when possible.
+func ResolveMagicLink(tid uint32, path string) string needs PathResolver {
+	let mut rest = ""
+	if strings.HasPrefix(path, "/dev/") {
+		let devRest = strings.TrimPrefix(path, "/dev/")
+		if devRest == "stdin" {
+			rest = "self/fd/0"
+		} else if devRest == "stdout" {
+			rest = "self/fd/1"
+		} else if devRest == "stderr" {
+			rest = "self/fd/2"
+		} else if strings.HasPrefix(devRest, "fd/") {
+			rest = "self/" + devRest
+		} else {
+			return path
+		}
+	} else if strings.HasPrefix(path, "/proc/") {
+		rest = strings.TrimPrefix(path, "/proc/")
+	} else {
+		return path
+	}
+	let (process0, afterProc) = splitSlashOnce(rest)
+	let mut process = process0
+	if process == "self" || process == "thread-self" {
+		process = formatUint32Val(tid)
+	} else if !allDigits(process) {
+		return path
+	}
+	rest = afterProc
+	if strings.HasPrefix(rest, "task/") {
+		let (taskProc, afterTask) = splitSlashOnce(strings.TrimPrefix(rest, "task/"))
+		if !allDigits(taskProc) {
+			return path
+		}
+		process = taskProc
+		rest = afterTask
+	}
+	let (linkHead, tail0) = splitSlashOnce(rest)
+	let mut tail = tail0
+	let mut linkSub = ""
+	if linkHead == "fd" {
+		let (fdStr, afterFd) = splitSlashOnce(tail)
+		if !allDigits(fdStr) {
+			return path
+		}
+		linkSub = "fd/" + fdStr
+		tail = afterFd
+	} else if linkHead == "cwd" || linkHead == "root" {
+		linkSub = linkHead
+	} else {
+		return path
+	}
+	if tail == "" {
+		return path
+	}
+	let magicPath = "/proc/" + process + "/" + linkSub
+	match PathResolver.EntryKindAt(magicPath) {
+	case LinkSymlink{Target: rawTarget}:
+		let target = if strings.HasSuffix(rawTarget, " (deleted)") {
+			let literal = match PathResolver.EntryKindAt(rawTarget) {
+			case LinkMissing:
+				false
+			case LinkDir, LinkFile, LinkSymlink, LinkOther:
+				true
+			}
+			Undeleted(rawTarget, literal)
+		} else {
+			rawTarget
+		}
+		if !strings.HasPrefix(target, "/") {
+			return path
+		}
+		strings.TrimSuffix(target, "/") + "/" + tail
+	case LinkMissing, LinkDir, LinkFile, LinkOther:
+		path
+	}
+}
+
+// DecodeSockaddrPath extracts a NUL-terminated named AF_UNIX socket path from
+// raw sockaddr_un bytes, returning "" for abstract or non-AF_UNIX addresses.
+func DecodeSockaddrPath(raw []byte) string {
+	if raw.Len() <= 2 {
+		return ""
+	}
+	if raw[0] != byte(1) || raw[1] != byte(0) {
+		return ""
+	}
+	let mut end = 2
+	for end < raw.Len() && raw[end] != byte(0) {
+		end = end + 1
+	}
+	if end == 2 {
+		return ""
+	}
+	slices.Slice(raw, 2, end).Text()
+}
+
+// DecodeSockaddrPeer decodes an abstract Unix, IPv4, or IPv6 sockaddr buffer
+// into a Peer value.
+func DecodeSockaddrPeer(raw []byte) Peer {
+	if raw.Len() <= 2 {
+		return emptyPeer()
+	}
+	let family = uint16(raw[0]) | (uint16(raw[1]) << uint16(8))
+	if family == FamilyUnix && raw[2] == byte(0) {
+		let name = "@" + slices.Slice(raw, 3, raw.Len()).Text()
+		return Peer{..emptyPeer(), Family: FamilyUnix, Name: name}
+	}
+	if family == FamilyInet && raw.Len() >= 8 {
+		let port = (uint32(raw[2]) << uint32(8)) | uint32(raw[3])
+		let addr = formatIPv4(raw[4], raw[5], raw[6], raw[7])
+		return Peer{..emptyPeer(), Family: FamilyInet, Addr: addr, Port: port}
+	}
+	if family == FamilyInet6 && raw.Len() >= 24 {
+		let port = (uint32(raw[2]) << uint32(8)) | uint32(raw[3])
+		let addr = formatIPv6(slices.Slice(raw, 8, 24))
+		return Peer{..emptyPeer(), Family: FamilyInet6, Addr: addr, Port: port}
+	}
+	emptyPeer()
+}
+
+// DecodeMsghdrAddress reads (msg_name, msg_namelen, ok) from the first 16 bytes
+// of a little-endian 64-bit struct msghdr.
+func DecodeMsghdrAddress(raw []byte) (uint64, uint32, bool) {
+	if raw.Len() < 16 {
+		return (uint64(0), uint32(0), false)
+	}
+	let ptr = readU64LE(raw, 0)
+	let size = readU32LEAccess(raw, 8)
+	(ptr, size, ptr != uint64(0))
+}
+
+// IsLoopbackIP reports whether canonical IPv4/IPv6 text denotes a loopback host
+// (127.0.0.0/8, ::1, or ::ffff:127.0.0.0/8).
+func IsLoopbackIP(addr string) bool {
+	if addr == "::1" {
+		return true
+	}
+	let normalized = if strings.HasPrefix(addr, "::ffff:") {
+		strings.TrimPrefix(addr, "::ffff:")
+	} else {
+		addr
+	}
+	strings.HasPrefix(normalized, "127.")
+}
+
+// PeerMatches checks whether bound socket endpoint covers target peer to using
+// pre-verified local socket state and address equality.
+func PeerMatches(bound Peer, to Peer, boundLocalIP string, sameProtoAndType bool) bool {
+	if !sameProtoAndType || bound.Family != to.Family {
+		return false
+	}
+	if bound.Family == FamilyUnix {
+		return bound.Path == to.Path && bound.Name != ""
+	}
+	if bound.Port != uint32(0) && bound.Port != to.Port {
+		return false
+	}
+	if to.Port == uint32(0) || (bound.Port != uint32(0) && bound.Port != to.Port) {
+		return false
+	}
+	boundLocalIP == "0.0.0.0" || boundLocalIP == "::" || stripV4Mapped(boundLocalIP) == stripV4Mapped(to.Addr)
+}
+
+func stripV4Mapped(ip string) string {
+	strings.TrimPrefix(ip, "::ffff:")
+}
+
+func findWrittenIdx(writtenPool dense.Strings, path string) int {
+	match dense.FindText(writtenPool, path) {
+	case option.Some{Value: id}:
+		dense.Index(id)
+	case option.None:
+		-1
+	}
+}
+
+func snapKey(kind uint8, path string) string {
+	if kind == SnapRead {
+		return "R:" + path
+	}
+	if kind == SnapLookup {
+		return "L:" + path
+	}
+	"E:" + path
+}
+
+func hasSocketRef(p Peer) bool {
+	p.SockPid != uint32(0) || p.SockFd != uint32(0) || p.SockDev != uint64(0) || p.SockIno != uint64(0)
+}
+
+func emptyPeer() Peer {
+	Peer{
+		Family:  uint16(0),
+		Path:    "",
+		Name:    "",
+		Addr:    "",
+		Port:    uint32(0),
+		Bind:    false,
+		SockPid: uint32(0),
+		SockFd:  uint32(0),
+		SockDev: uint64(0),
+		SockIno: uint64(0),
+	}
+}
+
+func zeroPathVersion() PathVersion {
+	PathVersion{
+		Dev:      uint64(0),
+		Ino:      uint64(0),
+		Size:     uint64(0),
+		Mode:     uint32(0),
+		ModSec:   uint64(0),
+		ModNsec:  uint64(0),
+		CtimSec:  uint64(0),
+		CtimNsec: uint64(0),
+		Err:      "",
+	}
+}
+
+func formatAddrPort(addr string, port uint32) string {
+	let ps = formatUint32Val(port)
+	if strings.Contains(addr, ":") {
+		return "[" + addr + "]:" + ps
+	}
+	addr + ":" + ps
+}
+
+func formatIPv4(a byte, b byte, c byte, d byte) string {
+	strconv.Itoa(int(a)) + "." + strconv.Itoa(int(b)) + "." + strconv.Itoa(int(c)) + "." + strconv.Itoa(int(d))
+}
+
+func formatIPv6(b []byte) string {
+	let isV4Mapped = b[0] == byte(0) && b[1] == byte(0) && b[2] == byte(0) && b[3] == byte(0) &&
+		b[4] == byte(0) && b[5] == byte(0) && b[6] == byte(0) && b[7] == byte(0) &&
+		b[8] == byte(0) && b[9] == byte(0) && b[10] == byte(255) && b[11] == byte(255)
+	if isV4Mapped {
+		return "::ffff:" + formatIPv4(b[12], b[13], b[14], b[15])
+	}
+	let mut loopback = true
+	for i in 0..15 {
+		if b[i] != byte(0) {
+			loopback = false
+		}
+	}
+	if loopback && b[15] == byte(1) {
+		return "::1"
+	}
+	let mut unspec = true
+	for i in 0..16 {
+		if b[i] != byte(0) {
+			unspec = false
+		}
+	}
+	if unspec {
+		return "::"
+	}
+	let mut groups = []string{}
+	for g in 0..8 {
+		let val = (int(b[g*2]) << 8) | int(b[g*2+1])
+		groups = groups.Append(formatHexMinimal(val))
+	}
+	strings.Join(groups, ":")
+}
+
+func formatHexMinimal(v int) string {
+	if v == 0 {
+		return "0"
+	}
+	let hex = "0123456789abcdef".Bytes()
+	let mut x = v
+	let mut rev = []byte{}
+	for x > 0 {
+		rev = rev.Append(hex[x%16])
+		x = x / 16
+	}
+	let mut out = []byte{}
+	let mut i = rev.Len() - 1
+	for i >= 0 {
+		out = out.Append(rev[i])
+		i = i - 1
+	}
+	out.Text()
+}
+
+func splitSlashOnce(s string) (string, string) {
+	match strings.Cut(s, "/") {
+	case option.Some{Value: h}:
+		(h.Before, h.After)
+	case option.None:
+		(s, "")
+	}
+}
+
+func allDigits(s string) bool {
+	if s.Len() == 0 {
+		return false
+	}
+	for _, c in s.Bytes() {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	true
+}
+
+func readU32LEAccess(b []byte, off int) uint32 {
+	uint32(b[off]) | (uint32(b[off+1]) << uint32(8)) | (uint32(b[off+2]) << uint32(16)) | (uint32(b[off+3]) << uint32(24))
+}
+
+func readU64LE(b []byte, off int) uint64 {
+	let lo = uint64(readU32LEAccess(b, off))
+	let hi = uint64(readU32LEAccess(b, off+4))
+	lo | (hi << uint64(32))
+}
+
+func formatUint32Val(n uint32) string {
+	strconv.Itoa(int(n))
+}
+
+law OpenRoleWriteOnlyNeverReads(flags uint32) {
+	let masked = (flags & (^OAccMode)) | OWrOnly
+	let (read, _) = OpenRole(masked)
+	!read
+}
+
+test AccessLogPolicyAndSocketDecoding {
+	let (r1, w1) = OpenRole(OrdOnly)
+	assert r1 && w1 == WriteNone
+	let (r2, w2) = OpenRole(OWrOnly | OCreat | OTrunc)
+	assert !r2 && w2 == WriteWhole
+	let (r3, w3) = OpenRole(OWrOnly | OCreat)
+	assert !r3 && w3 == WritePart
+
+	let mut links = Map[string, LinkTarget]{}
+	links["/proc/42/fd/3"] = LinkSymlink{Target: "/ws/work (deleted)"}
+	links["/root/file"] = LinkFile
+	let mut phys = Map[string, string]{}
+	phys["/ws"] = "/ws"
+	let mut vers = Map[string, PathVersion]{}
+	vers["/root/file"] = PathVersion{
+		Dev:      uint64(1),
+		Ino:      uint64(9),
+		Size:     uint64(10),
+		Mode:     uint32(420),
+		ModSec:   uint64(100),
+		ModNsec:  uint64(0),
+		CtimSec:  uint64(100),
+		CtimNsec: uint64(0),
+		Err:      "",
+	}
+	let mut snaps = Map[string, string]{}
+	snaps["R:/root/file"] = "hash1"
+	let rp = MemPathResolver{Links: links, Phys: phys, Headers: Map[string, string]{}}
+	let vp = MemVersionProvider{Versions: vers, Snaps: snaps}
+	with context { PathResolver: rp, VersionProvider: vp } {
+		assert ResolveMagicLink(uint32(42), "/proc/self/fd/3/src/a.go") == "/ws/work/src/a.go"
+		let mut log = NewAccessLog()
+		AccessOpen(&log, "/root/file", true)
+		AccessWrote(&log, "/root/out", WriteWhole)
+		let absUnix = Peer{..emptyPeer(), Family: FamilyUnix, Name: "@abs"}
+		AccessPeer(&log, absUnix, func(_ Peer, _ Peer) bool { false })
+		assert log.Failure == "the command used an abstract Unix socket"
+		let (inputs, written) = AccessResult(log)
+		assert inputs.Len() == 2
+		assert written.Len() == 1
+	}
+
+	let ux = []byte{byte(1), byte(0), '/', 't', 'm', 'p', '/', 's', byte(0), 'x'}
+	assert DecodeSockaddrPath(ux) == "/tmp/s"
+	let inet = []byte{byte(2), byte(0), byte(0), byte(80), byte(127), byte(0), byte(0), byte(1)}
+	let p = DecodeSockaddrPeer(inet)
+	assert p.Family == FamilyInet && p.Port == uint32(80) && p.Addr == "127.0.0.1"
+	assert IsLoopbackIP(p.Addr)
+	assert !IsLoopbackIP("192.168.1.1")
+}

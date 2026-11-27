@@ -1,0 +1,422 @@
+import filepath
+import fs
+import option
+import os
+import slices
+import strconv
+import strings
+
+// NoCase is the sentinel dense ID returned when no case entry matches.
+let NoCase uint32 = 4294967295
+
+// OutputCap bounds captured stdout and stderr per command invocation (1 MiB).
+let OutputCap uint32 = 1048576
+
+let flagHasOut uint8 = 1
+let flagSetup uint8 = 2
+
+// CaseFiles returns the allowed entries in a case directory in canonical order.
+func CaseFiles() []string {
+	[]string{
+		"args",
+		"stdin",
+		"env",
+		"setup.sh",
+		"expected.out",
+		"expected.err",
+		"expected.status",
+	}
+}
+
+// CaseTable stores loaded test cases as parallel dense columns indexed by
+// uint32 case ID.
+type CaseTable {
+	Name      []string,
+	Dir       []string,
+	Stdin     []string,
+	Out       []string,
+	Err       []string,
+	Status    []uint32,
+	Flags     []uint8,
+	ArgValues []string,
+	ArgStart  []uint32,
+	ArgLen    []uint32,
+	EnvValues []string,
+	EnvStart  []uint32,
+	EnvLen    []uint32,
+}
+
+// CaseView is a materialized value view of one case in a CaseTable.
+type CaseView {
+	ID     uint32,
+	Name   string,
+	Dir    string,
+	Args   []string,
+	Env    []string,
+	Stdin  string,
+	Setup  bool,
+	Out    string,
+	HasOut bool,
+	Err    string,
+	Status uint32,
+}
+
+// NewTable returns an empty CaseTable ready to hold loaded cases.
+func NewTable() CaseTable {
+	CaseTable{
+		Name:      []string{},
+		Dir:       []string{},
+		Stdin:     []string{},
+		Out:       []string{},
+		Err:       []string{},
+		Status:    []uint32{},
+		Flags:     []uint8{},
+		ArgValues: []string{},
+		ArgStart:  []uint32{},
+		ArgLen:    []uint32{},
+		EnvValues: []string{},
+		EnvStart:  []uint32{},
+		EnvLen:    []uint32{},
+	}
+}
+
+// Count returns the number of cases stored in t.
+func Count(t CaseTable) uint32 {
+	uint32(t.Name.Len())
+}
+
+// GetCase returns the CaseView at dense id, or option.None when out of range.
+func GetCase(t CaseTable, id uint32) option.Option[CaseView] {
+	if id >= Count(t) {
+		return option.None
+	}
+	let i = int(id)
+	let argS = int(t.ArgStart[i])
+	let argE = argS + int(t.ArgLen[i])
+	let envS = int(t.EnvStart[i])
+	let envE = envS + int(t.EnvLen[i])
+	let flags = t.Flags[i]
+	option.Some[CaseView]{
+		Value: CaseView{
+			ID:     id,
+			Name:   t.Name[i],
+			Dir:    t.Dir[i],
+			Args:   slices.Slice(t.ArgValues, argS, argE),
+			Env:    slices.Slice(t.EnvValues, envS, envE),
+			Stdin:  t.Stdin[i],
+			Setup:  (flags & flagSetup) != uint8(0),
+			Out:    t.Out[i],
+			HasOut: (flags & flagHasOut) != uint8(0),
+			Err:    t.Err[i],
+			Status: t.Status[i],
+		},
+	}
+}
+
+// Views materializes every loaded case in t in insertion order.
+func Views(t CaseTable) []CaseView {
+	let n = int(Count(t))
+	let mut out = slices.WithCapacity[CaseView](n)
+	for i in 0..n {
+		match GetCase(t, uint32(i)) {
+		case option.Some{Value: v}:
+			out = out.Append(v)
+		case option.None:
+		}
+	}
+	out
+}
+
+// Lines splits content on newlines after stripping a single trailing newline,
+// returning an empty slice when content is empty.
+func Lines(content string) []string {
+	if content == "" {
+		return []string{}
+	}
+	strings.Split(strings.TrimSuffix(content, "\n"), "\n")
+}
+
+// Load reads every case directory under dir using the host working directory
+// to resolve relative case paths, collecting problems rather than stopping early.
+func Load(dir string, record bool) (CaseTable, []string) needs fs.Entries | fs.Files | os.Process {
+	let cwd = os.Process.Getwd() catch {
+	case os.NoWorkdir:
+		""
+	}
+	LoadFrom(cwd, dir, record)
+}
+
+// LoadFrom reads every case directory under dir relative to cwd, which may be
+// empty when operating on an in-memory or relative-root file system.
+func LoadFrom(cwd string, dir string, record bool) (CaseTable, []string) needs fs.Entries | fs.Files {
+	let mut table = NewTable()
+	let target = resolvePath(cwd, dir)
+	let entries = fs.Files.ReadDir(target) catch {
+	case fs.NotFound as e:
+		return (table, []string{formatFSError("readdir", e.Path, "no such file or directory")})
+	case fs.Denied as e:
+		return (table, []string{formatFSError("readdir", e.Path, "permission denied")})
+	case fs.Failed as e:
+		return (table, []string{formatFSError("readdir", e.Path, e.Reason)})
+	}
+	let base = filepath.Base(dir)
+	let mut problems = []string{}
+	for _, entry in entries {
+		let label = base + "/" + entry
+		let childPath = filepath.Join([]string{target, entry})
+		let meta = fs.Entries.ReadEntry(childPath) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			problems = problems.Append(label + ": not a case folder")
+			continue
+		}
+		let isDir = match meta.Kind {
+		case fs.DirEntry:
+			true
+		case fs.FileEntry, fs.SymlinkEntry, fs.OtherEntry:
+			false
+		}
+		if !isDir {
+			problems = problems.Append(label + ": not a case folder")
+			continue
+		}
+		let found = loadCaseInto(&table, cwd, childPath, entry, record)
+		for _, problem in found {
+			problems = problems.Append(label + ": " + problem)
+		}
+	}
+	if entries.Len() == 0 {
+		problems = problems.Append(base + "/ holds no case")
+	}
+	(table, problems)
+}
+
+// LoadCase loads one case folder named name at dir relative to cwd.
+func LoadCase(cwd string, dir string, name string, record bool) (CaseTable, []string) needs fs.Entries | fs.Files {
+	let mut table = NewTable()
+	let problems = loadCaseInto(&table, cwd, dir, name, record)
+	if problems.Len() > 0 {
+		return (NewTable(), problems)
+	}
+	(table, problems)
+}
+
+func loadCaseInto(table mut CaseTable, cwd string, dir string, name string, record bool) []string needs fs.Entries | fs.Files {
+	let absDir = resolvePath(cwd, dir)
+	let entries = fs.Files.ReadDir(absDir) catch {
+	case fs.NotFound as e:
+		return []string{formatFSError("readdir", e.Path, "no such file or directory")}
+	case fs.Denied as e:
+		return []string{formatFSError("readdir", e.Path, "permission denied")}
+	case fs.Failed as e:
+		return []string{formatFSError("readdir", e.Path, e.Reason)}
+	}
+	let mut problems = []string{}
+	let mut presentMask = uint8(0)
+	let allowed = CaseFiles()
+	for _, file in entries {
+		let idx = fileSlot(allowed, file)
+		if idx < 0 {
+			problems = problems.Append("unexpected " + file + "; a case holds expected.out and may hold args, stdin, env, setup.sh, expected.err, expected.status")
+			continue
+		}
+		let full = filepath.Join([]string{absDir, file})
+		let meta = fs.Entries.ReadEntry(full) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			problems = problems.Append(file + " is not a regular file")
+			continue
+		}
+		let isRegular = match meta.Kind {
+		case fs.FileEntry:
+			true
+		case fs.DirEntry, fs.SymlinkEntry, fs.OtherEntry:
+			false
+		}
+		if !isRegular {
+			problems = problems.Append(file + " is not a regular file")
+			continue
+		}
+		presentMask = presentMask | (uint8(1) << uint8(idx))
+	}
+	let hasOut = hasFileSlot(presentMask, 4)
+	if !hasOut && !record {
+		problems = problems.Append("no expected.out")
+	}
+	let (out, outErr) = readOptionalCaseFile(absDir, "expected.out", hasOut)
+	match outErr {
+	case option.Some{Value: msg}:
+		problems = problems.Append(msg)
+	case option.None:
+	}
+	let (errText, errErr) = readOptionalCaseFile(absDir, "expected.err", hasFileSlot(presentMask, 5))
+	match errErr {
+	case option.Some{Value: msg}:
+		problems = problems.Append(msg)
+	case option.None:
+	}
+	let (argsRaw, argsErr) = readOptionalCaseFile(absDir, "args", hasFileSlot(presentMask, 0))
+	match argsErr {
+	case option.Some{Value: msg}:
+		problems = problems.Append(msg)
+	case option.None:
+	}
+	let args = Lines(argsRaw)
+	let (envRaw, envErr) = readOptionalCaseFile(absDir, "env", hasFileSlot(presentMask, 2))
+	match envErr {
+	case option.Some{Value: msg}:
+		problems = problems.Append(msg)
+	case option.None:
+	}
+	let env = Lines(envRaw)
+	for _, line in env {
+		match strings.Cut(line, "=") {
+		case option.Some{Value: h}:
+			if h.Before == "" {
+				problems = problems.Append("env: line " + strconv.Quote(line) + " is not KEY=VALUE")
+			}
+		case option.None:
+			problems = problems.Append("env: line " + strconv.Quote(line) + " is not KEY=VALUE")
+		}
+	}
+	let mut status = uint32(0)
+	if hasFileSlot(presentMask, 6) {
+		let (rawStatus, statusErr) = readOptionalCaseFile(absDir, "expected.status", true)
+		match statusErr {
+		case option.Some{Value: msg}:
+			problems = problems.Append(msg)
+		case option.None:
+		}
+		let text = strings.TrimSuffix(rawStatus, "\n")
+		match parseDecimalExitStatus(text) {
+		case option.Some{Value: code}:
+			status = code
+		case option.None:
+			problems = problems.Append("expected.status: " + strconv.Quote(text) + " is not an exit status (decimal 0 to 255)")
+		}
+	}
+	let stdinPath = if hasFileSlot(presentMask, 1) { filepath.Join([]string{absDir, "stdin"}) } else { "" }
+	let hasSetup = hasFileSlot(presentMask, 3)
+	let mut flags = uint8(0)
+	if hasOut {
+		flags = flags | flagHasOut
+	}
+	if hasSetup {
+		flags = flags | flagSetup
+	}
+	if problems.Len() == 0 {
+		appendCase(table, name, absDir, args, env, stdinPath, out, errText, status, flags)
+	}
+	problems
+}
+
+func appendCase(table mut CaseTable, name string, dir string, args []string, env []string, stdinPath string, out string, errText string, status uint32, flags uint8) {
+	let argStart = uint32(table.ArgValues.Len())
+	let mut nextArgs = table.ArgValues
+	for _, a in args {
+		nextArgs = nextArgs.Append(a)
+	}
+	let envStart = uint32(table.EnvValues.Len())
+	let mut nextEnv = table.EnvValues
+	for _, e in env {
+		nextEnv = nextEnv.Append(e)
+	}
+	table.Name = table.Name.Append(name)
+	table.Dir = table.Dir.Append(dir)
+	table.Stdin = table.Stdin.Append(stdinPath)
+	table.Out = table.Out.Append(out)
+	table.Err = table.Err.Append(errText)
+	table.Status = table.Status.Append(status)
+	table.Flags = table.Flags.Append(flags)
+	table.ArgValues = nextArgs
+	table.ArgStart = table.ArgStart.Append(argStart)
+	table.ArgLen = table.ArgLen.Append(uint32(args.Len()))
+	table.EnvValues = nextEnv
+	table.EnvStart = table.EnvStart.Append(envStart)
+	table.EnvLen = table.EnvLen.Append(uint32(env.Len()))
+}
+
+func resolvePath(cwd string, p string) string {
+	if p == "" {
+		return ""
+	}
+	if filepath.IsAbs(p) || cwd == "" {
+		return filepath.Clean(p)
+	}
+	filepath.AbsFrom(cwd, p)
+}
+
+func fileSlot(allowed []string, name string) int {
+	for i, f in allowed {
+		if f == name {
+			return i
+		}
+	}
+	-1
+}
+
+func hasFileSlot(mask uint8, slot int) bool {
+	(mask & (uint8(1) << uint8(slot))) != uint8(0)
+}
+
+func readOptionalCaseFile(dir string, name string, present bool) (string, option.Option[string]) needs fs.Files {
+	if !present {
+		return ("", option.None)
+	}
+	let p = filepath.Join([]string{dir, name})
+	let text = fs.Files.ReadFile(p) catch {
+	case fs.NotFound as e:
+		return ("", option.Some[string]{Value: formatFSError("open", e.Path, "no such file or directory")})
+	case fs.Denied as e:
+		return ("", option.Some[string]{Value: formatFSError("open", e.Path, "permission denied")})
+	case fs.Failed as e:
+		return ("", option.Some[string]{Value: formatFSError("open", e.Path, e.Reason)})
+	}
+	(text, option.None)
+}
+
+func formatFSError(op string, path string, reason string) string {
+	if reason == "" {
+		return op + " " + path
+	}
+	op + " " + path + ": " + reason
+}
+
+func parseDecimalExitStatus(s string) option.Option[uint32] {
+	let b = s.Bytes()
+	if b.Len() == 0 || b.Len() > 3 {
+		return option.None
+	}
+	if b.Len() > 1 && b[0] == '0' {
+		return option.None
+	}
+	let mut acc = 0
+	for _, c in b {
+		if c < '0' || c > '9' {
+			return option.None
+		}
+		acc = acc*10 + int(c-'0')
+	}
+	if acc < 0 || acc > 255 {
+		return option.None
+	}
+	option.Some[uint32]{Value: uint32(acc)}
+}
+
+law LinesRoundTripsNonEmpty(first string, second string) {
+	if strings.Contains(first, "\n") || strings.Contains(second, "\n") {
+		return true
+	}
+	let joined = first + "\n" + second + "\n"
+	let got = Lines(joined)
+	got.Len() == 2 && got[0] == first && got[1] == second
+}
+
+test parseDecimalExitStatusBounds {
+	assert parseDecimalExitStatus("0") == option.Some[uint32]{Value: uint32(0)}
+	assert parseDecimalExitStatus("255") == option.Some[uint32]{Value: uint32(255)}
+	assert parseDecimalExitStatus("01") == option.None
+	assert parseDecimalExitStatus("256") == option.None
+	assert parseDecimalExitStatus("-1") == option.None
+	assert parseDecimalExitStatus("") == option.None
+	assert Lines("").Len() == 0
+	assert Lines("a\nb").Len() == 2
+}
