@@ -1,0 +1,235 @@
+{
+  "about": "compiler/tsffi: the flat FFI contract (validation, dense IDs) and its strict .d.ts emitter (NB-3-TS-FFI-BRIDGE round 1).",
+  "mutants": [
+    {
+      "name": "tsffi-intern-skips-new-text",
+      "origin": "wf10 NB-3-TS-FFI-BRIDGE",
+      "file": "compiler/tsffi/contract.ergo",
+      "decl": "Intern",
+      "from": "\tif idx == c.Texts.Len() {\n",
+      "to": "\tif idx == c.Texts.Len()+1 {\n",
+      "rule": "A new string's text is stored at its dense ID, so Text of an interned ID is the string.",
+      "killers": ["compiler/tsffi:law:IDsAreDenseAndSpansContiguous"]
+    },
+    {
+      "name": "tsffi-ident-digit-first",
+      "origin": "wf10 NB-3-TS-FFI-BRIDGE",
+      "file": "compiler/tsffi/contract.ergo",
+      "decl": "IsIdent",
+      "from": "\t\tif !letter && (i == 0 || b < '0' || b > '9') {\n",
+      "to": "\t\tif !letter && (b < '0' || b > '9') {\n",
+      "rule": "An identifier may not start with a digit.",
+      "killers": ["compiler/tsffi:law:ValidateNamesEachDefect"]
+    },
+    {
+      "name": "tsffi-distinct-never-equal",
+      "origin": "wf10 NB-3-TS-FFI-BRIDGE",
+      "file": "compiler/tsffi/contract.ergo",
+      "decl": "checkDistinct",
+      "from": "\t\t\tif names[i] == names[j] {\n",
+      "to": "\t\t\tif names[i] == names[j] && i == j {\n",
+      "rule": "A name declared twice in one scope is refused as duplicate.",
+      "killers": ["compiler/tsffi:law:ValidateNamesEachDefect"]
+    },
+    {
+      "name": "tsffi-forward-ref-admitted",
+      "origin": "wf10 NB-3-TS-FFI-BRIDGE",
+      "file": "compiler/tsffi/contract.ergo",
+      "decl": "checkValueRef",
+      "from": "\tif ref >= bound {\n",
+      "to": "\tif ref > bound {\n",
+      "rule": "A type refers only to types declared before it, so ID order is a definition order and no value type contains itself.",
+      "killers": ["compiler/tsffi:law:ValidateNamesEachDefect"]
+    },
+    {
+      "name": "tsffi-void-value-admitted",
+      "origin": "wf10 NB-3-TS-FFI-BRIDGE",
+      "file": "compiler/tsffi/contract.ergo",
+      "decl": "checkValueRef",
+      "from": "\tif c.Types.Kind[int(ref)] == KindVoid {\n",
+      "to": "\tif c.Types.Kind[int(ref)] == KindBool && false {\n",
+      "rule": "void is only a result, never a field, element, member or parameter.",
+      "killers": ["compiler/tsffi:law:ValidateNamesEachDefect"]
+    },
+    {
+      "name": "tsffi-union-member-any-kind",
+      "origin": "wf10 NB-3-TS-FFI-BRIDGE",
+      "file": "compiler/tsffi/contract.ergo",
+      "decl": "checkMembers",
+      "from": "\t\tif c.Types.Kind[int(m)] != KindRecord {\n",
+      "to": "\t\tif c.Types.Kind[int(m)] == KindUnion {\n",
+      "rule": "Union and failure members are records, so each carries its _tag.",
+      "killers": ["compiler/tsffi:law:ValidateNamesEachDefect"]
+    },
+    {
+      "name": "tsffi-primitive-kind-unchecked",
+      "origin": "wf10 NB-3-TS-FFI-BRIDGE",
+      "file": "compiler/tsffi/contract.ergo",
+      "decl": "checkType",
+      "from": "\t\tif uint32(kind) != id {\n",
+      "to": "\t\tif uint32(kind) > PrimitiveCount {\n",
+      "rule": "The primitive types sit at IDs 0 to 8, each ID equal to its kind.",
+      "killers": ["compiler/tsffi:law:ValidateNamesEachDefect"]
+    },
+    {
+      "name": "tsffi-nested-option-admitted",
+      "origin": "wf10 NB-3-TS-FFI-BRIDGE",
+      "file": "compiler/tsffi/contract.ergo",
+      "decl": "checkType",
+      "from": "\t\tif kind == KindOption && elemKind == KindOption {\n",
+      "to": "\t\tif kind == KindSlice && elemKind == KindOption {\n",
+      "rule": "An option of an option is refused: T | undefined cannot tell its two Nones apart.",
+      "killers": ["compiler/tsffi:law:ValidateNamesEachDefect"]
+    },
+    {
+      "name": "tsffi-nominal-over-record",
+      "origin": "wf10 NB-3-TS-FFI-BRIDGE",
+      "file": "compiler/tsffi/contract.ergo",
+      "decl": "checkType",
+      "from": "\t\tif c.Types.Kind[int(base)] > KindBytes {\n",
+      "to": "\t\tif c.Types.Kind[int(base)] > KindRecord {\n",
+      "rule": "A nominal type is over a scalar, string or bytes.",
+      "killers": ["compiler/tsffi:law:ValidateNamesEachDefect"]
+    },
+    {
+      "name": "tsffi-empty-union-admitted",
+      "origin": "wf10 NB-3-TS-FFI-BRIDGE",
+      "file": "compiler/tsffi/contract.ergo",
+      "decl": "checkType",
+      "from": "\t\tif c.Types.Len[i] == 0 {\n",
+      "to": "\t\tif c.Types.Len[i] == 0 && false {\n",
+      "rule": "A closed union has at least one member.",
+      "killers": ["compiler/tsffi:law:ValidateNamesEachDefect"]
+    },
+    {
+      "name": "tsffi-result-ref-unchecked",
+      "origin": "wf10 NB-3-TS-FFI-BRIDGE",
+      "file": "compiler/tsffi/contract.ergo",
+      "decl": "checkFunc",
+      "from": "\tif c.Funcs.Result[id] >= bound {\n",
+      "to": "\tif c.Funcs.Result[id] > bound {\n",
+      "rule": "A function's result names a type of the contract.",
+      "killers": ["compiler/tsffi:law:ValidateNamesEachDefect"]
+    },
+    {
+      "name": "tsffi-mut-on-any-kind",
+      "origin": "wf10 NB-3-TS-FFI-BRIDGE",
+      "file": "compiler/tsffi/contract.ergo",
+      "decl": "checkFunc",
+      "from": "\t\tif c.Params.Mut[pi] && kind != KindBytes && kind != KindSlice {\n",
+      "to": "\t\tif c.Params.Mut[pi] && kind == KindRecord {\n",
+      "rule": "mut is only on bytes and slices, the parameters a callee can write through.",
+      "killers": ["compiler/tsffi:law:ValidateNamesEachDefect"]
+    },
+    {
+      "name": "tsffi-shape-unchecked",
+      "origin": "wf10 NB-3-TS-FFI-BRIDGE",
+      "file": "compiler/tsffi/contract.ergo",
+      "decl": "Validate",
+      "from": "\tif !tableShapeHolds(c) {\n",
+      "to": "\tif !tableShapeHolds(c) && false {\n",
+      "rule": "Every column of a table has the table's height.",
+      "killers": ["compiler/tsffi:law:ValidateNamesEachDefect"]
+    },
+    {
+      "name": "tsffi-words-split-on-lower-only",
+      "origin": "wf10 NB-3-TS-FFI-BRIDGE",
+      "file": "compiler/tsffi/dts.ergo",
+      "decl": "identWords",
+      "from": "\t\t\tif isLower(prev) || isDigit(prev) || (isUpper(prev) && nextLower) {\n",
+      "to": "\t\t\tif isLower(prev) || isDigit(prev) || (isUpper(prev) && nextLower && false) {\n",
+      "rule": "An acronym ends before the capital that starts the next word: HTTPServer is httpServer.",
+      "killers": ["compiler/tsffi:law:TSMemberIsCamelAndUnreserved"]
+    },
+    {
+      "name": "tsffi-member-reserved-unescaped",
+      "origin": "wf10 NB-3-TS-FFI-BRIDGE",
+      "file": "compiler/tsffi/dts.ergo",
+      "decl": "TSMember",
+      "from": "\tif IsJSReserved(out) {\n",
+      "to": "\tif IsJSReserved(out) && false {\n",
+      "rule": "A member spelling that is a reserved word gets a trailing _.",
+      "killers": ["compiler/tsffi:law:TSMemberIsCamelAndUnreserved"]
+    },
+    {
+      "name": "tsffi-int64-as-number",
+      "origin": "wf10 NB-3-TS-FFI-BRIDGE",
+      "file": "compiler/tsffi/dts.ergo",
+      "decl": "TSType",
+      "from": "\tif kind == KindInt64 || kind == KindUint64 {\n",
+      "to": "\tif kind == KindUint64 {\n",
+      "rule": "64-bit integers are bigint: a number loses integers past 2^53.",
+      "killers": ["compiler/tsffi:law:TSTypeSpellsEachKind", "compiler/tsffi:GeoDeclarationsAreTheEmittedText"]
+    },
+    {
+      "name": "tsffi-option-in-slice-unparenthesized",
+      "origin": "wf10 NB-3-TS-FFI-BRIDGE",
+      "file": "compiler/tsffi/dts.ergo",
+      "decl": "TSType",
+      "from": "\t\t\tinner = \"(\" + inner + \")\"\n",
+      "to": "\t\t\tinner = inner\n",
+      "rule": "An option inside a slice is parenthesized, else T | undefined[] reads as a different type.",
+      "killers": ["compiler/tsffi:law:TSTypeSpellsEachKind"]
+    },
+    {
+      "name": "tsffi-slice-always-writable",
+      "origin": "wf10 NB-3-TS-FFI-BRIDGE",
+      "file": "compiler/tsffi/dts.ergo",
+      "decl": "TSType",
+      "from": "\t\treturn \"readonly \" + inner + \"[]\"\n",
+      "to": "\t\treturn inner + \"[]\"\n",
+      "rule": "A slice the callee only reads is readonly T[]; only a mut parameter is T[].",
+      "killers": ["compiler/tsffi:law:TSTypeSpellsEachKind", "compiler/tsffi:GeoDeclarationsAreTheEmittedText"]
+    },
+    {
+      "name": "tsffi-doc-close-unescaped",
+      "origin": "wf10 NB-3-TS-FFI-BRIDGE",
+      "file": "compiler/tsffi/dts.ergo",
+      "decl": "writeDoc",
+      "from": "\tlet safe = strings.ReplaceAll(doc, \"*/\", \"*\\\\/\")\n",
+      "to": "\tlet safe = doc\n",
+      "rule": "A doc cannot close its comment early.",
+      "killers": ["compiler/tsffi:DocsCannotCloseTheComment"]
+    },
+    {
+      "name": "tsffi-reserved-type-admitted",
+      "origin": "wf10 NB-3-TS-FFI-BRIDGE",
+      "file": "compiler/tsffi/dts.ergo",
+      "decl": "writeType",
+      "from": "\tif IsTSReservedType(name) {\n",
+      "to": "\tif IsTSReservedType(name) && false {\n",
+      "rule": "A contract type may not take a name the declarations use, such as Result.",
+      "killers": ["compiler/tsffi:law:EmitDTSRefusesClashes"]
+    },
+    {
+      "name": "tsffi-nominal-unbranded",
+      "origin": "wf10 NB-3-TS-FFI-BRIDGE",
+      "file": "compiler/tsffi/dts.ergo",
+      "decl": "writeType",
+      "from": "\t\tb.WriteString(\"export type \" + name + \" = \" + TSType(k, c.Types.Elem[id], false) + \" & { readonly __brand: \\\"\" + name + \"\\\" };\\n\\n\")\n",
+      "to": "\t\tb.WriteString(\"export type \" + name + \" = \" + TSType(k, c.Types.Elem[id], false) + \";\\n\\n\")\n",
+      "rule": "A nominal type is branded, so TypeScript keeps it apart from its base as Ergo does.",
+      "killers": ["compiler/tsffi:GeoDeclarationsAreTheEmittedText"]
+    },
+    {
+      "name": "tsffi-record-untagged",
+      "origin": "wf10 NB-3-TS-FFI-BRIDGE",
+      "file": "compiler/tsffi/dts.ergo",
+      "decl": "writeType",
+      "from": "\t\tb.WriteString(\"\\treadonly _tag: \\\"\" + name + \"\\\";\\n\")\n",
+      "to": "\t\tb.WriteString(\"\")\n",
+      "rule": "Every record carries readonly _tag, the discriminant of the unions and failure rows it is a member of.",
+      "killers": ["compiler/tsffi:GeoDeclarationsAreTheEmittedText"]
+    },
+    {
+      "name": "tsffi-result-never-declared",
+      "origin": "wf10 NB-3-TS-FFI-BRIDGE",
+      "file": "compiler/tsffi/dts.ergo",
+      "decl": "EmitDTS",
+      "from": "\t\tfallible = fallible || c.Funcs.FailLen[fn] > 0\n",
+      "to": "\t\tfallible = fallible && c.Funcs.FailLen[fn] > 0\n",
+      "rule": "Result is declared when a function can fail.",
+      "killers": ["compiler/tsffi:GeoDeclarationsAreTheEmittedText"]
+    }
+  ]
+}

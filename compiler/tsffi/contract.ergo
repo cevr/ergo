@@ -509,7 +509,7 @@ law ValidateNamesEachDefect(pick uint8, salt uint8) {
 	let mut c = base
 	let s = uint32(salt)
 	let mut want = "ok"
-	match pick % 14 {
+	match pick % 15 {
 	case 0:
 		want = "ok"
 	case 1:
@@ -547,8 +547,11 @@ law ValidateNamesEachDefect(pick uint8, salt uint8) {
 		c.Funcs.Name[0] = Intern(&c, "2nd")
 		want = "bad-name"
 	case 12:
-		c.Funcs.Result[0] = TypeCount(c) + s
+		c.Funcs.Result[0] = TypeCount(c)
 		want = "bad-ref"
+	case 13:
+		c.Types.Kind[int(s%9)] = uint8((s%9 + 1) % 9)
+		want = "primitives"
 	case _:
 		c.Types.Doc = c.Types.Doc.Append(0)
 		want = "bad-shape"
