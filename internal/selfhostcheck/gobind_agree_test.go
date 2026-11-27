@@ -446,7 +446,7 @@ func agreeRealBindings(t *testing.T, ctx context.Context, dump string, limit uin
 			}
 			if got != want {
 				mismatches++
-				t.Errorf("binding mismatch for %s:\n%s", pkgPath, firstLineDiff(want, got))
+				t.Errorf("binding mismatch for %s:\n%s", pkgPath, gobindFirstLineDiff(want, got))
 			}
 		}
 		if mismatches > 0 {
@@ -729,7 +729,7 @@ func MayReturnNil(flag bool) (*Box, error) {
 		got := frames[pkgPath]
 		want := wantWritten[pkgPath]
 		if got != want {
-			t.Fatalf("synthetic mismatch for %s:\n%s\n--- GOT ---\n%s\n--- WANT ---\n%s", pkgPath, firstLineDiff(want, got), got, want)
+			t.Fatalf("synthetic mismatch for %s:\n%s\n--- GOT ---\n%s\n--- WANT ---\n%s", pkgPath, gobindFirstLineDiff(want, got), got, want)
 		}
 	}
 }
@@ -744,7 +744,7 @@ func mustWriteFile(t *testing.T, path, content string) {
 	}
 }
 
-func firstLineDiff(want, got string) string {
+func gobindFirstLineDiff(want, got string) string {
 	wl := strings.Split(want, "\n")
 	gl := strings.Split(got, "\n")
 	n := max(len(wl), len(gl))

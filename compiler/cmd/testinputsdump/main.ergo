@@ -1,11 +1,6 @@
-import compiler/cases
 import compiler/ergoversion
 import compiler/stage
 import compiler/testinputs
-import exec
-import filepath
-import fs
-import fstest
 import hex
 import io
 import json
@@ -17,21 +12,14 @@ import strings
 
 func main() fails os.Exit needs os.Ambient {
 	let proc = os.NewHost()
-	let files = fs.NewHost()
-	let execHost = exec.NewHost()
 	let out = io.NewHost()
 	let err = io.NewErrors()
 	let inp = io.NewStdin()
 	let args = proc.Args()
 	with context {
-		os.Process:  proc,
-		fs.Files:    files,
-		fs.Entries:  files,
-		fs.Writes:   files,
-		exec.Runner: execHost,
-		io.Stdout:   out,
-		io.Stderr:   err,
-		io.Stdin:    inp,
+		io.Stdout: out,
+		io.Stderr: err,
+		io.Stdin:  inp,
 	} {
 		try Run(args)
 	}
@@ -39,9 +27,9 @@ func main() fails os.Exit needs os.Ambient {
 
 // Run dispatches the parity-dump CLI subcommands against the active
 // capability providers.
-func Run(args []string) fails os.Exit needs os.Process | fs.Files | fs.Entries | fs.Writes | exec.Runner | io.Stdout | io.Stderr | io.Stdin {
+func Run(args []string) fails os.Exit needs io.Stdout | io.Stderr | io.Stdin {
 	if args.Len() < 1 {
-		return exitErr("usage: casesdump <ergoversion|stage|cases|testinputs> ...")
+		return exitErr("usage: testinputsdump <ergoversion|stage|testinputs> ...")
 	}
 	let cmd = args[0]
 	let rest = slices.Slice(args, 1, args.Len())
@@ -51,9 +39,6 @@ func Run(args []string) fails os.Exit needs os.Process | fs.Files | fs.Entries |
 	if cmd == "stage" {
 		return runStage(rest)
 	}
-	if cmd == "cases" {
-		return runCases(rest)
-	}
 	if cmd == "testinputs" {
 		return runTestinputs(rest)
 	}
@@ -62,7 +47,7 @@ func Run(args []string) fails os.Exit needs os.Process | fs.Files | fs.Entries |
 
 func runErgoversion(args []string) fails os.Exit needs io.Stdout | io.Stderr {
 	if args.Len() < 1 {
-		return exitErr("usage: casesdump ergoversion <of|check> ...")
+		return exitErr("usage: testinputsdump ergoversion <of|check> ...")
 	}
 	if args[0] == "of" {
 		let mainVer = if args.Len() >= 2 { args[1] } else { "" }
@@ -109,7 +94,7 @@ func runErgoversion(args []string) fails os.Exit needs io.Stdout | io.Stderr {
 
 func runStage(args []string) fails os.Exit needs io.Stdout | io.Stderr {
 	if args.Len() < 1 {
-		return exitErr("usage: casesdump stage <names|report> ...")
+		return exitErr("usage: testinputsdump stage <names|report> ...")
 	}
 	if args[0] == "names" {
 		let all = stage.Names()
@@ -167,248 +152,9 @@ func runStage(args []string) fails os.Exit needs io.Stdout | io.Stderr {
 	exitErr("invalid stage arguments")
 }
 
-func runCases(args []string) fails os.Exit needs os.Process | fs.Files | fs.Entries | fs.Writes | exec.Runner | io.Stdout | io.Stderr | io.Stdin {
-	if args.Len() < 1 {
-		return exitErr("usage: casesdump cases <load|diff|judge|run> ...")
-	}
-	if args[0] == "load" && args.Len() >= 2 {
-		let dir = args[1]
-		let record = args.Len() >= 3 && args[2] == "1"
-		let (tbl, probs) = cases.Load(dir, record)
-		let views = cases.Views(tbl)
-		let t = json.NewText()
-		t.BeginObject(2)
-		t.Key("cases")
-		t.BeginList(views.Len())
-		for _, c in views {
-			t.BeginObject(8)
-			t.Key("name")
-			t.String(c.Name)
-			t.Key("dir")
-			t.String(c.Dir)
-			t.Key("args")
-			t.BeginList(c.Args.Len())
-			for _, a in c.Args {
-				t.String(a)
-			}
-			t.EndList()
-			t.Key("env")
-			t.BeginList(c.Env.Len())
-			for _, e in c.Env {
-				t.String(e)
-			}
-			t.EndList()
-			t.Key("stdin")
-			t.String(c.Stdin)
-			t.Key("setup")
-			t.Bool(c.Setup)
-			t.Key("hasOut")
-			t.Bool(c.HasOut)
-			t.Key("out")
-			t.String(c.Out)
-			t.Key("err")
-			t.String(c.Err)
-			t.Key("status")
-			t.Uint(uint64(c.Status))
-			t.EndObject()
-		}
-		t.EndList()
-		t.Key("problems")
-		t.BeginList(probs.Len())
-		for _, p in probs {
-			t.String(p)
-		}
-		t.EndList()
-		t.EndObject()
-		io.Stdout.Println(t.Written())
-		return
-	}
-	if args[0] == "diff" {
-		if args.Len() >= 3 {
-			let want = readHostFile(args[1]) catch {
-			case badNum as e:
-				return exitErr(e.Msg)
-			}
-			let got = readHostFile(args[2]) catch {
-			case badNum as e:
-				return exitErr(e.Msg)
-			}
-			io.Stdout.Print(cases.Diff(want, got))
-			return
-		}
-		let raw = io.Stdin.ReadAll() catch {
-		case io.ReadFailed as e:
-			return exitErr(e.Reason)
-		}
-		match strings.Cut(raw, "\x00") {
-		case option.Some{Value: h}:
-			io.Stdout.Print(cases.Diff(h.Before, h.After))
-		case option.None:
-			return exitErr("diff stdin expects want\\x00got")
-		}
-		return
-	}
-	if args[0] == "judge" {
-		let raw = io.Stdin.ReadAll() catch {
-		case io.ReadFailed as e:
-			return exitErr(e.Reason)
-		}
-		let r = json.Open(raw, 0, 0) catch {
-		case json.Malformed as e:
-			return exitErr(e.Reason)
-		}
-		r.BeginObject() catch {
-		case WireWrongKind as e:
-			return exitErr(e.Path)
-		}
-		let mut wantOut = ""
-		let mut wantErr = ""
-		let mut hasOut = true
-		let mut wantStatus = uint32(0)
-		let mut gotOut = ""
-		let mut gotErr = ""
-		let mut gotStatus = 0
-		let mut outOver = false
-		let mut errOver = false
-		let mut timedOut = false
-		let mut program = ""
-		let mut memory = uint64(0)
-		for r.More() {
-			let k = r.Key()
-			if k == "wantOut" {
-				wantOut = rStr(r) catch {
-				case badNum as e:
-					return exitErr(e.Msg)
-				}
-			} else if k == "wantErr" {
-				wantErr = rStr(r) catch {
-				case badNum as e:
-					return exitErr(e.Msg)
-				}
-			} else if k == "hasOut" {
-				hasOut = rBool(r) catch {
-				case badNum as e:
-					return exitErr(e.Msg)
-				}
-			} else if k == "wantStatus" {
-				wantStatus = uint32(rUint(r) catch {
-				case badNum as e:
-					return exitErr(e.Msg)
-				})
-			} else if k == "gotOut" {
-				gotOut = rStr(r) catch {
-				case badNum as e:
-					return exitErr(e.Msg)
-				}
-			} else if k == "gotErr" {
-				gotErr = rStr(r) catch {
-				case badNum as e:
-					return exitErr(e.Msg)
-				}
-			} else if k == "gotStatus" {
-				gotStatus = int(rInt(r) catch {
-				case badNum as e:
-					return exitErr(e.Msg)
-				})
-			} else if k == "outOver" {
-				outOver = rBool(r) catch {
-				case badNum as e:
-					return exitErr(e.Msg)
-				}
-			} else if k == "errOver" {
-				errOver = rBool(r) catch {
-				case badNum as e:
-					return exitErr(e.Msg)
-				}
-			} else if k == "timedOut" {
-				timedOut = rBool(r) catch {
-				case badNum as e:
-					return exitErr(e.Msg)
-				}
-			} else if k == "program" {
-				program = rStr(r) catch {
-				case badNum as e:
-					return exitErr(e.Msg)
-				}
-			} else if k == "memory" {
-				memory = rUint(r) catch {
-				case badNum as e:
-					return exitErr(e.Msg)
-				}
-			} else {
-				r.Skip()
-			}
-		}
-		r.End()
-		let c = cases.CaseView{
-			ID:     uint32(0),
-			Name:   "case",
-			Dir:    "",
-			Args:   []string{},
-			Env:    []string{},
-			Stdin:  "",
-			Setup:  false,
-			Out:    wantOut,
-			HasOut: hasOut,
-			Err:    wantErr,
-			Status: wantStatus,
-		}
-		let mut o = cases.ClassifyOutcome(gotOut, gotErr, gotStatus, timedOut, memory)
-		if outOver {
-			o = cases.Outcome{..o, StdoutOver: true}
-		}
-		if errOver {
-			o = cases.Outcome{..o, StderrOver: true}
-		}
-		let v = cases.Judge(c, o, program, memory, "0s")
-		let t = json.NewText()
-		t.BeginObject(6)
-		t.Key("passed")
-		t.Bool(cases.VerdictPassed(v))
-		t.Key("fatal")
-		t.String(v.Fatal)
-		t.Key("limited")
-		t.Bool(o.Limited)
-		t.Key("cause")
-		t.Uint(uint64(cases.CauseOf(gotErr)))
-		t.Key("what")
-		t.BeginList(v.What.Len())
-		for _, w in v.What {
-			t.String(w)
-		}
-		t.EndList()
-		t.Key("diff")
-		t.String(cases.FormatVerdictDiff(v, c, o))
-		t.EndObject()
-		io.Stdout.Println(t.Written())
-		return
-	}
-	if args[0] == "run" && args.Len() >= 4 {
-		let dir = args[1]
-		let binary = args[2]
-		let mem = parseU64Arg(args[3]) catch {
-		case badNum as e:
-			return exitErr(e.Msg)
-		}
-		let (tbl, probs) = cases.Load(dir, false)
-		let (probText, probCode) = cases.FormatProblems(probs)
-		if probCode != uint32(0) {
-			io.Stdout.Print(probText)
-			return os.Exit{Code: 1, Message: ""}
-		}
-		let (rep, code) = cases.Run(binary, tbl, mem)
-		io.Stdout.Print(rep)
-		if code != uint32(0) {
-			return os.Exit{Code: 1, Message: ""}
-		}
-		return
-	}
-	exitErr("invalid cases arguments")
-}
-
 func runTestinputs(args []string) fails os.Exit needs io.Stdout | io.Stderr | io.Stdin {
 	if args.Len() < 1 {
-		return exitErr("usage: casesdump testinputs <testenv|genprogram|testlog|recordjson|mountverdict|seccomp|decode> ...")
+		return exitErr("usage: testinputsdump testinputs <testenv|genprogram|testlog|recordjson|mountverdict|seccomp|decode> ...")
 	}
 	if args[0] == "testenv" {
 		let raw = io.Stdin.ReadAll() catch {
@@ -643,40 +389,8 @@ type badNum {
 	Msg string,
 }
 
-func readHostFile(path string) string fails badNum needs fs.Files {
-	fs.Files.ReadFile(path) catch {
-	case fs.NotFound as e:
-		return badNum{Msg: e.Path + ": not found"}
-	case fs.Denied as e:
-		return badNum{Msg: e.Path + ": permission denied"}
-	case fs.Failed as e:
-		return badNum{Msg: e.Reason}
-	}
-}
-
 func rStr(r json.Reader) string fails badNum {
 	r.String() catch {
-	case WireWrongKind as e:
-		return badNum{Msg: e.Path}
-	}
-}
-
-func rBool(r json.Reader) bool fails badNum {
-	r.Bool() catch {
-	case WireWrongKind as e:
-		return badNum{Msg: e.Path}
-	}
-}
-
-func rUint(r json.Reader) uint64 fails badNum {
-	r.Uint() catch {
-	case WireWrongKind as e:
-		return badNum{Msg: e.Path}
-	}
-}
-
-func rInt(r json.Reader) int64 fails badNum {
-	r.Int() catch {
 	case WireWrongKind as e:
 		return badNum{Msg: e.Path}
 	}
@@ -724,41 +438,13 @@ func exitErr(msg string) os.Exit needs io.Stderr {
 	os.Exit{Code: 1, Message: ""}
 }
 
-type stubProcess { env Map[string, string], cwd string } implements os.Process
-
-func Args(_ stubProcess) []string {
-	[]string{}
-}
-
-func Getenv(p stubProcess, key string) option.Option[string] {
-	p.env.Get(key)
-}
-
-func Environ(p stubProcess) Map[string, string] {
-	p.env
-}
-
-func Getwd(p stubProcess) string fails os.NoWorkdir {
-	if p.cwd == "" || !filepath.IsAbs(p.cwd) {
-		return os.NoWorkdir{Message: "unset"}
-	}
-	p.cwd
-}
-
-test CasesdumpSubcommandsSmoke {
-	let mem = fstest.NewMemory()
-	let proc = stubProcess{env: Map[string, string]{}, cwd: ""}
+test TestinputsdumpSubcommandsSmoke {
 	let rec = io.NewRecorder()
 	let errRec = io.NewRecorder()
 	with context {
-		os.Process:  proc,
-		fs.Files:    mem,
-		fs.Entries:  mem,
-		fs.Writes:   mem,
-		exec.Runner: exec.Script{Results: Map[string, exec.Result]{}},
-		io.Stdout:   rec,
-		io.Stderr:   errRec,
-		io.Stdin:    io.NewInput(""),
+		io.Stdout: rec,
+		io.Stderr: errRec,
+		io.Stdin:  io.NewInput(""),
 	} {
 		Run([]string{"ergoversion", "of", "v1.2.3"}) catch {
 		case os.Exit:

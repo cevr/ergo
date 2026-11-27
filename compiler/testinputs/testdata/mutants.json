@@ -52,6 +52,16 @@
       "killers": ["compiler/testinputs:AccessLogPolicyAndSocketDecoding"]
     },
     {
+      "name": "selfhost-testinputs-access-ignore-changed-read",
+      "origin": "wf10 SELFHOST-TESTINPUTS-CASES",
+      "file": "compiler/testinputs/access.ergo",
+      "decl": "AccessValidate",
+      "from": "\t\t\tif idx < l.ReadVer.Len() && l.ReadVer[idx] != VersionProvider.Version(path) {\n",
+      "to": "\t\t\tif idx < l.ReadVer.Len() && false {\n",
+      "rule": "AccessValidate must reject a run when an unwritten read input changes before exit.",
+      "killers": ["compiler/testinputs:AccessLogPolicyAndSocketDecoding"]
+    },
+    {
       "name": "selfhost-testinputs-seccomp-drop-writefd-in-target",
       "origin": "wf10 SELFHOST-TESTINPUTS-CASES",
       "file": "compiler/testinputs/seccomp.ergo",

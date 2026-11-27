@@ -763,6 +763,28 @@ test AccessLogPolicyAndSocketDecoding {
 		assert written.Len() == 1
 	}
 
+	let mut versChanged = Map[string, PathVersion]{}
+	versChanged["/root/file"] = PathVersion{
+		Dev:      uint64(1),
+		Ino:      uint64(9),
+		Size:     uint64(10),
+		Mode:     uint32(420),
+		ModSec:   uint64(100),
+		ModNsec:  uint64(0),
+		CtimSec:  uint64(101),
+		CtimNsec: uint64(0),
+		Err:      "",
+	}
+	let vpChanged = MemVersionProvider{Versions: versChanged, Snaps: snaps}
+	let mut log2 = NewAccessLog()
+	with context { PathResolver: rp, VersionProvider: vp } {
+		AccessOpen(&log2, "/root/file", true)
+	}
+	with context { VersionProvider: vpChanged } {
+		AccessValidate(&log2)
+	}
+	assert log2.Failure == "a read input changed during the command: /root/file"
+
 	let ux = []byte{byte(1), byte(0), '/', 't', 'm', 'p', '/', 's', byte(0), 'x'}
 	assert DecodeSockaddrPath(ux) == "/tmp/s"
 	let inet = []byte{byte(2), byte(0), byte(0), byte(80), byte(127), byte(0), byte(0), byte(1)}
