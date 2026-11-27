@@ -69,6 +69,16 @@ func omApplyModel(st orchestrate.State, seq int, cmd omCmd, step int) (orchestra
 		return (st, seq, omRefused{Kind: "unverified"})
 	case orchestrate.NotAcceptedHead:
 		return (st, seq, omRefused{Kind: "not_accepted_head"})
+	case orchestrate.LaneHeld:
+		return (st, seq, omRefused{Kind: "lane_held"})
+	case orchestrate.NotOwner:
+		return (st, seq, omRefused{Kind: "not_owner"})
+	case orchestrate.LandingBusy:
+		return (st, seq, omRefused{Kind: "landing_busy"})
+	case orchestrate.StaleHead:
+		return (st, seq, omRefused{Kind: "stale_head"})
+	case orchestrate.NoLease:
+		return (st, seq, omRefused{Kind: "no_lease"})
 	}
 	if evts.Len() == 0 {
 		return (st, seq, omExecuted{Seq: seq, Duplicate: true, EvCount: 0})
@@ -244,6 +254,16 @@ func Apply(s omSess, cmd omCmd) explore.Observed[omObs, omReply, core.Never] fai
 		return try omStep(s, explore.DisReject, omRefused{Kind: "unverified"})
 	case orchestrate.NotAcceptedHead:
 		return try omStep(s, explore.DisReject, omRefused{Kind: "not_accepted_head"})
+	case orchestrate.LaneHeld:
+		return try omStep(s, explore.DisReject, omRefused{Kind: "lane_held"})
+	case orchestrate.NotOwner:
+		return try omStep(s, explore.DisReject, omRefused{Kind: "not_owner"})
+	case orchestrate.LandingBusy:
+		return try omStep(s, explore.DisReject, omRefused{Kind: "landing_busy"})
+	case orchestrate.StaleHead:
+		return try omStep(s, explore.DisReject, omRefused{Kind: "stale_head"})
+	case orchestrate.NoLease:
+		return try omStep(s, explore.DisReject, omRefused{Kind: "no_lease"})
 	case orchestrate.StoreFailed as e:
 		return OrchMemDriveErr{Why: e.Reason}
 	}

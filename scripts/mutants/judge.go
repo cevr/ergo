@@ -113,8 +113,15 @@ func (e *engine) judgeAll(ctx context.Context, jobs []Job) ([]Result, error) {
 		if err := e.baselines(ctx, items, pending, jr); err != nil {
 			return err
 		}
+		if err := e.prepareSchemata(ctx, items, pending); err != nil {
+			return err
+		}
 		open := map[int]*Result{}
 		err := e.each(ctx, pending, func(w *worker, i int) {
+			if r, ok := e.judgeSchemata(ctx, w, items[i].m); ok {
+				finish(i, r)
+				return
+			}
 			r, more := w.judgeNamed(ctx, items[i].m)
 			if !more {
 				finish(i, r)
@@ -792,6 +799,9 @@ func (w *worker) buildWith(ctx context.Context, who string, s *Suite, built map[
 			return "build " + s.Name + ": " + o.reason + "\n" + lastLines(o.tail, 20)
 		}
 		w.e.logf("%s: built %s in %.0fs", who, s.Name, o.seconds)
+		if b := w.e.cfg.Builds; b != nil && who != "baseline" && who != "schemata" {
+			b.Rows.Add(1)
+		}
 		w.e.noteBuild(s.Name, o.seconds)
 		built["suite:"+s.Name] = true
 	}

@@ -21,7 +21,7 @@ func New() Store {
 }
 
 // Execute runs Decide, appends the resulting events, and updates State atomically under sync.Modify.
-func Execute(s Store, env orchestrate.Envelope) orchestrate.ExecuteResult fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+func Execute(s Store, env orchestrate.Envelope) orchestrate.ExecuteResult fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed {
 	let outcome = sync.Modify(s.cell, func(b book) (execOutcome, book) {
 		let events = orchestrate.Decide(b.state, env) catch {
 		case orchestrate.NotFound as e:
@@ -37,6 +37,16 @@ func Execute(s Store, env orchestrate.Envelope) orchestrate.ExecuteResult fails 
 		case orchestrate.Unverified as e:
 			return (execRefused{Err: e}, b)
 		case orchestrate.NotAcceptedHead as e:
+			return (execRefused{Err: e}, b)
+		case orchestrate.LaneHeld as e:
+			return (execRefused{Err: e}, b)
+		case orchestrate.NotOwner as e:
+			return (execRefused{Err: e}, b)
+		case orchestrate.LandingBusy as e:
+			return (execRefused{Err: e}, b)
+		case orchestrate.StaleHead as e:
+			return (execRefused{Err: e}, b)
+		case orchestrate.NoLease as e:
 			return (execRefused{Err: e}, b)
 		}
 		if events.Len() == 0 {
@@ -67,6 +77,16 @@ func Execute(s Store, env orchestrate.Envelope) orchestrate.ExecuteResult fails 
 		case orchestrate.Unverified as e:
 			e
 		case orchestrate.NotAcceptedHead as e:
+			e
+		case orchestrate.LaneHeld as e:
+			e
+		case orchestrate.NotOwner as e:
+			e
+		case orchestrate.LandingBusy as e:
+			e
+		case orchestrate.StaleHead as e:
+			e
+		case orchestrate.NoLease as e:
 			e
 		}
 	}

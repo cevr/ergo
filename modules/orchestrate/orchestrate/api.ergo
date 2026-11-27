@@ -147,58 +147,64 @@ type QuestionListInput {
 // Api is the operation contract the orchestrate CLI and MCP tools are generated from: units, verdicts, commitments, queue entries, async questions, and progressive-disclosure ledger queries.
 type Api {
 	// UnitOpen opens a unit with the receipt kinds its verdict requires.
-	UnitOpen(input UnitOpenInput) Unit fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed,
+	UnitOpen(input UnitOpenInput) Unit fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | LaneHeld | NotOwner | LandingBusy | StaleHead | NoLease | StoreFailed,
 
 	// ReceiptRecord records one run of a check: command, head, exit code and exit lines.
-	ReceiptRecord(input ReceiptRecordInput) Receipt fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed,
+	ReceiptRecord(input ReceiptRecordInput) Receipt fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | LaneHeld | NotOwner | LandingBusy | StaleHead | NoLease | StoreFailed,
 
 	// UnitState reads a unit and its receipts.
 	UnitState(input UnitStateInput) UnitView fails NotFound | InvalidInput | StoreFailed,
 
 	// UnitAccept accepts a unit at a head; refused Unverified unless every required kind's latest receipt at that head exited 0.
-	UnitAccept(input UnitVerdictInput) Unit fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed,
+	UnitAccept(input UnitVerdictInput) Unit fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | LaneHeld | NotOwner | LandingBusy | StaleHead | NoLease | StoreFailed,
 
 	// UnitLand lands an accepted unit at its accepted head, whose required receipts must still be green.
-	UnitLand(input UnitVerdictInput) Unit fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed,
+	UnitLand(input UnitVerdictInput) Unit fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | LaneHeld | NotOwner | LandingBusy | StaleHead | NoLease | StoreFailed,
 
 	// UnitClose closes a non-terminal unit without landing.
-	UnitClose(input UnitCloseInput) Unit fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed,
+	UnitClose(input UnitCloseInput) Unit fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | LaneHeld | NotOwner | LandingBusy | StaleHead | NoLease | StoreFailed,
 
 	// CommitmentAdd registers a new tracked commitment.
-	CommitmentAdd(input CommitmentAddInput) Commitment fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed,
+	CommitmentAdd(input CommitmentAddInput) Commitment fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | LaneHeld | NotOwner | LandingBusy | StaleHead | NoLease | StoreFailed,
 
 	// CommitmentAssign assigns an open or assigned commitment to an owner and lane.
-	CommitmentAssign(input CommitmentAssignInput) Commitment fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed,
+	CommitmentAssign(input CommitmentAssignInput) Commitment fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | LaneHeld | NotOwner | LandingBusy | StaleHead | NoLease | StoreFailed,
 
 	// CommitmentLand marks an open or assigned commitment as landed at a commit SHA.
-	CommitmentLand(input CommitmentLandInput) Commitment fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed,
+	CommitmentLand(input CommitmentLandInput) Commitment fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | LaneHeld | NotOwner | LandingBusy | StaleHead | NoLease | StoreFailed,
 
 	// CommitmentDecide resolves or withdraws an open or assigned commitment with a note.
-	CommitmentDecide(input CommitmentDecideInput) Commitment fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed,
+	CommitmentDecide(input CommitmentDecideInput) Commitment fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | LaneHeld | NotOwner | LandingBusy | StaleHead | NoLease | StoreFailed,
 
 	// CommitmentList lists commitments, optionally filtered by status and owner, sorted by ID.
 	CommitmentList(input CommitmentListInput) []Commitment fails InvalidInput | StoreFailed,
 
 	// QueueUpsert inserts or replaces a prioritized queue entry by key.
-	QueueUpsert(input QueueUpsertInput) QueueItem fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed,
+	QueueUpsert(input QueueUpsertInput) QueueItem fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | LaneHeld | NotOwner | LandingBusy | StaleHead | NoLease | StoreFailed,
 
 	// QueueRemove deletes an existing queue entry by key.
-	QueueRemove(input QueueRemoveInput) fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed,
+	QueueRemove(input QueueRemoveInput) fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | LaneHeld | NotOwner | LandingBusy | StaleHead | NoLease | StoreFailed,
 
 	// QueueList lists queue entries, optionally filtered by status, ordered by priority then key.
 	QueueList(input QueueListInput) []QueueItem fails InvalidInput | StoreFailed,
 
 	// QuestionAsk opens an async question with an optional explicit monotonic ID, default assumption, and concrete action.
-	QuestionAsk(input QuestionAskInput) Question fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed,
+	QuestionAsk(input QuestionAskInput) Question fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | LaneHeld | NotOwner | LandingBusy | StaleHead | NoLease | StoreFailed,
 
 	// QuestionAnswer answers or withdraws an open async question.
-	QuestionAnswer(input QuestionAnswerInput) Question fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed,
+	QuestionAnswer(input QuestionAnswerInput) Question fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | LaneHeld | NotOwner | LandingBusy | StaleHead | NoLease | StoreFailed,
 
 	// QuestionList lists async questions, optionally restricting to open questions only.
 	QuestionList(input QuestionListInput) []Question fails StoreFailed,
 
-	// RunHeadSet records the latest main branch head for a repository run.
-	RunHeadSet(input RunHeadSetInput) RunMeta fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed,
+	// UnitTransfer hands a unit to another actor; only its owner may, or any actor claiming a unit of unknown owner for itself.
+	UnitTransfer(input UnitTransferInput) Unit fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | LaneHeld | NotOwner | LandingBusy | StaleHead | NoLease | StoreFailed,
+
+	// LandingBegin takes the run's landing lease from the run head; refused LandingBusy while another actor's lease is live and StaleHead when the expected head is not the run head.
+	LandingBegin(input LandingBeginInput) LandingLease fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | LaneHeld | NotOwner | LandingBusy | StaleHead | NoLease | StoreFailed,
+
+	// LandingEnd moves the run head and frees the caller's live landing lease, the only way a run head moves.
+	LandingEnd(input LandingEndInput) RunMeta fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | LaneHeld | NotOwner | LandingBusy | StaleHead | NoLease | StoreFailed,
 
 	// RunSummary returns a compact progressive-disclosure overview for a repository run.
 	RunSummary(input RunSummaryInput) RunOverview fails InvalidInput | StoreFailed,
@@ -207,25 +213,25 @@ type Api {
 	UnitList(input UnitListInput) UnitPage fails InvalidInput | StoreFailed,
 
 	// DecisionRecord creates or updates a structured ruling, architectural decision, or owner directive.
-	DecisionRecord(input DecisionRecordInput) Decision fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed,
+	DecisionRecord(input DecisionRecordInput) Decision fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | LaneHeld | NotOwner | LandingBusy | StaleHead | NoLease | StoreFailed,
 
 	// DecisionList lists structured decisions filtered and paginated.
 	DecisionList(input DecisionListInput) DecisionPage fails InvalidInput | StoreFailed,
 
 	// LandingRecord creates or updates a structured integration landing record.
-	LandingRecord(input LandingRecordInput) Landing fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed,
+	LandingRecord(input LandingRecordInput) Landing fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | LaneHeld | NotOwner | LandingBusy | StaleHead | NoLease | StoreFailed,
 
 	// LandingList lists structured integration landing records filtered and paginated.
 	LandingList(input LandingListInput) LandingPage fails InvalidInput | StoreFailed,
 
 	// EventRecord appends an operational event to the structured event log.
-	EventRecord(input EventRecordInput) LedgerEvent fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed,
+	EventRecord(input EventRecordInput) LedgerEvent fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | LaneHeld | NotOwner | LandingBusy | StaleHead | NoLease | StoreFailed,
 
 	// EventLog lists operational event log entries filtered, ordered, and paginated.
 	EventLog(input EventLogInput) EventPage fails InvalidInput | StoreFailed,
 
 	// ImportPlan idempotently parses run log or fallout markdown lines into structured decisions, landings, run head, and events.
-	ImportPlan(input ImportPlanInput) ImportReport fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed,
+	ImportPlan(input ImportPlanInput) ImportReport fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | LaneHeld | NotOwner | LandingBusy | StaleHead | NoLease | StoreFailed,
 
 	// HostStatus returns host CPU cores, run-queue load averages, physical memory, and requested volume capacities.
 	HostStatus(input HostStatusInput) HostStatusReport fails InvalidInput | host.Unavailable | host.Malformed,
@@ -512,7 +518,7 @@ type Api {
 		case _:
 			return false
 		}
-		let _ = ReceiptRecord(ReceiptRecordInput{CommandID: CommandID("pd-r2-\(tag)"), Actor: "w", Repo: "repo", Run: run, ID: "u2", Kind: "test", Command: "ergo test", Head: "h2", ExitCode: 0, ExitLines: "PASS long-blob-omitted-in-unit-list"}) catch {
+		let _ = ReceiptRecord(ReceiptRecordInput{CommandID: CommandID("pd-r2-\(tag)"), Actor: "root", Repo: "repo", Run: run, ID: "u2", Kind: "test", Command: "ergo test", Head: "h2", ExitCode: 0, ExitLines: "PASS long-blob-omitted-in-unit-list"}) catch {
 		case _:
 			return false
 		}
@@ -520,7 +526,7 @@ type Api {
 		case _:
 			return false
 		}
-		let _ = ReceiptRecord(ReceiptRecordInput{CommandID: CommandID("pd-r3-\(tag)"), Actor: "w", Repo: "repo", Run: run, ID: "u3", Kind: "test", Command: "ergo test", Head: "h3", ExitCode: 0, ExitLines: "PASS"}) catch {
+		let _ = ReceiptRecord(ReceiptRecordInput{CommandID: CommandID("pd-r3-\(tag)"), Actor: "root", Repo: "repo", Run: run, ID: "u3", Kind: "test", Command: "ergo test", Head: "h3", ExitCode: 0, ExitLines: "PASS"}) catch {
 		case _:
 			return false
 		}
@@ -528,11 +534,15 @@ type Api {
 		case _:
 			return false
 		}
+		let _ = LandingBegin(LandingBeginInput{CommandID: CommandID("pd-lb-\(tag)"), Actor: "root", Repo: "repo", Run: run, ExpectedHead: "main-sha-1", LifetimeSeconds: 600}) catch {
+		case _:
+			return false
+		}
 		let _ = UnitLand(UnitVerdictInput{CommandID: CommandID("pd-l3-\(tag)"), Actor: "root", Repo: "repo", Run: run, ID: "u3", Head: "h3"}) catch {
 		case _:
 			return false
 		}
-		let rm = RunHeadSet(RunHeadSetInput{CommandID: CommandID("pd-rh-\(tag)"), Actor: "root", Repo: "repo", Run: run, Head: "main-sha-2"}) catch {
+		let rm = LandingEnd(LandingEndInput{CommandID: CommandID("pd-rh-\(tag)"), Actor: "root", Repo: "repo", Run: run, NewHead: "main-sha-2"}) catch {
 		case _:
 			return false
 		}
@@ -852,7 +862,7 @@ func envelope(s Service, id CommandID, actor string, cmd Command) Envelope {
 }
 
 func apiReceipt(key UnitStateInput, n string, exit int) ReceiptRecordInput {
-	ReceiptRecordInput{CommandID: CommandID("api-v-\(n)"), Actor: "w", Repo: key.Repo, Run: key.Run, ID: key.ID, Kind: "acceptance", Command: "ergo test", Head: "h", ExitCode: exit, ExitLines: "exit \(exit)"}
+	ReceiptRecordInput{CommandID: CommandID("api-v-\(n)"), Actor: "root", Repo: key.Repo, Run: key.Run, ID: key.ID, Kind: "acceptance", Command: "ergo test", Head: "h", ExitCode: exit, ExitLines: "exit \(exit)"}
 }
 
 func apiVerdict(key UnitStateInput, n string) UnitVerdictInput {
@@ -872,12 +882,12 @@ func keyOf(repo string, run string, id string) UnitKey {
 	UnitKey{Repo: repo, Run: run, ID: id}
 }
 
-func runUnitCommand(s Service, id CommandID, actor string, key UnitKey, cmd Command) Unit fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed {
+func runUnitCommand(s Service, id CommandID, actor string, key UnitKey, cmd Command) Unit fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | LaneHeld | NotOwner | LandingBusy | StaleHead | NoLease | StoreFailed {
 	let _ = try s.store.Execute(envelope(s, id, actor, cmd))
 	try mustUnit(s.store, key)
 }
 
-func runCommitmentCommand(s Service, id CommandID, actor string, cid string, cmd Command) Commitment fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed {
+func runCommitmentCommand(s Service, id CommandID, actor string, cid string, cmd Command) Commitment fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | LaneHeld | NotOwner | LandingBusy | StaleHead | NoLease | StoreFailed {
 	let _ = try s.store.Execute(envelope(s, id, actor, cmd))
 	try mustCommitment(s.store, cid)
 }
@@ -899,13 +909,13 @@ func parseCommitmentStatusFilter(status json.Optional[string]) option.Option[Com
 }
 
 // UnitOpen executes OpenUnit and returns the opened Unit.
-func UnitOpen(s Service, req UnitOpenInput) Unit fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed {
+func UnitOpen(s Service, req UnitOpenInput) Unit fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | LaneHeld | NotOwner | LandingBusy | StaleHead | NoLease | StoreFailed {
 	let key = keyOf(req.Repo, req.Run, req.ID)
 	runUnitCommand(s, req.CommandID, req.Actor, key, OpenUnit{Key: key, Title: req.Title, Requires: req.Requires, Lane: optionalToOption[string](req.Lane), Branch: optionalToOption[string](req.Branch)})
 }
 
 // ReceiptRecord executes RecordReceipt and returns the recorded Receipt, whose ID is the command ID.
-func ReceiptRecord(s Service, req ReceiptRecordInput) Receipt fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed {
+func ReceiptRecord(s Service, req ReceiptRecordInput) Receipt fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | LaneHeld | NotOwner | LandingBusy | StaleHead | NoLease | StoreFailed {
 	let key = keyOf(req.Repo, req.Run, req.ID)
 	let done = try s.store.Execute(envelope(s, req.CommandID, req.Actor, RecordReceipt{Unit: key, Kind: req.Kind, Command: req.Command, Head: req.Head, ExitCode: req.ExitCode, ExitLines: req.ExitLines}))
 	for ev in done.Events {
@@ -936,40 +946,40 @@ func UnitState(s Service, req UnitStateInput) UnitView fails NotFound | InvalidI
 }
 
 // UnitAccept executes AcceptUnit and returns the accepted Unit.
-func UnitAccept(s Service, req UnitVerdictInput) Unit fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed {
+func UnitAccept(s Service, req UnitVerdictInput) Unit fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | LaneHeld | NotOwner | LandingBusy | StaleHead | NoLease | StoreFailed {
 	let key = keyOf(req.Repo, req.Run, req.ID)
 	runUnitCommand(s, req.CommandID, req.Actor, key, AcceptUnit{Unit: key, Head: req.Head})
 }
 
 // UnitLand executes LandUnit and returns the landed Unit.
-func UnitLand(s Service, req UnitVerdictInput) Unit fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed {
+func UnitLand(s Service, req UnitVerdictInput) Unit fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | LaneHeld | NotOwner | LandingBusy | StaleHead | NoLease | StoreFailed {
 	let key = keyOf(req.Repo, req.Run, req.ID)
 	runUnitCommand(s, req.CommandID, req.Actor, key, LandUnit{Unit: key, Head: req.Head})
 }
 
 // UnitClose executes CloseUnit and returns the closed Unit.
-func UnitClose(s Service, req UnitCloseInput) Unit fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed {
+func UnitClose(s Service, req UnitCloseInput) Unit fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | LaneHeld | NotOwner | LandingBusy | StaleHead | NoLease | StoreFailed {
 	let key = keyOf(req.Repo, req.Run, req.ID)
 	runUnitCommand(s, req.CommandID, req.Actor, key, CloseUnit{Unit: key})
 }
 
 // CommitmentAdd executes AddCommitment and returns the added Commitment.
-func CommitmentAdd(s Service, req CommitmentAddInput) Commitment fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed {
+func CommitmentAdd(s Service, req CommitmentAddInput) Commitment fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | LaneHeld | NotOwner | LandingBusy | StaleHead | NoLease | StoreFailed {
 	runCommitmentCommand(s, req.CommandID, req.Actor, req.ID, AddCommitment{ID: req.ID, Title: req.Title, Kind: req.Kind})
 }
 
 // CommitmentAssign executes AssignCommitment and returns the updated Commitment.
-func CommitmentAssign(s Service, req CommitmentAssignInput) Commitment fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed {
+func CommitmentAssign(s Service, req CommitmentAssignInput) Commitment fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | LaneHeld | NotOwner | LandingBusy | StaleHead | NoLease | StoreFailed {
 	runCommitmentCommand(s, req.CommandID, req.Actor, req.ID, AssignCommitment{ID: req.ID, Owner: req.Owner, Lane: req.Lane})
 }
 
 // CommitmentLand executes LandCommitment and returns the landed Commitment.
-func CommitmentLand(s Service, req CommitmentLandInput) Commitment fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed {
+func CommitmentLand(s Service, req CommitmentLandInput) Commitment fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | LaneHeld | NotOwner | LandingBusy | StaleHead | NoLease | StoreFailed {
 	runCommitmentCommand(s, req.CommandID, req.Actor, req.ID, LandCommitment{ID: req.ID, LandedSHA: req.LandedSHA})
 }
 
 // CommitmentDecide executes DecideCommitment and returns the decided or withdrawn Commitment.
-func CommitmentDecide(s Service, req CommitmentDecideInput) Commitment fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed {
+func CommitmentDecide(s Service, req CommitmentDecideInput) Commitment fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | LaneHeld | NotOwner | LandingBusy | StaleHead | NoLease | StoreFailed {
 	runCommitmentCommand(s, req.CommandID, req.Actor, req.ID, DecideCommitment{ID: req.ID, Note: req.Note, Withdraw: req.Withdraw})
 }
 
@@ -982,7 +992,7 @@ func CommitmentList(s Service, req CommitmentListInput) []Commitment fails Inval
 }
 
 // QueueUpsert executes UpsertQueueItem and returns the recorded QueueItem.
-func QueueUpsert(s Service, req QueueUpsertInput) QueueItem fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed {
+func QueueUpsert(s Service, req QueueUpsertInput) QueueItem fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | LaneHeld | NotOwner | LandingBusy | StaleHead | NoLease | StoreFailed {
 	let done = try s.store.Execute(envelope(s, req.CommandID, req.Actor, UpsertQueueItem{Key: req.Key, Priority: req.Priority, Title: req.Title, Body: req.Body, Status: req.Status, Tags: req.Tags}))
 	for ev in done.Events {
 		match ev {
@@ -1009,7 +1019,7 @@ func QueueUpsert(s Service, req QueueUpsertInput) QueueItem fails NotFound | Alr
 }
 
 // QueueRemove executes RemoveQueueItem.
-func QueueRemove(s Service, req QueueRemoveInput) fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed {
+func QueueRemove(s Service, req QueueRemoveInput) fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | LaneHeld | NotOwner | LandingBusy | StaleHead | NoLease | StoreFailed {
 	let _ = try s.store.Execute(envelope(s, req.CommandID, req.Actor, RemoveQueueItem{Key: req.Key}))
 }
 
@@ -1021,7 +1031,7 @@ func QueueList(s Service, req QueueListInput) []QueueItem fails InvalidInput | S
 }
 
 // QuestionAsk executes AskQuestion and returns the opened Question.
-func QuestionAsk(s Service, req QuestionAskInput) Question fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed {
+func QuestionAsk(s Service, req QuestionAskInput) Question fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | LaneHeld | NotOwner | LandingBusy | StaleHead | NoLease | StoreFailed {
 	let done = try s.store.Execute(envelope(s, req.CommandID, req.Actor, AskQuestion{ID: optionalToOption[int](req.ID), Prompt: req.Prompt, Assumption: req.Assumption, ConcreteAction: req.ConcreteAction}))
 	for ev in done.Events {
 		match ev {
@@ -1040,7 +1050,7 @@ func QuestionAsk(s Service, req QuestionAskInput) Question fails NotFound | Alre
 }
 
 // QuestionAnswer executes AnswerQuestion and returns the updated Question.
-func QuestionAnswer(s Service, req QuestionAnswerInput) Question fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed {
+func QuestionAnswer(s Service, req QuestionAnswerInput) Question fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | LaneHeld | NotOwner | LandingBusy | StaleHead | NoLease | StoreFailed {
 	let _ = try s.store.Execute(envelope(s, req.CommandID, req.Actor, AnswerQuestion{ID: req.ID, Answer: req.Answer, Withdraw: req.Withdraw}))
 	try mustQuestion(s.store, req.ID)
 }

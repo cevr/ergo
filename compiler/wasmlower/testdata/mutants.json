@@ -1,0 +1,86 @@
+{
+  "about": "compiler/wasmlower: compiler/ir functions lowered to a WASM32 module through compiler/objfmt/wasm (NB-6 round 1). Every mutant breaks one lowering rule: structured control, operator choice, host calls, refusals.",
+  "mutants": [
+    {
+      "name": "wasmlower-while-cond-not-negated",
+      "origin": "NB-6B-WASM-LOWER",
+      "file": "compiler/wasmlower/lower.ergo", "decl": "lowerWhile",
+      "from": "\t\top(lw, wasm.OpI32Eqz)\n\t\twasm.BrIf(&lw.code, lw.depth-exit)\n",
+      "to": "\t\twasm.BrIf(&lw.code, lw.depth-exit)\n",
+      "rule": "A while leaves its loop when its condition is false: the condition is negated into br_if to the exit block.",
+      "killers": ["compiler/wasmlower:law:WasmRun.LoweredProgramsAgreeWithErgoOnBunAndNode"]
+    },
+    {
+      "name": "wasmlower-break-goes-to-next",
+      "origin": "NB-6B-WASM-LOWER",
+      "file": "compiler/wasmlower/lower.ergo", "decl": "lowerStmt",
+      "from": "\t\twasm.Br(&lw.code, lw.depth-lw.exits[i])\n",
+      "to": "\t\twasm.Br(&lw.code, lw.depth-lw.nexts[i])\n",
+      "rule": "A break branches to its loop's exit block, not to its next iteration.",
+      "killers": ["compiler/wasmlower:law:WasmRun.LoweredProgramsAgreeWithErgoOnBunAndNode"]
+    },
+    {
+      "name": "wasmlower-oror-true-arm-false",
+      "origin": "NB-6B-WASM-LOWER",
+      "file": "compiler/wasmlower/lower.ergo", "decl": "lowerBin",
+      "from": "\t\t\twasm.I32Const(&lw.code, int32(1))\n\t\t\twasm.Else(&lw.code)\n",
+      "to": "\t\t\twasm.I32Const(&lw.code, int32(0))\n\t\t\twasm.Else(&lw.code)\n",
+      "rule": "x || y is true without evaluating y when x is true.",
+      "killers": ["compiler/wasmlower:law:WasmRun.LoweredProgramsAgreeWithErgoOnBunAndNode"]
+    },
+    {
+      "name": "wasmlower-signed-rem-as-unsigned",
+      "origin": "NB-6B-WASM-LOWER",
+      "file": "compiler/wasmlower/lower.ergo", "decl": "binOps",
+      "from": "\tbop(\"%\", false, wasm.OpI32RemS, wasm.OpI32RemU, wasm.OpI64RemS, wasm.OpI64RemU),\n",
+      "to": "\tbop(\"%\", false, wasm.OpI32RemU, wasm.OpI32RemU, wasm.OpI64RemS, wasm.OpI64RemU),\n",
+      "rule": "% of a signed type truncates toward zero as Go's does (rem_s), never unsigned.",
+      "killers": ["compiler/wasmlower:law:WasmRun.LoweredProgramsAgreeWithErgoOnBunAndNode"]
+    },
+    {
+      "name": "wasmlower-set-op-loses-left",
+      "origin": "NB-6B-WASM-LOWER",
+      "file": "compiler/wasmlower/lower.ergo", "decl": "lowerStmt",
+      "from": "\t\tif o != \"\" {\n\t\t\twasm.LocalGet(&lw.code, l)\n\t\t}\n",
+      "to": "",
+      "rule": "A set with an operator reads its local before the operand: l op= x is l = l op x.",
+      "killers": ["compiler/wasmlower:law:WasmRun.LoweredProgramsAgreeWithErgoOnBunAndNode"]
+    },
+    {
+      "name": "wasmlower-wide-const-as-i32",
+      "origin": "NB-6B-WASM-LOWER",
+      "file": "compiler/wasmlower/lower.ergo", "decl": "constOf",
+      "from": "\tif wide(t) {\n\t\twasm.I64Const(&lw.code, v)\n",
+      "to": "\tif false {\n\t\twasm.I64Const(&lw.code, v)\n",
+      "rule": "A constant of a 64-bit type is an i64.const.",
+      "killers": ["compiler/wasmlower:law:WasmRun.LoweredProgramsAgreeWithErgoOnBunAndNode"]
+    },
+    {
+      "name": "wasmlower-result-end-not-unreachable",
+      "origin": "NB-6B-WASM-LOWER",
+      "file": "compiler/wasmlower/lower.ergo", "decl": "Lower",
+      "from": "\t\t\top(&lw, wasm.OpUnreachable)\n",
+      "to": "\t\t\top(&lw, wasm.OpNop)\n",
+      "rule": "A function with a result ends in unreachable, so a body whose every path returns validates.",
+      "killers": ["compiler/wasmlower:MainReturningI32IsTheSpecBytes"]
+    },
+    {
+      "name": "wasmlower-refusal-unnamed",
+      "origin": "NB-6B-WASM-LOWER",
+      "file": "compiler/wasmlower/lower.ergo", "decl": "refuse",
+      "from": "\tNotLowered{Func: lw.name, Row: id, Kind: kind, Why: why}\n",
+      "to": "\tNotLowered{Func: lw.name, Row: id, Kind: \"\", Why: why}\n",
+      "rule": "A refusal names the IR kind it refuses.",
+      "killers": ["compiler/wasmlower:law:RefusesKindsOutsideTheSubset"]
+    },
+    {
+      "name": "wasmlower-host-not-imported",
+      "origin": "NB-6B-WASM-LOWER",
+      "file": "compiler/wasmlower/lower.ergo", "decl": "Lower",
+      "from": "\tlet host = usesHost(file)\n",
+      "to": "\tlet host = false\n",
+      "rule": "A file that calls a WASI host imports fd_write and proc_exit from wasi_snapshot_preview1.",
+      "killers": ["compiler/wasmlower:HelloImportsWASIAndValidates"]
+    }
+  ]
+}
