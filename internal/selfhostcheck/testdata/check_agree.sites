@@ -290,6 +290,7 @@ case examples/model-paths/probe/replay
 case examples/model-paths/probe/session
 case examples/model-paths/probe/userland
 case examples/orchestrate/cmd/orchestrate
+case examples/orchestrate/server
 case examples/pager/cmd/pager
 case examples/pager/screen
 case examples/pairing/cmd/pairing
@@ -1443,6 +1444,7 @@ site S107 missing in internal/sketch/check/testdata/v1/C1-tail-result.neg.ergo: 
 site S108 extra in examples/fluid-gallery/gallery: badge.ergo 56:21: S108 cannot use part.Text as part.Node[int] in argument
 site S108 extra in examples/fluid-gallery/gallery: button.ergo 124:19: S108 cannot use part.Text as part.Node[int] in argument
 site S108 extra in examples/fluid-gallery/gallery: glyph.ergo 42:53: S108 cannot use part.Glyph as part.Node[int] in the body's tail value
+site S108 extra in examples/orchestrate/server: http_handler.ergo 147:73: S108 cannot use json.Absent as json.Present[string] in value
 site S108 extra in internal/sketch/check/testdata/fixtures/negative/block-tail-invalid.ergo: block-tail-invalid.ergo 17:15: S108 cannot infer T; write the type arguments, e.g. apply[int](…) (D6)
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/ascending-is-the-only-way-in.ergo: ascending-is-the-only-way-in.ergo 25:18: S108 a property parameter is generated, and slices.Ascending[int] cannot be: slices.Ascending has an unexported field, so only package slices builds it; use slices.Ascend
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/ascending-is-the-only-way-in.ergo: ascending-is-the-only-way-in.ergo 9:22: S108 the argument has type []int, which does not match slices.Ascending[T] (D6; type inference)
