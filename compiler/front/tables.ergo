@@ -1,0 +1,606 @@
+import hex
+import option
+import sha256
+import slices
+import strconv
+import strings
+
+// NoID is the sentinel index used when an optional table reference is absent.
+let NoID = uint32(4294967295)
+
+// VisitUnseen marks an unvisited node in graph traversals.
+let VisitUnseen = uint8(0)
+
+// VisitActive marks a node currently on the active DFS recursion stack.
+let VisitActive = uint8(1)
+
+// VisitDone marks a node whose traversal is complete.
+let VisitDone = uint8(2)
+
+// FrontDiag is a structured diagnostic emitted during frontend loading.
+type FrontDiag {
+	// Code identifies the diagnostic category.
+	Code string,
+	// Message describes the condition encountered.
+	Message string,
+	// File names the file associated with the diagnostic.
+	File string,
+	// Offset is the byte offset of the span in File.
+	Offset uint32,
+	// Length is the byte length of the span in File.
+	Length uint32,
+	// Line is the one-based line number of the span.
+	Line uint32,
+	// Column is the one-based byte column of the span.
+	Column uint32,
+	// Hint provides an optional recovery suggestion.
+	Hint string,
+	// HasSpan reports whether Offset/Length/Line/Column hold a source span.
+	HasSpan bool,
+}
+
+// ComputeLineStarts returns the sorted zero-based byte offsets of each line start in src.
+func ComputeLineStarts(src string) []uint32 {
+	let mut starts = []uint32{uint32(0)}
+	for i in 0..src.Len() {
+		if src[i] == '\n' {
+			starts = starts.Append(uint32(i + 1))
+		}
+	}
+	starts
+}
+
+// ComputeSpan converts byte offset/length against line starts into clamped span fields.
+func ComputeSpan(starts []uint32, srcLen uint32, offset uint32, length uint32) FrontDiag {
+	let mut off = offset
+	if off > srcLen {
+		off = srcLen
+	}
+	let mut l = length
+	if l > srcLen-off {
+		l = srcLen - off
+	}
+	if starts.Len() == 0 {
+		return FrontDiag{Code: "", Message: "", File: "", Offset: off, Length: l, Line: uint32(1), Column: off + uint32(1), Hint: "", HasSpan: true}
+	}
+	let mut lo = 0
+	let mut hi = starts.Len()
+	for lo+1 < hi {
+		let mid = lo + (hi-lo)/2
+		if starts[mid] <= off {
+			lo = mid
+		} else {
+			hi = mid
+		}
+	}
+	let lineStart = starts[lo]
+	let line = uint32(lo + 1)
+	let col = (off - lineStart) + uint32(1)
+	FrontDiag{Code: "", Message: "", File: "", Offset: off, Length: l, Line: line, Column: col, Hint: "", HasSpan: true}
+}
+
+// StrPool interns strings onto dense unsigned uint32 identifiers.
+type StrPool {
+	// Items stores unique strings indexed by their dense identifier.
+	Items []string,
+	// Index maps each interned string back to its dense identifier.
+	Index Map[string, uint32],
+}
+
+// NewStrPool returns an empty StrPool.
+func NewStrPool() StrPool {
+	StrPool{Items: []string{}, Index: Map[string, uint32]{}}
+}
+
+// InternStr inserts s if absent and returns its dense uint32 identifier.
+func InternStr(p mut StrPool, s string) uint32 {
+	match p.Index.Get(s) {
+	case option.Some[uint32] as id:
+		id.Value
+	case option.None:
+		let id = uint32(p.Items.Len())
+		p.Items = p.Items.Append(s)
+		p.Index[s] = id
+		id
+	}
+}
+
+// GetStr returns the string for id or empty when id is NoID or out of bounds.
+func GetStr(p StrPool, id uint32) string {
+	if id == NoID || int(id) >= p.Items.Len() {
+		return ""
+	}
+	p.Items[int(id)]
+}
+
+// ModuleTable stores loaded modules in Structure-of-Arrays columns.
+type ModuleTable {
+	// Name holds module import paths declared in ergo.mod.
+	Name []string,
+	// Dir holds clean filesystem directory roots per module.
+	Dir []string,
+	// ErgoVersion holds the declared ergo version string per module.
+	ErgoVersion []string,
+	// HasModFile marks whether ergo.mod existed in Dir.
+	HasModFile []bool,
+	// TrustGoStart gives the first slice index in TrustGoModules per module.
+	TrustGoStart []uint32,
+	// TrustGoCount gives the count of entries in TrustGoModules per module.
+	TrustGoCount []uint32,
+	// TrustGoModules flattens trusted Go module paths across all modules.
+	TrustGoModules []string,
+	// MapRuleStart gives the first index in MapRuleTable per module.
+	MapRuleStart []uint32,
+	// MapRuleCount gives the count of entries in MapRuleTable per module.
+	MapRuleCount []uint32,
+	// GoModIndex stores NoID or an index into an associated Go module list.
+	GoModIndex []uint32,
+	// ByDir indexes module IDs by clean directory path.
+	ByDir Map[string, uint32],
+	// ByName indexes module IDs by declared module path.
+	ByName Map[string, uint32],
+}
+
+// NewModuleTable returns an empty ModuleTable.
+func NewModuleTable() ModuleTable {
+	ModuleTable{
+		Name:           []string{},
+		Dir:            []string{},
+		ErgoVersion:    []string{},
+		HasModFile:     []bool{},
+		TrustGoStart:   []uint32{},
+		TrustGoCount:   []uint32{},
+		TrustGoModules: []string{},
+		MapRuleStart:   []uint32{},
+		MapRuleCount:   []uint32{},
+		GoModIndex:     []uint32{},
+		ByDir:          Map[string, uint32]{},
+		ByName:         Map[string, uint32]{},
+	}
+}
+
+// AddModule appends a module record and returns its dense module ID.
+func AddModule(t mut ModuleTable, dir string, name string, ergoVersion string, hasModFile bool, trustGo []string) uint32 {
+	let id = uint32(t.Dir.Len())
+	let trustStart = uint32(t.TrustGoModules.Len())
+	for g in trustGo {
+		t.TrustGoModules = t.TrustGoModules.Append(g)
+	}
+	t.Name = t.Name.Append(name)
+	t.Dir = t.Dir.Append(dir)
+	t.ErgoVersion = t.ErgoVersion.Append(ergoVersion)
+	t.HasModFile = t.HasModFile.Append(hasModFile)
+	t.TrustGoStart = t.TrustGoStart.Append(trustStart)
+	t.TrustGoCount = t.TrustGoCount.Append(uint32(trustGo.Len()))
+	t.MapRuleStart = t.MapRuleStart.Append(uint32(0))
+	t.MapRuleCount = t.MapRuleCount.Append(uint32(0))
+	t.GoModIndex = t.GoModIndex.Append(NoID)
+	t.ByDir[dir] = id
+	if name != "" {
+		t.ByName[name] = id
+	}
+	id
+}
+
+// ModuleTrustGo returns the slice of trusted Go module paths for modID.
+func ModuleTrustGo(t ModuleTable, modID uint32) []string {
+	if modID == NoID || int(modID) >= t.Dir.Len() {
+		return []string{}
+	}
+	let start = int(t.TrustGoStart[int(modID)])
+	let count = int(t.TrustGoCount[int(modID)])
+	slices.Slice(t.TrustGoModules, start, start+count)
+}
+
+// MapRuleTable stores module asset mapper directives in flat SoA columns.
+type MapRuleTable {
+	// ModuleID identifies the owning module row.
+	ModuleID []uint32,
+	// Pattern holds the normalized asset glob pattern.
+	Pattern []string,
+	// MapperPkg holds the Ergo mapper package import path.
+	MapperPkg []string,
+	// MapperFunc holds the exported mapper function name.
+	MapperFunc []string,
+	// CompStart gives the first companion pattern index in CompPatterns.
+	CompStart []uint32,
+	// CompCount gives the number of companion patterns for this rule.
+	CompCount []uint32,
+	// CompPatterns flattens companion glob patterns across all rules.
+	CompPatterns []string,
+	// Line records the one-based line number in ergo.mod.
+	Line []uint32,
+	// Col records the one-based column number in ergo.mod.
+	Col []uint32,
+}
+
+// NewMapRuleTable returns an empty MapRuleTable.
+func NewMapRuleTable() MapRuleTable {
+	MapRuleTable{
+		ModuleID:     []uint32{},
+		Pattern:      []string{},
+		MapperPkg:    []string{},
+		MapperFunc:   []string{},
+		CompStart:    []uint32{},
+		CompCount:    []uint32{},
+		CompPatterns: []string{},
+		Line:         []uint32{},
+		Col:          []uint32{},
+	}
+}
+
+// AddMapRule appends a map rule row and returns its dense rule ID.
+func AddMapRule(t mut MapRuleTable, modID uint32, pattern string, mapperPkg string, mapperFunc string, companions []string, line uint32, col uint32) uint32 {
+	let id = uint32(t.Pattern.Len())
+	let compStart = uint32(t.CompPatterns.Len())
+	for c in companions {
+		t.CompPatterns = t.CompPatterns.Append(c)
+	}
+	t.ModuleID = t.ModuleID.Append(modID)
+	t.Pattern = t.Pattern.Append(pattern)
+	t.MapperPkg = t.MapperPkg.Append(mapperPkg)
+	t.MapperFunc = t.MapperFunc.Append(mapperFunc)
+	t.CompStart = t.CompStart.Append(compStart)
+	t.CompCount = t.CompCount.Append(uint32(companions.Len()))
+	t.Line = t.Line.Append(line)
+	t.Col = t.Col.Append(col)
+	id
+}
+
+// MapRuleCompanions returns the companion glob patterns for ruleID.
+func MapRuleCompanions(t MapRuleTable, ruleID uint32) []string {
+	if ruleID == NoID || int(ruleID) >= t.Pattern.Len() {
+		return []string{}
+	}
+	let start = int(t.CompStart[int(ruleID)])
+	let count = int(t.CompCount[int(ruleID)])
+	slices.Slice(t.CompPatterns, start, start+count)
+}
+
+// PkgTable stores loaded packages in Structure-of-Arrays columns indexed by uint32 package ID.
+type PkgTable {
+	// ImportPath holds each package's canonical import path.
+	ImportPath []string,
+	// Dir holds each package's filesystem directory path or asset file path.
+	Dir []string,
+	// ModuleID holds the owning module ID or NoID.
+	ModuleID []uint32,
+	// Rel holds the module-relative package path.
+	Rel []string,
+	// Name holds the package name if declared or derived.
+	Name []string,
+	// IsAsset reports whether this package represents a mapped or relative asset.
+	IsAsset []bool,
+	// AssetRuleID stores the matching MapRuleTable ID or NoID.
+	AssetRuleID []uint32,
+	// FileStart holds the first FileTable index belonging to this package.
+	FileStart []uint32,
+	// FileCount holds the number of contiguous FileTable rows for this package.
+	FileCount []uint32,
+	// ImportStart holds the first ImportEdgeTable index emitted by this package.
+	ImportStart []uint32,
+	// ImportCount holds the number of contiguous ImportEdgeTable rows emitted by this package.
+	ImportCount []uint32,
+	// VisitState tracks DFS visitation state using VisitUnseen/VisitActive/VisitDone.
+	VisitState []uint8,
+	// TopoRank records zero-based post-order topological index or NoID.
+	TopoRank []uint32,
+	// ByPath maps canonical import path to dense package ID.
+	ByPath Map[string, uint32],
+	// ByDir maps directory or asset file path to dense package ID.
+	ByDir Map[string, uint32],
+}
+
+// NewPkgTable returns an empty PkgTable.
+func NewPkgTable() PkgTable {
+	PkgTable{
+		ImportPath:  []string{},
+		Dir:         []string{},
+		ModuleID:    []uint32{},
+		Rel:         []string{},
+		Name:        []string{},
+		IsAsset:     []bool{},
+		AssetRuleID: []uint32{},
+		FileStart:   []uint32{},
+		FileCount:   []uint32{},
+		ImportStart: []uint32{},
+		ImportCount: []uint32{},
+		VisitState:  []uint8{},
+		TopoRank:    []uint32{},
+		ByPath:      Map[string, uint32]{},
+		ByDir:       Map[string, uint32]{},
+	}
+}
+
+// AddPkg appends a package record and returns its dense package ID.
+func AddPkg(t mut PkgTable, importPath string, dir string, modID uint32, rel string, isAsset bool, ruleID uint32) uint32 {
+	let id = uint32(t.ImportPath.Len())
+	t.ImportPath = t.ImportPath.Append(importPath)
+	t.Dir = t.Dir.Append(dir)
+	t.ModuleID = t.ModuleID.Append(modID)
+	t.Rel = t.Rel.Append(rel)
+	t.Name = t.Name.Append("")
+	t.IsAsset = t.IsAsset.Append(isAsset)
+	t.AssetRuleID = t.AssetRuleID.Append(ruleID)
+	t.FileStart = t.FileStart.Append(uint32(0))
+	t.FileCount = t.FileCount.Append(uint32(0))
+	t.ImportStart = t.ImportStart.Append(uint32(0))
+	t.ImportCount = t.ImportCount.Append(uint32(0))
+	t.VisitState = t.VisitState.Append(VisitUnseen)
+	t.TopoRank = t.TopoRank.Append(NoID)
+	if importPath != "" {
+		t.ByPath[importPath] = id
+	}
+	if dir != "" {
+		t.ByDir[dir] = id
+	}
+	id
+}
+
+// FileTable stores source and asset files in flat SoA columns indexed by uint32 file ID.
+type FileTable {
+	// PkgID identifies the owning package ID.
+	PkgID []uint32,
+	// Path holds the filesystem path used to read the file.
+	Path []string,
+	// Name holds the base file name.
+	Name []string,
+	// Rel holds the module- or package-relative slash path.
+	Rel []string,
+	// Content holds the file source text or asset bytes.
+	Content []string,
+	// IsAsset reports whether this row is a mapped or relative asset.
+	IsAsset []bool,
+	// MapperFunc names the mapper function for asset rows.
+	MapperFunc []string,
+}
+
+// NewFileTable returns an empty FileTable.
+func NewFileTable() FileTable {
+	FileTable{
+		PkgID:      []uint32{},
+		Path:       []string{},
+		Name:       []string{},
+		Rel:        []string{},
+		Content:    []string{},
+		IsAsset:    []bool{},
+		MapperFunc: []string{},
+	}
+}
+
+// AddFile appends a file record and returns its dense uint32 file ID.
+func AddFile(t mut FileTable, pkgID uint32, path string, name string, rel string, content string, isAsset bool, mapperFunc string) uint32 {
+	let id = uint32(t.Path.Len())
+	t.PkgID = t.PkgID.Append(pkgID)
+	t.Path = t.Path.Append(path)
+	t.Name = t.Name.Append(name)
+	t.Rel = t.Rel.Append(rel)
+	t.Content = t.Content.Append(content)
+	t.IsAsset = t.IsAsset.Append(isAsset)
+	t.MapperFunc = t.MapperFunc.Append(mapperFunc)
+	id
+}
+
+// ImportEdgeTable stores package import edges in flat SoA columns indexed by uint32 edge ID.
+type ImportEdgeTable {
+	// FromPkg identifies the importing package ID.
+	FromPkg []uint32,
+	// ToPkg identifies the imported package ID or NoID if unresolved/external/std.
+	ToPkg []uint32,
+	// FileID identifies the FileTable row holding the import declaration.
+	FileID []uint32,
+	// RawPath holds the import target written in source.
+	RawPath []string,
+	// Alias holds the local binding alias when explicitly specified.
+	Alias []string,
+	// IsAsset reports whether this import targets an asset file or mapped asset.
+	IsAsset []bool,
+	// Offset holds the source byte offset of the import specification.
+	Offset []uint32,
+	// Length holds the source byte length of the import specification.
+	Length []uint32,
+	// Line holds the one-based line number of the import specification.
+	Line []uint32,
+	// Column holds the one-based column number of the import specification.
+	Column []uint32,
+}
+
+// NewImportEdgeTable returns an empty ImportEdgeTable.
+func NewImportEdgeTable() ImportEdgeTable {
+	ImportEdgeTable{
+		FromPkg: []uint32{},
+		ToPkg:   []uint32{},
+		FileID:  []uint32{},
+		RawPath: []string{},
+		Alias:   []string{},
+		IsAsset: []bool{},
+		Offset:  []uint32{},
+		Length:  []uint32{},
+		Line:    []uint32{},
+		Column:  []uint32{},
+	}
+}
+
+// AddImportEdge appends an import edge row and returns its dense edge ID.
+func AddImportEdge(t mut ImportEdgeTable, fromPkg uint32, toPkg uint32, fileID uint32, rawPath string, alias string, isAsset bool, span FrontDiag) uint32 {
+	let id = uint32(t.RawPath.Len())
+	t.FromPkg = t.FromPkg.Append(fromPkg)
+	t.ToPkg = t.ToPkg.Append(toPkg)
+	t.FileID = t.FileID.Append(fileID)
+	t.RawPath = t.RawPath.Append(rawPath)
+	t.Alias = t.Alias.Append(alias)
+	t.IsAsset = t.IsAsset.Append(isAsset)
+	t.Offset = t.Offset.Append(span.Offset)
+	t.Length = t.Length.Append(span.Length)
+	t.Line = t.Line.Append(span.Line)
+	t.Column = t.Column.Append(span.Column)
+	id
+}
+
+// EmbedAssetTable stores resolved embed files and directories in SoA columns.
+type EmbedAssetTable {
+	// OwnerPkg identifies the importing package ID.
+	OwnerPkg []uint32,
+	// OwnerFile identifies the source file ID declaring the embed import.
+	OwnerFile []uint32,
+	// Pattern holds the embed pattern expression.
+	Pattern []string,
+	// Path holds the resolved filesystem path.
+	Path []string,
+	// Rel holds the pattern-normalized relative slash path.
+	Rel []string,
+	// Data holds the file bytes or empty for directory entries.
+	Data []string,
+	// IsDir reports whether the resolved entry is a directory tree entry.
+	IsDir []bool,
+}
+
+// NewEmbedAssetTable returns an empty EmbedAssetTable.
+func NewEmbedAssetTable() EmbedAssetTable {
+	EmbedAssetTable{
+		OwnerPkg:  []uint32{},
+		OwnerFile: []uint32{},
+		Pattern:   []string{},
+		Path:      []string{},
+		Rel:       []string{},
+		Data:      []string{},
+		IsDir:     []bool{},
+	}
+}
+
+// AddEmbedAsset appends a resolved embed asset row and returns its dense ID.
+func AddEmbedAsset(t mut EmbedAssetTable, ownerPkg uint32, ownerFile uint32, pattern string, path string, rel string, data string, isDir bool) uint32 {
+	let id = uint32(t.Path.Len())
+	t.OwnerPkg = t.OwnerPkg.Append(ownerPkg)
+	t.OwnerFile = t.OwnerFile.Append(ownerFile)
+	t.Pattern = t.Pattern.Append(pattern)
+	t.Path = t.Path.Append(path)
+	t.Rel = t.Rel.Append(rel)
+	t.Data = t.Data.Append(data)
+	t.IsDir = t.IsDir.Append(isDir)
+	id
+}
+
+// FrontScratch holds reusable scratch buffers used during loading and traversal.
+type FrontScratch {
+	// StackPkg tracks the active package DFS stack.
+	StackPkg []uint32,
+	// StackNames tracks package import paths/names matching StackPkg.
+	StackNames []string,
+	// Order collects package IDs in dependency-first post-order.
+	Order []uint32,
+	// TmpIDs stores reusable uint32 scratch elements.
+	TmpIDs []uint32,
+	// TmpStrs stores reusable string scratch elements.
+	TmpStrs []string,
+}
+
+// NewFrontScratch returns an initialized empty FrontScratch.
+func NewFrontScratch() FrontScratch {
+	FrontScratch{
+		StackPkg:   []uint32{},
+		StackNames: []string{},
+		Order:      []uint32{},
+		TmpIDs:     []uint32{},
+		TmpStrs:    []string{},
+	}
+}
+
+// ClearScratch resets lengths of temporary slices in FrontScratch while preserving Order.
+func ClearScratch(s mut FrontScratch) {
+	s.StackPkg = s.StackPkg[:0]
+	s.StackNames = s.StackNames[:0]
+	s.TmpIDs = s.TmpIDs[:0]
+	s.TmpStrs = s.TmpStrs[:0]
+}
+
+// ProgramTextEntry pairs a canonical relative path with its source content for fingerprinting.
+type ProgramTextEntry {
+	// Rel is the length-framed canonical relative path.
+	Rel string,
+	// Source is the file content.
+	Source string,
+}
+
+// FormatProgramText encodes files sorted by Rel in canonical length-prefixed wire form.
+func FormatProgramText(entries []ProgramTextEntry) string {
+	let sorted = slices.SortFunc(entries, func(a ProgramTextEntry, b ProgramTextEntry) int {
+		if a.Rel < b.Rel {
+			-1
+		} else if a.Rel > b.Rel {
+			1
+		} else {
+			0
+		}
+	})
+	let mut b = strings.NewBuilder()
+	for f in sorted {
+		b.WriteString(strconv.Itoa(f.Rel.Len()))
+		b.WriteByte(':')
+		b.WriteString(f.Rel)
+		b.WriteString(strconv.Itoa(f.Source.Len()))
+		b.WriteByte(':')
+		b.WriteString(f.Source)
+	}
+	b.String()
+}
+
+// ProgramFingerprint returns the lowercase SHA-256 hex digest of FormatProgramText(entries).
+func ProgramFingerprint(entries []ProgramTextEntry) string {
+	hex.Encode(sha256.Sum(FormatProgramText(entries)))
+}
+
+law DenseTableIDsAreSequential(names []string) {
+	let mut p = NewStrPool()
+	let mut ids = []uint32{}
+	for name in names {
+		ids = ids.Append(InternStr(&p, name))
+	}
+	if ids.Len() != names.Len() {
+		return false
+	}
+	for i, name in names {
+		if GetStr(p, ids[i]) != name {
+			return false
+		}
+	}
+	GetStr(p, NoID) == "" && GetStr(p, uint32(p.Items.Len()+1)) == ""
+}
+
+law FormatProgramTextIsOrderInvariant(aRel string, aSrc string, bRel string, bSrc string) {
+	let f1 = ProgramTextEntry{Rel: "a/" + aRel, Source: aSrc}
+	let f2 = ProgramTextEntry{Rel: "b/" + bRel, Source: bSrc}
+	let ab = FormatProgramText([]ProgramTextEntry{f1, f2})
+	let ba = FormatProgramText([]ProgramTextEntry{f2, f1})
+	ab == ba && ProgramFingerprint([]ProgramTextEntry{f1, f2}) == ProgramFingerprint([]ProgramTextEntry{f2, f1})
+}
+
+test TablesAndProgramTextBasic {
+	let mut mods = NewModuleTable()
+	let m0 = AddModule(&mods, "/ws/app", "app", "0.1", true, []string{"encoding/json"})
+	assert m0 == uint32(0)
+	assert ModuleTrustGo(mods, m0) == []string{"encoding/json"}
+
+	let mut rules = NewMapRuleTable()
+	let r0 = AddMapRule(&rules, m0, "*.sql", "app/sqlgen", "Compile", []string{"*.schema"}, uint32(3), uint32(1))
+	assert r0 == uint32(0)
+	assert MapRuleCompanions(rules, r0) == []string{"*.schema"}
+
+	let mut pkgs = NewPkgTable()
+	let p0 = AddPkg(&pkgs, "app", "/ws/app", m0, ".", false, NoID)
+	assert p0 == uint32(0)
+
+	let mut files = NewFileTable()
+	let f0 = AddFile(&files, p0, "/ws/app/main.ergo", "main.ergo", "main.ergo", "func main() {}\n", false, "")
+	assert f0 == uint32(0)
+
+	let starts = ComputeLineStarts("ab\ncd\nef")
+	let sp = ComputeSpan(starts, uint32(8), uint32(4), uint32(2))
+	assert sp.Line == uint32(2) && sp.Column == uint32(2)
+
+	let pt = FormatProgramText([]ProgramTextEntry{
+		ProgramTextEntry{Rel: "b.ergo", Source: "y"},
+		ProgramTextEntry{Rel: "a.ergo", Source: "x"},
+	})
+	assert pt == "6:a.ergo1:x6:b.ergo1:y"
+}

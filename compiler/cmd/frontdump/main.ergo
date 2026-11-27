@@ -1,0 +1,409 @@
+import compiler/cachekey
+import compiler/front
+import filepath
+import fs
+import fstest
+import io
+import json
+import os
+import slices
+import strings
+
+type discoverPkgOut {
+	Path   string,
+	Dir    string,
+	Rel    string,
+	Module string,
+	Root   string,
+	Deps   []string,
+}
+
+type discoverOut {
+	StdRoot     string,
+	IsWorkspace bool,
+	Packages    []discoverPkgOut,
+	Diags       []string,
+}
+
+type modRuleOut {
+	Pattern    string,
+	MapperPkg  string,
+	MapperFunc string,
+	Companions []string,
+}
+
+type modOut {
+	Root        string,
+	Name        string,
+	ErgoVersion string,
+	TrustGo     []string,
+	Rules       []modRuleOut,
+	Diags       []string,
+}
+
+type wsMemberOut {
+	Rel       string,
+	Dir       string,
+	Name      string,
+	GoModPath string,
+}
+
+type wsEdgeOut {
+	From      uint32,
+	To        uint32,
+	GoModPath string,
+}
+
+type wsOut {
+	Root    string,
+	Skip    []string,
+	Members []wsMemberOut,
+	Edges   []wsEdgeOut,
+	Order   []uint32,
+	Diags   []string,
+}
+
+type loadPkgOut {
+	Path    string,
+	Dir     string,
+	Rel     string,
+	Module  string,
+	IsAsset bool,
+	Files   []string,
+	Imports []string,
+}
+
+type loadOut {
+	Roots      []string,
+	Order      []loadPkgOut,
+	ModuleSegs []string,
+	Diags      []string,
+}
+
+type warmKeyOut {
+	Schema            string,
+	Key               string,
+	StdSnapshotKey    string,
+	ModuleSnapshotKey string,
+}
+
+type cliOpts {
+	mode     string,
+	root     string,
+	work     string,
+	stdRoot  string,
+	compiler string,
+	envRaw   string,
+	expRaw   string,
+	rest     []string,
+}
+
+func parseCLI(args []string) cliOpts fails os.Exit {
+	let mut opts = cliOpts{
+		mode:     "discover",
+		root:     ".",
+		work:     "",
+		stdRoot:  "",
+		compiler: "",
+		envRaw:   "",
+		expRaw:   "",
+		rest:     []string{},
+	}
+	let mut i = 0
+	for i < args.Len() {
+		let a = args[i]
+		if a == "--" {
+			for r in args[i+1:] {
+				opts.rest = opts.rest.Append(r)
+			}
+			break
+		}
+		if a == "-mode" || a == "-root" || a == "-work" || a == "-std" || a == "-compiler" || a == "-env" || a == "-exp" {
+			if i+1 >= args.Len() {
+				return os.Exit{Code: 2, Message: "frontdump: flag \(a) requires a value"}
+			}
+			let v = args[i+1]
+			if a == "-mode" {
+				opts.mode = v
+			} else if a == "-root" {
+				opts.root = v
+			} else if a == "-work" {
+				opts.work = v
+			} else if a == "-std" {
+				opts.stdRoot = v
+			} else if a == "-compiler" {
+				opts.compiler = v
+			} else if a == "-env" {
+				opts.envRaw = v
+			} else if a == "-exp" {
+				opts.expRaw = v
+			}
+			i = i + 2
+			continue
+		}
+		opts.rest = opts.rest.Append(a)
+		i = i + 1
+	}
+	opts
+}
+
+func diagMessages(diags []front.FrontDiag) []string {
+	let mut out = []string{}
+	for d in diags {
+		out = out.Append("\(d.Code): \(d.File):\(d.Line):\(d.Column): \(d.Message)")
+	}
+	out
+}
+
+func loadStdIndexFor(root string, explicitStd string) front.StdIndex needs fs.Files {
+	let stdDir = if explicitStd != "" { explicitStd } else { front.FindStdRoot(root) }
+	if stdDir == "" {
+		return front.NewStdIndex()
+	}
+	front.DiscoverStdIndex(stdDir) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		front.NewStdIndex()
+	}
+}
+
+func runDiscover(opts cliOpts) string fails os.Exit needs fs.Files {
+	let root = filepath.Clean(opts.root)
+	let stdIdx = loadStdIndexFor(root, opts.stdRoot)
+	let isWs = front.IsWorkspaceRoot(root)
+	let (tbl, diags) = front.DiscoverPackages(root, opts.rest, stdIdx) catch {
+	case fs.NotFound as e:
+		return os.Exit{Code: 1, Message: "frontdump: not found: \(e.Path)"}
+	case fs.Denied as e:
+		return os.Exit{Code: 1, Message: "frontdump: denied: \(e.Path)"}
+	case fs.Failed as e:
+		return os.Exit{Code: 1, Message: "frontdump: failed: \(e.Reason)"}
+	}
+	let mut pkgs = []discoverPkgOut{}
+	for i in 0..tbl.ImportPath.Len() {
+		if !tbl.Selected[i] {
+			continue
+		}
+		let start = int(tbl.DepStart[i])
+		let count = int(tbl.DepCount[i])
+		let deps = slices.Slice(tbl.DepPaths, start, start+count)
+		pkgs = pkgs.Append(discoverPkgOut{
+			Path:   tbl.ImportPath[i],
+			Dir:    tbl.Dir[i],
+			Rel:    tbl.Rel[i],
+			Module: tbl.ModuleName[i],
+			Root:   tbl.ModuleDir[i],
+			Deps:   deps,
+		})
+	}
+	json.Encode(json.Codec[discoverOut]{MaxBytes: 0, MaxDepth: 0}, discoverOut{
+		StdRoot:     stdIdx.Root,
+		IsWorkspace: isWs,
+		Packages:    pkgs,
+		Diags:       diagMessages(diags),
+	})
+}
+
+func runMod(opts cliOpts) string fails os.Exit needs fs.Files {
+	let root = filepath.Clean(opts.root)
+	let modRoot = front.FindModuleRoot(root)
+	if modRoot == "" {
+		return os.Exit{Code: 1, Message: "frontdump: ergo.mod not found from \(root)"}
+	}
+	let modFile = filepath.Join([]string{modRoot, "ergo.mod"})
+	let src = fs.Files.ReadFile(modFile) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return os.Exit{Code: 1, Message: "frontdump: cannot read \(modFile)"}
+	}
+	let m = front.ParseErgoMod(src, modFile)
+	let mut rules = []modRuleOut{}
+	for i in 0..m.Rules.Pattern.Len() {
+		rules = rules.Append(modRuleOut{
+			Pattern:    m.Rules.Pattern[i],
+			MapperPkg:  m.Rules.MapperPkg[i],
+			MapperFunc: m.Rules.MapperFunc[i],
+			Companions: front.MapRuleCompanions(m.Rules, uint32(i)),
+		})
+	}
+	json.Encode(json.Codec[modOut]{MaxBytes: 0, MaxDepth: 0}, modOut{
+		Root:        modRoot,
+		Name:        m.Name,
+		ErgoVersion: m.ErgoVersion,
+		TrustGo:     m.TrustGo,
+		Rules:       rules,
+		Diags:       diagMessages(m.Diags),
+	})
+}
+
+func runWorkspace(opts cliOpts) string fails os.Exit needs fs.Files {
+	let root = filepath.Clean(opts.root)
+	let ws = front.DiscoverWorkspace(root) catch {
+	case fs.NotFound as e:
+		return os.Exit{Code: 1, Message: "frontdump: not found: \(e.Path)"}
+	case fs.Denied as e:
+		return os.Exit{Code: 1, Message: "frontdump: denied: \(e.Path)"}
+	case fs.Failed as e:
+		return os.Exit{Code: 1, Message: "frontdump: failed: \(e.Reason)"}
+	}
+	let mut members = []wsMemberOut{}
+	for i in 0..ws.Members.Rel.Len() {
+		members = members.Append(wsMemberOut{
+			Rel:       ws.Members.Rel[i],
+			Dir:       ws.Members.Dir[i],
+			Name:      ws.Members.Name[i],
+			GoModPath: ws.Members.GoModPath[i],
+		})
+	}
+	let mut edges = []wsEdgeOut{}
+	for i in 0..ws.Edges.From.Len() {
+		edges = edges.Append(wsEdgeOut{
+			From:      ws.Edges.From[i],
+			To:        ws.Edges.To[i],
+			GoModPath: ws.Edges.GoModPath[i],
+		})
+	}
+	json.Encode(json.Codec[wsOut]{MaxBytes: 0, MaxDepth: 0}, wsOut{
+		Root:    ws.Root,
+		Skip:    ws.Config.Skip,
+		Members: members,
+		Edges:   edges,
+		Order:   front.WorkspaceOrder(ws),
+		Diags:   diagMessages(ws.Diags),
+	})
+}
+
+func runLoad(opts cliOpts) string needs fs.Files {
+	let workDir = if opts.work != "" { filepath.Clean(opts.work) } else { filepath.Clean(opts.root) }
+	let stdIdx = loadStdIndexFor(workDir, opts.stdRoot)
+	let targets = if opts.rest.Len() > 0 { opts.rest } else { []string{"."} }
+	let g = front.LoadProgram(targets, front.LoadOptions{
+		WorkDir:         workDir,
+		StdIdx:          stdIdx,
+		ModCacheDir:     "",
+		CompilerVersion: opts.compiler,
+	})
+	let mut rootPaths = []string{}
+	for rid in g.Roots {
+		rootPaths = rootPaths.Append(g.Pkgs.ImportPath[int(rid)])
+	}
+	let mut orderOut = []loadPkgOut{}
+	for pid in g.Order {
+		let idx = int(pid)
+		let fStart = int(g.Pkgs.FileStart[idx])
+		let fCount = int(g.Pkgs.FileCount[idx])
+		let mut fNames = []string{}
+		for fi in fStart..fStart+fCount {
+			fNames = fNames.Append(g.Files.Name[fi])
+		}
+		let eStart = int(g.Pkgs.ImportStart[idx])
+		let eCount = int(g.Pkgs.ImportCount[idx])
+		let mut imps = []string{}
+		for ei in eStart..eStart+eCount {
+			let toID = g.Edges.ToPkg[ei]
+			if toID != front.NoID {
+				imps = imps.Append(g.Pkgs.ImportPath[int(toID)])
+			} else {
+				imps = imps.Append(g.Edges.RawPath[ei])
+			}
+		}
+		let mid = g.Pkgs.ModuleID[idx]
+		let modName = if mid != front.NoID { g.Modules.Name[int(mid)] } else { "" }
+		orderOut = orderOut.Append(loadPkgOut{
+			Path:    g.Pkgs.ImportPath[idx],
+			Dir:     g.Pkgs.Dir[idx],
+			Rel:     g.Pkgs.Rel[idx],
+			Module:  modName,
+			IsAsset: g.Pkgs.IsAsset[idx],
+			Files:   fNames,
+			Imports: imps,
+		})
+	}
+	json.Encode(json.Codec[loadOut]{MaxBytes: 0, MaxDepth: 0}, loadOut{
+		Roots:      rootPaths,
+		Order:      orderOut,
+		ModuleSegs: g.ModuleSegs,
+		Diags:      diagMessages(g.Diags),
+	})
+}
+
+func splitCommaNonEmpty(raw string) []string {
+	if raw == "" {
+		return []string{}
+	}
+	let mut out = []string{}
+	for s in strings.Split(raw, ",") {
+		if s != "" {
+			out = out.Append(s)
+		}
+	}
+	out
+}
+
+func runWarmKey(opts cliOpts) string {
+	let env = splitCommaNonEmpty(opts.envRaw)
+	let exps = splitCommaNonEmpty(opts.expRaw)
+	let key = front.ComputeWarmKey(opts.compiler, opts.rest, env, exps)
+	let stdKey = front.StdSnapshotKey(opts.compiler)
+	let modKey = front.ModuleSnapshotKey(opts.compiler, opts.rest)
+	json.Encode(json.Codec[warmKeyOut]{MaxBytes: 0, MaxDepth: 0}, warmKeyOut{
+		Schema:            cachekey.WarmSchema,
+		Key:               key,
+		StdSnapshotKey:    stdKey,
+		ModuleSnapshotKey: modKey,
+	})
+}
+
+func runCmd(args []string) fails os.Exit needs fs.Files | io.Stdout {
+	let opts = try parseCLI(args)
+	let out = if opts.mode == "discover" {
+		try runDiscover(opts)
+	} else if opts.mode == "mod" {
+		try runMod(opts)
+	} else if opts.mode == "workspace" {
+		try runWorkspace(opts)
+	} else if opts.mode == "load" {
+		runLoad(opts)
+	} else if opts.mode == "warmkey" {
+		runWarmKey(opts)
+	} else {
+		return os.Exit{Code: 2, Message: "frontdump: unknown mode '\(opts.mode)'"}
+	}
+	io.Stdout.Println(out)
+}
+
+// RunArgs executes frontdump logic cleanly with the supplied CLI arguments and returns the JSON payload string.
+func RunArgs(args []string) fails os.Exit needs fs.Files | io.Stdout {
+	try runCmd(args)
+}
+
+func main() fails os.Exit needs os.Ambient {
+	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), io.Stdout: io.NewHost() } {
+		try runCmd(os.Process.Args())
+	}
+}
+
+test FrontdumpModesWorkInMemory {
+	let m = fstest.NewMemory()
+	try m.MkdirAll("/repo/internal/sketch/std/strings")
+	try m.MkdirAll("/repo/modA/cmd")
+	try m.MkdirAll("/repo/modA/lib")
+	try m.WriteFile("/repo/internal/sketch/std/ergo.mod", "module std\n")
+	try m.WriteFile("/repo/internal/sketch/std/builtin.ergo", "func nop() {}\n")
+	try m.WriteFile("/repo/internal/sketch/std/strings/strings.ergo", "func S() {}\n")
+	try m.WriteFile("/repo/ergo.work", "version 2\n")
+	try m.WriteFile("/repo/modA/ergo.mod", "module app\n")
+	try m.WriteFile("/repo/modA/lib/lib.ergo", "func X() int { 1 }\n")
+	try m.WriteFile("/repo/modA/cmd/main.ergo", "import strings\nimport app/lib\nfunc main() {}\n")
+
+	let rec1 = io.NewRecorder()
+	with context { fs.Files: m, io.Stdout: rec1 } {
+		try RunArgs([]string{"-mode", "load", "-work", "/repo/modA", "cmd"})
+	}
+	assert strings.Contains(rec1.Text(), "\"app/lib\"")
+	assert strings.Contains(rec1.Text(), "\"app/cmd\"")
+
+	let rec2 = io.NewRecorder()
+	with context { fs.Files: m, io.Stdout: rec2 } {
+		try RunArgs([]string{"-mode", "warmkey", "-compiler", "dev-1", "-env", "ERGO_EXP=1", "check", "pkg"})
+	}
+	assert strings.Contains(rec2.Text(), "\"ergo-warm-1\"")
+}

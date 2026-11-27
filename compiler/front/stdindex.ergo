@@ -1,0 +1,291 @@
+import filepath
+import fs
+import fstest
+import option
+import slices
+import strings
+
+// StdIndex stores discovered standard library packages in flat SoA columns.
+type StdIndex {
+	// Root holds the root directory path passed to DiscoverStdIndex.
+	Root string,
+	// Paths holds sorted canonical standard-library import paths.
+	Paths []string,
+	// Dirs holds the directory path for each standard-library package.
+	Dirs []string,
+	// FileStart gives the first slice offset into FileNames per package.
+	FileStart []uint32,
+	// FileCount gives the number of source files in FileNames per package.
+	FileCount []uint32,
+	// FileNames flattens sorted .ergo base file names across all packages.
+	FileNames []string,
+	// ByPath maps canonical std import path to its dense package index.
+	ByPath Map[string, uint32],
+}
+
+// NewStdIndex returns an empty StdIndex.
+func NewStdIndex() StdIndex {
+	StdIndex{
+		Root:      "",
+		Paths:     []string{},
+		Dirs:      []string{},
+		FileStart: []uint32{},
+		FileCount: []uint32{},
+		FileNames: []string{},
+		ByPath:    Map[string, uint32]{},
+	}
+}
+
+// NewStdIndexFromPaths builds a deterministic StdIndex from an explicit list of std import paths.
+func NewStdIndexFromPaths(root string, paths []string) StdIndex {
+	let cleanRoot = if root == "" { "." } else { filepath.Clean(root) }
+	let sorted = slices.Sort(paths)
+	let mut idx = NewStdIndex()
+	idx.Root = cleanRoot
+	let mut prev = ""
+	for i, p in sorted {
+		if p == "" || p == "." || p == "prelude" || (i > 0 && p == prev) {
+			continue
+		}
+		prev = p
+		let id = uint32(idx.Paths.Len())
+		idx.Paths = idx.Paths.Append(p)
+		let mut parts = []string{cleanRoot}
+		for seg in strings.Split(p, "/") {
+			if seg != "" {
+				parts = parts.Append(seg)
+			}
+		}
+		idx.Dirs = idx.Dirs.Append(filepath.Join(parts))
+		idx.FileStart = idx.FileStart.Append(uint32(0))
+		idx.FileCount = idx.FileCount.Append(uint32(0))
+		idx.ByPath[p] = id
+	}
+	idx
+}
+
+type stdPendingDir {
+	dir string,
+	rel string,
+}
+
+type stdFoundPkg {
+	path  string,
+	dir   string,
+	files []string,
+}
+
+func isStdSourceFile(name string) bool {
+	strings.HasSuffix(name, ".ergo") && !strings.HasPrefix(name, ".") && !strings.HasPrefix(name, "_")
+}
+
+func isRegularFile(path string) bool needs fs.Files {
+	let info = fs.Files.Stat(path) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	!info.Dir
+}
+
+// DiscoverStdIndex walks root via fs.Files and indexes all standard-library packages.
+func DiscoverStdIndex(root string) StdIndex fails fs.NotFound | fs.Denied | fs.Failed needs fs.Files {
+	let cleanRoot = if root == "" { "." } else { filepath.Clean(root) }
+	let rootInfo = try fs.Files.Stat(cleanRoot)
+	if !rootInfo.Dir {
+		return NewStdIndexFromPaths(cleanRoot, []string{})
+	}
+	let mut pending = []stdPendingDir{stdPendingDir{dir: cleanRoot, rel: ""}}
+	let mut found = []stdFoundPkg{}
+	for pending.Len() > 0 {
+		let last = pending.Len() - 1
+		let cur = pending[last]
+		pending = slices.Slice(pending, 0, last)
+		let names = slices.Sort(try fs.Files.ReadDir(cur.dir))
+		let mut subDirs = []stdPendingDir{}
+		let mut pkgFiles = []string{}
+		for name in names {
+			let full = filepath.Join([]string{cur.dir, name})
+			let info = fs.Files.Stat(full) catch {
+			case fs.NotFound:
+				continue
+			case fs.Denied as e:
+				return e
+			case fs.Failed as e:
+				return e
+			}
+			if info.Dir {
+				if strings.HasPrefix(name, ".") {
+					continue
+				}
+				let subRel = if cur.rel == "" { name } else { cur.rel + "/" + name }
+				subDirs = subDirs.Append(stdPendingDir{dir: full, rel: subRel})
+			} else if isStdSourceFile(name) {
+				pkgFiles = pkgFiles.Append(name)
+			}
+		}
+		if cur.rel != "" && cur.rel != "." && cur.rel != "prelude" && pkgFiles.Len() > 0 {
+			found = found.Append(stdFoundPkg{path: cur.rel, dir: cur.dir, files: pkgFiles})
+		}
+		let mut i = subDirs.Len() - 1
+		for i >= 0 {
+			pending = pending.Append(subDirs[i])
+			i = i - 1
+		}
+	}
+	let sorted = slices.SortFunc(found, func(a stdFoundPkg, b stdFoundPkg) int {
+		if a.path < b.path {
+			-1
+		} else if a.path > b.path {
+			1
+		} else {
+			0
+		}
+	})
+	let mut idx = NewStdIndex()
+	idx.Root = cleanRoot
+	for item in sorted {
+		let id = uint32(idx.Paths.Len())
+		let start = uint32(idx.FileNames.Len())
+		for fn in item.files {
+			idx.FileNames = idx.FileNames.Append(fn)
+		}
+		idx.Paths = idx.Paths.Append(item.path)
+		idx.Dirs = idx.Dirs.Append(item.dir)
+		idx.FileStart = idx.FileStart.Append(start)
+		idx.FileCount = idx.FileCount.Append(uint32(item.files.Len()))
+		idx.ByPath[item.path] = id
+	}
+	idx
+}
+
+// FindStdRoot searches startDir and its ancestor directories for internal/sketch/std.
+func FindStdRoot(startDir string) string needs fs.Files {
+	let mut dir = if startDir == "" { "." } else { filepath.Clean(startDir) }
+	for {
+		let cand = filepath.Join([]string{dir, "internal", "sketch", "std"})
+		if isRegularFile(filepath.Join([]string{cand, "ergo.mod"})) && isRegularFile(filepath.Join([]string{cand, "builtin.ergo"})) {
+			return filepath.Clean(cand)
+		}
+		let parent = filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	""
+}
+
+// HasStdPkg reports whether importPath names a standard-library package in idx.
+func HasStdPkg(idx StdIndex, importPath string) bool {
+	idx.ByPath.Get(importPath) != option.None
+}
+
+// IsStdPath reports whether importPath is recognized as a standard-library import path.
+func IsStdPath(idx StdIndex, importPath string) bool {
+	HasStdPkg(idx, importPath)
+}
+
+// StdPkgDir returns the directory path of importPath in idx, or empty if absent.
+func StdPkgDir(idx StdIndex, importPath string) string {
+	match idx.ByPath.Get(importPath) {
+	case option.Some[uint32] as id:
+		idx.Dirs[int(id.Value)]
+	case option.None:
+		""
+	}
+}
+
+// StdPkgFiles returns the sorted .ergo file names for importPath in idx.
+func StdPkgFiles(idx StdIndex, importPath string) []string {
+	match idx.ByPath.Get(importPath) {
+	case option.Some[uint32] as id:
+		let start = int(idx.FileStart[int(id.Value)])
+		let count = int(idx.FileCount[int(id.Value)])
+		slices.Slice(idx.FileNames, start, start+count)
+	case option.None:
+		[]string{}
+	}
+}
+
+// ReadStdPackage reads all admitted .ergo files of a standard-library package as ProgramTextEntry records.
+func ReadStdPackage(idx StdIndex, importPath string) []ProgramTextEntry fails fs.NotFound | fs.Denied | fs.Failed needs fs.Files {
+	let id = match idx.ByPath.Get(importPath) {
+	case option.Some[uint32] as v:
+		v.Value
+	case option.None:
+		return []ProgramTextEntry{}
+	}
+	let dir = idx.Dirs[int(id)]
+	let start = int(idx.FileStart[int(id)])
+	let count = int(idx.FileCount[int(id)])
+	let mut out = []ProgramTextEntry{}
+	for fn in slices.Slice(idx.FileNames, start, start+count) {
+		let full = filepath.Join([]string{dir, fn})
+		let src = try fs.Files.ReadFile(full)
+		out = out.Append(ProgramTextEntry{Rel: importPath + "/" + fn, Source: src})
+	}
+	out
+}
+
+law StdFromPathsDeduplicatesAndSorts(paths []string) {
+	let idx = NewStdIndexFromPaths("/std", paths)
+	let mut ok = true
+	for i in 1..idx.Paths.Len() {
+		if idx.Paths[i-1] >= idx.Paths[i] {
+			ok = false
+		}
+	}
+	for p in idx.Paths {
+		if !HasStdPkg(idx, p) || StdPkgDir(idx, p) == "" {
+			ok = false
+		}
+	}
+	ok && !HasStdPkg(idx, "prelude") && !HasStdPkg(idx, ".")
+}
+
+let onTestDisk = context needs TestAmbient {
+	fs.Files:  fs.NewTestHost(),
+	fs.Writes: fs.NewTestHost(),
+}
+
+test DiscoverStdIndexOnMemoryAndTestHost {
+	let m = fstest.NewMemory()
+	with context { fs.Writes: m, fs.Files: m } {
+		try fs.Writes.MkdirAll("/repo/internal/sketch/std/prelude")
+		try fs.Writes.MkdirAll("/repo/internal/sketch/std/fs/mapped")
+		try fs.Writes.MkdirAll("/repo/internal/sketch/std/strings")
+		try fs.Writes.MkdirAll("/repo/examples/app")
+		try fs.Writes.WriteFile("/repo/internal/sketch/std/ergo.mod", "module std\n")
+		try fs.Writes.WriteFile("/repo/internal/sketch/std/builtin.ergo", "func nop() {}\n")
+		try fs.Writes.WriteFile("/repo/internal/sketch/std/prelude/prelude.ergo", "func pre() {}\n")
+		try fs.Writes.WriteFile("/repo/internal/sketch/std/fs/fs.ergo", "func open() {}\n")
+		try fs.Writes.WriteFile("/repo/internal/sketch/std/fs/mapped/mapped.ergo", "func mapfs() {}\n")
+		try fs.Writes.WriteFile("/repo/internal/sketch/std/strings/strings.ergo", "func join() {}\n")
+
+		let root = FindStdRoot("/repo/examples/app")
+		assert root == "/repo/internal/sketch/std"
+
+		let idx = try DiscoverStdIndex(root)
+		assert idx.Paths == []string{"fs", "fs/mapped", "strings"}
+		assert HasStdPkg(idx, "fs")
+		assert HasStdPkg(idx, "fs/mapped")
+		assert HasStdPkg(idx, "strings")
+		assert !HasStdPkg(idx, "prelude")
+		assert StdPkgFiles(idx, "fs") == []string{"fs.ergo"}
+		let entries = try ReadStdPackage(idx, "fs/mapped")
+		assert entries.Len() == 1 && entries[0].Rel == "fs/mapped/mapped.ergo"
+	}
+
+	with onTestDisk {
+		try fs.Writes.MkdirAll("internal/sketch/std/cmp")
+		try fs.Writes.MkdirAll("sub/pkg")
+		try fs.Writes.WriteFile("internal/sketch/std/ergo.mod", "module std\n")
+		try fs.Writes.WriteFile("internal/sketch/std/builtin.ergo", "func b() {}\n")
+		try fs.Writes.WriteFile("internal/sketch/std/cmp/cmp.ergo", "func lt() {}\n")
+
+		let found = FindStdRoot("sub/pkg")
+		assert found == "internal/sketch/std"
+		let idx = try DiscoverStdIndex(found)
+		assert idx.Paths == []string{"cmp"}
+	}
+}

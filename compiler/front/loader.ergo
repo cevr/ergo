@@ -1,0 +1,1099 @@
+import compiler/syntax
+import dense
+import filepath
+import fs
+import fstest
+import option
+import slices
+import strings
+
+// DiscoveredPkgTable stores discovered workspace/module packages and their dependency order in flat SoA columns.
+type DiscoveredPkgTable {
+	// ImportPath holds canonical package import paths.
+	ImportPath []string,
+	// Dir holds package directory paths.
+	Dir []string,
+	// Rel holds module-relative forward-slash paths.
+	Rel []string,
+	// ModuleName holds the owning module's declared name.
+	ModuleName []string,
+	// ModuleDir holds the owning module's root directory path.
+	ModuleDir []string,
+	// DepStart holds the first slice index in DepPaths per package.
+	DepStart []uint32,
+	// DepCount holds the number of discovered Ergo dependencies per package.
+	DepCount []uint32,
+	// DepPaths flattens non-std Ergo import paths across all discovered packages.
+	DepPaths []string,
+	// Selected marks packages selected by the caller's pattern arguments.
+	Selected []bool,
+	// Order holds topological post-order package IDs across selected packages and their dependencies.
+	Order []uint32,
+	// ByPath maps canonical import path to dense package index.
+	ByPath Map[string, uint32],
+	// ByDir maps clean directory path to dense package index.
+	ByDir Map[string, uint32],
+}
+
+// NewDiscoveredPkgTable returns an empty DiscoveredPkgTable.
+func NewDiscoveredPkgTable() DiscoveredPkgTable {
+	DiscoveredPkgTable{
+		ImportPath: []string{},
+		Dir:        []string{},
+		Rel:        []string{},
+		ModuleName: []string{},
+		ModuleDir:  []string{},
+		DepStart:   []uint32{},
+		DepCount:   []uint32{},
+		DepPaths:   []string{},
+		Selected:   []bool{},
+		Order:      []uint32{},
+		ByPath:     Map[string, uint32]{},
+		ByDir:      Map[string, uint32]{},
+	}
+}
+
+// ProgramGraph holds loaded modules, packages, files, import edges, topological order, and diagnostics in SoA tables.
+type ProgramGraph {
+	// Modules stores loaded Ergo modules in SoA columns.
+	Modules ModuleTable,
+	// MapRules stores map directives across all loaded modules.
+	MapRules MapRuleTable,
+	// GoMods stores parsed go.mod manifests indexed by Modules.GoModIndex.
+	GoMods []GoMod,
+	// ResolvedMods stores resolved go.mod dependencies parallel to GoMods.
+	ResolvedMods []ResolvedModTable,
+	// Pkgs stores loaded packages in SoA columns.
+	Pkgs PkgTable,
+	// Files stores loaded source and asset files in SoA columns.
+	Files FileTable,
+	// Edges stores package import edges in SoA columns.
+	Edges ImportEdgeTable,
+	// Order holds loaded package IDs in dependency-first DFS post-order.
+	Order []uint32,
+	// Roots holds the package IDs matching the requested root target(s).
+	Roots []uint32,
+	// ModuleSegs records sorted deduplicated "path\x00module" pairs.
+	ModuleSegs []string,
+	// Diags collects parse, cycle, version, trust, and resolution diagnostics.
+	Diags []FrontDiag,
+}
+
+// LoadOptions configures LoadProgram package and module resolution.
+type LoadOptions {
+	// WorkDir sets the base directory used to interpret relative target paths.
+	WorkDir string,
+	// StdIdx provides the standard-library package index.
+	StdIdx StdIndex,
+	// ModCacheDir sets the optional module cache directory for third-party dependencies.
+	ModCacheDir string,
+	// CompilerVersion sets the running compiler version for ergo pin validation (empty skips pin checks).
+	CompilerVersion string,
+}
+
+func isDirPath(path string) bool needs fs.Files {
+	let info = fs.Files.Stat(path) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	info.Dir
+}
+
+func isFilePath(path string) bool needs fs.Files {
+	let info = fs.Files.Stat(path) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	!info.Dir
+}
+
+// FindModuleRoot walks upward from startDir looking for ergo.mod and returns its directory or empty string.
+func FindModuleRoot(startDir string) string needs fs.Files {
+	let clean = if startDir == "" { "." } else { filepath.Clean(startDir) }
+	let mut cur = if isFilePath(clean) { filepath.Dir(clean) } else { clean }
+	for {
+		if isFilePath(filepath.Join([]string{cur, "ergo.mod"})) {
+			return cur
+		}
+		let parent = filepath.Dir(cur)
+		if parent == cur {
+			break
+		}
+		cur = parent
+	}
+	""
+}
+
+// IsGoBuiltin reports whether name is a Go builtin identifier exempt from trust go requirements.
+func IsGoBuiltin(name string) bool {
+	name == "append" || name == "len" || name == "cap" || name == "copy" || name == "clear" || name == "delete" || name == "min" || name == "max"
+}
+
+// CheckTrustGoImport reports whether goPkg is permitted either as Go stdlib or by trustGo entries.
+func CheckTrustGoImport(trustGo []string, goPkg string) bool {
+	if goPkg == "" || IsGoBuiltin(goPkg) {
+		return true
+	}
+	let firstElem = match strings.Cut(goPkg, "/") {
+	case option.Some[strings.Halves] as h:
+		h.Value.Before
+	case option.None:
+		goPkg
+	}
+	if !strings.Contains(firstElem, ".") {
+		return true
+	}
+	for trusted in trustGo {
+		if goPkg == trusted || strings.HasPrefix(goPkg, trusted+"/") {
+			return true
+		}
+	}
+	false
+}
+
+func readBasicLitPath(p syntax.Parsed, id dense.ID[syntax.Node]) string {
+	let bl = syntax.BasicLitOf(p.Tree, id)
+	let raw = syntax.TokText(p, bl.Tok)
+	if raw.Len() >= 2 && (raw[0] == '"' || raw[0] == '`') {
+		return strings.TrimSuffix(strings.TrimPrefix(raw, "\""), "\"")
+	}
+	raw
+}
+
+type rawParsedImport {
+	target string,
+	alias  string,
+	isGo   bool,
+	offset uint32,
+	length uint32,
+	line   uint32,
+	col    uint32,
+}
+
+func extractFileImports(src string, starts []uint32) (syntax.Parsed, []rawParsedImport, []string) {
+	let parsed = syntax.Parse(src)
+	let mut imports = []rawParsedImport{}
+	let mut externTargets = []string{}
+	if parsed.Failed {
+		return (parsed, imports, externTargets)
+	}
+	let root = syntax.Root(parsed.Tree)
+	let fileView = syntax.FileOf(parsed.Tree, root)
+	let srcLen = uint32(src.Len())
+	for i in 0..syntax.Len(fileView.Decls) {
+		let declID = syntax.Item(parsed.Tree, fileView.Decls, i)
+		let k = syntax.KindOf(parsed.Tree, declID)
+		if k == syntax.KImportDecl {
+			let imp = syntax.ImportDeclOf(parsed.Tree, declID)
+			let spec = syntax.ImportSpecOf(parsed.Tree, imp.Spec)
+			let isGo = spec.NamePos >= 0 && syntax.TokKind(parsed, spec.NamePos) == syntax.Go
+			let target = readBasicLitPath(parsed, spec.Path)
+			let alias = match dense.Unpack(spec.Name) {
+			case option.Some{Value: nameID}:
+				let nm = syntax.NameOf(parsed.Tree, nameID)
+				syntax.TokText(parsed, nm.Tok)
+			case option.None:
+				""
+			}
+			let pos = uint32(syntax.NodePos(parsed, imp.Spec))
+			let endPos = uint32(syntax.NodeEnd(parsed, imp.Spec))
+			let ln = if endPos >= pos { endPos - pos } else { uint32(0) }
+			let sp = ComputeSpan(starts, srcLen, pos, ln)
+			imports = imports.Append(rawParsedImport{
+				target: target,
+				alias:  alias,
+				isGo:   isGo,
+				offset: sp.Offset,
+				length: sp.Length,
+				line:   sp.Line,
+				col:    sp.Column,
+			})
+		} else if k == syntax.KFuncDecl {
+			let fd = syntax.FuncDeclOf(parsed.Tree, declID)
+			match dense.Unpack(fd.Extern) {
+			case option.Some{Value: extID}:
+				let es = syntax.ExternSpecOf(parsed.Tree, extID)
+				externTargets = externTargets.Append(readBasicLitPath(parsed, es.Target))
+			case option.None:
+			}
+		} else if k == syntax.KTypeDecl {
+			let td = syntax.TypeDeclOf(parsed.Tree, declID)
+			match dense.Unpack(td.Extern) {
+			case option.Some{Value: extID}:
+				let es = syntax.ExternSpecOf(parsed.Tree, extID)
+				externTargets = externTargets.Append(readBasicLitPath(parsed, es.Target))
+			case option.None:
+			}
+		} else if k == syntax.KVarDecl {
+			let vd = syntax.VarDeclOf(parsed.Tree, declID)
+			match dense.Unpack(vd.Extern) {
+			case option.Some{Value: extID}:
+				let es = syntax.ExternSpecOf(parsed.Tree, extID)
+				externTargets = externTargets.Append(readBasicLitPath(parsed, es.Target))
+			case option.None:
+			}
+		}
+	}
+	(parsed, imports, externTargets)
+}
+
+// ExternPkgPath extracts the Go package import path prefix from an extern target like pkg/sub.Sym.
+func ExternPkgPath(target string) string {
+	let dot = strings.LastIndex(target, ".")
+	if dot <= 0 {
+		return ""
+	}
+	strings.Slice(target, 0, dot)
+}
+
+// VerifyRootTrustGo verifies every Go import and extern package referenced across loaded packages against rootTrustGo.
+func VerifyRootTrustGo(g ProgramGraph, rootTrustGo []string) []FrontDiag {
+	let mut diags = []FrontDiag{}
+	for i in 0..g.Files.Content.Len() {
+		if g.Files.IsAsset[i] {
+			continue
+		}
+		let starts = ComputeLineStarts(g.Files.Content[i])
+		let (_, imps, externs) = extractFileImports(g.Files.Content[i], starts)
+		let fPath = g.Files.Path[i]
+		for imp in imps {
+			if imp.isGo && !CheckTrustGoImport(rootTrustGo, imp.target) {
+				diags = diags.Append(FrontDiag{Code: "front-untrusted-go", Message: "import go '\(imp.target)' requires trust go in root ergo.mod", File: fPath, Offset: imp.offset, Length: imp.length, Line: imp.line, Column: imp.col, Hint: "", HasSpan: true})
+			}
+		}
+		for ext in externs {
+			let ep = ExternPkgPath(ext)
+			if ep != "" && !CheckTrustGoImport(rootTrustGo, ep) {
+				diags = diags.Append(FrontDiag{Code: "front-untrusted-go", Message: "extern go '\(ext)' requires trust go '\(ep)' in root ergo.mod", File: fPath, Offset: uint32(0), Length: uint32(0), Line: uint32(1), Column: uint32(1), Hint: "", HasSpan: false})
+			}
+		}
+	}
+	diags
+}
+
+func checkNestedModuleDir(modDir string, pkgDir string) string needs fs.Files {
+	if modDir == "" || pkgDir == "" {
+		return ""
+	}
+	let cleanMod = filepath.Clean(modDir)
+	let mut cur = filepath.Clean(pkgDir)
+	for cur != cleanMod {
+		if isFilePath(filepath.Join([]string{cur, "ergo.mod"})) {
+			return cur
+		}
+		let parent = filepath.Dir(cur)
+		if parent == cur {
+			break
+		}
+		cur = parent
+	}
+	""
+}
+
+type loaderState {
+	opts       LoadOptions,
+	modules    ModuleTable,
+	mapRules   MapRuleTable,
+	goMods     []GoMod,
+	resolved   []ResolvedModTable,
+	pkgs       PkgTable,
+	files      FileTable,
+	edges      ImportEdgeTable,
+	scratch    FrontScratch,
+	modSegsSet Map[string, bool],
+	modSegs    []string,
+	diags      []FrontDiag,
+}
+
+func newLoaderState(opts LoadOptions) loaderState {
+	loaderState{
+		opts:       opts,
+		modules:    NewModuleTable(),
+		mapRules:   NewMapRuleTable(),
+		goMods:     []GoMod{},
+		resolved:   []ResolvedModTable{},
+		pkgs:       NewPkgTable(),
+		files:      NewFileTable(),
+		edges:      NewImportEdgeTable(),
+		scratch:    NewFrontScratch(),
+		modSegsSet: Map[string, bool]{},
+		modSegs:    []string{},
+		diags:      []FrontDiag{},
+	}
+}
+
+func addModuleSeg(st mut loaderState, pkgPath string, modName string) {
+	if pkgPath == "" {
+		return
+	}
+	let seg = pkgPath + "\x00" + modName
+	if st.modSegsSet.Get(seg) == option.None {
+		st.modSegsSet[seg] = true
+		st.modSegs = st.modSegs.Append(seg)
+	}
+}
+
+func ensureModule(st mut loaderState, modDir string) uint32 needs fs.Files {
+	if modDir == "" {
+		return NoID
+	}
+	let cleanDir = filepath.Clean(modDir)
+	match st.modules.ByDir.Get(cleanDir) {
+	case option.Some[uint32] as id:
+		return id.Value
+	case option.None:
+	}
+	let ergoPath = filepath.Join([]string{cleanDir, "ergo.mod"})
+	let ergoText = fs.Files.ReadFile(ergoPath) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		""
+	}
+	let hasMod = ergoText != ""
+	let em = if hasMod { ParseErgoMod(ergoText, ergoPath) } else { ParseErgoMod("", ergoPath) }
+	if hasMod {
+		for d in em.Diags {
+			st.diags = st.diags.Append(d)
+		}
+		let pinProb = CheckPinProblem(em.ErgoVersion, st.opts.CompilerVersion)
+		if pinProb != "" {
+			st.diags = st.diags.Append(FrontDiag{Code: "modfile-pin", Message: pinProb, File: ergoPath, Offset: uint32(0), Length: uint32(0), Line: uint32(1), Column: uint32(1), Hint: "", HasSpan: false})
+		}
+	}
+	let modID = AddModule(&st.modules, cleanDir, em.Name, em.ErgoVersion, hasMod, em.TrustGo)
+	let ruleStart = uint32(st.mapRules.Pattern.Len())
+	for ri in 0..em.Rules.Pattern.Len() {
+		let comps = MapRuleCompanions(em.Rules, uint32(ri))
+		let _ = AddMapRule(&st.mapRules, modID, em.Rules.Pattern[ri], em.Rules.MapperPkg[ri], em.Rules.MapperFunc[ri], comps, em.Rules.Line[ri], em.Rules.Col[ri])
+	}
+	st.modules.MapRuleStart[int(modID)] = ruleStart
+	st.modules.MapRuleCount[int(modID)] = uint32(st.mapRules.Pattern.Len()) - ruleStart
+
+	let goModPath = filepath.Join([]string{cleanDir, "go.mod"})
+	let goModText = fs.Files.ReadFile(goModPath) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		""
+	}
+	if goModText != "" {
+		let gm = ParseGoMod(goModText, goModPath)
+		for d in gm.Diags {
+			st.diags = st.diags.Append(d)
+		}
+		let goSumPath = filepath.Join([]string{cleanDir, "go.sum"})
+		let goSumText = fs.Files.ReadFile(goSumPath) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			""
+		}
+		let gsum = ParseGoSum(goSumText)
+		let res = ResolveModuleGraph(cleanDir, gm, gsum, st.opts.ModCacheDir)
+		for d in res.Diags {
+			st.diags = st.diags.Append(d)
+		}
+		let gIdx = uint32(st.goMods.Len())
+		st.goMods = st.goMods.Append(gm)
+		st.resolved = st.resolved.Append(res)
+		st.modules.GoModIndex[int(modID)] = gIdx
+	}
+	modID
+}
+
+type resolvedTarget {
+	ok         bool,
+	importPath string,
+	dir        string,
+	modID      uint32,
+	rel        string,
+	isAsset    bool,
+	ruleID     uint32,
+}
+
+func resolveImportTarget(st mut loaderState, fromModID uint32, fromDir string, target string) resolvedTarget needs fs.Files {
+	let fromModName = if fromModID != NoID { st.modules.Name[int(fromModID)] } else { "" }
+	let fromModDir = if fromModID != NoID { st.modules.Dir[int(fromModID)] } else { "" }
+
+	if IsRelativeAssetPath(target) {
+		let joined = filepath.Clean(filepath.Join([]string{fromDir, target}))
+		let rel = if fromModDir != "" {
+			filepath.Rel(fromModDir, joined) catch {
+			case filepath.NotRelative:
+				return resolvedTarget{ok: false, importPath: target, dir: "", modID: NoID, rel: "", isAsset: true, ruleID: NoID}
+			}
+		} else {
+			filepath.Base(joined)
+		}
+		if strings.HasPrefix(rel, "..") {
+			return resolvedTarget{ok: false, importPath: target, dir: "", modID: NoID, rel: "", isAsset: true, ruleID: NoID}
+		}
+		let ruleID = if fromModID != NoID { MatchMapRule(st.mapRules, fromModID, rel) } else { NoID }
+		let canon = if fromModName != "" { fromModName + "/" + rel } else { joined }
+		return resolvedTarget{ok: true, importPath: canon, dir: joined, modID: fromModID, rel: rel, isAsset: true, ruleID: ruleID}
+	}
+
+	let mut bestExtMod = ""
+	let mut bestExtDir = ""
+	if fromModID != NoID {
+		let gIdx = st.modules.GoModIndex[int(fromModID)]
+		if gIdx != NoID {
+			let res = st.resolved[int(gIdx)]
+			for ri in 0..res.Paths.Len() {
+				let candidateMod = res.Paths[ri]
+				let candidateDir = res.Dirs[ri]
+				if candidateDir == "" {
+					continue
+				}
+				if target == candidateMod || strings.HasPrefix(target, candidateMod+"/") {
+					if candidateMod.Len() > bestExtMod.Len() {
+						bestExtMod = candidateMod
+						bestExtDir = candidateDir
+					}
+				}
+			}
+			let gm = st.goMods[int(gIdx)]
+			for rep in LocalReplaces(gm, fromModDir) {
+				if target == rep.OldPath || strings.HasPrefix(target, rep.OldPath+"/") {
+					if rep.OldPath.Len() > bestExtMod.Len() {
+						bestExtMod = rep.OldPath
+						bestExtDir = rep.Dir
+					}
+				}
+			}
+		}
+	}
+
+	let localMatches = fromModName != "" && (target == fromModName || strings.HasPrefix(target, fromModName+"/"))
+	if bestExtMod.Len() > fromModName.Len() || (bestExtMod != "" && !localMatches) {
+		let sub = if target == bestExtMod { "" } else { strings.TrimPrefix(target, bestExtMod+"/") }
+		let targetDir = if sub == "" { bestExtDir } else { filepath.Join([]string{bestExtDir, sub}) }
+		let targetModDir = FindModuleRoot(targetDir)
+		let targetModID = if targetModDir != "" { ensureModule(st, targetModDir) } else { ensureModule(st, bestExtDir) }
+		let targetRel = if targetModID != NoID && st.modules.Dir[int(targetModID)] != "" {
+			filepath.Rel(st.modules.Dir[int(targetModID)], targetDir) catch {
+			case filepath.NotRelative:
+				if sub == "" { "." } else { sub }
+			}
+		} else if sub == "" {
+			"."
+		} else {
+			sub
+		}
+		return resolvedTarget{ok: true, importPath: target, dir: targetDir, modID: targetModID, rel: targetRel, isAsset: false, ruleID: NoID}
+	}
+
+	if localMatches {
+		let rel = if target == fromModName { "." } else { strings.TrimPrefix(target, fromModName+"/") }
+		let targetDir = if rel == "." { fromModDir } else { filepath.Join([]string{fromModDir, rel}) }
+		let ruleID = if rel != "." && isFilePath(targetDir) { MatchMapRule(st.mapRules, fromModID, rel) } else { NoID }
+		if ruleID != NoID {
+			return resolvedTarget{ok: true, importPath: target, dir: targetDir, modID: fromModID, rel: rel, isAsset: true, ruleID: ruleID}
+		}
+		return resolvedTarget{ok: true, importPath: target, dir: targetDir, modID: fromModID, rel: rel, isAsset: false, ruleID: NoID}
+	}
+
+	resolvedTarget{ok: false, importPath: target, dir: "", modID: NoID, rel: "", isAsset: false, ruleID: NoID}
+}
+
+func formatImportCycle(stackNames []string, target string) string {
+	let mut start = -1
+	for i, nm in stackNames {
+		if nm == target {
+			start = i
+			break
+		}
+	}
+	let mut chain = if start >= 0 { slices.Slice(stackNames, start, stackNames.Len()) } else { slices.Clone(stackNames) }
+	chain = chain.Append(target)
+	"import cycle: " + strings.Join(chain, " imports ")
+}
+
+type edgePending {
+	edgeID uint32,
+	raw    rawParsedImport,
+}
+
+func visitPackage(st mut loaderState, pkgID uint32) needs fs.Files {
+	let pIdx = int(pkgID)
+	if st.pkgs.VisitState[pIdx] != VisitUnseen {
+		return
+	}
+	st.pkgs.VisitState[pIdx] = VisitActive
+	let pkgPath = st.pkgs.ImportPath[pIdx]
+	let pkgDir = st.pkgs.Dir[pIdx]
+	let modID = st.pkgs.ModuleID[pIdx]
+	let pkgRel = st.pkgs.Rel[pIdx]
+	let isAsset = st.pkgs.IsAsset[pIdx]
+	let ruleID = st.pkgs.AssetRuleID[pIdx]
+	let modName = if modID != NoID { st.modules.Name[int(modID)] } else { "" }
+	let modDir = if modID != NoID { st.modules.Dir[int(modID)] } else { "" }
+
+	st.scratch.StackPkg = st.scratch.StackPkg.Append(pkgID)
+	st.scratch.StackNames = st.scratch.StackNames.Append(pkgPath)
+	addModuleSeg(st, pkgPath, modName)
+
+	let mut pendingEdges = []edgePending{}
+
+	if isAsset {
+		let data = fs.Files.ReadFile(pkgDir) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			""
+		}
+		if data == "" && !isFilePath(pkgDir) {
+			st.diags = st.diags.Append(FrontDiag{Code: "front-missing-asset", Message: "asset file not found: '\(pkgDir)'", File: pkgDir, Offset: uint32(0), Length: uint32(0), Line: uint32(1), Column: uint32(1), Hint: "", HasSpan: false})
+		}
+		let mapperFn = if ruleID != NoID { st.mapRules.MapperFunc[int(ruleID)] } else { "" }
+		let fStart = uint32(st.files.Path.Len())
+		let fID = AddFile(&st.files, pkgID, pkgDir, filepath.Base(pkgDir), pkgRel, data, true, mapperFn)
+		if ruleID != NoID {
+			let (comps, cDiags) = CollectCompanionFiles(st.mapRules, ruleID, modDir, pkgRel) catch {
+			case fs.NotFound, fs.Denied, fs.Failed:
+				([]ProgramTextEntry{}, []FrontDiag{})
+			}
+			for d in cDiags {
+				st.diags = st.diags.Append(d)
+			}
+			for c in comps {
+				let cFull = filepath.Join([]string{modDir, c.Rel})
+				let _ = AddFile(&st.files, pkgID, cFull, filepath.Base(c.Rel), c.Rel, c.Source, true, mapperFn)
+			}
+		}
+		st.pkgs.FileStart[pIdx] = fStart
+		st.pkgs.FileCount[pIdx] = uint32(st.files.Path.Len()) - fStart
+		if ruleID != NoID {
+			let mPkg = st.mapRules.MapperPkg[int(ruleID)]
+			let eStart = uint32(st.edges.RawPath.Len())
+			let sp = FrontDiag{Code: "", Message: "", File: pkgDir, Offset: uint32(0), Length: uint32(0), Line: st.mapRules.Line[int(ruleID)], Column: st.mapRules.Col[int(ruleID)], Hint: "", HasSpan: true}
+			let eID = AddImportEdge(&st.edges, pkgID, NoID, fID, mPkg, "", false, sp)
+			st.pkgs.ImportStart[pIdx] = eStart
+			st.pkgs.ImportCount[pIdx] = uint32(1)
+			pendingEdges = pendingEdges.Append(edgePending{edgeID: eID, raw: rawParsedImport{target: mPkg, alias: "", isGo: false, offset: uint32(0), length: uint32(0), line: sp.Line, col: sp.Column}})
+		}
+	} else {
+		let nested = checkNestedModuleDir(modDir, pkgDir)
+		if nested != "" {
+			st.diags = st.diags.Append(FrontDiag{Code: "front-nested-module", Message: "package '\(pkgPath)' crosses nested module '\(nested)'", File: pkgDir, Offset: uint32(0), Length: uint32(0), Line: uint32(1), Column: uint32(1), Hint: "", HasSpan: false})
+		}
+		let names = slices.Sort(fs.Files.ReadDir(pkgDir) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			[]string{}
+		})
+		let fStart = uint32(st.files.Path.Len())
+		let mut pkgImports = []rawParsedImport{}
+		let mut pkgImportFileIDs = []uint32{}
+		let mut seenTarget = Map[string, bool]{}
+		for name in names {
+			if !AdmitSourceFile(name) {
+				continue
+			}
+			let full = filepath.Join([]string{pkgDir, name})
+			if !isFilePath(full) {
+				continue
+			}
+			let src = fs.Files.ReadFile(full) catch {
+			case fs.NotFound, fs.Denied, fs.Failed:
+				continue
+			}
+			let fileRel = if pkgRel != "" && pkgRel != "." { pkgRel + "/" + name } else { name }
+			let fID = AddFile(&st.files, pkgID, full, name, fileRel, src, false, "")
+			let starts = ComputeLineStarts(src)
+			let (parsed, fileImports, _) = extractFileImports(src, starts)
+			if parsed.Failed {
+				st.diags = st.diags.Append(FrontDiag{
+					Code:    parsed.Code,
+					Message: parsed.Message,
+					File:    full,
+					Offset:  uint32(parsed.Offset),
+					Length:  uint32(parsed.Length),
+					Line:    uint32(parsed.Line),
+					Column:  uint32(parsed.Column),
+					Hint:    "",
+					HasSpan: true,
+				})
+			}
+			for imp in fileImports {
+				if imp.isGo {
+					continue
+				}
+				if imp.target == "" || IsStdPath(st.opts.StdIdx, imp.target) {
+					continue
+				}
+				if modName == "" && !IsRelativeAssetPath(imp.target) {
+					continue
+				}
+				if seenTarget.Get(imp.target) != option.None {
+					continue
+				}
+				seenTarget[imp.target] = true
+				pkgImports = pkgImports.Append(imp)
+				pkgImportFileIDs = pkgImportFileIDs.Append(fID)
+			}
+		}
+		st.pkgs.FileStart[pIdx] = fStart
+		st.pkgs.FileCount[pIdx] = uint32(st.files.Path.Len()) - fStart
+		if st.pkgs.FileCount[pIdx] == uint32(0) {
+			st.diags = st.diags.Append(FrontDiag{Code: "front-empty-pkg", Message: "no .ergo source files in package '\(pkgPath)'", File: pkgDir, Offset: uint32(0), Length: uint32(0), Line: uint32(1), Column: uint32(1), Hint: "", HasSpan: false})
+		}
+
+		let eStart = uint32(st.edges.RawPath.Len())
+		for i, imp in pkgImports {
+			let fID = pkgImportFileIDs[i]
+			let fPath = st.files.Path[int(fID)]
+			let sp = FrontDiag{Code: "", Message: "", File: fPath, Offset: imp.offset, Length: imp.length, Line: imp.line, Column: imp.col, Hint: "", HasSpan: true}
+			let isRelAsset = IsRelativeAssetPath(imp.target)
+			let eID = AddImportEdge(&st.edges, pkgID, NoID, fID, imp.target, imp.alias, isRelAsset, sp)
+			pendingEdges = pendingEdges.Append(edgePending{edgeID: eID, raw: imp})
+		}
+		st.pkgs.ImportStart[pIdx] = eStart
+		st.pkgs.ImportCount[pIdx] = uint32(st.edges.RawPath.Len()) - eStart
+	}
+
+	for pe in pendingEdges {
+		let res = resolveImportTarget(st, modID, pkgDir, pe.raw.target)
+		if !res.ok {
+			let fPath = st.files.Path[int(st.edges.FileID[int(pe.edgeID)])]
+			st.diags = st.diags.Append(FrontDiag{
+				Code:    "front-unresolved-import",
+				Message: "cannot resolve import '\(pe.raw.target)'",
+				File:    fPath,
+				Offset:  pe.raw.offset,
+				Length:  pe.raw.length,
+				Line:    pe.raw.line,
+				Column:  pe.raw.col,
+				Hint:    "",
+				HasSpan: true,
+			})
+			continue
+		}
+		st.edges.IsAsset[int(pe.edgeID)] = res.isAsset
+		let targetID = match st.pkgs.ByPath.Get(res.importPath) {
+		case option.Some[uint32] as existing:
+			existing.Value
+		case option.None:
+			AddPkg(&st.pkgs, res.importPath, res.dir, res.modID, res.rel, res.isAsset, res.ruleID)
+		}
+		st.edges.ToPkg[int(pe.edgeID)] = targetID
+		let targetState = st.pkgs.VisitState[int(targetID)]
+		if targetState == VisitActive {
+			let msg = formatImportCycle(st.scratch.StackNames, res.importPath)
+			let fPath = st.files.Path[int(st.edges.FileID[int(pe.edgeID)])]
+			st.diags = st.diags.Append(FrontDiag{
+				Code:    "front-import-cycle",
+				Message: msg,
+				File:    fPath,
+				Offset:  pe.raw.offset,
+				Length:  pe.raw.length,
+				Line:    pe.raw.line,
+				Column:  pe.raw.col,
+				Hint:    "",
+				HasSpan: true,
+			})
+		} else if targetState == VisitUnseen {
+			visitPackage(st, targetID)
+		}
+	}
+
+	let stackTop = st.scratch.StackPkg.Len() - 1
+	st.scratch.StackPkg = slices.Slice(st.scratch.StackPkg, 0, stackTop)
+	st.scratch.StackNames = slices.Slice(st.scratch.StackNames, 0, stackTop)
+	st.pkgs.VisitState[pIdx] = VisitDone
+	st.pkgs.TopoRank[pIdx] = uint32(st.scratch.Order.Len())
+	st.scratch.Order = st.scratch.Order.Append(pkgID)
+}
+
+func resolveRootTarget(st mut loaderState, target string) uint32 needs fs.Files {
+	let workDir = if st.opts.WorkDir == "" { "." } else { filepath.Clean(st.opts.WorkDir) }
+	let trimmed = strings.TrimSpace(target)
+	let candDir = if trimmed == "" || trimmed == "." {
+		workDir
+	} else if filepath.IsAbs(trimmed) {
+		filepath.Clean(trimmed)
+	} else {
+		filepath.Join([]string{workDir, trimmed})
+	}
+	if isDirPath(candDir) {
+		let modDir = FindModuleRoot(candDir)
+		let modID = ensureModule(st, modDir)
+		let modName = if modID != NoID { st.modules.Name[int(modID)] } else { "" }
+		let rel = if modDir != "" {
+			filepath.Rel(modDir, candDir) catch {
+			case filepath.NotRelative:
+				"."
+			}
+		} else {
+			"."
+		}
+		let importPath = if modName != "" {
+			if rel == "." || rel == "" { modName } else { modName + "/" + rel }
+		} else {
+			candDir
+		}
+		return match st.pkgs.ByPath.Get(importPath) {
+		case option.Some[uint32] as id:
+			id.Value
+		case option.None:
+			AddPkg(&st.pkgs, importPath, candDir, modID, rel, false, NoID)
+		}
+	}
+	let workModDir = FindModuleRoot(workDir)
+	let workModID = ensureModule(st, workModDir)
+	let workModName = if workModID != NoID { st.modules.Name[int(workModID)] } else { "" }
+	if workModID != NoID && workModName != "" && (trimmed == workModName || strings.HasPrefix(trimmed, workModName+"/")) {
+		let rel = if trimmed == workModName { "." } else { strings.TrimPrefix(trimmed, workModName+"/") }
+		let pkgDir = if rel == "." { workModDir } else { filepath.Join([]string{workModDir, rel}) }
+		return match st.pkgs.ByPath.Get(trimmed) {
+		case option.Some[uint32] as id:
+			id.Value
+		case option.None:
+			AddPkg(&st.pkgs, trimmed, pkgDir, workModID, rel, false, NoID)
+		}
+	}
+	st.diags = st.diags.Append(FrontDiag{Code: "front-missing-target", Message: "target directory not found: '\(target)'", File: candDir, Offset: uint32(0), Length: uint32(0), Line: uint32(1), Column: uint32(1), Hint: "", HasSpan: false})
+	NoID
+}
+
+// LoadProgram loads target packages and all transitive non-std Ergo dependencies in DFS post-order.
+func LoadProgram(targets []string, opts LoadOptions) ProgramGraph needs fs.Files {
+	let mut st = newLoaderState(opts)
+	let mut roots = []uint32{}
+	for t in targets {
+		let rID = resolveRootTarget(&st, t)
+		if rID != NoID {
+			roots = roots.Append(rID)
+			if st.pkgs.VisitState[int(rID)] == VisitUnseen {
+				visitPackage(&st, rID)
+			}
+		}
+	}
+	let sortedSegs = slices.Sort(st.modSegs)
+	ProgramGraph{
+		Modules:      st.modules,
+		MapRules:     st.mapRules,
+		GoMods:       st.goMods,
+		ResolvedMods: st.resolved,
+		Pkgs:         st.pkgs,
+		Files:        st.files,
+		Edges:        st.edges,
+		Order:        st.scratch.Order,
+		Roots:        roots,
+		ModuleSegs:   sortedSegs,
+		Diags:        st.diags,
+	}
+}
+
+func hasDirectErgoSource(dir string) bool needs fs.Files {
+	let names = fs.Files.ReadDir(dir) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	for name in names {
+		if AdmitSourceFile(name) && isFilePath(filepath.Join([]string{dir, name})) {
+			return true
+		}
+	}
+	false
+}
+
+func readPkgDirectDeps(dir string, modName string, stdIdx StdIndex) []string needs fs.Files {
+	let names = slices.Sort(fs.Files.ReadDir(dir) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		[]string{}
+	})
+	let mut deps = []string{}
+	let mut seen = Map[string, bool]{}
+	for name in names {
+		if !AdmitSourceFile(name) {
+			continue
+		}
+		let full = filepath.Join([]string{dir, name})
+		if !isFilePath(full) {
+			continue
+		}
+		let src = fs.Files.ReadFile(full) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			continue
+		}
+		let (_, imps, _) = extractFileImports(src, []uint32{uint32(0)})
+		for imp in imps {
+			if imp.isGo || imp.target == "" || IsStdPath(stdIdx, imp.target) {
+				continue
+			}
+			if modName == "" && !IsRelativeAssetPath(imp.target) {
+				continue
+			}
+			if seen.Get(imp.target) == option.None {
+				seen[imp.target] = true
+				deps = deps.Append(imp.target)
+			}
+		}
+	}
+	deps
+}
+
+type discPendingDir {
+	dir string,
+	rel string,
+}
+
+func discoverSingleModule(tbl mut DiscoveredPkgTable, modDir string, modName string, stdIdx StdIndex, skips []string) fails fs.Denied | fs.Failed needs fs.Files {
+	let cleanMod = filepath.Clean(modDir)
+	let mut pending = []discPendingDir{discPendingDir{dir: cleanMod, rel: "."}}
+	let mut foundDirs = []discPendingDir{}
+	for pending.Len() > 0 {
+		let last = pending.Len() - 1
+		let cur = pending[last]
+		pending = slices.Slice(pending, 0, last)
+		if hasDirectErgoSource(cur.dir) {
+			foundDirs = foundDirs.Append(cur)
+		}
+		let names = slices.Sort(fs.Files.ReadDir(cur.dir) catch {
+		case fs.NotFound:
+			[]string{}
+		case fs.Denied as e:
+			return e
+		case fs.Failed as e:
+			return e
+		})
+		let mut subDirs = []discPendingDir{}
+		for name in names {
+			if !AdmitFolder(name) {
+				continue
+			}
+			let subRel = if cur.rel == "." { name } else { cur.rel + "/" + name }
+			if shouldSkipWorkspaceRel(skips, subRel) {
+				continue
+			}
+			let subDir = filepath.Join([]string{cur.dir, name})
+			if isFilePath(filepath.Join([]string{subDir, "ergo.mod"})) {
+				continue
+			}
+			if isDirPath(subDir) {
+				subDirs = subDirs.Append(discPendingDir{dir: subDir, rel: subRel})
+			}
+		}
+		let mut i = subDirs.Len() - 1
+		for i >= 0 {
+			pending = pending.Append(subDirs[i])
+			i = i - 1
+		}
+	}
+	let sorted = slices.SortFunc(foundDirs, func(a discPendingDir, b discPendingDir) int {
+		if a.rel < b.rel {
+			-1
+		} else if a.rel > b.rel {
+			1
+		} else {
+			0
+		}
+	})
+	for d in sorted {
+		let importPath = if modName != "" {
+			if d.rel == "." { modName } else { modName + "/" + d.rel }
+		} else {
+			d.dir
+		}
+		if tbl.ByDir.Get(d.dir) != option.None {
+			continue
+		}
+		let deps = readPkgDirectDeps(d.dir, modName, stdIdx)
+		let id = uint32(tbl.ImportPath.Len())
+		let start = uint32(tbl.DepPaths.Len())
+		for dep in deps {
+			tbl.DepPaths = tbl.DepPaths.Append(dep)
+		}
+		tbl.ImportPath = tbl.ImportPath.Append(importPath)
+		tbl.Dir = tbl.Dir.Append(d.dir)
+		tbl.Rel = tbl.Rel.Append(d.rel)
+		tbl.ModuleName = tbl.ModuleName.Append(modName)
+		tbl.ModuleDir = tbl.ModuleDir.Append(cleanMod)
+		tbl.DepStart = tbl.DepStart.Append(start)
+		tbl.DepCount = tbl.DepCount.Append(uint32(deps.Len()))
+		tbl.Selected = tbl.Selected.Append(false)
+		tbl.ByPath[importPath] = id
+		tbl.ByDir[d.dir] = id
+	}
+}
+
+func matchesDiscoveryPattern(startDir string, pkgDir string, importPath string, pat string) bool {
+	if pat == "" || pat == "." || pat == "./..." || pat == "..." {
+		if pat == "..." || pat == "" {
+			return true
+		}
+		if pat == "./..." {
+			return pkgDir == startDir || strings.HasPrefix(pkgDir, startDir+"/")
+		}
+		return pkgDir == startDir
+	}
+	let isTree = strings.HasSuffix(pat, "/...")
+	let cleanPat = if isTree { strings.TrimSuffix(pat, "/...") } else { pat }
+	if strings.HasPrefix(cleanPat, "./") || strings.HasPrefix(cleanPat, "../") || strings.HasPrefix(cleanPat, "/") {
+		let patDir = if filepath.IsAbs(cleanPat) { filepath.Clean(cleanPat) } else { filepath.Join([]string{startDir, cleanPat}) }
+		if isTree {
+			return pkgDir == patDir || strings.HasPrefix(pkgDir, patDir+"/")
+		}
+		return pkgDir == patDir
+	}
+	if isTree {
+		return importPath == cleanPat || strings.HasPrefix(importPath, cleanPat+"/")
+	}
+	importPath == cleanPat
+}
+
+type discTopoState {
+	marks []uint8,
+	order []uint32,
+	diags []FrontDiag,
+}
+
+func visitDiscTopoDFS(tbl DiscoveredPkgTable, id uint32, st mut discTopoState) {
+	let idx = int(id)
+	st.marks[idx] = VisitActive
+	let start = int(tbl.DepStart[idx])
+	let count = int(tbl.DepCount[idx])
+	for dep in slices.Slice(tbl.DepPaths, start, start+count) {
+		match tbl.ByPath.Get(dep) {
+		case option.Some[uint32] as depID:
+			let d = int(depID.Value)
+			if st.marks[d] == VisitActive {
+				st.diags = st.diags.Append(FrontDiag{Code: "discover-cycle", Message: "import cycle involving '\(dep)'", File: tbl.Dir[idx], Offset: uint32(0), Length: uint32(0), Line: uint32(1), Column: uint32(1), Hint: "", HasSpan: false})
+			} else if st.marks[d] == VisitUnseen {
+				visitDiscTopoDFS(tbl, depID.Value, st)
+			}
+		case option.None:
+		}
+	}
+	st.marks[idx] = VisitDone
+	st.order = st.order.Append(id)
+}
+
+// DiscoverPackages discovers all admitted Ergo packages under workspace or module startDir, filters by patterns, and sorts dependencies first.
+func DiscoverPackages(startDir string, patterns []string, stdIdx StdIndex) (DiscoveredPkgTable, []FrontDiag) fails fs.NotFound | fs.Denied | fs.Failed needs fs.Files {
+	let cleanStart = if startDir == "" { "." } else { filepath.Clean(startDir) }
+	let mut tbl = NewDiscoveredPkgTable()
+	let mut diags = []FrontDiag{}
+	if IsWorkspaceRoot(cleanStart) {
+		let ws = try DiscoverWorkspace(cleanStart)
+		for d in ws.Diags {
+			diags = diags.Append(d)
+		}
+		let modOrder = WorkspaceOrder(ws)
+		for mid in modOrder {
+			let i = int(mid)
+			try discoverSingleModule(&tbl, ws.Members.Dir[i], ws.Members.Name[i], stdIdx, []string{})
+		}
+		if ws.Members.Dir.Len() == 0 {
+			try discoverSingleModule(&tbl, cleanStart, "", stdIdx, ws.Config.Skip)
+		}
+	} else {
+		let modRoot = FindModuleRoot(cleanStart)
+		let emPath = filepath.Join([]string{modRoot, "ergo.mod"})
+		let emText = fs.Files.ReadFile(emPath) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			""
+		}
+		let em = if emText != "" { ParseErgoMod(emText, emPath) } else { ParseErgoMod("", emPath) }
+		for d in em.Diags {
+			diags = diags.Append(d)
+		}
+		try discoverSingleModule(&tbl, modRoot, em.Name, stdIdx, []string{})
+	}
+	let effectivePats = if patterns.Len() == 0 { []string{"./..."} } else { patterns }
+	let n = tbl.ImportPath.Len()
+	let mut st = discTopoState{marks: []uint8{}, order: []uint32{}, diags: diags}
+	for _ in 0..n {
+		st.marks = st.marks.Append(VisitUnseen)
+	}
+	for i in 0..n {
+		let mut sel = false
+		for pat in effectivePats {
+			if matchesDiscoveryPattern(cleanStart, tbl.Dir[i], tbl.ImportPath[i], pat) {
+				sel = true
+				break
+			}
+		}
+		tbl.Selected[i] = sel
+	}
+	for i in 0..n {
+		if tbl.Selected[i] && st.marks[i] == VisitUnseen {
+			visitDiscTopoDFS(tbl, uint32(i), &st)
+		}
+	}
+	tbl.Order = st.order
+	(tbl, st.diags)
+}
+
+law LoadProgramOrdersDepsBeforeImporters(hasDep bool) {
+	let m = fstest.NewMemory()
+	with context { fs.Writes: m, fs.Files: m } {
+		m.MkdirAll("/app/cmd") catch {
+		case fs.Denied, fs.Failed:
+			return false
+		}
+		m.MkdirAll("/app/dep") catch {
+		case fs.Denied, fs.Failed:
+			return false
+		}
+		m.WriteFile("/app/ergo.mod", "module demo\n") catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return false
+		}
+		m.WriteFile("/app/dep/dep.ergo", "func Val() int { 42 }\n") catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return false
+		}
+		let cmdSrc = if hasDep { "import demo/dep\nfunc main() { let _ = dep.Val() }\n" } else { "func main() {}\n" }
+		m.WriteFile("/app/cmd/main.ergo", cmdSrc) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return false
+		}
+		let g = LoadProgram([]string{"cmd"}, LoadOptions{WorkDir: "/app", StdIdx: NewStdIndex(), ModCacheDir: "", CompilerVersion: ""})
+		if g.Diags.Len() != 0 {
+			return false
+		}
+		if hasDep {
+			return g.Order.Len() == 2 && g.Pkgs.ImportPath[int(g.Order[0])] == "demo/dep" && g.Pkgs.ImportPath[int(g.Order[1])] == "demo/cmd"
+		}
+		g.Order.Len() == 1 && g.Pkgs.ImportPath[int(g.Order[0])] == "demo/cmd"
+	}
+}
+
+test LoadProgramCycleNestedLongestPrefixAndDiscover {
+	let m = fstest.NewMemory()
+	with context { fs.Writes: m, fs.Files: m } {
+		try fs.Writes.MkdirAll("/ws/mainmod/a")
+		try fs.Writes.MkdirAll("/ws/mainmod/b")
+		try fs.Writes.MkdirAll("/ws/mainmod/submod/p")
+		try fs.Writes.MkdirAll("/ws/ext/subpkg")
+		try fs.Writes.MkdirAll("/std/strings")
+		try fs.Writes.WriteFile("/std/ergo.mod", "module std\n")
+		try fs.Writes.WriteFile("/std/builtin.ergo", "func b() {}\n")
+		try fs.Writes.WriteFile("/std/strings/strings.ergo", "func S() {}\n")
+		let stdIdx = try DiscoverStdIndex("/std")
+
+		try fs.Writes.WriteFile("/ws/mainmod/ergo.mod", "module app\n")
+		try fs.Writes.WriteFile("/ws/mainmod/go.mod", "module example.com/app\nrequire app/ext v0.1.0\nreplace app/ext => ../ext\n")
+		try fs.Writes.WriteFile("/ws/ext/ergo.mod", "module app/ext\n")
+		try fs.Writes.WriteFile("/ws/ext/subpkg/x.ergo", "func X() int { 1 }\n")
+		try fs.Writes.WriteFile("/ws/mainmod/a/a.ergo", "import strings\nimport app/ext/subpkg\nimport app/b\nfunc A() {}\n")
+		try fs.Writes.WriteFile("/ws/mainmod/b/b.ergo", "func B() {}\n")
+		try fs.Writes.WriteFile("/ws/mainmod/submod/ergo.mod", "module nested\n")
+		try fs.Writes.WriteFile("/ws/mainmod/submod/p/p.ergo", "func P() {}\n")
+
+		let opts = LoadOptions{WorkDir: "/ws/mainmod", StdIdx: stdIdx, ModCacheDir: "", CompilerVersion: ""}
+		let g = LoadProgram([]string{"./a"}, opts)
+		assert g.Diags.Len() == 0
+		assert g.Order.Len() == 3
+		assert g.Pkgs.ImportPath[int(g.Order[0])] == "app/ext/subpkg"
+		assert g.Pkgs.ImportPath[int(g.Order[1])] == "app/b"
+		assert g.Pkgs.ImportPath[int(g.Order[2])] == "app/a"
+
+		let (disc, discDiags) = try DiscoverPackages("/ws/mainmod", []string{"./..."}, stdIdx)
+		assert discDiags.Len() == 0
+		assert disc.ImportPath == []string{"app/a", "app/b"}
+
+		try fs.Writes.WriteFile("/ws/mainmod/b/b.ergo", "import app/a\nfunc B() {}\n")
+		let gCyc = LoadProgram([]string{"./a"}, opts)
+		assert gCyc.Diags.Len() == 1 && strings.Contains(gCyc.Diags[0].Message, "import cycle: ")
+
+		assert CheckTrustGoImport([]string{"example.com/go"}, "strings")
+		assert CheckTrustGoImport([]string{"example.com/go"}, "example.com/go/sub")
+		assert !CheckTrustGoImport([]string{"example.com/go"}, "evil.com/pkg")
+		assert VerifyRootTrustGo(g, []string{}).Len() == 0
+	}
+}

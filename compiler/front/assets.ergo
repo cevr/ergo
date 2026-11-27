@@ -1,0 +1,214 @@
+import filepath
+import fs
+import fstest
+import option
+import slices
+import strings
+
+// IsRelativeAssetPath reports whether importPath is an explicit relative asset path ("./..." or "../...").
+func IsRelativeAssetPath(importPath string) bool {
+	strings.HasPrefix(importPath, "./") || strings.HasPrefix(importPath, "../")
+}
+
+// AssetStem extracts the wildcard stem when rel matches pattern, returning (stem, true) on match.
+func AssetStem(pattern string, rel string) (string, bool) {
+	let target = if strings.Contains(pattern, "/") { rel } else { filepath.Base(rel) }
+	let star = strings.IndexByte(pattern, '*')
+	if star < 0 {
+		if target == pattern {
+			let base = filepath.Base(rel)
+			let ext = filepath.Ext(base)
+			return (strings.TrimSuffix(base, ext), true)
+		}
+		return ("", false)
+	}
+	let prefix = strings.Slice(pattern, 0, star)
+	let suffix = strings.Slice(pattern, star+1, pattern.Len())
+	if !strings.Contains(suffix, "*") && !strings.Contains(pattern, "?") && !strings.Contains(pattern, "[") {
+		if strings.HasPrefix(target, prefix) && strings.HasSuffix(target, suffix) && target.Len() >= prefix.Len()+suffix.Len() {
+			return (strings.Slice(target, prefix.Len(), target.Len()-suffix.Len()), true)
+		}
+		return ("", false)
+	}
+	let matched = filepath.Match(pattern, target) catch {
+	case filepath.BadPattern:
+		false
+	}
+	if !matched {
+		return ("", false)
+	}
+	let base = filepath.Base(rel)
+	let ext = filepath.Ext(base)
+	(strings.TrimSuffix(base, ext), true)
+}
+
+// MatchMapRule returns the first MapRuleTable row ID for modID matching relPath, or NoID.
+func MatchMapRule(rules MapRuleTable, modID uint32, relPath string) uint32 {
+	let cleanRel = filepath.Clean(relPath)
+	for i in 0..rules.Pattern.Len() {
+		if rules.ModuleID[i] != modID {
+			continue
+		}
+		let pat = rules.Pattern[i]
+		let target = if strings.Contains(pat, "/") { cleanRel } else { filepath.Base(cleanRel) }
+		let matched = filepath.Match(pat, target) catch {
+		case filepath.BadPattern:
+			false
+		}
+		if matched {
+			return uint32(i)
+		}
+	}
+	NoID
+}
+
+// ExpandCompanionPattern expands a companion glob or filename against a matched primary asset's stem and directory.
+func ExpandCompanionPattern(pattern string, comp string, primaryRel string) string {
+	let (stem, _) = AssetStem(pattern, primaryRel)
+	let expanded = if stem != "" { strings.ReplaceAll(comp, "*", stem) } else { comp }
+	if strings.Contains(comp, "/") {
+		return filepath.Clean(expanded)
+	}
+	let dir = filepath.Dir(primaryRel)
+	if dir == "." || dir == "" {
+		return expanded
+	}
+	dir + "/" + expanded
+}
+
+// CollectCompanionFiles reads companion asset files referenced by ruleID relative to modDir and primaryRel.
+func CollectCompanionFiles(rules MapRuleTable, ruleID uint32, modDir string, primaryRel string) ([]ProgramTextEntry, []FrontDiag) fails fs.NotFound | fs.Denied | fs.Failed needs fs.Files {
+	let comps = MapRuleCompanions(rules, ruleID)
+	let mut entries = []ProgramTextEntry{}
+	let mut diags = []FrontDiag{}
+	if comps.Len() == 0 {
+		return (entries, diags)
+	}
+	let pattern = rules.Pattern[int(ruleID)]
+	let mut seen = Map[string, bool]{}
+	for comp in comps {
+		let expandedRel = ExpandCompanionPattern(pattern, comp, primaryRel)
+		if expandedRel == "" || expandedRel == ".." || strings.HasPrefix(expandedRel, "../") {
+			diags = diags.Append(FrontDiag{
+				Code:    "asset-companion-escape",
+				Message: "companion path '\(comp)' escapes module root",
+				File:    primaryRel,
+				Offset:  uint32(0),
+				Length:  uint32(0),
+				Line:    uint32(1),
+				Column:  uint32(1),
+				Hint:    "",
+				HasSpan: false,
+			})
+			continue
+		}
+		let hasGlob = strings.Contains(expandedRel, "*") || strings.Contains(expandedRel, "?") || strings.Contains(expandedRel, "[")
+		if hasGlob {
+			let dirRel = filepath.Dir(expandedRel)
+			let patBase = filepath.Base(expandedRel)
+			let searchDir = if dirRel == "." || dirRel == "" { modDir } else { filepath.Join([]string{modDir, dirRel}) }
+			let names = fs.Files.ReadDir(searchDir) catch {
+			case fs.NotFound:
+				[]string{}
+			case fs.Denied as e:
+				return e
+			case fs.Failed as e:
+				return e
+			}
+			for name in slices.Sort(names) {
+				let ok = filepath.Match(patBase, name) catch {
+				case filepath.BadPattern:
+					false
+				}
+				if !ok {
+					continue
+				}
+				let compRel = if dirRel == "." || dirRel == "" { name } else { dirRel + "/" + name }
+				if seen.Get(compRel) != option.None {
+					continue
+				}
+				let full = filepath.Join([]string{searchDir, name})
+				let info = fs.Files.Stat(full) catch {
+				case fs.NotFound:
+					continue
+				case fs.Denied as e:
+					return e
+				case fs.Failed as e:
+					return e
+				}
+				if info.Dir {
+					continue
+				}
+				let data = try fs.Files.ReadFile(full)
+				seen[compRel] = true
+				entries = entries.Append(ProgramTextEntry{Rel: compRel, Source: data})
+			}
+		} else if seen.Get(expandedRel) == option.None {
+			let full = filepath.Join([]string{modDir, expandedRel})
+			let info = fs.Files.Stat(full) catch {
+			case fs.NotFound:
+				continue
+			case fs.Denied as e:
+				return e
+			case fs.Failed as e:
+				return e
+			}
+			if !info.Dir {
+				let data = fs.Files.ReadFile(full) catch {
+				case fs.NotFound:
+					continue
+				case fs.Denied as e:
+					return e
+				case fs.Failed as e:
+					return e
+				}
+				seen[expandedRel] = true
+				entries = entries.Append(ProgramTextEntry{Rel: expandedRel, Source: data})
+			}
+		}
+	}
+	let sorted = slices.SortFunc(entries, func(a ProgramTextEntry, b ProgramTextEntry) int {
+		if a.Rel < b.Rel {
+			-1
+		} else if a.Rel > b.Rel {
+			1
+		} else {
+			0
+		}
+	})
+	(sorted, diags)
+}
+
+law AssetRuleMatchesPrimaryExtension(stem string) {
+	if stem == "" || strings.Contains(stem, "/") || strings.Contains(stem, "*") || strings.Contains(stem, "?") || strings.Contains(stem, "[") || strings.Contains(stem, "]") || strings.HasPrefix(stem, ".") {
+		return true
+	}
+	let mut rules = NewMapRuleTable()
+	let r0 = AddMapRule(&rules, uint32(0), "*.sql", "app/sql", "Compile", []string{"*.schema"}, uint32(1), uint32(1))
+	let rel = "db/" + stem + ".sql"
+	let matched = MatchMapRule(rules, uint32(0), rel)
+	let comp = ExpandCompanionPattern("*.sql", "*.schema", rel)
+	matched == r0 && comp == "db/"+stem+".schema"
+}
+
+test AssetMatchingAndCompanionCollection {
+	assert IsRelativeAssetPath("./data/config.json")
+	assert IsRelativeAssetPath("../shared/a.txt")
+	assert !IsRelativeAssetPath("std/fs")
+
+	let m = fstest.NewMemory()
+	with context { fs.Writes: m, fs.Files: m } {
+		try fs.Writes.MkdirAll("/ws/app/queries")
+		try fs.Writes.WriteFile("/ws/app/queries/users.sql", "SELECT 1;\n")
+		try fs.Writes.WriteFile("/ws/app/queries/users.schema", "CREATE TABLE users(id INT);\n")
+
+		let mut rules = NewMapRuleTable()
+		let r0 = AddMapRule(&rules, uint32(0), "*.sql", "app/sqlgen", "Build", []string{"*.schema"}, uint32(2), uint32(1))
+		assert MatchMapRule(rules, uint32(0), "queries/users.sql") == r0
+		assert MatchMapRule(rules, uint32(0), "main.ergo") == NoID
+
+		let (comps, diags) = try CollectCompanionFiles(rules, r0, "/ws/app", "queries/users.sql")
+		assert diags.Len() == 0
+		assert comps.Len() == 1 && comps[0].Rel == "queries/users.schema"
+	}
+}

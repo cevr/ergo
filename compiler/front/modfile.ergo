@@ -1,0 +1,518 @@
+import filepath
+import option
+import semver
+import strings
+
+// ErgoMod holds the parsed contents and diagnostics of an ergo.mod manifest.
+type ErgoMod {
+	// Name is the module path declared by the module directive.
+	Name string,
+	// ErgoVersion is the optional minimum compiler version declared by the ergo directive.
+	ErgoVersion string,
+	// TrustGo lists trusted Go module paths in declaration order.
+	TrustGo []string,
+	// Rules holds parsed map directives in flat SoA columns.
+	Rules MapRuleTable,
+	// Diags collects parse and validation diagnostics.
+	Diags []FrontDiag,
+}
+
+func isASCIILetter(c byte) bool {
+	(c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+}
+
+func isASCIIDigit(c byte) bool {
+	c >= '0' && c <= '9'
+}
+
+func isHexLower(c byte) bool {
+	isASCIIDigit(c) || (c >= 'a' && c <= 'f')
+}
+
+func isModLabel(label string) bool {
+	if label == "" {
+		return false
+	}
+	let first = label[0]
+	if !isASCIILetter(first) && first != '_' {
+		return false
+	}
+	for i in 1..label.Len() {
+		let c = label[i]
+		if !isASCIILetter(c) && !isASCIIDigit(c) && c != '_' && c != '-' {
+			return false
+		}
+	}
+	true
+}
+
+func isValidPathElement(elem string) bool {
+	if elem == "" {
+		return false
+	}
+	let subs = strings.Split(elem, ".")
+	for sub in subs {
+		if !isModLabel(sub) {
+			return false
+		}
+	}
+	true
+}
+
+// ModulePathProblem returns an empty string if path is a valid Ergo module path, or a diagnostic reason.
+func ModulePathProblem(path string) string {
+	if path == "" {
+		return "empty module path"
+	}
+	if strings.Contains(path, "\\") {
+		return "module path must use forward slashes"
+	}
+	if strings.HasPrefix(path, "/") || strings.HasSuffix(path, "/") {
+		return "module path must not start or end with '/'"
+	}
+	let elems = strings.Split(path, "/")
+	if elems.Len() == 0 {
+		return "empty module path"
+	}
+	if elems[0] == "std" || elems[0] == "prelude" {
+		return "module path cannot start with reserved name '\(elems[0])'"
+	}
+	for i, elem in elems {
+		if elem == "" || elem == "." || elem == ".." {
+			return "invalid path element in module path"
+		}
+		if i > 0 && strings.HasPrefix(elem, "v") && elem.Len() >= 2 {
+			let rest = strings.Slice(elem, 1, elem.Len())
+			let mut allDigits = true
+			for k in 0..rest.Len() {
+				if !isASCIIDigit(rest[k]) {
+					allDigits = false
+					break
+				}
+			}
+			if allDigits && rest != "0" && rest != "1" {
+				continue
+			}
+		}
+		if !isValidPathElement(elem) {
+			return "invalid module path element '\(elem)'"
+		}
+	}
+	""
+}
+
+// ValidGoModulePath reports whether path is a syntactically valid Go module path.
+func ValidGoModulePath(path string) bool {
+	if path == "" || strings.Contains(path, " ") || strings.Contains(path, "\t") || strings.Contains(path, "\\") {
+		return false
+	}
+	if strings.HasPrefix(path, "/") || strings.HasSuffix(path, "/") {
+		return false
+	}
+	let elems = strings.Split(path, "/")
+	for elem in elems {
+		if elem == "" || elem == "." || elem == ".." {
+			return false
+		}
+		for i in 0..elem.Len() {
+			let c = elem[i]
+			if !isASCIILetter(c) && !isASCIIDigit(c) && c != '.' && c != '_' && c != '-' && c != '~' && c != '+' {
+				return false
+			}
+		}
+	}
+	true
+}
+
+func validDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	if s.Len() > 1 && s[0] == '0' {
+		return false
+	}
+	for i in 0..s.Len() {
+		if !isASCIIDigit(s[i]) {
+			return false
+		}
+	}
+	true
+}
+
+func validTagPre(pre string) bool {
+	if pre == "" {
+		return false
+	}
+	let parts = strings.Split(pre, ".")
+	for p in parts {
+		if p == "" {
+			return false
+		}
+		for i in 0..p.Len() {
+			let c = p[i]
+			if !isASCIILetter(c) && !isASCIIDigit(c) && c != '-' {
+				return false
+			}
+		}
+	}
+	true
+}
+
+func validPseudoTail(pre string) bool {
+	let parts = strings.Split(pre, "-")
+	if parts.Len() != 2 && parts.Len() != 3 {
+		return false
+	}
+	let ts = parts[parts.Len()-2]
+	let rev = parts[parts.Len()-1]
+	if ts.Len() != 14 || rev.Len() != 12 {
+		return false
+	}
+	for i in 0..ts.Len() {
+		if !isASCIIDigit(ts[i]) {
+			return false
+		}
+	}
+	for i in 0..rev.Len() {
+		if !isHexLower(rev[i]) {
+			return false
+		}
+	}
+	true
+}
+
+// ValidErgoVersion reports whether version matches the allowed Ergo version syntax without build metadata.
+func ValidErgoVersion(version string) bool {
+	if version == "" || strings.Contains(version, "+") || strings.IndexAny(version, " \t\r\n/\\") >= 0 {
+		return false
+	}
+	let mut core = strings.TrimPrefix(version, "v")
+	let mut pre = ""
+	match strings.Cut(core, "-") {
+	case option.Some[strings.Halves] as h:
+		core = h.Value.Before
+		pre = h.Value.After
+		if pre == "" {
+			return false
+		}
+	case option.None:
+	}
+	let nums = strings.Split(core, ".")
+	if nums.Len() != 2 && nums.Len() != 3 {
+		return false
+	}
+	for n in nums {
+		if !validDigits(n) {
+			return false
+		}
+	}
+	if pre != "" && !validTagPre(pre) && !validPseudoTail(pre) {
+		return false
+	}
+	true
+}
+
+func normalizeSemver(version string) string {
+	let mut core = strings.TrimPrefix(version, "v")
+	let mut tail = ""
+	match strings.Cut(core, "-") {
+	case option.Some[strings.Halves] as h:
+		core = h.Value.Before
+		tail = "-" + h.Value.After
+	case option.None:
+	}
+	let nums = strings.Split(core, ".")
+	if nums.Len() == 2 {
+		return "v" + nums[0] + "." + nums[1] + ".0" + tail
+	}
+	"v" + core + tail
+}
+
+// CompareErgoVersions compares two Ergo versions using semver rules, returning -1, 0, or 1.
+func CompareErgoVersions(a string, b string) int {
+	let sa = semver.Parse(normalizeSemver(a)) catch {
+	case semver.Malformed:
+		return if a < b { -1 } else if a > b { 1 } else { 0 }
+	}
+	let sb = semver.Parse(normalizeSemver(b)) catch {
+	case semver.Malformed:
+		return if a < b { -1 } else if a > b { 1 } else { 0 }
+	}
+	semver.Compare(sa, sb)
+}
+
+// CheckPinProblem validates an ergo directive version against the running compiler version.
+func CheckPinProblem(declared string, compilerVersion string) string {
+	if declared == "" || compilerVersion == "" {
+		return ""
+	}
+	if !ValidErgoVersion(declared) {
+		return "invalid ergo version '\(declared)'"
+	}
+	if CompareErgoVersions(compilerVersion, declared) < 0 {
+		return "ergo version \(compilerVersion) is older than required \(declared)"
+	}
+	""
+}
+
+// MapPatternProblem returns an empty string when pattern is valid for a map directive, or a reason.
+func MapPatternProblem(pattern string) string {
+	if pattern == "" {
+		return "empty map pattern"
+	}
+	if strings.HasPrefix(pattern, "/") || strings.Contains(pattern, "\\") {
+		return "map pattern must be relative with forward slashes"
+	}
+	let elems = strings.Split(pattern, "/")
+	for e in elems {
+		if e == "" || e == "." || e == ".." {
+			return "map pattern contains invalid segment '\(e)'"
+		}
+	}
+	let base = elems[elems.Len()-1]
+	if base == "ergo.mod" || base == "ergo.laws" || base == "go.mod" || strings.HasSuffix(base, ".ergo") || strings.HasSuffix(pattern, "*.ergo") {
+		return "map pattern cannot match reserved Ergo files"
+	}
+	let _ = filepath.Match(pattern, "sample") catch {
+	case filepath.BadPattern:
+		return "invalid glob pattern '\(pattern)'"
+	}
+	""
+}
+
+func isValidExportedIdent(name string) bool {
+	if name == "" {
+		return false
+	}
+	let first = name[0]
+	if first < 'A' || first > 'Z' {
+		return false
+	}
+	for i in 1..name.Len() {
+		let c = name[i]
+		if !isASCIILetter(c) && !isASCIIDigit(c) && c != '_' {
+			return false
+		}
+	}
+	true
+}
+
+// ParseMapperTarget splits PKG.FUNC and validates package path and exported function name.
+func ParseMapperTarget(target string) (string, string, string) {
+	let dot = strings.LastIndex(target, ".")
+	if dot <= 0 || dot >= target.Len()-1 {
+		return ("", "", "mapper must be PKG.Func")
+	}
+	let pkg = strings.Slice(target, 0, dot)
+	let fn = strings.Slice(target, dot+1, target.Len())
+	if pkg == "" || strings.HasPrefix(pkg, "/") || strings.HasSuffix(pkg, "/") || strings.Contains(pkg, "..") || strings.Contains(pkg, "\\") {
+		return ("", "", "invalid mapper package '\(pkg)'")
+	}
+	for elem in strings.Split(pkg, "/") {
+		if elem == "" || !isValidPathElement(elem) {
+			return ("", "", "invalid mapper package element '\(elem)'")
+		}
+	}
+	if !isValidExportedIdent(fn) {
+		return ("", "", "mapper function '\(fn)' must be an exported identifier")
+	}
+	(pkg, fn, "")
+}
+
+func makeLineDiag(file string, code string, msg string, lineOffset uint32, lineLen uint32, lineNum uint32) FrontDiag {
+	FrontDiag{
+		Code:    code,
+		Message: msg,
+		File:    file,
+		Offset:  lineOffset,
+		Length:  lineLen,
+		Line:    lineNum,
+		Column:  uint32(1),
+		Hint:    "",
+		HasSpan: true,
+	}
+}
+
+// ParseErgoMod parses an ergo.mod manifest and validates its directives.
+func ParseErgoMod(src string, file string) ErgoMod {
+	let mut out = ErgoMod{
+		Name:        "",
+		ErgoVersion: "",
+		TrustGo:     []string{},
+		Rules:       NewMapRuleTable(),
+		Diags:       []FrontDiag{},
+	}
+	let mut sawModule = false
+	let mut sawErgo = false
+	let mut trustSeen = Map[string, bool]{}
+	let mut pos = 0
+	let mut lineNum = uint32(1)
+	let rawLines = strings.Split(src, "\n")
+	for i, rawLine in rawLines {
+		let lineLen = uint32(rawLine.Len())
+		let lineOffset = uint32(pos)
+		pos = pos + rawLine.Len()
+		if i+1 < rawLines.Len() {
+			pos = pos + 1
+		}
+		let trimmed = strings.TrimSpace(strings.TrimSuffix(rawLine, "\r"))
+		if trimmed == "" {
+			lineNum = lineNum + uint32(1)
+			continue
+		}
+		let words = strings.Fields(trimmed)
+		if words.Len() == 0 {
+			lineNum = lineNum + uint32(1)
+			continue
+		}
+		let kw = words[0]
+		if kw == "module" {
+			if sawModule {
+				out.Diags = out.Diags.Append(makeLineDiag(file, "modfile-duplicate-module", "duplicate module directive", lineOffset, lineLen, lineNum))
+			} else if words.Len() != 2 {
+				out.Diags = out.Diags.Append(makeLineDiag(file, "modfile-syntax", "module directive expects one argument", lineOffset, lineLen, lineNum))
+			} else {
+				let prob = ModulePathProblem(words[1])
+				if prob != "" {
+					out.Diags = out.Diags.Append(makeLineDiag(file, "modfile-invalid-module", prob, lineOffset, lineLen, lineNum))
+				} else {
+					out.Name = words[1]
+					sawModule = true
+				}
+			}
+		} else if kw == "ergo" {
+			if sawErgo {
+				out.Diags = out.Diags.Append(makeLineDiag(file, "modfile-duplicate-ergo", "duplicate ergo directive", lineOffset, lineLen, lineNum))
+			} else if words.Len() != 2 {
+				out.Diags = out.Diags.Append(makeLineDiag(file, "modfile-syntax", "ergo directive expects one version argument", lineOffset, lineLen, lineNum))
+			} else if !ValidErgoVersion(words[1]) {
+				out.Diags = out.Diags.Append(makeLineDiag(file, "modfile-invalid-version", "invalid ergo version '\(words[1])'", lineOffset, lineLen, lineNum))
+			} else {
+				out.ErgoVersion = words[1]
+				sawErgo = true
+			}
+		} else if kw == "trust" {
+			if words.Len() != 3 || words[1] != "go" {
+				out.Diags = out.Diags.Append(makeLineDiag(file, "modfile-syntax", "expected: trust go MODULE", lineOffset, lineLen, lineNum))
+			} else if !ValidGoModulePath(words[2]) {
+				out.Diags = out.Diags.Append(makeLineDiag(file, "modfile-invalid-trust", "invalid trusted Go module path '\(words[2])'", lineOffset, lineLen, lineNum))
+			} else if trustSeen.Get(words[2]) != option.None {
+				out.Diags = out.Diags.Append(makeLineDiag(file, "modfile-duplicate-trust", "duplicate trust go module '\(words[2])'", lineOffset, lineLen, lineNum))
+			} else {
+				trustSeen[words[2]] = true
+				out.TrustGo = out.TrustGo.Append(words[2])
+			}
+		} else if kw == "map" {
+			if words.Len() < 3 {
+				out.Diags = out.Diags.Append(makeLineDiag(file, "modfile-syntax", "expected: map PATTERN PKG.Func [COMPANIONS...]", lineOffset, lineLen, lineNum))
+			} else {
+				let pProb = MapPatternProblem(words[1])
+				let (mPkg, mFn, mProb) = ParseMapperTarget(words[2])
+				if pProb != "" {
+					out.Diags = out.Diags.Append(makeLineDiag(file, "modfile-invalid-map", pProb, lineOffset, lineLen, lineNum))
+				} else if mProb != "" {
+					out.Diags = out.Diags.Append(makeLineDiag(file, "modfile-invalid-map", mProb, lineOffset, lineLen, lineNum))
+				} else {
+					let mut comps = []string{}
+					let mut compErr = ""
+					for comp in words[3:] {
+						let cp = MapPatternProblem(comp)
+						if cp != "" && compErr == "" {
+							compErr = cp
+						}
+						comps = comps.Append(comp)
+					}
+					if compErr != "" {
+						out.Diags = out.Diags.Append(makeLineDiag(file, "modfile-invalid-map", compErr, lineOffset, lineLen, lineNum))
+					} else {
+						let _ = AddMapRule(&out.Rules, uint32(0), words[1], mPkg, mFn, comps, lineNum, uint32(1))
+					}
+				}
+			}
+		} else {
+			out.Diags = out.Diags.Append(makeLineDiag(file, "modfile-unknown-directive", "unknown ergo.mod directive '\(kw)'", lineOffset, lineLen, lineNum))
+		}
+		lineNum = lineNum + uint32(1)
+	}
+	if !sawModule {
+		out.Diags = out.Diags.Append(makeLineDiag(file, "modfile-missing-module", "ergo.mod missing module directive", uint32(0), uint32(0), uint32(1)))
+	}
+	out
+}
+
+// FormatErgoMod renders a canonical textual representation of an ErgoMod.
+func FormatErgoMod(m ErgoMod) string {
+	let mut b = strings.NewBuilder()
+	if m.Name != "" {
+		b.WriteString("module ")
+		b.WriteString(m.Name)
+		b.WriteByte('\n')
+	}
+	if m.ErgoVersion != "" {
+		b.WriteString("ergo ")
+		b.WriteString(m.ErgoVersion)
+		b.WriteByte('\n')
+	}
+	for g in m.TrustGo {
+		b.WriteString("trust go ")
+		b.WriteString(g)
+		b.WriteByte('\n')
+	}
+	for i in 0..m.Rules.Pattern.Len() {
+		b.WriteString("map ")
+		b.WriteString(m.Rules.Pattern[i])
+		b.WriteByte(' ')
+		b.WriteString(m.Rules.MapperPkg[i])
+		b.WriteByte('.')
+		b.WriteString(m.Rules.MapperFunc[i])
+		for comp in MapRuleCompanions(m.Rules, uint32(i)) {
+			b.WriteByte(' ')
+			b.WriteString(comp)
+		}
+		b.WriteByte('\n')
+	}
+	b.String()
+}
+
+law ParseErgoModRoundTripsValidManifest(modName string, compPat string) {
+	if ModulePathProblem(modName) != "" || MapPatternProblem(compPat) != "" {
+		return true
+	}
+	let src = "module " + modName + "\nergo 0.1.0\ntrust go example.com/go\nmap *.sql app/gen.Sql " + compPat + "\n"
+	let parsed = ParseErgoMod(src, "ergo.mod")
+	if parsed.Diags.Len() != 0 {
+		return false
+	}
+	let re = ParseErgoMod(FormatErgoMod(parsed), "ergo.mod")
+	re.Diags.Len() == 0 && re.Name == parsed.Name && re.ErgoVersion == parsed.ErgoVersion && re.TrustGo == parsed.TrustGo && re.Rules.Pattern == parsed.Rules.Pattern && re.Rules.MapperPkg == parsed.Rules.MapperPkg && re.Rules.MapperFunc == parsed.Rules.MapperFunc
+}
+
+test ParseErgoModAcceptsValidAndRejectsInvalid {
+	let okSrc = "module github.com/cevr/ergo/modules/web\nergo 0.2\ntrust go golang.org/x/net\nmap *.tmpl web/tmpl.Compile *.html\n"
+	let m = ParseErgoMod(okSrc, "ergo.mod")
+	assert m.Diags.Len() == 0
+	assert m.Name == "github.com/cevr/ergo/modules/web"
+	assert m.ErgoVersion == "0.2"
+	assert m.TrustGo == []string{"golang.org/x/net"}
+	assert m.Rules.Pattern == []string{"*.tmpl"}
+	assert m.Rules.MapperPkg == []string{"web/tmpl"}
+	assert m.Rules.MapperFunc == []string{"Compile"}
+	assert MapRuleCompanions(m.Rules, uint32(0)) == []string{"*.html"}
+	assert CheckPinProblem("0.2", "0.3.0") == ""
+	assert CheckPinProblem("0.4", "0.3.0") != ""
+
+	let badReserved = ParseErgoMod("module std/bad\n", "ergo.mod")
+	assert badReserved.Diags.Len() >= 1
+
+	let badMap = ParseErgoMod("module app\nmap ../secret.ergo app/p.Build\n", "ergo.mod")
+	assert badMap.Diags.Len() == 1
+
+	let badMapErgo = ParseErgoMod("module app\nmap *.ergo app/p.Build\n", "ergo.mod")
+	assert badMapErgo.Diags.Len() == 1 && badMapErgo.Diags[0].Code == "modfile-invalid-map"
+
+	let missingMod = ParseErgoMod("ergo 0.2\n", "ergo.mod")
+	assert missingMod.Diags.Len() == 1 && missingMod.Diags[0].Code == "modfile-missing-module"
+
+	let dupMod = ParseErgoMod("module app\nmodule app2\n", "ergo.mod")
+	assert dupMod.Diags.Len() == 1
+}
