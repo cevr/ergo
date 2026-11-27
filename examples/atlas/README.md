@@ -10,6 +10,8 @@ projected from `modules/atlas/api.Api` (`ergo gen api|rpc|cli|mcp`).
     atlas [--store PATH|:memory:] wellness
     atlas [--store PATH] work JOB
     atlas --store PATH restart-drill JOB
+    atlas --store PATH cutover-daemon first|next CONTROL
+    atlas --store PATH cutover-drill CONTROL
     atlas [--store PATH|:memory:] [--json] [--yes] COMMAND ...
 
 The store defaults to `$XDG_STATE_HOME/atlas/state.db` (or
@@ -39,6 +41,17 @@ Durable work (`modules/atlas/serve`):
   mid-work, starts it again (the boot resumes JOB and it finishes), starts it a
   third time (nothing runs twice), and prints how many times JOB was settled.
 
+Live cutover (`modules/atlas/serve`, models/cutover):
+- `cutover-daemon first CONTROL`: boots, serves `epoch=N` over HTTP on a
+  loopback port and waits on the Unix socket CONTROL for a successor; it hands
+  over duplicates of the listening socket and of CONTROL by `SCM_RIGHTS`,
+  stops accepting (connections wait in the kernel backlog), exits once the
+  successor commits, and shows its old lease is fenced.
+- `cutover-daemon next CONTROL`: adopts both sockets, commits the lease at the
+  next epoch, acknowledges, and serves on the same port until end of input.
+- `cutover-drill CONTROL`: runs both and asks the same address before and
+  after the cutover.
+
 Cases exercise `host-capacity`, `wellness-report`, `thread-turn-cli`,
-`cli-not-found`, `mcp-thread-and-wellness` and `restart-kill9-resume`
-deterministically.
+`cli-not-found`, `mcp-thread-and-wellness`, `restart-kill9-resume` and
+`cutover-listener-handover` deterministically.

@@ -1,0 +1,136 @@
+import atlas/drill
+import atlas/settings
+import github.com/cevr/ergo/modules/atlas/serve
+import exec
+import github.com/cevr/ergo/modules/atlas/sqlite
+import http
+import io
+import net
+import os
+import task
+import time
+
+func cutoverLimits() http.Limits {
+	http.Limits{
+		MaxBodyBytes:      65536,
+		MaxHeaderBytes:    65536,
+		IdleTimeout:       5s,
+		ReadHeaderTimeout: 5s,
+		ReadBodyTimeout:   5s,
+	}
+}
+
+func epochResponse(epoch int) http.Response {
+	http.Response{Status: 200, Header: []http.Field{}, Body: "epoch=\(epoch)\n"}
+}
+
+func serveFailed(e serve.ServeError) os.Exit {
+	failExit(1, "atlas cutover-daemon: \(serve.DescribeServeError(e))")
+}
+
+func bootEpoch(store sqlite.Store) int fails os.Exit needs go.Foreign {
+	serve.NextBootEpoch(store, serve.DefaultDaemonConfig("atlas-local", 1).LeaseID) catch {
+	case serve.ServeError as e:
+		return serveFailed(e)
+	}
+}
+
+func waitForEnd(stdin io.Stdin) {
+	for _ in stdin.Lines() {
+	}
+}
+
+func runFirstDaemon(store sqlite.Store, ctlPath string, nowMs int64) fails os.Exit needs os.Ambient | io.Console | go.Foreign {
+	let out = io.NewHost()
+	let epoch = try bootEpoch(store)
+	let cfg = serve.DefaultDaemonConfig("atlas-local", epoch)
+	let boot = serve.BootReconcileDaemon(store, cfg, nowMs, "boot:\(epoch)") catch {
+	case serve.ServeError as e:
+		return serveFailed(e)
+	}
+	let ln = http.Listen("127.0.0.1:0") catch {
+	case http.ListenFailed as e:
+		return failExit(1, "atlas cutover-daemon: listen: \(e.Reason)")
+	}
+	let ctl = net.NewHost().ListenUnix(ctlPath) catch {
+	case net.ListenFailed as e:
+		return failExit(1, "atlas cutover-daemon: control socket: \(e.Reason)")
+	case net.Denied, net.Unsupported:
+		return failExit(1, "atlas cutover-daemon: control socket refused")
+	}
+	out.Println("addr \(ln.Addr())")
+	out.Println("serving epoch=\(epoch)")
+	let ack = with context { time.Scheduler: time.NewLiveScheduler() } {
+		let server = task.Go() {
+			http.Serve(ln, cutoverLimits(), func(_ http.Request) http.Response needs http.Streaming { epochResponse(epoch) })
+		}
+		serve.OfferSockets(ctl, ln, "atlas-handover epoch=\(epoch)", func() { server.Stop() })
+	} catch {
+	case serve.ServeError as e:
+		return serveFailed(e)
+	}
+	out.Println("handed over: \(ack)")
+	ctl.SetUnlinkOnClose(false)
+	out.Println("old write fenced: \(serve.OldWriteFenced(store, boot.Lease, nowMs))")
+}
+
+func runNextDaemon(store sqlite.Store, ctlPath string, nowMs int64) fails os.Exit needs os.Ambient | io.Console | go.Foreign {
+	let out = io.NewHost()
+	let stdin = io.NewStdin()
+	let taken = with context { net.UnixNetwork: net.NewHost() } {
+		serve.TakeSockets(ctlPath)
+	} catch {
+	case serve.ServeError as e:
+		return serveFailed(e)
+	}
+	out.Println("addr \(taken.Listener.Addr())")
+	out.Println("adopted: \(taken.Manifest)")
+	let epoch = try bootEpoch(store)
+	let cfg = serve.DefaultDaemonConfig("atlas-local", epoch)
+	let _ = serve.CommitTakeover(store, cfg, nowMs, true, true) catch {
+	case serve.ServeError as e:
+		return serveFailed(e)
+	}
+	serve.AckCommit(taken.Conn, epoch) catch {
+	case serve.ServeError as e:
+		return serveFailed(e)
+	}
+	out.Println("serving epoch=\(epoch)")
+	with context { time.Scheduler: time.NewLiveScheduler() } {
+		let server = task.Go() {
+			http.Serve(taken.Listener, cutoverLimits(), func(_ http.Request) http.Response needs http.Streaming { epochResponse(epoch) })
+		}
+		waitForEnd(stdin)
+		server.Stop()
+	}
+	out.Println("stopped")
+}
+
+func runCutoverDaemon(store sqlite.Store, rest []string, nowFn func() int64) fails os.Exit needs os.Ambient | io.Console | go.Foreign {
+	if rest.Len() != 2 {
+		return failExit(2, "usage: atlas --store PATH cutover-daemon first|next CONTROL")
+	}
+	match rest[0] {
+	case "first":
+		try runFirstDaemon(store, rest[1], nowFn())
+	case "next":
+		try runNextDaemon(store, rest[1], nowFn())
+	case _:
+		failExit(2, "usage: atlas --store PATH cutover-daemon first|next CONTROL")
+	}
+}
+
+func runCutoverDrill(process os.Host, parsed settings.ParsedArgs) fails os.Exit needs os.Ambient | io.Console {
+	if !parsed.HasStoreFlag || parsed.StorePath == ":memory:" || parsed.Rest.Len() != 1 {
+		return failExit(2, "usage: atlas --store PATH cutover-drill CONTROL")
+	}
+	let exe = process.Executable() catch {
+	case os.NoDir:
+		return failExit(1, "atlas cutover-drill: cannot find its own executable")
+	}
+	let out = io.NewHost()
+	drill.CutoverDrill(exec.NewHost(), net.NewHost(), drill.CutoverPair{Exe: exe, StorePath: parsed.StorePath, Control: parsed.Rest[0]}, out.Println) catch {
+	case drill.DrillFailed as e:
+		return failExit(1, "atlas cutover-drill: \(e.Stage): \(e.Reason)")
+	}
+}

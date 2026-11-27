@@ -359,7 +359,7 @@ law TransferH2MovesControlToNew(seed int) {
 law CommitCutoverNeedsEveryDescriptor(seed int) {
 	let w = seededHandoverWorld(seed)
 	let n = nextHandover(w, CommitCutover)
-	if w.Phase == cutover.CutoverTransfer && w.NewLive && CommitReady(w.OwnerH1, w.OwnerH2) {
+	if w.Phase == cutover.CutoverTransfer && w.NewLive && w.OwnerH1 == cutover.OwnerNew && w.OwnerH2 == cutover.OwnerNew {
 		return n.CommitPersisted && n.Phase == cutover.CutoverCommitted
 	}
 	n == w

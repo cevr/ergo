@@ -271,6 +271,10 @@ func main() fails os.Exit needs os.Ambient | io.Console | go.Foreign {
 		try runWork(store, parsed.Rest, nowFn)
 	case settings.CmdRestartDrill:
 		try runRestartDrill(process, store, parsed)
+	case settings.CmdCutoverDaemon:
+		try runCutoverDaemon(store, parsed.Rest, nowFn)
+	case settings.CmdCutoverDrill:
+		try runCutoverDrill(process, parsed)
 	case settings.CmdCLI:
 		let out = serve.RunCLI(srv, parsed.Rest)
 		try ergoapi.Exit(out)

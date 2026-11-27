@@ -1832,6 +1832,44 @@
       "killers": [
         "modules/atlas/serve:law:WorkResumesOnceAcrossCrashes"
       ]
+    },
+    {
+      "name": "atlas-serve-core-commit-with-one-socket",
+      "origin": "ATLAS-SERVE-CORE",
+      "file": "modules/atlas/serve/handover.ergo",
+      "decl": "CommitReady",
+      "from": "\th1 == cutover.OwnerNew && h2 == cutover.OwnerNew\n",
+      "to": "\th1 == cutover.OwnerNew || h2 == cutover.OwnerNew\n",
+      "rule": "The successor persists the cutover commit only after it adopted every transferred socket.",
+      "killers": [
+        "modules/atlas/serve:law:CommitCutoverNeedsEveryDescriptor"
+      ]
+    },
+    {
+      "name": "atlas-serve-core-rollback-drops-sockets",
+      "origin": "ATLAS-SERVE-CORE",
+      "file": "modules/atlas/serve/handover.ergo",
+      "decl": "OwnerAfterRollback",
+      "from": "func OwnerAfterRollback(_ cutover.LeaseOwner) cutover.LeaseOwner {\n\tcutover.OwnerOld\n",
+      "to": "func OwnerAfterRollback(_ cutover.LeaseOwner) cutover.LeaseOwner {\n\tcutover.OwnerNone\n",
+      "rule": "An abort before the commit hands every transferred socket back to the old daemon.",
+      "killers": [
+        "modules/atlas/serve:law:HandoverLifecycle.SafeRollbackBeforeCommit",
+        "modules/atlas/serve:law:AbortBeforeCommitRestoresOld"
+      ]
+    },
+    {
+      "name": "atlas-serve-core-old-acts-after-commit",
+      "origin": "ATLAS-SERVE-CORE",
+      "file": "modules/atlas/serve/handover.ergo",
+      "decl": "OldMayAct",
+      "from": "\t!commitPersisted\n",
+      "to": "\ttrue\n",
+      "rule": "Once the commit persists the old daemon never acts on what it handed over (NoSplitBrainAfterCommit).",
+      "killers": [
+        "modules/atlas/serve:law:HandoverLifecycle.NoSplitBrainAfterCommit",
+        "modules/atlas/serve:law:OldCannotActAfterCommit"
+      ]
     }
   ]
 }

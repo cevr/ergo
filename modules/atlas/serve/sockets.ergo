@@ -1,0 +1,190 @@
+import github.com/cevr/ergo/modules/atlas/cutover
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/memory
+import net
+import option
+import slices
+import strings
+
+func ioFailed(op string, reason string) HandoverIOFailed {
+	HandoverIOFailed{Operation: op, Reason: reason}
+}
+
+func readAckLine(conn net.UnixConn) string fails ServeError {
+	let mut raw = ""
+	for !strings.Contains(raw, "\n") {
+		let chunk = conn.Read() catch {
+		case net.Failed as e:
+			return ioFailed("read_ack", e.Reason)
+		case net.Unsupported as e:
+			return ioFailed("read_ack", e.Reason)
+		}
+		if chunk == "" {
+			break
+		}
+		raw = raw + chunk
+	}
+	let line = strings.TrimSpace(raw)
+	if line == "" {
+		return ioFailed("read_ack", "successor closed without a commit")
+	}
+	line
+}
+
+// OfferSockets is the old daemon's half of a live cutover: it waits on ctl for its successor, duplicates the listening socket (H1) and ctl itself (H2), quiesces (stops accepting; new connections wait in the kernel backlog), sends the duplicates with manifest, and returns the successor's commit line; until that line the old daemon still owns both.
+func OfferSockets(ctl net.UnixListener, ln net.Listener, manifest string, quiesce func()) string fails ServeError {
+	let conn = ctl.Accept() catch {
+	case net.Failed as e:
+		return ioFailed("accept_successor", e.Reason)
+	case net.Unsupported as e:
+		return ioFailed("accept_successor", e.Reason)
+	}
+	let lnFD = ln.DupFD() catch {
+	case net.Failed as e:
+		conn.Close()
+		return ioFailed("dup_listener", e.Reason)
+	case net.Unsupported as e:
+		conn.Close()
+		return ioFailed("dup_listener", e.Reason)
+	}
+	let ctlFD = ctl.DupFD() catch {
+	case net.Failed as e:
+		lnFD.Close()
+		conn.Close()
+		return ioFailed("dup_control", e.Reason)
+	case net.Unsupported as e:
+		lnFD.Close()
+		conn.Close()
+		return ioFailed("dup_control", e.Reason)
+	}
+	quiesce()
+	conn.SendFDs(manifest, []net.FD{lnFD, ctlFD}) catch {
+	case net.Failed as e:
+		conn.Close()
+		return ioFailed("send_fds", e.Reason)
+	case net.Unsupported as e:
+		conn.Close()
+		return ioFailed("send_fds", e.Reason)
+	}
+	let ack = readAckLine(conn) catch {
+	case ServeError as se:
+		conn.Close()
+		return HandoverIOFailed{Operation: "read_ack", Reason: DescribeServeError(se)}
+	}
+	conn.Close()
+	ack
+}
+
+func closeAll(fds own []net.FD) {
+	let mut cur = fds
+	for cur.Len() > 0 {
+		let (fd, rest) = slices.Take(cur, 0)
+		cur = rest
+		fd.Close()
+	}
+}
+
+// TakenSockets is what a successor adopted from its predecessor: the listening socket, the control socket, the connection to answer on, and the manifest.
+type TakenSockets {
+	Listener net.Listener,
+	Control  net.UnixListener,
+	Conn     net.UnixConn,
+	Manifest string,
+}
+
+// TakeSockets is the new daemon's half: it dials the predecessor's control socket at ctlPath and adopts the listening and control sockets it is sent.
+func TakeSockets(ctlPath string) TakenSockets fails ServeError needs net.UnixNetwork {
+	let conn = net.UnixNetwork.DialUnix(ctlPath) catch {
+	case net.DialFailed as e:
+		return ioFailed("dial_predecessor", "\(e.Addr): \(e.Reason)")
+	case net.Denied as e:
+		return ioFailed("dial_predecessor", "denied: \(e.Addr)")
+	case net.Unsupported as e:
+		return ioFailed("dial_predecessor", e.Reason)
+	}
+	let rec = conn.RecvFDs(2) catch {
+	case net.Failed as e:
+		conn.Close()
+		return ioFailed("recv_fds", e.Reason)
+	case net.Unsupported as e:
+		conn.Close()
+		return ioFailed("recv_fds", e.Reason)
+	}
+	match rec {
+	case net.ReceivedFDs{Data: manifest, FDs: fds}:
+		try adoptSockets(conn, manifest, fds)
+	}
+}
+
+func adoptSockets(conn own net.UnixConn, manifest string, fds own []net.FD) TakenSockets fails ServeError {
+	if fds.Len() != 2 {
+		closeAll(fds)
+		conn.Close()
+		return ioFailed("recv_fds", "want the listening and control sockets")
+	}
+	let (lnFD, rest) = slices.Take(fds, 0)
+	let (ctlFD, none) = slices.Take(rest, 0)
+	closeAll(none)
+	let ln = net.ListenFromFD(lnFD) catch {
+	case net.Failed as e:
+		ctlFD.Close()
+		conn.Close()
+		return ioFailed("adopt_listener", e.Reason)
+	case net.Unsupported as e:
+		ctlFD.Close()
+		conn.Close()
+		return ioFailed("adopt_listener", e.Reason)
+	}
+	let ctl = net.UnixListenFromFD(ctlFD) catch {
+	case net.Failed as e:
+		ln.Close()
+		conn.Close()
+		return ioFailed("adopt_control", e.Reason)
+	case net.Unsupported as e:
+		ln.Close()
+		conn.Close()
+		return ioFailed("adopt_control", e.Reason)
+	}
+	TakenSockets{Listener: ln, Control: ctl, Conn: conn, Manifest: manifest}
+}
+
+func adoptedOwner(adopted bool) cutover.LeaseOwner {
+	if adopted { cutover.OwnerNew } else { cutover.OwnerOld }
+}
+
+// CommitTakeover persists the cutover commit for a successor that adopted the listener and the control socket: the lease advances to cfg's epoch, which fences every write of the predecessor. It refuses unless CommitReady holds.
+func CommitTakeover(store memory.Store, cfg DaemonConfig, nowMs int64, listenerAdopted bool, controlAdopted bool) BootReport fails ServeError {
+	if !CommitReady(adoptedOwner(listenerAdopted), adoptedOwner(controlAdopted)) {
+		return CutoverProtocolFailed{Phase: "transfer", Reason: "a transferred socket is not adopted"}
+	}
+	try BootReconcileDaemon(store, cfg, nowMs, "takeover:\(cfg.Epoch)")
+}
+
+// AckCommit tells the predecessor the commit persisted, so it may drain and exit.
+func AckCommit(conn net.UnixConn, epoch int) fails ServeError {
+	conn.Write("committed epoch=\(epoch)\n") catch {
+	case net.Failed as e:
+		return ioFailed("send_ack", e.Reason)
+	case net.Unsupported as e:
+		return ioFailed("send_ack", e.Reason)
+	}
+}
+
+// OldWriteFenced reports whether a write the predecessor makes under its old lease after the commit is refused by the store, as NoSplitBrainAfterCommit needs.
+func OldWriteFenced(store memory.Store, old LeaseState, nowMs int64) bool {
+	let probe = handle.ThreadID("fence-probe-\(old.Epoch)")
+	let env = memory.Envelope{
+		ID:         memory.CommandID("fence-probe:\(old.Epoch)"),
+		Actor:      "serve-old",
+		AtMs:       nowMs,
+		LeaseFence: option.Some[memory.LeaseFenceCheck]{Value: MakeLeaseFence(old)},
+		Command:    memory.CmdCreateThread{Spec: makeBootTestThreadSpec(probe), EdgeLabel: "fence-probe"},
+	}
+	let _ = store.Execute(env) catch {
+	case memory.LeaseFenced:
+		return true
+	case _:
+		return false
+	}
+	false
+}
